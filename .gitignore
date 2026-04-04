@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+temp_dummy.py
+temp_err.py
+build/
+dist/
+*.spec
+assets/audio/
+manim-timeline/src-tauri/target/

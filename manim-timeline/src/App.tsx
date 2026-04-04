@@ -8,12 +8,14 @@ import ItemList from '@/panels/ItemList';
 import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
-
-type RightTab = 'properties' | 'export' | 'audio';
+import FloatingPanel from '@/components/FloatingPanel';
 
 export default function App() {
-  const [timelineHeight, setTimelineHeight] = useState(300);
-  const [rightTab, setRightTab] = useState<RightTab>('properties');
+  const [timelineHeight, setTimelineHeight] = useState(150);
+  const exportOpen = useSceneStore((s) => s.exportOpen);
+  const setExportOpen = useSceneStore((s) => s.setExportOpen);
+  const audioMode = useSceneStore((s) => s.audioMode);
+  const setAudioMode = useSceneStore((s) => s.setAudioMode);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -77,12 +79,19 @@ export default function App() {
         >
           Save project
         </button>
+        <button
+          type="button"
+          onClick={() => useSceneStore.getState().setExportOpen(true)}
+          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+        >
+          Export
+        </button>
       </header>
 
-      {/* Main content: 3-column layout */}
+      {/* Main content: list + canvas + export/audio; properties float over canvas */}
       <div className="flex flex-1 min-h-0 relative overflow-hidden">
         {/* Left sidebar: Item list */}
-        <aside className="w-64 border-r border-slate-700 bg-slate-850 overflow-y-auto p-3 shrink-0">
+        <aside className="w-64 border-r border-slate-700 bg-slate-850 flex flex-col shrink-0 z-10">
           <ItemList />
         </aside>
 
@@ -91,52 +100,22 @@ export default function App() {
           <SceneCanvas />
         </main>
 
-        {/* Right sidebar: Property panel / Export */}
-        <aside className="w-80 border-l border-slate-700 bg-slate-850 flex flex-col shrink-0">
-          {/* Tab switcher */}
-          <div className="flex border-b border-slate-700">
-            <button
-              onClick={() => setRightTab('properties')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                rightTab === 'properties'
-                  ? 'text-blue-400 border-b-2 border-blue-400'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Properties
-            </button>
-            <button
-              onClick={() => setRightTab('export')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                rightTab === 'export'
-                  ? 'text-blue-400 border-b-2 border-blue-400'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Export
-            </button>
-            <button
-              onClick={() => setRightTab('audio')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                rightTab === 'audio'
-                  ? 'text-blue-400 border-b-2 border-blue-400'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Audio
-            </button>
-          </div>
+        <PropertyPanel />
 
-          <div className="flex-1 overflow-y-auto p-3">
-            {rightTab === 'properties' ? (
-              <PropertyPanel />
-            ) : rightTab === 'export' ? (
-              <ExportPanel />
-            ) : (
-              <AudioPanel />
-            )}
-          </div>
-        </aside>
+        {exportOpen && (
+          <FloatingPanel title="Export" onClose={() => setExportOpen(false)} defaultSize={{ w: 400, h: 520 }}>
+            <ExportPanel />
+          </FloatingPanel>
+        )}
+        {audioMode != null && (
+          <FloatingPanel
+            title={audioMode === 'tts' ? 'Text to Speech' : 'Record Audio'}
+            onClose={() => setAudioMode(null)}
+            defaultSize={{ w: 360, h: 440 }}
+          >
+            <AudioPanel mode={audioMode} />
+          </FloatingPanel>
+        )}
       </div>
 
       <div

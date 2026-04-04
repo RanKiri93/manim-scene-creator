@@ -629,6 +629,9 @@ try:
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(req.python_code)
 
+            env = os.environ.copy()
+            env["PYTHONPATH"] = _ROOT + os.pathsep + env.get("PYTHONPATH", "")
+
             cmd = [
                 sys.executable,
                 "-m",
@@ -641,6 +644,7 @@ try:
             proc = subprocess.run(
                 cmd,
                 cwd=work_dir,
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=3600,

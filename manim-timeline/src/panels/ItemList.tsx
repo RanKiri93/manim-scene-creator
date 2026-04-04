@@ -15,6 +15,13 @@ export default function ItemList() {
   const defaults = useSceneStore((s) => s.defaults);
 
   const [expandedCompounds, setExpandedCompounds] = useState<Set<string>>(() => new Set());
+  const [objectMenuOpen, setObjectMenuOpen] = useState(false);
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+
+  const closeMenus = useCallback(() => {
+    setObjectMenuOpen(false);
+    setAudioMenuOpen(false);
+  }, []);
 
   const toggleCompound = useCallback((id: string) => {
     setExpandedCompounds((prev) => {
@@ -170,56 +177,143 @@ export default function ItemList() {
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1 flex-wrap">
-        <h3 className="text-sm font-semibold text-slate-200 flex-1 min-w-[80px]">Items</h3>
-        <button
-          onClick={addTextLine}
-          className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
-        >
-          + Text
-        </button>
-        <button
-          onClick={addGraph}
-          className="px-2 py-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors"
-        >
-          + Graph
-        </button>
-        <button
-          onClick={addCompound}
-          className="px-2 py-1 text-xs bg-violet-600 hover:bg-violet-500 text-white rounded transition-colors"
-          title="Compound clip — group text lines on one timeline row"
-        >
-          + Compound
-        </button>
-      </div>
-
-      {items.length === 0 && (
-        <p className="text-xs text-slate-500 italic py-4 text-center">
-          No items yet. Add text, a graph, or a compound clip.
-        </p>
+    <div className="flex flex-col h-full">
+      {(objectMenuOpen || audioMenuOpen) && (
+        <div
+          className="fixed inset-0 z-40"
+          aria-hidden
+          onClick={closeMenus}
+        />
       )}
 
-      <div className="flex flex-col gap-0.5 max-h-[60vh] overflow-y-auto">
-        {items.map((item) => (
-          <div key={item.id}>
-            {renderRow(item)}
-            {item.kind === 'compound' && expandedCompounds.has(item.id) && (
-              <div className="flex flex-col gap-0.5 border-l border-violet-800/50 ml-3 pl-1 mt-0.5">
-                {item.childIds.length === 0 && (
-                  <p className="text-[10px] text-slate-500 pl-6 py-1">
-                    No lines yet. Select the compound and click &quot;Add line to sequence&quot;, or use + Add line in properties.
-                  </p>
-                )}
-                {item.childIds.map((cid) => {
-                  const ch = itemsMap.get(cid);
-                  if (!ch) return null;
-                  return renderRow(ch, { depth: 1, isChild: true });
-                })}
-              </div>
-            )}
-          </div>
-        ))}
+      <div className="flex items-center gap-1 flex-wrap p-3 shrink-0 relative z-50">
+        <h3 className="text-sm font-semibold text-slate-200 flex-1 min-w-[80px]">Items</h3>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              setAudioMenuOpen(false);
+              setObjectMenuOpen((o) => !o);
+            }}
+            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition-colors"
+          >
+            + Object
+          </button>
+          {objectMenuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg flex flex-col min-w-[140px]"
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  addTextLine();
+                  closeMenus();
+                }}
+              >
+                Text Line
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  addGraph();
+                  closeMenus();
+                }}
+              >
+                Graph
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Compound clip — group text lines on one timeline row"
+                onClick={() => {
+                  addCompound();
+                  closeMenus();
+                }}
+              >
+                Compound Clip
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              setObjectMenuOpen(false);
+              setAudioMenuOpen((o) => !o);
+            }}
+            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition-colors"
+          >
+            + Audio
+          </button>
+          {audioMenuOpen && (
+            <div
+              className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg flex flex-col min-w-[120px]"
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  useSceneStore.getState().setAudioMode('record');
+                  closeMenus();
+                }}
+              >
+                Recording
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  useSceneStore.getState().setAudioMode('tts');
+                  closeMenus();
+                }}
+              >
+                Text-to-Speech
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
+        {items.length === 0 && (
+          <p className="text-xs text-slate-500 italic py-4 text-center">
+            No items yet. Add text, a graph, or a compound clip.
+          </p>
+        )}
+
+        <div className="flex flex-col gap-0.5">
+          {items.map((item) => (
+            <div key={item.id}>
+              {renderRow(item)}
+              {item.kind === 'compound' && expandedCompounds.has(item.id) && (
+                <div className="flex flex-col gap-0.5 border-l border-violet-800/50 ml-3 pl-1 mt-0.5">
+                  {item.childIds.length === 0 && (
+                    <p className="text-[10px] text-slate-500 pl-6 py-1">
+                      No lines yet. Select the compound and click &quot;Add line to sequence&quot;, or use + Add line in properties.
+                    </p>
+                  )}
+                  {item.childIds.map((cid) => {
+                    const ch = itemsMap.get(cid);
+                    if (!ch) return null;
+                    return renderRow(ch, { depth: 1, isChild: true });
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

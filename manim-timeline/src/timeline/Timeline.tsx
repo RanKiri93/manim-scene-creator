@@ -1,4 +1,12 @@
-import { useMemo, useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react';
+import {
+  useMemo,
+  useRef,
+  useCallback,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  type RefObject,
+} from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
@@ -20,7 +28,6 @@ export default function Timeline() {
         .sort((a: SceneItem, b: SceneItem) => a.startTime - b.startTime || a.layer - b.layer),
     [itemsMap],
   );
-  const currentTime = useSceneStore((s) => s.currentTime);
   const viewRange = useSceneStore((s) => s.viewRange);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
   const setViewRange = useSceneStore((s) => s.setViewRange);
@@ -29,6 +36,7 @@ export default function Timeline() {
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
   const timelineRef = useRef<HTMLDivElement>(null);
+  const isHovered = useRef(false);
   const scrollbarTrackRef = useRef<HTMLDivElement>(null);
   const thumbDragRef = useRef<{ startX: number; startThumbX: number } | null>(null);
   const pendingScrollAfterZoom = useRef<number | null>(null);
@@ -41,7 +49,7 @@ export default function Timeline() {
 
   const containerWidth = viewportWidth;
   const pxPerSecond = containerWidth / Math.max(viewDuration, 0.1);
-  usePlaybackEngine(timelineRef, pxPerSecond);
+  usePlaybackEngine(timelineRef as RefObject<HTMLDivElement>, pxPerSecond);
 
   const contentEndTime = useMemo(
     () =>
@@ -258,6 +266,7 @@ export default function Timeline() {
         if (tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable) return;
       }
       if (e.code === 'Space') {
+        if (!isHovered.current) return;
         e.preventDefault();
         togglePlayback();
       }
@@ -267,7 +276,15 @@ export default function Timeline() {
   }, [togglePlayback]);
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-slate-900 border-t border-slate-700 select-none">
+    <div
+      className="flex flex-col h-full min-h-0 bg-slate-900 border-t border-slate-700 select-none"
+      onMouseEnter={() => {
+        isHovered.current = true;
+      }}
+      onMouseLeave={() => {
+        isHovered.current = false;
+      }}
+    >
       <PlaybackControls />
 
       {/* Tracks + audio: scrollable; ruler inside for alignment */}

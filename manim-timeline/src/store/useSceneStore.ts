@@ -58,6 +58,15 @@ interface SelectionSlice {
   inspectedId: ItemId | null;
 }
 
+export type AudioPanelMode = 'tts' | 'record';
+
+interface UiSlice {
+  exportOpen: boolean;
+  audioMode: AudioPanelMode | null;
+  setExportOpen: (open: boolean) => void;
+  setAudioMode: (mode: AudioPanelMode | null) => void;
+}
+
 // ── Scene data slice ──
 
 interface SceneDataSlice {
@@ -69,7 +78,7 @@ interface SceneDataSlice {
 
 // ── Combined store ──
 
-export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlice {
+export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlice, UiSlice {
   // Playhead
   play: () => void;
   pause: () => void;
@@ -152,6 +161,10 @@ export const useSceneStore = create<SceneStore>()(
       viewRange: [0, 30],
       selectedIds: new Set(),
       inspectedId: null,
+      exportOpen: false,
+      audioMode: null,
+      setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
+      setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
 
       // ── Playhead ──
       setCurrentTime: (time) => set((s) => { s.currentTime = Math.max(0, time); }),
