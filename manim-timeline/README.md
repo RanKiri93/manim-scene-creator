@@ -61,8 +61,8 @@ Use this as a working backlog; reorder or cut scope as you like.
 
 | Area | Status / next steps |
 |------|---------------------|
-| **Core editor** | Timeline, canvas, compounds, export, scene name, project JSON — in place. |
-| **Measure server** | `POST /measure`, **`/api/generate_audio`**, **`/api/upload_audio`**, `GET /health`. Run **`uvicorn`** in dev; optional PyInstaller **sidecar** + `externalBin` for bundled desktop (see **`TAURI.md`**, **`scripts/README-sidecar.md`** — bundling may need extra Whisper/gTTS hooks). |
+| **Core editor** | Timeline, canvas, compounds, floating panels, scene name, project JSON — in place. |
+| **Measure server** | `POST /measure`, **`/api/generate_audio`**, **`/api/upload_audio`**, **`/api/render`**, `GET /health`. Run **`uvicorn`** in dev; optional PyInstaller **sidecar** + `externalBin` for bundled desktop (see **`TAURI.md`**, **`scripts/README-sidecar.md`** — bundling may need extra Whisper/gTTS hooks). |
 | **Tauri desktop** | Scaffold + `npm run tauri:dev` / `tauri:build`; needs Rust + MSVC on Windows; sidecar binary optional. |
 | **Voiceover** | Per-line export; **no** compound-level single recording; **audio timeline** + optional `audioTrackId` for Whisper alignment; **`mergeWithNext`** still limited in codegen (check `voiceoverCodegen` / `lineCodegen` for current behavior). |
 | **Parity vs `manim_helper.html`** | Shortcuts, merged narration chains, edge cases in codegen — still open. |
@@ -95,7 +95,7 @@ Use this as a working backlog; reorder or cut scope as you like.
 ```
 src/
 ├── main.tsx                 # React entry
-├── App.tsx                  # Layout: header, sidebar, canvas, Properties / Export / Audio tabs, timeline
+├── App.tsx                  # Layout: header, sidebar, canvas, floating panels, timeline
 ├── index.css                # Tailwind + global tweaks
 │
 ├── types/
@@ -154,6 +154,7 @@ src/
 │   └── ExportPanel.tsx      # Manim code + Download Script (.md)
 │
 ├── components/
+│   ├── FloatingPanel.tsx    # Draggable/resizable popup container
 │   ├── ColorPicker.tsx
 │   ├── NumberInput.tsx      # Local draft until blur (smooth typing)
 │   └── DirectionPicker.tsx
