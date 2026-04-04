@@ -1,0 +1,12 @@
+[package]
+name = "manim_timeline"
+version = "0.0.0"
+description = "Manim timeline desktop shell"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["custom-protocol"] }
+tauri-plugin-shell = "2"

@@ -1,0 +1,82 @@
+﻿# Cursor: shrink indexing context (deps, builds, caches, heavy media).
+# Same idea as .gitignore; delete a pattern if you need that path in context.
+# Dependencies
+node_modules/
+
+# manim-timeline (Vite)
+manim-timeline/dist/
+manim-timeline/.vite/
+*.tsbuildinfo
+
+# Rust / Tauri
+**/target/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+
+# PyInstaller / local builds (root-level; comment out if you track dist/)
+/build/
+/dist/
+
+# Manim output
+media/
+**/media/
+
+# Heavy / generated media
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.m4v
+*.gif
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.iso
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
+.cache/
+
+# Coverage / test artifacts
+coverage/
+htmlcov/
+.coverage
+.nyc_output/
+test-results/
+playwright-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+
+# Package / lint caches
+.npm/
+.pnpm-store/
+.eslintcache
