@@ -1,193 +1,195 @@
 # Manim Timeline
 
-A desktop-oriented web app for building **Manim** scenes with a **timeline** (playhead, clips) and a **2D frame preview** (Konva). It is a migration of the older `manim_helper.html` prototype toward a structured React app.
+A **desktop-oriented web application** for authoring **Manim** scenes with a **non-linear timeline** (playhead, draggable clips, layers), a **2D frame preview** (Konva, 16:9 Manim camera), and optional integration with a local **measure / audio** Python server. The app targets **Hebrew + math** workflows via `HebrewMathLine`-style LaTeX and shared Python tooling in the parent repository.
 
-## What the app does (so far)
+This document is the **canonical** reference for the `manim-timeline/` package. The repository root may contain a shorter `README.md` that points here.
 
-### Core workflow
+---
 
-1. **Scene items** — You add **text lines** (`HebrewMathLine`-style LaTeX), **graphs** (axes, plots, dots), or **compound clips** (see below). Each item has:
-   - **Time**: `startTime`, `duration`, `waitAfter`, and a **layer** (stacking / timeline row). Child lines inside a compound use **local** start/duration relative to the compound start.
-   - **Space**: Manim frame coordinates `(x, y)`, `scale`, and an optional **positioning chain** (`posSteps`). Compounds do not have their own `(x, y)`; they group lines only.
-   - **Content**: For lines — raw LaTeX, font, per-segment colors, bold/italic (sent to the measure server for preview); for graphs — ranges, functions, dots.
-   - **Text line entry animation** (`animStyle`): **`write`** (default), **`fade_in`**, or **`transform`**. Transform maps segments from an **earlier** text line via **Segment mapper** (pair LaTeX segments, choose unmapped source/target behavior).
-   - **Text line exit** (optional): `fade_out`, `uncreate`, `shrink_to_center`, or `none`, with optional `exitRunTime` — reflected in export playback.
-   - **Graph exit** (optional): same exit styles for axes/plots in export.
+## Table of contents
 
-2. **Timeline** — **Top-level** items appear as clips (text, graph, or compound). Nested text lines inside a compound **do not** get their own timeline bars. You can:
-   - Scrub the **playhead** and use **Play/Pause**.
-   - Move and resize clips in time.
-   - **Add new items at the current playhead time** (so clips start when the timeline says).
-   - **Compound** clips use a distinct **violet** style; the label falls back to `Compound (n)` when empty.
-   - **Audio row** — A dedicated **Audio** track under the layer tracks shows **audio clips** (TTS or mic upload). Clips can be moved/resized in time; **scene duration** includes the end of the last audio clip. New tracks are inserted at the **current playhead**.
+1. [What the application does](#what-the-application-does)
+2. [Global audio timeline (narration)](#global-audio-timeline-narration)
+3. [Export to Python (Manim)](#export-to-python-manim)
+4. [Compound clips](#compound-clips-chain-calculations)
+5. [Project file format](#project-file-format)
+6. [Tech stack](#tech-stack)
+7. [Source layout (`src/`)](#source-layout-src)
+8. [Architecture notes](#architecture-notes)
+9. [Running locally](#running-locally)
+10. [Tauri desktop (optional)](#tauri-desktop-optional)
+11. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
+12. [Roadmap and known gaps](#roadmap-and-known-gaps)
+13. [Troubleshooting](#troubleshooting)
 
-3. **Canvas** — A Konva stage shows the default Manim camera frame (16:9). Only items whose time range contains the **current playhead** are drawn. **Compound** items are not drawn; only their **child text lines** appear when active.
-   - **Absolute-only** positioning: items are **draggable**; drag updates stored `(x, y)`.
-   - **Constrained** positioning (`to_edge`, `next_to`, `set_x`/`set_y`, `shift`): the canvas **resolves** the chain to a position; the object is **locked** (not draggable) and shown with an amber dashed border. Edits happen in the **Positioning steps** UI.
-   - **Compound horizontal centering**: if enabled on the compound, all child lines share one horizontal shift so the union of their bounding boxes is centered on **x = 0** (preview matches export). Widths use measure data when available.
+---
 
-4. **Measure server** — For text lines, optional HTTP calls to a local **`measure_server.py`** return sizes, ink bounds, ink offsets (RTL alignment), optional cropped PNG previews, and per-segment bold/italic styling. The same server can also:
-   - **`POST /api/generate_audio`** — gTTS MP3 + **OpenAI Whisper** word-level timestamps (used by the **Audio** panel for TTS tracks).
-   - **`POST /api/upload_audio`** — Upload a recording (e.g. WebM from the browser); Whisper transcribes with word boundaries; file is stored under `assets/audio/` for playback URLs.
-   - **`GET /health`** — Liveness check (`{"status":"ok"}`).
+## What the application does
 
-5. **Export** — Generates Python snippets or a **full file** skeleton: `HebrewMathLine` definitions, positioning calls, entry/exit animations (`Write`, `FadeIn`, `TransformMatchingTex`, etc.), `wait` playback, and segment `set_color` where applicable. **`next_to`** references are emitted as real variable names (`line_1`, `axes_2`), not internal IDs. **Compound** clips are **flattened** to an ordered list of child text lines (and any interleaved top-level graphs in timeline order); there is no `Compound` type in Python. Child lines use **`localDuration`** (and timing derived from local start) for `run_time` where applicable. If **center chain horizontally** is on, each exported line gets a matching `.shift(dx * RIGHT)` after its positioning block so the rendered scene matches the editor. **Voiceover** export can use **`audioItems`** word boundaries when `voice.audioTrackId` points at a timeline track (types/codegen support this; wire via project data if needed). **Download Script (.md)** exports a readable markdown outline of narration scripts (lines, graphs, compounds) from the **Export** tab.
+### Scene items
 
-6. **Project file** — Save/load JSON of the scene (items, defaults, measure URL settings, optional **`audioItems`**). The format version is stored as **`PROJECT_VERSION`** in `src/lib/constants.ts` (incremented when the schema changes).
+You build a scene from **items** stored in a Zustand map. Each top-level item can be:
 
-7. **Scene name** — The header **Scene** field sets the exported Manim **class name** (sanitized to a valid Python identifier in `src/lib/pythonIdent.ts`). Default is `Scene1`. Run Manim with the sanitized name shown as `→ …` next to the field (e.g. `manim -pql your_file.py YourClassName`).
+| Kind | Purpose |
+|------|---------|
+| **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic; measurement fills bbox and optional PNG preview. |
+| **Graph** | Axes (`Axes`), plotted curves, dots, optional numeric labels; positioning and timing like other clips. |
+| **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
 
-### Compound clips (“chain calculations”)
+**Time** — Each timed item has `startTime`, `duration`, `waitAfter`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children.
 
-Use a **compound** when you want **several text lines** to behave as **one block** on the timeline (one row, one violet clip), e.g. a multi-step derivation.
+**Space** — `x`, `y`, `scale`, plus an ordered list **`posSteps`**: absolute `move_to`, `next_to` (another line or graph), `to_edge`, `shift`, `set_x`, `set_y`. Compounds do not occupy the canvas; only their child lines do.
 
-| Concept | Behavior |
+**Text line animations**
+
+- **Entry** — `animStyle`: `write` (default), `fade_in`, or `transform`. **Transform** uses a **segment mapping** from an **earlier** line (`TransformMapping` + **Segment mapper** UI): paired indices, unmapped source/target behavior (`fade_out` / `leave`, `fade_in` / `write`).
+- **Exit** — Optional `exitAnimStyle`: `fade_out`, `uncreate`, `shrink_to_center`, or `none`, with `exitRunTime`.
+
+**Graph animations**
+
+- Playback is expressed with `Create` / `FadeIn` / `Write` as appropriate; graphs support the same **exit** styles as lines for the axes and plotted mobjects.
+
+### Timeline
+
+- **Top-level** items appear as **clips** on layer tracks. Child lines of a compound **do not** get their own top-level bars; they are edited via the compound row (expand/collapse in the item list).
+- **Playhead** — Scrub, **Play / Pause**; optional view range zoom.
+- **CRUD** — New lines, graphs, and compounds can be created **at the current playhead** so default `startTime` matches what you see.
+- **Audio row** — Separate track(s) for **`audioItems`**: clips from **TTS** or **microphone upload** (via the measure server). Scene **duration** extends to the end of the last audio clip if it finishes after visual items.
+
+### Canvas (Konva)
+
+- Frame size matches Manim defaults (**`FRAME_W` × `FRAME_H`** in `src/lib/constants.ts`).
+- Only items that should appear on the frame at the current time are drawn, using **Manim-style lifespan** logic in `src/canvas/useAnimationProgress.ts` (visible after `startTime`, through `waitAfter`, until an optional exit finishes; no exit means the object stays). Timeline helpers `effectiveStart` / `effectiveEnd` live in `src/lib/time.ts`.
+- **Draggable** when all `posSteps` are **absolute**; otherwise the resolved position is shown with a **locked** (amber) treatment and you edit steps in **Positioning steps**.
+- **Compound horizontal centering** — When enabled on the compound, child lines receive a shared horizontal shift so the **union** of their measured boxes is centered at **x = 0** (preview aligns with export when measure data exists).
+
+### Measure server
+
+Optional HTTP backend (**`measure_server.py`** at repo root): **POST `/measure`** for geometry, ink metrics, RTL offsets, optional preview PNG, and styled segments. Same server exposes:
+
+- **`POST /api/generate_audio`** — TTS + Whisper **word boundaries** (used when adding an audio clip from the Audio panel).
+- **`POST /api/upload_audio`** — Mic / file upload, transcription, stored paths under `assets/audio/` for playback in the app.
+- **`POST /api/render`** — Renders submitted full-scene Python with Manim. JSON body includes `python_code`, `quality` (`l`/`m`/`h`/`k`), `scene_name`, and optional **`is_web_export`** (default `false`). Returns **`video/mp4`** or **`video/webm`**; the Export panel’s **Render MP4 / Render WebM** button calls this via `src/services/measureClient.ts` (`renderScene`).
+- **`GET /health`** — `{"status":"ok"}` for liveness.
+
+Configure the base URL in the app (default **`http://127.0.0.1:8765`**).
+
+---
+
+## Global audio timeline (narration)
+
+Narration is **not** stored per line or per graph in the data model. Instead:
+
+1. Use the **Audio** floating panel: **TTS** (script + language) or **record** → upload.
+2. Clips live in **`audioItems`** with `startTime`, `duration`, `text`, `audioUrl`, and optional **word boundaries** (Whisper).
+
+**Export alignment** — When generating Manim playback for a **text line** or **graph**, the codegen may resolve a **matching** `audioItems` entry by **timeline position** (start time proximity / overlap). If a match is found, export emits **`self.add_sound("assets/audio/…")`** and sets **`run_time`** from **word-boundary span** when boundaries are available; otherwise it falls back to the clip’s timeline duration. There is **no** `manim-voiceover` dependency: the exported scene subclasses Manim’s **`Scene`** and uses ordinary **`self.play`** / **`self.wait`**.
+
+---
+
+## Export to Python (Manim)
+
+- **Partial export** — Definitions, positioning, and playback blocks as pasteable snippets.
+- **Full file** — Imports (`manim`, `ManimColor`, `HebrewMathLine`), one **`Scene`** subclass, and the sections commented in the exporter (`src/codegen/manimExporter.ts`). The server prepends `config.assets_dir` when rendering via **`measure_server.py`**.
+- **Export target (Export panel)** — **Standard (MP4)** vs **Web Optimized (transparent WebM)**. Web mode sets **`isWebExport`** in codegen so the generated script configures Manim for transparent WebM (`config.transparent`, `config.format`, `config.background_color`) and shows a read-only **Hugo / HTML** `<video>` embed (filename `{SceneClassName}.webm`) plus **Copy to Clipboard**. The visible Python and the **Render** action both use the same target so the downloaded file matches the script.
+- **Server render** — **Render MP4** or **Render WebM** uploads the **full-file** export; the client sends **`is_web_export: true`** for WebM. The measure server runs Manim with **`--format=mp4`** or **`--format=webm`**, finds the output under `media/videos/`, and returns the appropriate **`Content-Type`**.
+- **Flattening** — **`CompoundItem`** does not exist in Python: child lines are exported in **timeline order** interleaved with other top-level leaves (`flattenExport.ts`).
+- **Naming** — Internal IDs map to stable variable names such as `line_1`, `axes_2`; **`next_to`** uses those names.
+- **Download Script (.md)** — **`exportScriptToMarkdown`** produces a **human-readable outline** (line headings + raw LaTeX, graph summaries, compound children). It is **not** a TTS script format; use **`audioItems`** for spoken content.
+
+**Scene class name** — Editable in the header; sanitized with **`safeSceneClassName`** (`src/lib/pythonIdent.ts`) for valid Python identifiers.
+
+---
+
+## Compound clips (“chain calculations”)
+
+Use a **compound** when several equations or lines should appear as **one block** on the timeline (one violet clip).
+
+| Topic | Behavior |
 |--------|----------|
-| **Data model** | `CompoundItem`: `childIds` (ordered), global `startTime` / `duration` / `layer` / `waitAfter`. Child lines are `TextLineItem` with `parentId`, `localStart`, `localDuration`. |
-| **Sidebar** | **+ Compound** creates a compound. Rows can **expand/collapse** to show child lines. **+ Add line to sequence** appends a child. Child rows can be removed without deleting the compound. |
-| **Inspector** | Selecting the compound opens **CompoundEditor** (label, timing, layer, child summary, **Center chain horizontally (x = 0)**). Selecting a child opens **LineEditor** with **local** start/duration instead of global times. |
-| **Playback / duration** | Scene duration and visibility use **effective** start/end for children (`compound.startTime + localStart`, etc.). The store **syncs** compound duration from children when needed. |
-| **Position / scale** | **Drag** and **setItemPosition** / **setItemScale** do not apply to the compound itself (only to drawable items). |
-| **Duplication** | Duplicating a compound copies it with an **empty** `childIds`; child lines are not duplicated automatically. |
-| **Deletion** | Deleting a compound removes its children from the project. Deleting a child removes it from `childIds` and resyncs the compound. |
-| **Horizontal centering** | Optional `centerHorizontally` on the compound. **New** compounds default to **on**. Older projects without the field default to **off**. Uses measured widths when present; otherwise a fallback width is used (centering is most accurate after measure). If a line uses **`next_to`** relative to a mobject **outside** the compound, moving the chain can desync that relationship; chains that only reference **siblings** work as intended. |
-| **Voiceover** | There is **no** shared recording on the compound. Each **text line** (and graph) has its own `VoiceoverConfig` (runtime vs voiceover mode, TTS vs recorder, preamble/script, optional **merge with next** / per-segment flags — see codegen for what is emitted). Optional **`audioTrackId`** links a clip to an **`audioItems`** track for Whisper-aligned timing in export. |
+| **Model** | `CompoundItem`: `childIds`, global timing and layer. Children: `TextLineItem` with `parentId`, `localStart`, `localDuration`. |
+| **UI** | **+ Compound**; expand row; **+ Add line to sequence**. Compound editor: label, timing, layer, **Center chain horizontally**. Child selection opens **LineEditor** with **local** times. |
+| **Duration** | Store recomputes compound `duration` from children when needed. |
+| **Duplication** | Duplicating a compound yields an **empty** `childIds` (by design). |
+| **Deletion** | Deleting a compound removes its children. Deleting a child updates `childIds` and resyncs duration. |
+| **Centering** | New compounds default **`centerHorizontally: true`**; older projects may omit it (treated as off). Best results after **measure** has widths. |
 
-**Relevant modules**: `src/lib/time.ts` (`isTopLevelItem`, `effectiveStart` / `effectiveEnd`, `isActiveAtTime`), `src/lib/resolvePosition.ts` (base `resolvePosition` / `getItemBBox`), `src/lib/compoundLayout.ts` (`compoundHorizontalShiftX`, `resolvePositionWithCompound`), `src/codegen/flattenExport.ts`, `src/codegen/lineCodegen.ts` (transform + exit anims), `src/store/useSceneStore.ts` (CRUD, `addChildLineToCompound`, `syncCompoundDuration`, `addAudioItem` / `addRecordedAudioTrack`).
+**Modules** — `src/lib/time.ts`, `src/lib/compoundLayout.ts`, `src/lib/resolvePosition.ts`, `src/codegen/flattenExport.ts`, `src/codegen/lineCodegen.ts`, `src/store/useSceneStore.ts`.
 
-### Planning ahead (roadmap)
+---
 
-Use this as a working backlog; reorder or cut scope as you like.
+## Project file format
 
-| Area | Status / next steps |
-|------|---------------------|
-| **Core editor** | Timeline, canvas, compounds, floating panels, scene name, project JSON — in place. |
-| **Measure server** | `POST /measure`, **`/api/generate_audio`**, **`/api/upload_audio`**, **`/api/render`**, `GET /health`. Run **`uvicorn`** in dev; optional PyInstaller **sidecar** + `externalBin` for bundled desktop (see **`TAURI.md`**, **`scripts/README-sidecar.md`** — bundling may need extra Whisper/gTTS hooks). |
-| **Tauri desktop** | Scaffold + `npm run tauri:dev` / `tauri:build`; needs Rust + MSVC on Windows; sidecar binary optional. |
-| **Voiceover** | Per-line export; **no** compound-level single recording; **audio timeline** + optional `audioTrackId` for Whisper alignment; **`mergeWithNext`** still limited in codegen (check `voiceoverCodegen` / `lineCodegen` for current behavior). |
-| **Parity vs `manim_helper.html`** | Shortcuts, merged narration chains, edge cases in codegen — still open. |
-| **Canvas fidelity** | Preview is approximate vs Manim `next_to` / `to_edge` ink math. |
-| **Settings UX** | Measure URL / enable flags exist in store; surface more in UI if needed. |
-| **Distribution** | One-click installer story = Tauri bundle + (optional) embedded measure exe. |
-
-### What is not done yet (shorthand)
-
-- Full **HTML-tool parity** (voiceover merge, shortcuts, codegen edge cases).
-- **Exact** Konva ↔ Manim spatial parity for constrained positioning.
+- JSON containing **`version`** (see **`PROJECT_VERSION`** in `src/lib/constants.ts`), **`savedAt`**, **`defaults`**, **`items`**, **`measureConfig`**, and optionally **`audioItems`**.
+- Bump **`PROJECT_VERSION`** when you make breaking schema changes and consider adding migration logic in **`loadProjectFile`** if needed.
+- Import / export helpers live in **`src/lib/projectIO.ts`**.
 
 ---
 
 ## Tech stack
 
-| Layer | Choice |
-|--------|--------|
+| Layer | Technology |
+|--------|------------|
 | UI | React 19, TypeScript |
-| Build | Vite |
+| Build | Vite 8 |
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
-| Canvas | Konva + `react-konva` |
-| State | Zustand + Immer (`enableMapSet` for `Map`/`Set`) + **zundo** (undo history) |
+| Canvas | Konva, `react-konva` |
+| State | Zustand, Immer (`enableMapSet`), **zundo** (undo) |
 | IDs | `nanoid` |
 
 ---
 
-## Project structure (`src/`)
+## Source layout (`src/`)
 
 ```
 src/
-├── main.tsx                 # React entry
-├── App.tsx                  # Layout: header, sidebar, canvas, floating panels, timeline
-├── index.css                # Tailwind + global tweaks
-│
+├── main.tsx
+├── App.tsx
+├── index.css
 ├── types/
-│   └── scene.ts             # TextLineItem, GraphItem, CompoundItem, PosStep, VoiceoverConfig, …
-│
+│   └── scene.ts              # SceneItem, AudioTrackItem, PosStep, SegmentStyle, …
 ├── store/
-│   ├── useSceneStore.ts     # Zustand: items, audioItems, playhead, selection, CRUD, measure cache
-│   └── factories.ts         # createTextLine, createTextLineInCompound, createCompound, createGraph, …
-│
+│   ├── useSceneStore.ts      # Items, audioItems, playback, CRUD, project I/O hooks
+│   └── factories.ts          # Default constructors for items / segments
 ├── services/
-│   ├── measureClient.ts     # POST /measure; /api/generate_audio; /api/upload_audio
-│   ├── measureHooks.ts      # useMeasureLine (debounced)
-│   ├── useSidecarStatus.ts  # Poll GET /health (optional; Tauri / local server)
-│   └── tauriSidecar.ts      # Health stub; sidecar spawned from Rust when bundled
-│
+│   ├── measureClient.ts
+│   ├── measureHooks.ts
+│   ├── useSidecarStatus.ts
+│   └── tauriSidecar.ts
 ├── codegen/
-│   ├── texUtils.ts          # parseSegments, reconstruct, bold/italic wraps
-│   ├── lineCodegen.ts       # HebrewMathLine def, pos, entry/exit/transform playback
-│   ├── graphCodegen.ts      # Axes, plots, dots, playback
-│   ├── voiceoverCodegen.ts  # VoiceoverScene imports (when used)
-│   ├── flattenExport.ts     # Flatten compounds → ordered export leaves
-│   ├── scriptExport.ts      # exportScriptToMarkdown() — narration script .md
-│   └── manimExporter.ts     # exportManimCode(), wires id → Python var names
-│
-├── canvas/
-│   ├── SceneCanvas.tsx      # Stage, layers, visible items by playhead
-│   ├── hooks/
-│   │   ├── useManimCoords.ts
-│   │   ├── useDragSnap.ts   # Draggable only if posSteps are all `absolute`
-│   │   └── useResolvedPosition.ts  # useResolvedPositions() → resolvePositionWithCompound
-│   └── layers/
-│       ├── GridLayer.tsx
-│       ├── TextLineNode.tsx
-│       └── GraphNode.tsx
-│
-├── timeline/
-│   ├── Timeline.tsx         # Top-level clips; ruler; playhead; Audio row
-│   ├── TimelineTrack.tsx
-│   ├── TimelineClip.tsx     # Per-kind colors (incl. compound)
-│   ├── AudioClip.tsx        # Draggable audio tracks (blob/server URLs)
-│   ├── PlaybackControls.tsx
-│   └── hooks/
-│       └── usePlaybackLoop.ts
-│
-├── panels/
-│   ├── ItemList.tsx         # + Text / + Graph / + Compound; compound expand/collapse
-│   ├── PropertyPanel.tsx    # LineEditor | GraphEditor | CompoundEditor
-│   ├── LineEditor.tsx
-│   ├── GraphEditor.tsx
-│   ├── CompoundEditor.tsx   # Compound clip + center-chain toggle
-│   ├── PositionStepsEditor.tsx
-│   ├── SegmentEditor.tsx
-│   ├── SegmentMapperModal.tsx  # Transform: map source/target LaTeX segments
-│   ├── VoiceoverEditor.tsx
-│   ├── AudioPanel.tsx       # TTS script + language; mic record → upload
-│   └── ExportPanel.tsx      # Manim code + Download Script (.md)
-│
-├── components/
-│   ├── FloatingPanel.tsx    # Draggable/resizable popup container
-│   ├── ColorPicker.tsx
-│   ├── NumberInput.tsx      # Local draft until blur (smooth typing)
-│   └── DirectionPicker.tsx
-│
-└── lib/
-    ├── constants.ts         # FRAME_W, FRAME_H, PROJECT_VERSION, debounce, …
-    ├── time.ts              # Top-level filter, effective times, compound helpers
-    ├── resolvePosition.ts   # resolvePosition, getItemBBox (shared canvas + export math)
-    ├── compoundLayout.ts    # compoundHorizontalShiftX, resolvePositionWithCompound
-    ├── pythonIdent.ts       # safeSceneClassName() for export
-    ├── ids.ts
-    └── projectIO.ts         # download / pick JSON project file
+│   ├── texUtils.ts
+│   ├── lineCodegen.ts        # Line def/pos/play; audio-aligned run_time helper
+│   ├── graphCodegen.ts
+│   ├── flattenExport.ts
+│   ├── scriptExport.ts       # Markdown scene outline download
+│   └── manimExporter.ts      # Full / partial Python assembly
+├── canvas/                   # SceneCanvas, layers, drag / resolve hooks
+├── timeline/                 # Clips, ruler, audio row, playback loop
+├── panels/                   # ItemList, editors, AudioPanel, ExportPanel, …
+├── components/               # FloatingPanel, ColorPicker, NumberInput, …
+└── lib/                      # constants, time, layout, pythonIdent, projectIO, …
 ```
 
-### Dependency direction (intended)
+There is **no** `voiceoverCodegen` or per-item voice UI: narration is entirely via **`audioItems`** and export-time alignment.
 
-- **`types/`** — No app imports; pure TypeScript models.
-- **`store/`** — Depends on `types`, `lib`; holds runtime state only.
-- **`codegen/`** — Depends on `types` and **`lib`** (compound layout shared with preview); no React, no Konva.
-- **`services/`** — Depends on `types`, `store` (for hooks).
-- **`canvas/`**, **`timeline/`**, **`panels/`** — React + Konva; depend on `store`, `types`, `lib`, and shared `components`.
+---
 
-This keeps **Manim code generation**, **Konva preview**, and **timeline UI** separable for maintenance and future Tauri integration.
+## Architecture notes
+
+- **`types/`** — Pure models; no React.
+- **`store/`** — Single source of truth; temporal undo via zundo.
+- **`codegen/`** — Deterministic string generation from `types` + `lib` (shared math with preview where possible).
+- **`canvas/`** and **`timeline/`** — Presentation only; they read the store and dispatch actions.
+
+This separation keeps **preview**, **timeline editing**, and **Manim export** testable and evolvable independently (including future **Tauri** packaging).
 
 ---
 
 ## Running locally
 
-The Node project (including `package.json` and Tauri) lives in **`manim-timeline/`**. Running `npm` from the parent folder **`ManimStuff/`** will fail with missing `package.json` — always **`cd manim-timeline`** first.
+All **`npm`** commands run from **`manim-timeline/`** (not the monorepo root).
 
-### Two processes (recommended for full checks)
-
-**1 — Frontend (Vite)**
+### Frontend
 
 ```bash
 cd manim-timeline
@@ -197,43 +199,71 @@ npm run dev
 
 Open **http://localhost:5173/**.
 
-**2 — Measure server (Python, same env as Manim)**
+### Measure server (recommended)
 
-From the repo root **`ManimStuff/`** (one level *above* `manim-timeline`), with dependencies installed (`fastapi`, `uvicorn`, plus everything `measure_server.py` needs — Manim, your Hebrew math modules, etc.):
+From the **repository root** (parent of `manim-timeline/`), in a Python environment that has Manim and your Hebrew math modules:
 
 ```bash
-cd ..                    # if you are inside manim-timeline/
-# or: cd path/to/ManimStuff
-
-pip install fastapi uvicorn   # once per venv
-# Optional — for Audio tab (TTS + Whisper) and richer measure features:
+pip install fastapi uvicorn
+# Optional, for Audio panel:
 # pip install gtts openai-whisper
 
 uvicorn measure_server:app --reload --port 8765
 ```
 
-**Sanity check:** open **http://127.0.0.1:8765/health** — expect JSON like `{"status":"ok"}`. The app’s measure URL should match (**`http://127.0.0.1:8765`** by default in settings).
+Check **http://127.0.0.1:8765/health**.
 
-**Smoke test:** add a text line, enable measurement / preview if available — sizes and preview chips should update when the server is up. With **`gtts`** and **`openai-whisper`** installed, use the **Audio** tab to generate a track or record from the mic; a clip should appear on the **Audio** timeline row.
+Match that URL in the app settings if you use another host or port.
 
-### Frontend only
+### Build
 
-`npm run dev` alone is enough to click through the UI; measure-dependent layout and previews need the Python server as above.
+```bash
+cd manim-timeline
+npm run build
+```
 
-### Desktop (Tauri + PyInstaller sidecar)
-
-Optional native shell: see **`TAURI.md`** and **`src-tauri/binaries/README.md`**. Listing `externalBin` in `tauri.conf.json` **requires** the PyInstaller exe to already exist at `src-tauri/binaries/measure-server-<triple>.exe`; otherwise the Rust build fails. The default config omits that so **`tauri dev`** runs without the sidecar (use Uvicorn for measure, or build the exe and add `externalBin` when ready).
-
-**Rust and Cargo must be installed** (via [rustup](https://rustup.rs/)); on Windows you also need the **MSVC** C++ build tools. If `tauri dev` fails with `cargo metadata ... program not found`, fix your Rust/PATH setup first (details in **`TAURI.md`**). For a browser-only workflow, keep using **`npm run dev`** without Tauri.
-
----
-
-## Relationship to the rest of the repo
-
-- **`measure_server.py`** (repo root) — FastAPI app: LaTeX measure, optional **gTTS + Whisper** audio APIs, CORS for the Vite dev server.
-- **`hebrew_math_line.py`**, **`hebrew_math_parser.py`**, etc. — Python toolchain shared with Manim renders; measurement calls into them server-side.
-- **`manim_helper.html`** — Original monolithic prototype; behavior and export style are the reference for this app.
+Runs **`tsc -b`** then **`vite build`**.
 
 ---
 
-*Last updated: audio timeline (TTS/mic, Whisper boundaries), measure server `/api/generate_audio` + `/api/upload_audio`, text line entry/exit/transform animations, segment mapper, script markdown export, project `audioItems`, README structure refresh.*
+## Tauri desktop (optional)
+
+Native shell and optional **PyInstaller** sidecar: see **`TAURI.md`** and **`src-tauri/binaries/README.md`**. **`tauri dev`** requires **Rust** and, on Windows, **MSVC**. If `externalBin` is set, the sidecar executable must exist at the expected path or the Rust build fails.
+
+---
+
+## Relationship to the rest of the repository
+
+| Path | Role |
+|------|------|
+| **`measure_server.py`** | FastAPI: measure, audio APIs, optional render; CORS for Vite. |
+| **`hebrew_math_line.py`**, **`hebrew_math_parser.py`**, … | Shared with Manim renders; used server-side for measurement. |
+
+---
+
+## Roadmap and known gaps
+
+| Area | Notes |
+|------|--------|
+| **Core editor** | Timeline, canvas, compounds, audio row, export — in active use. |
+| **Audio ↔ animation** | Alignment is **heuristic** (time overlap / nearest clip). Finer control (explicit clip-to-item links) could be added later. |
+| **Canvas vs Manim** | Preview is **approximate** for complex `next_to` / `to_edge` chains. |
+| **Settings** | Measure URL and flags exist; more UI polish possible. |
+| **Distribution** | Tauri + optional bundled measure server remains the path to a single installer. |
+
+---
+
+## Troubleshooting
+
+| Symptom | Things to check |
+|---------|------------------|
+| **Measure never completes** | Server running? URL in app matches? Browser console / network tab for failed `POST /measure`. |
+| **No audio on timeline** | `gtts` / `whisper` installed on server? `POST /api/generate_audio` errors in UI. |
+| **`npm` fails at repo root** | **`cd manim-timeline`** first. |
+| **Export class name rejected** | Use letters/digits/underscore; see live sanitized hint next to Scene name field. |
+| **WebM render fails** | Manim build must support WebM; check server stderr from **`POST /api/render`** with **`is_web_export: true`**. |
+| **Tauri build errors** | Rust on PATH, MSVC on Windows; see **`TAURI.md`**. |
+
+---
+
+*Last updated: Web export pipeline (transparent WebM + Hugo embed snippet + `is_web_export` on `/api/render`); canvas visibility aligned with Manim-style lifespan in `useAnimationProgress.ts`; global audio timeline as the single narration path; Manim export uses `Scene` + `self.play` / `self.wait` / optional `add_sound`.*
