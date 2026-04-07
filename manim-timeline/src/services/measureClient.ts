@@ -108,12 +108,15 @@ export interface GenerateAudioApiResult {
   audioBase64: string;
   duration: number;
   boundaries: { word: string; start: number; end: number }[];
+  /** Persisted under measure-server ``assets/audio/`` (same as upload). */
+  filePath: string;
 }
 
 interface GenerateAudioResponseBody {
   audio_base64: string;
   duration: number;
   word_boundaries: { word: string; start: number; end: number }[];
+  file_path: string;
   detail?: string | { msg?: string }[];
 }
 
@@ -137,6 +140,12 @@ export async function generateAudio(
           : `HTTP ${resp.status}`;
     throw new Error(msg || 'generate_audio failed');
   }
+  const fp = j.file_path?.trim();
+  if (!fp) {
+    throw new Error(
+      'generate_audio: missing file_path — update measure_server so TTS files are saved for export/render',
+    );
+  }
   return {
     audioBase64: j.audio_base64,
     duration: j.duration,
@@ -145,6 +154,7 @@ export async function generateAudio(
       start: w.start,
       end: w.end,
     })),
+    filePath: fp,
   };
 }
 

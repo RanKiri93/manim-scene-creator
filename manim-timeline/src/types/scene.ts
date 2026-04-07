@@ -84,6 +84,8 @@ export interface AudioTrackItem {
   id: string;
   text: string;
   audioUrl: string;
+  /** Set when loaded from .mtproj (or when saving a bundle) so Manim export uses this path instead of parsing `audioUrl`. */
+  assetRelPath?: string;
   /** Seconds relative to clip start; may be omitted if `word_boundaries` is set (e.g. raw server JSON). */
   boundaries?: WordBoundary[];
   /** Alternate key from some APIs / saved files; merged with `boundaries` in `getAudioBoundaries`. */

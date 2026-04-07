@@ -13,6 +13,7 @@ This document is the **canonical** reference for the `manim-timeline/` package. 
 3. [Export to Python (Manim)](#export-to-python-manim)
 4. [Compound clips](#compound-clips-chain-calculations)
 5. [Project file format](#project-file-format)
+   - [Portable bundle (`.mtproj`)](#portable-bundle-mtproj)
 6. [Tech stack](#tech-stack)
 7. [Source layout (`src/`)](#source-layout-src)
 8. [Architecture notes](#architecture-notes)
@@ -132,6 +133,23 @@ Use a **compound** when several equations or lines should appear as **one block*
 - **Version 10** — Removes per-item `waitAfter`, `exitAnimStyle`, and `exitRunTime`. Legacy projects with `version` below 10 are migrated on load: non-`none` exits become **`exit_animation`** items (start time = old hold + wait + exit offset as before), then legacy fields are stripped (`migrateProjectToV10.ts`). Very old monolithic **`graph`** items are still split in **`migrateSceneItems.ts`** before that step.
 - Import / export helpers live in **`src/lib/projectIO.ts`**.
 
+### Portable bundle (`.mtproj`)
+
+For **cross-machine portability** (especially **timeline audio**), use **Save bundle (.mtproj)** in the header. Plain **Save project** JSON is still supported for quick saves, but **`audioItems`** in JSON usually contain **`blob:`** URLs that **only work in the same browser session**, so JSON alone is not sufficient to move narration to another machine.
+
+A **`.mtproj`** file is a **ZIP** archive with:
+
+| Entry | Purpose |
+|--------|---------|
+| **`state.json`** | Same logical document as the JSON project: `version`, `savedAt`, `defaults`, `items`, `measureConfig`, optional `audioItems`. While saving a bundle, each track’s `audioUrl` is rewritten to a **relative path** under `assets/` (e.g. `assets/audio/foo.webm`) and **`assetRelPath`** is set to that path so **Manim export** keeps stable `self.add_sound("assets/audio/…")` lines after you reopen the bundle. |
+| **`assets/audio/*`** | Raw bytes for each embedded clip (fetched from the current `blob:` or `http(s):` URL at save time). |
+| **`assets/textures/*`** | Reserved for future texture files; not populated yet. |
+| **`manifest.json`** | **`bundleFormatVersion`** (currently `1`) and an **`assets`** map: *zip-relative path* → **MD5** (lowercase hex) of the file bytes. On open, every listed file is checked; a mismatch fails load with an explicit **corrupt or altered** error. |
+
+**Save failures** — If the app cannot `fetch` an audio URL (offline, **CORS** on a third-party host, etc.), **Save bundle** aborts and lists the affected tracks. Same-origin clips served by the **measure server** typically embed successfully.
+
+**Implementation** — Packing and unpacking: **`src/lib/mtprojBundle.ts`** (ZIP via **`fflate`**, MD5 via **`spark-md5`**). Shared Manim/bundle path rules: **`src/lib/audioAssetPath.ts`**.
+
 ---
 
 ## Tech stack
@@ -144,6 +162,7 @@ Use a **compound** when several equations or lines should appear as **one block*
 | Canvas | Konva, `react-konva` |
 | State | Zustand, Immer (`enableMapSet`), **zundo** (undo) |
 | IDs | `nanoid` |
+| Portable projects | **`fflate`** (ZIP `.mtproj`), **`spark-md5`** (manifest checksums) |
 
 ---
 
@@ -175,7 +194,7 @@ src/
 ├── timeline/                 # Clips, ruler, audio row, playback loop
 ├── panels/                   # ItemList, Line/Axes/graph editors, ExitAnimationEditor, …
 ├── components/               # FloatingPanel, ColorPicker, NumberInput, …
-└── lib/                      # constants, time, itemDisplayName, graphPreview, migrateProjectToV10, …
+└── lib/                      # constants, time, projectIO, mtprojBundle, audioAssetPath, migrateProjectToV10, …
 ```
 
 There is **no** `voiceoverCodegen` or per-item voice UI: narration is entirely via **`audioItems`** and export-time alignment.
@@ -206,6 +225,8 @@ npm run dev
 ```
 
 Open **http://localhost:5173/**.
+
+Unit tests (including `.mtproj` checksum and round-trip logic): **`npm run test`**.
 
 ### Measure server (recommended)
 

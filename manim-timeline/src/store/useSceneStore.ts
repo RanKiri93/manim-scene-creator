@@ -30,6 +30,19 @@ import { migrateItemsFromPreV10 } from '@/lib/migrateProjectToV10';
 
 enableMapSet();
 
+function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
+  for (const a of tracks) {
+    const u = a.audioUrl;
+    if (typeof u === 'string' && u.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(u);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 function syncCompoundDuration(
   items: Map<ItemId, SceneItem>,
   compoundId: ItemId,
@@ -422,6 +435,7 @@ export const useSceneStore = create<SceneStore>()(
       }),
 
       loadProjectFile: (file) => set((s) => {
+        revokeAudioBlobUrls(s.audioItems);
         s.items = new Map();
         let migrated = migrateSceneItems(file.items as SceneItem[]);
         if ((file.version ?? 0) < 10) {
@@ -448,21 +462,19 @@ export const useSceneStore = create<SceneStore>()(
         const trimmed = text.trim();
         if (!trimmed) return;
         const baseUrl = get().measureConfig.url;
-        const { audioBase64, duration, boundaries } = await generateAudio(
+        const { duration, boundaries, filePath } = await generateAudio(
           baseUrl,
           trimmed,
           lang,
         );
-        const binary = atob(audioBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: 'audio/mpeg' });
-        const audioUrl = URL.createObjectURL(blob);
+        const root = baseUrl.replace(/\/$/, '');
+        const audioUrl = `${root}${filePath.startsWith('/') ? '' : '/'}${filePath}`;
         const startTime = get().currentTime ?? 0;
         const track: AudioTrackItem = {
           id: crypto.randomUUID().slice(0, 12),
           text: trimmed,
           audioUrl,
+          assetRelPath: filePath,
           boundaries,
           startTime,
           duration,

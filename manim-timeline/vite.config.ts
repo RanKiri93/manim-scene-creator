@@ -12,4 +12,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
+  optimizeDeps: {
+    include: ['spark-md5', 'fflate'],
+  },
 })

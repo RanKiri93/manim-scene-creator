@@ -1,6 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import { downloadProjectFile, loadProjectFile } from '@/lib/projectIO';
+import {
+  downloadProjectFile,
+  downloadMtprojBundle,
+  loadProjectFile,
+  MtprojPackError,
+  MtprojUnpackError,
+} from '@/lib/projectIO';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
@@ -38,9 +44,29 @@ export default function App() {
   const setDefaults = useSceneStore((s) => s.setDefaults);
 
   const handleSave = () => downloadProjectFile(toProjectFile());
+  const handleSaveBundle = async () => {
+    try {
+      await downloadMtprojBundle(toProjectFile());
+    } catch (e) {
+      if (e instanceof MtprojPackError) {
+        const lines = e.failed
+          .map((f) => `• ${f.text.slice(0, 40)}${f.text.length > 40 ? '…' : ''} — ${f.reason}`)
+          .join('\n');
+        window.alert(`${e.message}\n\n${lines}`);
+      } else {
+        window.alert(e instanceof Error ? e.message : String(e));
+      }
+    }
+  };
   const handleLoad = async () => {
-    const f = await loadProjectFile();
-    if (f) loadProject(f);
+    try {
+      const f = await loadProjectFile();
+      if (f) loadProject(f);
+    } catch (e) {
+      if (e instanceof MtprojUnpackError) {
+        window.alert(e.message);
+      }
+    }
   };
 
   return (
@@ -68,16 +94,27 @@ export default function App() {
         </label>
         <div className="flex-1" />
         <button
-          onClick={handleLoad}
+          type="button"
+          onClick={() => void handleLoad()}
           className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+          title="Open .json or portable .mtproj (ZIP)"
         >
           Open project
         </button>
         <button
           onClick={handleSave}
           className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded transition-colors"
+          title="JSON only — audio uses blob URLs and will not reopen elsewhere"
         >
           Save project
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSaveBundle()}
+          className="px-3 py-1 text-xs bg-emerald-700 hover:bg-emerald-600 rounded transition-colors"
+          title="Portable ZIP with embedded audio and checksums"
+        >
+          Save bundle (.mtproj)
         </button>
         <button
           type="button"

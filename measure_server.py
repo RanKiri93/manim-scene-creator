@@ -403,6 +403,7 @@ try:
     from fastapi import FastAPI, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
     from starlette.background import BackgroundTask
 
     app = FastAPI(title="HebrewMathLine measure", version="0.1.0")
@@ -426,9 +427,12 @@ try:
         end: float
 
     class GenerateAudioResponse(BaseModel):
+        """TTS output; *file_path* is stored under static ``/assets/audio/`` like upload."""
+
         audio_base64: str
         duration: float
         word_boundaries: list[WordBoundaryOut]
+        file_path: str
 
     _whisper_model = None
 
@@ -463,17 +467,23 @@ try:
             tts_lang = incoming
             whisper_lang = incoming
         tmp_path = None
+        abs_saved: str | None = None
         try:
             fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
             os.close(fd)
             gTTS(text=req.text, lang=tts_lang).save(tmp_path)
 
-            with open(tmp_path, "rb") as f:
+            filename = f"{uuid.uuid4().hex}.mp3"
+            rel_path = f"assets/audio/{filename}"
+            abs_saved = os.path.join(_AUDIO_ASSETS_DIR, filename)
+            shutil.copy2(tmp_path, abs_saved)
+
+            with open(abs_saved, "rb") as f:
                 audio_b64 = base64.b64encode(f.read()).decode("ascii")
 
             model = _get_whisper_model()
             result = model.transcribe(
-                tmp_path,
+                abs_saved,
                 word_timestamps=True,
                 language=whisper_lang,
             )
@@ -510,10 +520,16 @@ try:
                 audio_base64=audio_b64,
                 duration=duration,
                 word_boundaries=word_boundaries,
+                file_path=rel_path,
             )
         except HTTPException:
             raise
         except Exception as e:
+            if abs_saved and os.path.isfile(abs_saved):
+                try:
+                    os.unlink(abs_saved)
+                except OSError:
+                    pass
             raise HTTPException(
                 status_code=500,
                 detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
@@ -609,6 +625,23 @@ try:
     def _cleanup_render_workdir(path: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
+    def _stage_project_assets_for_render(work_dir: str) -> None:
+        """Copy ``assets/audio`` from the repo into *work_dir*.
+
+        Timeline export emits ``self.add_sound("assets/audio/...")`` paths relative to the
+        process cwd. ``manim`` is run with ``cwd=work_dir`` (a temp directory), so without
+        this step audio files are missing and ``construct()`` fails.
+        """
+        src = os.path.join(_ROOT, "assets", "audio")
+        if not os.path.isdir(src):
+            return
+        dst = os.path.join(work_dir, "assets", "audio")
+        os.makedirs(dst, exist_ok=True)
+        for name in os.listdir(src):
+            path = os.path.join(src, name)
+            if os.path.isfile(path):
+                shutil.copy2(path, os.path.join(dst, name))
+
     @app.post("/api/render")
     def render_scene_mp4(req: RenderRequest) -> FileResponse:
         q = req.quality.strip().lower()
@@ -626,11 +659,16 @@ try:
         script_path = os.path.join(work_dir, script_name)
 
         try:
+            _stage_project_assets_for_render(work_dir)
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(req.python_code)
 
             env = os.environ.copy()
             env["PYTHONPATH"] = _ROOT + os.pathsep + env.get("PYTHONPATH", "")
+            # Windows defaults to cp1252; Manim + Rich log Unicode and crash when piping logs.
+            if sys.platform == "win32":
+                env.setdefault("PYTHONUTF8", "1")
+                env.setdefault("PYTHONIOENCODING", "utf-8")
 
             cmd = [
                 sys.executable,
@@ -647,6 +685,8 @@ try:
                 env=env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=3600,
             )
             if proc.returncode != 0:
@@ -692,6 +732,14 @@ try:
                 status_code=500,
                 detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
             ) from e
+
+    # Uploaded timeline audio (`/api/upload_audio`) is stored under this folder; the app
+    # plays it and `.mtproj` bundling fetches via GET — must be exposed as static files.
+    app.mount(
+        "/assets/audio",
+        StaticFiles(directory=_AUDIO_ASSETS_DIR),
+        name="timeline_audio_assets",
+    )
 
 except ImportError:
     app = None  # type: ignore[misc, assignment]

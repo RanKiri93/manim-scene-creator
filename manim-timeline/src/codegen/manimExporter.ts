@@ -36,6 +36,10 @@ import {
 } from './graphCodegen';
 import { generateVoiceoverImports, generateSpeechServiceSetup } from './voiceoverCodegen';
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
+import {
+  sequentialAnimSecondsForExit,
+  sequentialAnimSecondsForLeaf,
+} from './groupPlaybackSpan';
 
 type PlaybackEvent =
   | { t: number; kind: 'audio'; track: AudioTrackItem }
@@ -88,6 +92,15 @@ function exportManimCodeInner(
 ): string {
   const flat = flattenExportLeaves(items);
   const itemsMap = itemsToMap(items);
+
+  for (const a of options.audioItems ?? []) {
+    if (a.assetRelPath?.trim()) continue;
+    if (a.audioUrl.trim().toLowerCase().startsWith('blob:')) {
+      throw new Error(
+        'An audio clip uses a temporary blob URL (older TTS). Remove it and add the line again with TTS so the file is stored on the measure server under assets/audio.',
+      );
+    }
+  }
 
   for (const it of flat) {
     if (it.kind === 'axes') {
@@ -269,6 +282,7 @@ function exportManimCodeInner(
 
     if (t0 > timelineCursor + TIMELINE_GAP_EPS) {
       playStr += `${playPad}self.wait(${(t0 - timelineCursor).toFixed(4)})\n`;
+      timelineCursor = t0;
     }
 
     const audios = group.filter((e): e is Extract<PlaybackEvent, { kind: 'audio' }> => e.kind === 'audio');
@@ -298,7 +312,7 @@ function exportManimCodeInner(
       );
     }
 
-    let groupEnd = timelineCursor;
+    let groupEnd = t0;
     for (const a of audios) {
       groupEnd = Math.max(groupEnd, t0 + a.track.duration);
     }
@@ -308,7 +322,49 @@ function exportManimCodeInner(
     for (const ex of exits) {
       groupEnd = Math.max(groupEnd, ex.exit.startTime + ex.exit.duration);
     }
-    timelineCursor = Math.max(timelineCursor, groupEnd);
+
+    // Manim's `add_sound` does not advance scene time. Pad with wait() so the scene clock
+    // catches up — but do not wait past the *next* timeline event, or overlapping clips
+    // (e.g. text at 0.8s while audio runs 0–4s) would run only after the full audio wait.
+    const nextT =
+      i < playEvents.length ? playEvents[i]!.t : Number.POSITIVE_INFINITY;
+    const capEnd = Math.min(groupEnd, nextT);
+    const groupSpanCapped = capEnd - t0;
+
+    let animSec = 0;
+    for (const e of leaves) {
+      animSec += sequentialAnimSecondsForLeaf(
+        e.leaf,
+        itemsMap,
+        options.audioItems,
+      );
+    }
+    for (const ex of exits) {
+      animSec += sequentialAnimSecondsForExit(ex.exit);
+    }
+    const padAfter = Math.max(0, groupSpanCapped - animSec);
+    if (padAfter > TIMELINE_GAP_EPS) {
+      playStr += `${playPad}self.wait(${padAfter.toFixed(4)})\n`;
+    }
+
+    timelineCursor = Math.max(timelineCursor, t0 + animSec + padAfter);
+  }
+
+  let fullSceneEnd = timelineCursor;
+  for (const tr of audioList) {
+    fullSceneEnd = Math.max(fullSceneEnd, tr.startTime + tr.duration);
+  }
+  for (const leaf of flat) {
+    fullSceneEnd = Math.max(fullSceneEnd, holdEnd(leaf, itemsMap));
+  }
+  for (const it of items) {
+    if (it.kind === 'exit_animation' && it.animStyle !== 'none') {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+  }
+  if (fullSceneEnd > timelineCursor + TIMELINE_GAP_EPS) {
+    playStr += `${playPad}self.wait(${(fullSceneEnd - timelineCursor).toFixed(4)})\n`;
+    timelineCursor = fullSceneEnd;
   }
 
   if (!options.fullFile) {

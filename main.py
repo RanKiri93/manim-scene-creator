@@ -1,3 +1,11 @@
+import os
+import sys
+
+# Windows: avoid Rich/Manim logging Unicode → cp1252 console → Logging error on emit.
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 from manim import *
 from manim.utils.color import ManimColor
 from manim_voiceover import VoiceoverScene
