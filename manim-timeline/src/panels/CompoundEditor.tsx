@@ -68,13 +68,6 @@ export default function CompoundEditor({ item }: CompoundEditorProps) {
           step={0.1}
         />
         <NumberInput
-          label="Wait after"
-          value={item.waitAfter}
-          onChange={(v) => set({ waitAfter: v })}
-          min={0}
-          step={0.1}
-        />
-        <NumberInput
           label="Layer"
           value={item.layer}
           onChange={(v) => set({ layer: Math.round(v) })}

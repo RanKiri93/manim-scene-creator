@@ -10,6 +10,7 @@ import type {
   SceneItem,
 } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
 
 const DIRECTIONS: ManimDirection[] = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'UL', 'UR', 'DL', 'DR'];
 const EDGE_DIRECTIONS: ManimDirection[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
@@ -47,7 +48,8 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId }: 
     const result: { id: ItemId; label: string; kind: SceneItem['kind'] }[] = [];
     for (const [id, item] of itemsMap) {
       if (id === currentItemId) continue;
-      const label = item.label || (item.kind === 'textLine' ? item.raw.slice(0, 25) || '(empty)' : 'Graph');
+      if (item.kind !== 'textLine' && item.kind !== 'axes') continue;
+      const label = itemClipDisplayName(item);
       result.push({ id, label, kind: item.kind });
     }
     return result.sort((a, b) => a.label.localeCompare(b.label));
@@ -171,7 +173,7 @@ function NextToFields({
             onChange={(e) => {
               const id = e.target.value || null;
               const match = otherItems.find((it) => it.id === id);
-              const refKind = match?.kind === 'graph' ? 'graph' as const : 'line' as const;
+              const refKind = match?.kind === 'axes' ? 'axes' as const : 'line' as const;
               onChange({ ...step, refId: id, refKind });
             }}
             className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300 max-w-[140px]"
@@ -179,7 +181,7 @@ function NextToFields({
             <option value="">-- select item --</option>
             {otherItems.map((it) => (
               <option key={it.id} value={it.id}>
-                {it.kind === 'textLine' ? '[T]' : '[G]'} {it.label}
+                {it.kind === 'textLine' ? '[T]' : it.kind === 'axes' ? '[A]' : '[?]'} {it.label}
               </option>
             ))}
           </select>

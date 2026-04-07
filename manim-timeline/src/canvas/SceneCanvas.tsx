@@ -6,6 +6,60 @@ import TextLineNode from './layers/TextLineNode';
 import GraphNode from './layers/GraphNode';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
+import { isActiveAtTime } from '@/lib/time';
+import {
+  graphGroupShouldRender,
+  cumulativePlots,
+  cumulativeDots,
+  cumulativeField,
+  cumulativeSeriesViz,
+} from '@/lib/graphPreview';
+import { resolvePositionWithCompound } from '@/lib/compoundLayout';
+import type {
+  AxesItem,
+  GraphSeriesVizItem,
+  ItemId,
+  SceneItem,
+  TextLineItem,
+} from '@/types/scene';
+
+type GraphLayerState = {
+  axes: AxesItem;
+  plots: ReturnType<typeof cumulativePlots>;
+  dots: ReturnType<typeof cumulativeDots>;
+  field: ReturnType<typeof cumulativeField>;
+  seriesViz: GraphSeriesVizItem | null;
+  streamPlacementFieldId: ItemId | null;
+  resolvedX: number;
+  resolvedY: number;
+  isSelected: boolean;
+};
+
+type CanvasEntry =
+  | { kind: 'graph'; layer: number; graph: GraphLayerState }
+  | { kind: 'text'; layer: number; item: TextLineItem };
+
+function selectionTouchesAxes(
+  axesId: ItemId,
+  selectedIds: Set<ItemId>,
+  items: Map<ItemId, SceneItem>,
+): boolean {
+  if (selectedIds.has(axesId)) return true;
+  for (const id of selectedIds) {
+    const it = items.get(id);
+    if (!it) continue;
+    if (
+      (it.kind === 'graphPlot' ||
+        it.kind === 'graphDot' ||
+        it.kind === 'graphField' ||
+        it.kind === 'graphSeriesViz') &&
+      it.axesId === axesId
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export default function SceneCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,10 +76,64 @@ export default function SceneCanvas() {
   const visibleItems = useMemo(
     () =>
       Array.from(itemsMap.values())
-        .filter((it) => currentTime >= it.startTime && currentTime < it.startTime + it.duration)
+        .filter(
+          (it): it is TextLineItem =>
+            it.kind === 'textLine' && isActiveAtTime(it, currentTime, itemsMap),
+        )
         .sort((a, b) => a.layer - b.layer),
     [itemsMap, currentTime],
   );
+
+  const graphLayers = useMemo((): GraphLayerState[] => {
+    const axesItems = Array.from(itemsMap.values()).filter(
+      (it): it is AxesItem => it.kind === 'axes',
+    );
+    return axesItems
+      .filter(
+        (ax) =>
+          graphGroupShouldRender(ax, currentTime, itemsMap) ||
+          selectedIds.has(ax.id) ||
+          selectionTouchesAxes(ax.id, selectedIds, itemsMap),
+      )
+      .map((axes) => {
+        const pos = resolvePositionWithCompound(axes, itemsMap);
+        let streamPlacementFieldId: ItemId | null = null;
+        for (const it of itemsMap.values()) {
+          if (
+            it.kind === 'graphField' &&
+            it.axesId === axes.id &&
+            (it.streamPlacementActive ?? false) &&
+            selectedIds.has(it.id)
+          ) {
+            streamPlacementFieldId = it.id;
+            break;
+          }
+        }
+        return {
+          axes,
+          plots: cumulativePlots(axes.id, currentTime, itemsMap),
+          dots: cumulativeDots(axes.id, currentTime, itemsMap),
+          field: cumulativeField(axes.id, currentTime, itemsMap),
+          seriesViz: cumulativeSeriesViz(axes.id, currentTime, itemsMap),
+          streamPlacementFieldId,
+          resolvedX: pos.x,
+          resolvedY: pos.y,
+          isSelected: selectionTouchesAxes(axes.id, selectedIds, itemsMap),
+        };
+      });
+  }, [itemsMap, currentTime, selectedIds]);
+
+  const canvasEntries = useMemo((): CanvasEntry[] => {
+    const e: CanvasEntry[] = [];
+    for (const g of graphLayers) {
+      e.push({ kind: 'graph', layer: g.axes.layer, graph: g });
+    }
+    for (const item of visibleItems) {
+      e.push({ kind: 'text', layer: item.layer, item });
+    }
+    e.sort((a, b) => a.layer - b.layer);
+    return e;
+  }, [graphLayers, visibleItems]);
 
   const resolvedPositions = useResolvedPositions(visibleItems, itemsMap);
 
@@ -47,7 +155,6 @@ export default function SceneCanvas() {
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-2">
-      {/* Canvas toolbar */}
       <div className="flex items-center gap-3 text-xs text-slate-400">
         <label className="flex items-center gap-1 cursor-pointer">
           <input
@@ -83,7 +190,6 @@ export default function SceneCanvas() {
         </span>
       </div>
 
-      {/* Konva stage */}
       <div
         ref={containerRef}
         className="w-full h-full flex-1 min-h-0 rounded-lg overflow-hidden border border-slate-700 bg-black flex items-center justify-center"
@@ -105,36 +211,40 @@ export default function SceneCanvas() {
             />
           </Layer>
           <Layer>
-            {visibleItems.map((item) => {
-              const selected = selectedIds.has(item.id);
-              const pos = resolvedPositions.get(item.id);
-              if (item.kind === 'textLine') {
-                return (
-                  <TextLineNode
-                    key={item.id}
-                    item={item}
-                    canvasWidth={size.width}
-                    canvasHeight={size.height}
-                    isSelected={selected}
-                    resolvedX={pos?.x ?? item.x}
-                    resolvedY={pos?.y ?? item.y}
-                  />
-                );
-              }
-              if (item.kind === 'graph') {
+            {canvasEntries.map((entry) => {
+              if (entry.kind === 'graph') {
+                const layer = entry.graph;
                 return (
                   <GraphNode
-                    key={item.id}
-                    item={item}
+                    key={layer.axes.id}
+                    axes={layer.axes}
+                    plots={layer.plots}
+                    dots={layer.dots}
+                    field={layer.field}
+                    seriesViz={layer.seriesViz}
+                    streamPlacementFieldId={layer.streamPlacementFieldId}
+                    isSelected={layer.isSelected}
                     canvasWidth={size.width}
                     canvasHeight={size.height}
-                    isSelected={selected}
-                    resolvedX={pos?.x ?? item.x}
-                    resolvedY={pos?.y ?? item.y}
+                    resolvedX={layer.resolvedX}
+                    resolvedY={layer.resolvedY}
                   />
                 );
               }
-              return null;
+              const item = entry.item;
+              const selected = selectedIds.has(item.id);
+              const pos = resolvedPositions.get(item.id);
+              return (
+                <TextLineNode
+                  key={item.id}
+                  item={item}
+                  canvasWidth={size.width}
+                  canvasHeight={size.height}
+                  isSelected={selected}
+                  resolvedX={pos?.x ?? item.x}
+                  resolvedY={pos?.y ?? item.y}
+                />
+              );
             })}
           </Layer>
         </Stage>

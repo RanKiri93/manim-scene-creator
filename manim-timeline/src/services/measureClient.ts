@@ -164,9 +164,14 @@ interface UploadRecordedAudioResponseBody {
 export async function uploadRecordedAudio(
   baseUrl: string,
   blob: Blob,
+  filename: string = 'recording.webm',
+  options?: { lang?: string },
 ): Promise<UploadRecordedAudioResult> {
   const formData = new FormData();
-  formData.append('file', blob, 'recording.webm');
+  const safeName = filename.trim() || 'recording.webm';
+  formData.append('file', blob, safeName);
+  const lang = options?.lang?.trim();
+  if (lang) formData.append('lang', lang);
   const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/api/upload_audio`, {
     method: 'POST',
     body: formData,

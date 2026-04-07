@@ -1,8 +1,32 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import { createTextLine, createGraph, createCompound } from '@/store/factories';
-import type { SceneItem } from '@/types/scene';
-import { isTopLevelItem } from '@/lib/time';
+import {
+  createTextLine,
+  createAxes,
+  createGraphPlot,
+  createGraphDotItem,
+  createGraphFieldItem,
+  createGraphSeriesViz,
+  createCompound,
+  createExitAnimation,
+} from '@/store/factories';
+import type { ItemId, SceneItem } from '@/types/scene';
+import { canBeExitTarget, holdEnd, isTopLevelItem } from '@/lib/time';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
+
+function pickDefaultAxesId(
+  itemsMap: Map<ItemId, SceneItem>,
+  selectedIds: Set<ItemId>,
+): string | null {
+  for (const id of selectedIds) {
+    const it = itemsMap.get(id);
+    if (it?.kind === 'axes') return id;
+  }
+  const axes = [...itemsMap.values()].filter((i) => i.kind === 'axes');
+  if (axes.length === 0) return null;
+  if (axes.length === 1) return axes[0]!.id;
+  return [...axes].sort((a, b) => a.startTime - b.startTime)[0]!.id;
+}
 
 export default function ItemList() {
   const itemsMap = useSceneStore((s) => s.items);
@@ -46,8 +70,46 @@ export default function ItemList() {
     select(item.id);
   };
 
-  const addGraph = () => {
-    const item = createGraph(defaults, currentTime);
+  const ensureAxesId = (): string => {
+    let axId = pickDefaultAxesId(itemsMap, selectedIds);
+    if (!axId) {
+      const ax = createAxes(defaults, currentTime);
+      addItem(ax);
+      axId = ax.id;
+    }
+    return axId;
+  };
+
+  const addAxes = () => {
+    const item = createAxes(defaults, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
+  const addGraphPlot = () => {
+    const axId = ensureAxesId();
+    const item = createGraphPlot(axId, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
+  const addGraphDot = () => {
+    const axId = ensureAxesId();
+    const item = createGraphDotItem(axId, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
+  const addGraphField = () => {
+    const axId = ensureAxesId();
+    const item = createGraphFieldItem(axId, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
+  const addGraphSeriesViz = () => {
+    const axId = ensureAxesId();
+    const item = createGraphSeriesViz(axId, currentTime);
     addItem(item);
     select(item.id);
   };
@@ -59,6 +121,37 @@ export default function ItemList() {
     setExpandedCompounds((s) => new Set(s).add(item.id));
   };
 
+  const addExitAnimationClip = () => {
+    const map = useSceneStore.getState().items;
+    let targetId: ItemId | null = null;
+    for (const id of selectedIds) {
+      const it = map.get(id);
+      if (it && canBeExitTarget(it)) {
+        targetId = id;
+        break;
+      }
+    }
+    if (!targetId) {
+      const candidates = [...map.values()].filter(canBeExitTarget);
+      if (candidates.length === 0) return;
+      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
+      targetId = candidates[0]!.id;
+    }
+    const t = map.get(targetId);
+    if (!t || !canBeExitTarget(t)) return;
+    const he = holdEnd(t, map);
+    const start = Math.max(currentTime, he);
+    const toRemove = [...map.entries()]
+      .filter(([, it]) => it.kind === 'exit_animation' && it.targetId === targetId)
+      .map(([id]) => id);
+    for (const id of toRemove) {
+      removeItem(id);
+    }
+    const ex = createExitAnimation(targetId, start, 1);
+    addItem(ex);
+    select(ex.id);
+  };
+
   const renderRow = (
     item: SceneItem,
     opts: { depth?: number; isChild?: boolean } = {},
@@ -66,26 +159,42 @@ export default function ItemList() {
     const depth = opts.depth ?? 0;
     const isChild = opts.isChild ?? false;
     const isSelected = selectedIds.has(item.id);
+    const exitTarget =
+      item.kind === 'exit_animation' ? itemsMap.get(item.targetId) : undefined;
     const label =
-      item.label ||
-      (item.kind === 'textLine'
-        ? item.raw.slice(0, 30) || '(empty line)'
-        : item.kind === 'graph'
-          ? 'Graph'
-          : item.kind === 'compound'
-            ? 'Compound'
-            : '?');
+      item.kind === 'exit_animation'
+        ? `Exit → ${
+            exitTarget
+              ? itemClipDisplayName(exitTarget)
+              : `(missing ${item.targetId.slice(0, 8)}…)`
+          }`
+        : itemClipDisplayName(item);
     let kindBadge = 'bg-slate-600/30 text-slate-300';
     let kindLetter = '?';
     if (item.kind === 'textLine') {
       kindBadge = 'bg-blue-600/30 text-blue-300';
       kindLetter = 'T';
-    } else if (item.kind === 'graph') {
+    } else if (item.kind === 'axes') {
       kindBadge = 'bg-emerald-600/30 text-emerald-300';
-      kindLetter = 'G';
+      kindLetter = 'A';
+    } else if (item.kind === 'graphPlot') {
+      kindBadge = 'bg-teal-600/30 text-teal-300';
+      kindLetter = 'P';
+    } else if (item.kind === 'graphDot') {
+      kindBadge = 'bg-cyan-600/30 text-cyan-300';
+      kindLetter = 'D';
+    } else if (item.kind === 'graphField') {
+      kindBadge = 'bg-lime-600/30 text-lime-300';
+      kindLetter = 'F';
+    } else if (item.kind === 'graphSeriesViz') {
+      kindBadge = 'bg-amber-600/30 text-amber-300';
+      kindLetter = 'S';
     } else if (item.kind === 'compound') {
       kindBadge = 'bg-violet-600/30 text-violet-300';
       kindLetter = 'C';
+    } else if (item.kind === 'exit_animation') {
+      kindBadge = 'bg-rose-600/30 text-rose-300';
+      kindLetter = 'X';
     }
 
     const timeLabel =
@@ -221,11 +330,56 @@ export default function ItemList() {
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
                 onClick={() => {
-                  addGraph();
+                  addAxes();
                   closeMenus();
                 }}
               >
-                Graph
+                Axes
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  addGraphPlot();
+                  closeMenus();
+                }}
+              >
+                Graph plot
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  addGraphDot();
+                  closeMenus();
+                }}
+              >
+                Graph dot
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
+                  addGraphField();
+                  closeMenus();
+                }}
+              >
+                Vector / slope field
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Animated n — sequence, partial sums, or partial function plots"
+                onClick={() => {
+                  addGraphSeriesViz();
+                  closeMenus();
+                }}
+              >
+                Series / sequence viz
               </button>
               <button
                 type="button"
@@ -238,6 +392,18 @@ export default function ItemList() {
                 }}
               >
                 Compound Clip
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Separate timeline clip that removes a target object (replaces any prior exit for that target)"
+                onClick={() => {
+                  addExitAnimationClip();
+                  closeMenus();
+                }}
+              >
+                Exit animation
               </button>
             </div>
           )}
@@ -275,6 +441,17 @@ export default function ItemList() {
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
                 onClick={() => {
+                  useSceneStore.getState().setAudioMode('upload');
+                  closeMenus();
+                }}
+              >
+                Upload recording
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
                   useSceneStore.getState().setAudioMode('tts');
                   closeMenus();
                 }}
@@ -289,7 +466,7 @@ export default function ItemList() {
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {items.length === 0 && (
           <p className="text-xs text-slate-500 italic py-4 text-center">
-            No items yet. Add text, a graph, or a compound clip.
+            No items yet. Add text, axes, graph overlays, or a compound clip.
           </p>
         )}
 

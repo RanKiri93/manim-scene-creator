@@ -11,7 +11,7 @@ import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
 
 export default function App() {
-  const [timelineHeight, setTimelineHeight] = useState(150);
+  const [timelineHeight, setTimelineHeight] = useState(220);
   const exportOpen = useSceneStore((s) => s.exportOpen);
   const setExportOpen = useSceneStore((s) => s.setExportOpen);
   const audioMode = useSceneStore((s) => s.audioMode);
@@ -109,7 +109,13 @@ export default function App() {
         )}
         {audioMode != null && (
           <FloatingPanel
-            title={audioMode === 'tts' ? 'Text to Speech' : 'Record Audio'}
+            title={
+              audioMode === 'tts'
+                ? 'Text to Speech'
+                : audioMode === 'upload'
+                  ? 'Upload audio'
+                  : 'Record Audio'
+            }
             onClose={() => setAudioMode(null)}
             defaultSize={{ w: 360, h: 440 }}
           >

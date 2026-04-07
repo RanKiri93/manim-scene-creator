@@ -14,12 +14,19 @@ import type {
   AudioTrackItem,
 } from '@/types/scene';
 import { generateAudio, uploadRecordedAudio } from '@/services/measureClient';
-import { isTopLevelItem, isActiveAtTime, effectiveEnd } from '@/lib/time';
+import {
+  isTopLevelItem,
+  isActiveAtTime,
+  timelineSpanEnd,
+  minExitStartTime,
+} from '@/lib/time';
 import {
   MEASURE_SERVER_DEFAULT_URL,
   PROJECT_VERSION,
 } from '@/lib/constants';
 import { createTextLineInCompound, defaultSceneDefaults } from './factories';
+import { migrateSceneItems } from '@/lib/migrateSceneItems';
+import { migrateItemsFromPreV10 } from '@/lib/migrateProjectToV10';
 
 enableMapSet();
 
@@ -58,7 +65,7 @@ interface SelectionSlice {
   inspectedId: ItemId | null;
 }
 
-export type AudioPanelMode = 'tts' | 'record';
+export type AudioPanelMode = 'tts' | 'record' | 'upload';
 
 interface UiSlice {
   exportOpen: boolean;
@@ -103,6 +110,7 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
 
   // Timeline mutations
   moveItem: (id: ItemId, newStartTime: number) => void;
+  moveAudioItem: (id: string, newStartTime: number) => void;
   resizeItem: (id: ItemId, newDuration: number) => void;
   setItemLayer: (id: ItemId, layer: number) => void;
 
@@ -140,8 +148,18 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   /** TTS + Whisper: append an audio track at the current playhead. */
   addAudioItem: (text: string, lang: string) => Promise<void>;
 
-  /** Upload mic recording and append an audio track at the current playhead. */
-  addRecordedAudioTrack: (blob: Blob) => Promise<void>;
+  /** Upload mic or file recording; optional script label and multipart filename for the server. */
+  addRecordedAudioTrack: (
+    blob: Blob,
+    options?: {
+      displayText?: string;
+      filename?: string;
+      /** Used when displayText is empty after trim (e.g. "Uploaded audio"). */
+      emptyLabel?: string;
+      /** Whisper / ASR language hint for the measure server (`iw` | `en`). */
+      transcriptionLang?: string;
+    },
+  ) => Promise<void>;
 }
 
 export const useSceneStore = create<SceneStore>()(
@@ -219,6 +237,13 @@ export const useSceneStore = create<SceneStore>()(
             syncCompoundDuration(s.items, it.parentId);
           }
         }
+        for (const [eid, ex] of [...s.items.entries()]) {
+          if (ex.kind === 'exit_animation' && ex.targetId === id) {
+            s.items.delete(eid);
+            s.selectedIds.delete(eid);
+            if (s.inspectedId === eid) s.inspectedId = null;
+          }
+        }
         s.items.delete(id);
         s.selectedIds.delete(id);
         if (s.inspectedId === id) s.inspectedId = null;
@@ -228,20 +253,44 @@ export const useSceneStore = create<SceneStore>()(
         const src = get().items.get(id);
         if (!src) return;
         if (src.kind === 'textLine' && src.parentId) return;
+        if (
+          src.kind === 'graphPlot' ||
+          src.kind === 'graphDot' ||
+          src.kind === 'graphField' ||
+          src.kind === 'graphSeriesViz'
+        ) {
+          const clone = structuredClone(src) as SceneItem;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
         if (src.kind === 'compound') {
           const clone = structuredClone(src) as typeof src;
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || 'Compound') + ' (copy)';
           clone.childIds = [];
-          clone.startTime = src.startTime + src.duration + src.waitAfter;
+          clone.startTime = src.startTime + src.duration;
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
+        if (src.kind === 'exit_animation') {
+          const clone = structuredClone(src) as typeof src;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
         const clone = structuredClone(src) as SceneItem;
         clone.id = crypto.randomUUID().slice(0, 12);
         clone.label = src.label + ' (copy)';
-        if (clone.kind === 'textLine' && !clone.parentId) {
-          clone.startTime = src.startTime + src.duration + src.waitAfter;
+        if (
+          (clone.kind === 'textLine' && !clone.parentId) ||
+          clone.kind === 'axes'
+        ) {
+          clone.startTime = src.startTime + src.duration;
         }
         set((s) => { s.items.set(clone.id, clone); });
       },
@@ -265,7 +314,17 @@ export const useSceneStore = create<SceneStore>()(
       // ── Timeline mutations ──
       moveItem: (id, newStartTime) => set((s) => {
         const item = s.items.get(id);
-        if (item) item.startTime = Math.max(0, newStartTime);
+        if (!item) return;
+        let t = Math.max(0, newStartTime);
+        if (item.kind === 'exit_animation') {
+          const minT = minExitStartTime(item.targetId, s.items);
+          if (minT != null) t = Math.max(t, minT);
+        }
+        item.startTime = t;
+      }),
+      moveAudioItem: (id, newStartTime) => set((s) => {
+        const track = s.audioItems.find((a) => a.id === id);
+        if (track) track.startTime = Math.max(0, newStartTime);
       }),
       resizeItem: (id, newDuration) => set((s) => {
         const item = s.items.get(id);
@@ -279,12 +338,12 @@ export const useSceneStore = create<SceneStore>()(
       // ── Spatial mutations ──
       setItemPosition: (id, x, y) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'compound') return;
+        if (item?.kind === 'compound' || item?.kind === 'exit_animation') return;
         if (item) { item.x = x; item.y = y; }
       }),
       setItemScale: (id, scale) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'compound') return;
+        if (item?.kind === 'compound' || item?.kind === 'exit_animation') return;
         if (item) item.scale = Math.max(0.01, scale);
       }),
 
@@ -331,11 +390,13 @@ export const useSceneStore = create<SceneStore>()(
         for (const it of items.values()) {
           let end: number;
           if (it.kind === 'compound') {
-            end = it.startTime + it.duration + it.waitAfter;
+            end = it.startTime + it.duration;
           } else if (it.kind === 'textLine' && it.parentId) {
-            end = effectiveEnd(it, items) + it.waitAfter;
+            end = timelineSpanEnd(it, items);
+          } else if (isTopLevelItem(it)) {
+            end = timelineSpanEnd(it, items);
           } else {
-            end = it.startTime + it.duration + it.waitAfter;
+            end = it.startTime + it.duration;
           }
           if (end > max) max = end;
         }
@@ -362,8 +423,12 @@ export const useSceneStore = create<SceneStore>()(
 
       loadProjectFile: (file) => set((s) => {
         s.items = new Map();
-        for (const item of file.items) {
-          s.items.set(item.id, item as SceneItem);
+        let migrated = migrateSceneItems(file.items as SceneItem[]);
+        if ((file.version ?? 0) < 10) {
+          migrated = migrateItemsFromPreV10(migrated);
+        }
+        for (const item of migrated) {
+          s.items.set(item.id, item);
         }
         s.defaults = { ...s.defaults, ...file.defaults };
         if (!s.defaults.sceneName?.trim()) {
@@ -407,13 +472,19 @@ export const useSceneStore = create<SceneStore>()(
         });
       },
 
-      addRecordedAudioTrack: async (blob) => {
+      addRecordedAudioTrack: async (blob, options) => {
         const baseUrl = get().measureConfig.url;
+        const trimmed = options?.displayText?.trim();
+        const trackText =
+          trimmed || options?.emptyLabel || 'Mic recording';
+        const uploadName = options?.filename?.trim() || 'recording.webm';
         const {
           file_path,
           duration: apiDuration,
           word_boundaries,
-        } = await uploadRecordedAudio(baseUrl, blob);
+        } = await uploadRecordedAudio(baseUrl, blob, uploadName, {
+          lang: options?.transcriptionLang,
+        });
         const root = baseUrl.replace(/\/$/, '');
         const audioUrl =
           file_path.startsWith('http://') || file_path.startsWith('https://')
@@ -440,7 +511,7 @@ export const useSceneStore = create<SceneStore>()(
         const startTime = get().currentTime ?? 0;
         const track: AudioTrackItem = {
           id: crypto.randomUUID().slice(0, 12),
-          text: 'Mic recording',
+          text: trackText,
           audioUrl,
           boundaries: word_boundaries ?? [],
           startTime,

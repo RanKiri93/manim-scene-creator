@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import LineEditor from './LineEditor';
-import GraphEditor from './GraphEditor';
+import AxesEditor from './AxesEditor';
+import GraphPlotEditor from './GraphPlotEditor';
+import GraphDotEditor from './GraphDotEditor';
+import GraphFieldEditor from './GraphFieldEditor';
+import SeriesVizEditor from './SeriesVizEditor';
 import CompoundEditor from './CompoundEditor';
+import ExitAnimationEditor from './ExitAnimationEditor';
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
@@ -97,11 +102,26 @@ export default function PropertyPanel() {
     case 'textLine':
       body = <LineEditor item={item} />;
       break;
-    case 'graph':
-      body = <GraphEditor item={item} />;
+    case 'axes':
+      body = <AxesEditor item={item} />;
+      break;
+    case 'graphPlot':
+      body = <GraphPlotEditor item={item} />;
+      break;
+    case 'graphDot':
+      body = <GraphDotEditor item={item} />;
+      break;
+    case 'graphField':
+      body = <GraphFieldEditor item={item} />;
+      break;
+    case 'graphSeriesViz':
+      body = <SeriesVizEditor item={item} />;
       break;
     case 'compound':
       body = <CompoundEditor item={item} />;
+      break;
+    case 'exit_animation':
+      body = <ExitAnimationEditor item={item} />;
       break;
     default:
       body = <p className="text-xs text-slate-500 p-4">Unknown item kind.</p>;

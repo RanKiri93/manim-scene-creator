@@ -13,15 +13,9 @@ export default function PlaybackControls() {
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
   const itemsMap = useSceneStore((s) => s.items);
+  const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
-  const duration = useMemo(() => {
-    let max = 0;
-    for (const it of itemsMap.values()) {
-      const end = it.startTime + it.duration + it.waitAfter;
-      if (end > max) max = end;
-    }
-    return max;
-  }, [itemsMap]);
+  const duration = useMemo(() => getSceneDuration(), [getSceneDuration, itemsMap]);
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-slate-800 border-t border-slate-700">

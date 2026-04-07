@@ -9,7 +9,7 @@ export interface ItemBBox {
 }
 
 export function getItemBBox(item: SceneItem): ItemBBox {
-  if (item.kind === 'compound') {
+  if (item.kind === 'compound' || item.kind === 'exit_animation') {
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   const x = item.x;
@@ -19,11 +19,14 @@ export function getItemBBox(item: SceneItem): ItemBBox {
   if (item.kind === 'textLine') {
     w = item.measure?.widthInk ?? 4;
     h = item.measure?.heightInk ?? 0.5;
-  } else {
+  } else if (item.kind === 'axes') {
     const [xMin, xMax] = item.xRange;
     const [yMin, yMax] = item.yRange;
     w = (xMax - xMin) * item.scale;
     h = (yMax - yMin) * item.scale;
+  } else {
+    w = 0.5;
+    h = 0.5;
   }
 
   return { x, y, w: w * item.scale, h: h * item.scale };
@@ -49,7 +52,7 @@ export function resolvePosition(
   item: SceneItem,
   allItems: Map<ItemId, SceneItem>,
 ): { x: number; y: number } {
-  if (item.kind === 'compound') {
+  if (item.kind === 'compound' || item.kind === 'exit_animation') {
     return { x: 0, y: 0 };
   }
 

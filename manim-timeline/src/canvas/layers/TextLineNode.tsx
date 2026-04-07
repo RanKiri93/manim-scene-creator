@@ -29,7 +29,7 @@ export default function TextLineNode({
     my: (0.5 - cy / canvasHeight) * FRAME_H,
   });
 
-  const { onDragStart, onDragEnd, draggable } = useDragSnap({
+  const { onDragStart, onDragMove, onDragEnd, draggable } = useDragSnap({
     itemId: item.id,
     posSteps: item.posSteps,
     canvasToManim,
@@ -78,6 +78,7 @@ export default function TextLineNode({
       y={posY}
       draggable={draggable}
       onDragStart={onDragStart}
+      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
     >
       {/* Bounding box — amber border when constrained (locked) */}

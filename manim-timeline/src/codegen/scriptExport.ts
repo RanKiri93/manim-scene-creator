@@ -1,11 +1,16 @@
 import type {
   SceneItem,
   TextLineItem,
-  GraphItem,
+  AxesItem,
+  GraphPlotItem,
+  GraphDotItem,
+  GraphFieldItem,
+  GraphSeriesVizItem,
   CompoundItem,
   ItemId,
 } from '@/types/scene';
 import { isTopLevelItem, effectiveStart } from '@/lib/time';
+
 
 export type SceneState = {
   items: Map<ItemId, SceneItem>;
@@ -37,9 +42,9 @@ function appendTextLine(lines: string[], item: TextLineItem): void {
   appendVo(lines, item.voice.preamble, item.voice.script);
 }
 
-function appendGraph(lines: string[], item: GraphItem): void {
+function appendAxes(lines: string[], item: AxesItem): void {
   lines.push('');
-  lines.push(`## Graph ${item.id}`);
+  lines.push(`## Axes ${item.id}`);
   appendVo(lines, item.voice.preamble, item.voice.script);
   const axes = item.voiceAxesScript?.trim();
   const labels = item.voiceLabelsScript?.trim();
@@ -53,21 +58,70 @@ function appendGraph(lines: string[], item: GraphItem): void {
     lines.push('**Labels:**');
     lines.push(labels);
   }
-  for (const fn of item.functions ?? []) {
-    const vt = fn.voiceText?.trim();
-    if (vt) {
-      lines.push('');
-      lines.push(`**Function (${fn.label || fn.id}):**`);
-      lines.push(vt);
-    }
+}
+
+function appendGraphPlot(lines: string[], item: GraphPlotItem): void {
+  lines.push('');
+  lines.push(`## Graph plot → axes ${item.axesId}`);
+  appendVo(lines, item.voice.preamble, item.voice.script);
+  const fn = item.fn;
+  const vt = fn.voiceText?.trim();
+  if (vt) {
+    lines.push('');
+    lines.push(`**Function (${fn.label || fn.id}):**`);
+    lines.push(vt);
   }
-  for (const dot of item.dots ?? []) {
-    const vt = dot.voiceText?.trim();
-    if (vt) {
-      lines.push('');
-      lines.push(`**Dot (${dot.label || dot.id}):**`);
-      lines.push(vt);
-    }
+  lines.push('');
+  lines.push(`Py: ${(fn.pyExpr ?? '').trim() || '(empty)'}`);
+}
+
+function appendGraphDot(lines: string[], item: GraphDotItem): void {
+  lines.push('');
+  lines.push(`## Graph dot → axes ${item.axesId}`);
+  appendVo(lines, item.voice.preamble, item.voice.script);
+  const dot = item.dot;
+  const vt = dot.voiceText?.trim();
+  if (vt) {
+    lines.push('');
+    lines.push(`**Dot (${dot.label || dot.id}):**`);
+    lines.push(vt);
+  }
+}
+
+function appendGraphSeriesViz(lines: string[], item: GraphSeriesVizItem): void {
+  lines.push('');
+  lines.push(`## Series/sequence viz → axes ${item.axesId}`);
+  appendVo(lines, item.voice.preamble, item.voice.script);
+  const vt = item.voiceText?.trim();
+  if (vt) {
+    lines.push('');
+    lines.push('**Note:**');
+    lines.push(vt);
+  }
+  lines.push('');
+  lines.push(`Mode: ${item.vizMode}, n ∈ [${item.nMin}, ${item.nMax}]`);
+  lines.push(`Py (${item.vizMode === 'partialPlot' ? 'k, x' : 'n'}): ${(item.pyExpr ?? '').trim() || '(empty)'}`);
+}
+
+function appendGraphField(lines: string[], item: GraphFieldItem): void {
+  lines.push('');
+  lines.push(`## Graph field → axes ${item.axesId}`);
+  appendVo(lines, item.voice.preamble, item.voice.script);
+  const fm = item.fieldMode ?? 'none';
+  if (fm === 'none') return;
+  lines.push('');
+  lines.push(`**Vector field:** mode=${fm}`);
+  if (fm === 'slope') {
+    lines.push(`Slope dy/dx (Py): ${(item.pyExprSlope ?? '').trim() || '(empty)'}`);
+  } else {
+    lines.push(`P (Py): ${(item.pyExprP ?? '').trim() || '(empty)'}`);
+    lines.push(`Q (Py): ${(item.pyExprQ ?? '').trim() || '(empty)'}`);
+  }
+  const seeds = item.streamPoints ?? [];
+  if (seeds.length > 0) {
+    lines.push(
+      `Streamline seeds: ${seeds.map((s) => `(${s.x}, ${s.y})`).join('; ')}`,
+    );
   }
 }
 
@@ -102,7 +156,11 @@ export function exportScriptToMarkdown(state: SceneState): void {
   const parts: string[] = ['# Voiceover script', ''];
   for (const it of ordered) {
     if (it.kind === 'textLine') appendTextLine(parts, it);
-    else if (it.kind === 'graph') appendGraph(parts, it);
+    else if (it.kind === 'axes') appendAxes(parts, it);
+    else if (it.kind === 'graphPlot') appendGraphPlot(parts, it);
+    else if (it.kind === 'graphDot') appendGraphDot(parts, it);
+    else if (it.kind === 'graphField') appendGraphField(parts, it);
+    else if (it.kind === 'graphSeriesViz') appendGraphSeriesViz(parts, it);
     else if (it.kind === 'compound') appendCompound(parts, it, items);
   }
 

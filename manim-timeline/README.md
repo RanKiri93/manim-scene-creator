@@ -33,33 +33,40 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 | Kind | Purpose |
 |------|---------|
 | **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic; measurement fills bbox and optional PNG preview. |
-| **Graph** | Axes (`Axes`), plotted curves, dots, optional numeric labels; positioning and timing like other clips. |
+| **Axes** | Coordinate system only; plots, dots, fields, and series viz are **separate clips** referencing `axesId`. |
+| **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphSeriesViz` — timed like other clips, anchored to an axes item. |
 | **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
+| **Exit animation** | A **separate timeline clip** (`exit_animation`) that targets another animatable item by `targetId`. It runs `FadeOut` / `Uncreate` / `ShrinkToCenter` (or `none`) at its own `startTime` for `duration` seconds. The exit must start at or after the target’s **hold end** (`effectiveStart + run duration`, including compound-local duration for child lines). Adding an object does not create an exit; add exits from **+ Object → Exit animation** when needed. |
 
-**Time** — Each timed item has `startTime`, `duration`, `waitAfter`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children.
+**Time** — Each timed item has `startTime`, `duration`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children. Pauses after a clip’s main run are expressed by **spacing clips on the timeline** (there is no per-item `waitAfter`).
 
-**Space** — `x`, `y`, `scale`, plus an ordered list **`posSteps`**: absolute `move_to`, `next_to` (another line or graph), `to_edge`, `shift`, `set_x`, `set_y`. Compounds do not occupy the canvas; only their child lines do.
+**Space** — `x`, `y`, `scale`, plus an ordered list **`posSteps`**: absolute `move_to`, `next_to` (another line or axes), `to_edge`, `shift`, `set_x`, `set_y`. Compounds and exit clips do not occupy the canvas; only drawable leaves do.
+
+**Clip naming** — Each item can have a **`label`** (“Clip name” in editors). It appears in the item list, timeline bar (with sensible fallbacks when empty), the **exit-animation target** menu, and **Positioning steps** reference pickers. Graph dots also have an on-canvas label on the dot object, separate from the clip name.
 
 **Text line animations**
 
 - **Entry** — `animStyle`: `write` (default), `fade_in`, or `transform`. **Transform** uses a **segment mapping** from an **earlier** line (`TransformMapping` + **Segment mapper** UI): paired indices, unmapped source/target behavior (`fade_out` / `leave`, `fade_in` / `write`).
-- **Exit** — Optional `exitAnimStyle`: `fade_out`, `uncreate`, `shrink_to_center`, or `none`, with `exitRunTime`.
+
+**Exit animations**
+
+- Configured only on **`exit_animation`** items: `animStyle`, `duration` (run time), `targetId`, and timeline `startTime`. Deleting a target removes dependent exit clips. Export interleaves exit `self.play(...)` at the scheduled global time (see `manimExporter.ts`).
 
 **Graph animations**
 
-- Playback is expressed with `Create` / `FadeIn` / `Write` as appropriate; graphs support the same **exit** styles as lines for the axes and plotted mobjects.
+- Playback is expressed with `Create` / `FadeIn` / `Write` as appropriate; **exits** for axes and overlays use the same Manim ops, emitted from **exit_animation** clips that target the corresponding item.
 
 ### Timeline
 
 - **Top-level** items appear as **clips** on layer tracks. Child lines of a compound **do not** get their own top-level bars; they are edited via the compound row (expand/collapse in the item list).
 - **Playhead** — Scrub, **Play / Pause**; optional view range zoom.
-- **CRUD** — New lines, graphs, and compounds can be created **at the current playhead** so default `startTime` matches what you see.
+- **CRUD** — New lines, axes, graph overlays, compounds, and **exit animations** can be created **at the current playhead** (exit clips snap so `startTime` is not before the target’s hold end).
 - **Audio row** — Separate track(s) for **`audioItems`**: clips from **TTS** or **microphone upload** (via the measure server). Scene **duration** extends to the end of the last audio clip if it finishes after visual items.
 
 ### Canvas (Konva)
 
 - Frame size matches Manim defaults (**`FRAME_W` × `FRAME_H`** in `src/lib/constants.ts`).
-- Only items that should appear on the frame at the current time are drawn, using **Manim-style lifespan** logic in `src/canvas/useAnimationProgress.ts` (visible after `startTime`, through `waitAfter`, until an optional exit finishes; no exit means the object stays). Timeline helpers `effectiveStart` / `effectiveEnd` live in `src/lib/time.ts`.
+- Only items that should appear on the frame at the current time are drawn using **`effectiveStart` / `effectiveEnd`** in `src/lib/time.ts`: visible from the item’s global start until the end of an **`exit_animation`** that targets it, or **indefinitely** if no such exit exists. Graph grouping uses the same helpers in `src/lib/graphPreview.ts`.
 - **Draggable** when all `posSteps` are **absolute**; otherwise the resolved position is shown with a **locked** (amber) treatment and you edit steps in **Positioning steps**.
 - **Compound horizontal centering** — When enabled on the compound, child lines receive a shared horizontal shift so the **union** of their measured boxes is centered at **x = 0** (preview aligns with export when measure data exists).
 
@@ -83,7 +90,7 @@ Narration is **not** stored per line or per graph in the data model. Instead:
 1. Use the **Audio** floating panel: **TTS** (script + language) or **record** → upload.
 2. Clips live in **`audioItems`** with `startTime`, `duration`, `text`, `audioUrl`, and optional **word boundaries** (Whisper).
 
-**Export alignment** — When generating Manim playback for a **text line** or **graph**, the codegen may resolve a **matching** `audioItems` entry by **timeline position** (start time proximity / overlap). If a match is found, export emits **`self.add_sound("assets/audio/…")`** and sets **`run_time`** from **word-boundary span** when boundaries are available; otherwise it falls back to the clip’s timeline duration. There is **no** `manim-voiceover` dependency: the exported scene subclasses Manim’s **`Scene`** and uses ordinary **`self.play`** / **`self.wait`**.
+**Export alignment** — When generating Manim playback for a **text line** or **graph**, the codegen may resolve a **matching** `audioItems` entry by **timeline position** (start time proximity / overlap). If a match is found, export emits **`self.add_sound("assets/audio/…")`** and sets **`run_time`** from **word-boundary span** when boundaries are available; otherwise it falls back to the clip’s timeline duration. Gaps between scheduled events (including before an exit clip) are expressed with **`self.wait`** from the exporter’s timeline cursor. There is **no** `manim-voiceover` dependency: the exported scene subclasses Manim’s **`Scene`** and uses ordinary **`self.play`** / **`self.wait`**.
 
 ---
 
@@ -93,7 +100,7 @@ Narration is **not** stored per line or per graph in the data model. Instead:
 - **Full file** — Imports (`manim`, `ManimColor`, `HebrewMathLine`), one **`Scene`** subclass, and the sections commented in the exporter (`src/codegen/manimExporter.ts`). The server prepends `config.assets_dir` when rendering via **`measure_server.py`**.
 - **Export target (Export panel)** — **Standard (MP4)** vs **Web Optimized (transparent WebM)**. Web mode sets **`isWebExport`** in codegen so the generated script configures Manim for transparent WebM (`config.transparent`, `config.format`, `config.background_color`) and shows a read-only **Hugo / HTML** `<video>` embed (filename `{SceneClassName}.webm`) plus **Copy to Clipboard**. The visible Python and the **Render** action both use the same target so the downloaded file matches the script.
 - **Server render** — **Render MP4** or **Render WebM** uploads the **full-file** export; the client sends **`is_web_export: true`** for WebM. The measure server runs Manim with **`--format=mp4`** or **`--format=webm`**, finds the output under `media/videos/`, and returns the appropriate **`Content-Type`**.
-- **Flattening** — **`CompoundItem`** does not exist in Python: child lines are exported in **timeline order** interleaved with other top-level leaves (`flattenExport.ts`).
+- **Flattening** — **`CompoundItem`** does not exist in Python: child lines are exported in **timeline order** interleaved with other top-level leaves (`flattenExport.ts`). **`exit_animation`** items are not leaves; their Python is emitted at the correct global time in the playback section (`manimExporter.ts`).
 - **Naming** — Internal IDs map to stable variable names such as `line_1`, `axes_2`; **`next_to`** uses those names.
 - **Download Script (.md)** — **`exportScriptToMarkdown`** produces a **human-readable outline** (line headings + raw LaTeX, graph summaries, compound children). It is **not** a TTS script format; use **`audioItems`** for spoken content.
 
@@ -122,6 +129,7 @@ Use a **compound** when several equations or lines should appear as **one block*
 
 - JSON containing **`version`** (see **`PROJECT_VERSION`** in `src/lib/constants.ts`), **`savedAt`**, **`defaults`**, **`items`**, **`measureConfig`**, and optionally **`audioItems`**.
 - Bump **`PROJECT_VERSION`** when you make breaking schema changes and consider adding migration logic in **`loadProjectFile`** if needed.
+- **Version 10** — Removes per-item `waitAfter`, `exitAnimStyle`, and `exitRunTime`. Legacy projects with `version` below 10 are migrated on load: non-`none` exits become **`exit_animation`** items (start time = old hold + wait + exit offset as before), then legacy fields are stripped (`migrateProjectToV10.ts`). Very old monolithic **`graph`** items are still split in **`migrateSceneItems.ts`** before that step.
 - Import / export helpers live in **`src/lib/projectIO.ts`**.
 
 ---
@@ -165,9 +173,9 @@ src/
 │   └── manimExporter.ts      # Full / partial Python assembly
 ├── canvas/                   # SceneCanvas, layers, drag / resolve hooks
 ├── timeline/                 # Clips, ruler, audio row, playback loop
-├── panels/                   # ItemList, editors, AudioPanel, ExportPanel, …
+├── panels/                   # ItemList, Line/Axes/graph editors, ExitAnimationEditor, …
 ├── components/               # FloatingPanel, ColorPicker, NumberInput, …
-└── lib/                      # constants, time, layout, pythonIdent, projectIO, …
+└── lib/                      # constants, time, itemDisplayName, graphPreview, migrateProjectToV10, …
 ```
 
 There is **no** `voiceoverCodegen` or per-item voice UI: narration is entirely via **`audioItems`** and export-time alignment.
@@ -266,4 +274,4 @@ Native shell and optional **PyInstaller** sidecar: see **`TAURI.md`** and **`src
 
 ---
 
-*Last updated: Web export pipeline (transparent WebM + Hugo embed snippet + `is_web_export` on `/api/render`); canvas visibility aligned with Manim-style lifespan in `useAnimationProgress.ts`; global audio timeline as the single narration path; Manim export uses `Scene` + `self.play` / `self.wait` / optional `add_sound`.*
+*Last updated: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps.*

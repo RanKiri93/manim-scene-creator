@@ -24,11 +24,7 @@ export function usePlaybackLoop() {
         const store = useSceneStore.getState();
         const next = store.currentTime + dt;
 
-        let dur = 0;
-        for (const it of store.items.values()) {
-          const end = it.startTime + it.duration + it.waitAfter;
-          if (end > dur) dur = end;
-        }
+        const dur = store.getSceneDuration();
 
         if (next >= dur) {
           setCurrentTime(dur);

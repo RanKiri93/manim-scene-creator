@@ -109,6 +109,17 @@ export default function LineEditor({ item }: LineEditorProps) {
         </p>
       )}
 
+      <label className="text-xs text-slate-400 block">
+        Clip name
+        <input
+          type="text"
+          value={item.label}
+          onChange={(e) => set({ label: e.target.value })}
+          placeholder="e.g. Title, Step 2 — optional; helps exit targets & item list"
+          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+        />
+      </label>
+
       {/* LaTeX source */}
       <div>
         <label className="text-xs text-slate-400 mb-1 block">LaTeX source</label>
@@ -228,13 +239,6 @@ export default function LineEditor({ item }: LineEditorProps) {
             step={0.1}
           />
           <NumberInput
-            label="Wait after"
-            value={item.waitAfter}
-            onChange={(v) => set({ waitAfter: v })}
-            min={0}
-            step={0.1}
-          />
-          <NumberInput
             label="Layer"
             value={item.layer}
             onChange={(v) => set({ layer: Math.round(v) })}
@@ -259,13 +263,6 @@ export default function LineEditor({ item }: LineEditorProps) {
             step={0.1}
           />
           <NumberInput
-            label="Wait after"
-            value={item.waitAfter}
-            onChange={(v) => set({ waitAfter: v })}
-            min={0}
-            step={0.1}
-          />
-          <NumberInput
             label="Layer"
             value={item.layer}
             onChange={(v) => set({ layer: Math.round(v) })}
@@ -274,42 +271,6 @@ export default function LineEditor({ item }: LineEditorProps) {
           />
         </div>
       )}
-
-      {/* Exit Animation */}
-      <div>
-        <div className="text-xs text-slate-400 mb-1 block">Exit Animation</div>
-        <select
-          value={item.exitAnimStyle ?? 'none'}
-          onChange={(e) =>
-            set({
-              exitAnimStyle: e.target.value as NonNullable<TextLineItem['exitAnimStyle']>,
-            })
-          }
-          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
-        >
-          <option value="none">None</option>
-          <option value="fade_out">FadeOut</option>
-          <option value="uncreate">Uncreate</option>
-          <option value="shrink_to_center">ShrinkToCenter</option>
-        </select>
-        {(item.exitAnimStyle ?? 'none') !== 'none' && (
-          <label className="text-xs text-slate-400 mt-2 block">
-            Exit run time (s)
-            <input
-              type="number"
-              value={item.exitRunTime ?? 1}
-              min={0.1}
-              step={0.1}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (!Number.isFinite(v)) return;
-                set({ exitRunTime: Math.max(0.1, v) });
-              }}
-              className="ml-1 w-20 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
-            />
-          </label>
-        )}
-      </div>
 
       {/* Position: absolute coords + scale */}
       <div className="flex items-end gap-3 flex-wrap">

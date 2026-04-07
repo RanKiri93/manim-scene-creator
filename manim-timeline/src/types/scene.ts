@@ -22,7 +22,7 @@ export type ManimDirection =
 export interface PosStepAbsolute { kind: 'absolute' }
 export interface PosStepNextTo {
   kind: 'next_to';
-  refKind: 'line' | 'graph';
+  refKind: 'line' | 'axes';
   refId: ItemId | null;
   dir: ManimDirection;
   buff: number;
@@ -151,15 +151,31 @@ export interface MeasureResult {
 
 // ── Scene items ──
 
+/** Manim exit animation played by a separate timeline clip targeting a scene object. */
+export type ExitAnimStyle =
+  | 'fade_out'
+  | 'uncreate'
+  | 'shrink_to_center'
+  | 'none';
+
 interface SceneItemBase extends TimeSpan, SpatialTransform {
   id: ItemId;
   label: string;
   layer: number;
-  waitAfter: number;
   posSteps: PosStep[];
   voice: VoiceoverConfig;
-  exitAnimStyle?: 'fade_out' | 'uncreate' | 'shrink_to_center' | 'none';
-  exitRunTime?: number;
+}
+
+/** Top-level clip: runs exit animation on `targetId` at `startTime` for `duration` seconds. */
+export interface ExitAnimationItem {
+  kind: 'exit_animation';
+  id: ItemId;
+  label: string;
+  layer: number;
+  startTime: number;
+  duration: number;
+  targetId: ItemId;
+  animStyle: ExitAnimStyle;
 }
 
 export interface TextLineItem extends SceneItemBase {
@@ -200,6 +216,52 @@ export interface GraphDot {
   voiceText: string;
 }
 
+/** Seed (x0, y0) for ODE streamline γ′ = F(γ) in graph coordinates. */
+export interface GraphStreamPoint {
+  id: ItemId;
+  x: number;
+  y: number;
+}
+
+export type GraphFieldMode = 'none' | 'vector' | 'slope';
+
+export type GraphFieldColormap = 'viridis' | 'plasma' | 'inferno' | 'magma';
+
+/** Sequence: (n, a_n); series: (n, partial sum of a_i); partialPlot: y = sum_k term(k,x) over x. */
+export type SeriesVizMode = 'sequence' | 'series' | 'partialPlot';
+
+/** discrete: floor index vs time; smooth: fractional n for head interpolation. */
+export type SeriesNMapping = 'linear_discrete' | 'linear_smooth';
+
+/** Easing on progress u in [0,1] before mapping to n. */
+export type SeriesNEasing = 'linear' | 'ease_out' | 'ease_in_out';
+
+/**
+ * Animated sequence / series / partial-sum plot on axes. Index n is driven by clip-local time.
+ */
+export interface GraphSeriesVizItem extends SceneItemBase {
+  kind: 'graphSeriesViz';
+  axesId: ItemId;
+  vizMode: SeriesVizMode;
+  nMin: number;
+  nMax: number;
+  nMapping: SeriesNMapping;
+  nEasing: SeriesNEasing;
+  /** Sequence/series: a(n). partialPlot: term(k, x) — use k and x. */
+  jsExpr: string;
+  pyExpr: string;
+  ghostCount: number;
+  ghostOpacityMin: number;
+  ghostOpacityMax: number;
+  showHeadDot: boolean;
+  strokeColor: string;
+  headColor: string;
+  strokeWidth: number;
+  /** Optional horizontal line y = L (graph coordinates); null to hide. */
+  limitY: number | null;
+  voiceText: string;
+}
+
 /**
  * Groups multiple text lines as one clip on the main timeline.
  * Children are TextLineItems with `parentId` pointing here; they use localStart/localDuration.
@@ -211,7 +273,6 @@ export interface CompoundItem {
   layer: number;
   startTime: number;
   duration: number;
-  waitAfter: number;
   /** Ordered list of child text line ids */
   childIds: ItemId[];
   /**
@@ -221,22 +282,65 @@ export interface CompoundItem {
   centerHorizontally?: boolean;
 }
 
-export interface GraphItem extends SceneItemBase {
-  kind: 'graph';
+/** Coordinate axes only; plots/dots/fields are separate items referencing `id` via `axesId`. */
+export interface AxesItem extends SceneItemBase {
+  kind: 'axes';
   xRange: [number, number, number];
   yRange: [number, number, number];
   xLabel: string;
   yLabel: string;
   includeNumbers: boolean;
   includeTip: boolean;
-  functions: GraphFunction[];
-  dots: GraphDot[];
   perPartVoice: boolean;
   voiceAxesScript: string;
   voiceLabelsScript: string;
 }
 
-export type SceneItem = TextLineItem | GraphItem | CompoundItem;
+/** One function plot on an existing axes. */
+export interface GraphPlotItem extends SceneItemBase {
+  kind: 'graphPlot';
+  axesId: ItemId;
+  fn: GraphFunction;
+}
+
+/** One labeled dot on an existing axes. */
+export interface GraphDotItem extends SceneItemBase {
+  kind: 'graphDot';
+  axesId: ItemId;
+  dot: GraphDot;
+}
+
+/** Vector or slope field (+ optional streamlines) on an existing axes. */
+export interface GraphFieldItem extends SceneItemBase {
+  kind: 'graphField';
+  axesId: ItemId;
+  fieldMode: GraphFieldMode;
+  pyExprSlope: string;
+  jsExprSlope: string;
+  slopeArrowLength: number;
+  pyExprP: string;
+  pyExprQ: string;
+  jsExprP: string;
+  jsExprQ: string;
+  fieldGridStep: number;
+  fieldColormap: GraphFieldColormap;
+  colorSchemeMin: number;
+  colorSchemeMax: number;
+  streamPoints: GraphStreamPoint[];
+  streamPlacementActive?: boolean;
+  streamDt: number;
+  streamVirtualTime: number;
+}
+
+export type SceneItem =
+  | TextLineItem
+  | AxesItem
+  | GraphPlotItem
+  | GraphDotItem
+  | GraphFieldItem
+  | GraphSeriesVizItem
+  | CompoundItem
+  | ExitAnimationItem;
 
 // ── Project file ──
 

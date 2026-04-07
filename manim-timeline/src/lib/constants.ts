@@ -8,7 +8,7 @@ export const DEFAULT_MATH_COLOR = '#00FFFF';
 
 export const MEASURE_SERVER_DEFAULT_URL = 'http://127.0.0.1:8765';
 
-export const PROJECT_VERSION = 7;
+export const PROJECT_VERSION = 10;
 
 /** Pixels-per-Manim-unit at a reference canvas width of 1200px */
 export const CANVAS_REFERENCE_WIDTH = 1200;

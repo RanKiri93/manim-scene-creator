@@ -33,6 +33,7 @@ export default function Timeline() {
   const setViewRange = useSceneStore((s) => s.setViewRange);
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const selectedIds = useSceneStore((s) => s.selectedIds);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -184,13 +185,18 @@ export default function Timeline() {
     [maxScroll],
   );
 
-  // Group items by layer
+  // Group items by layer; later startTime (then id) renders on top for hit-testing overlaps
   const layerMap = useMemo(() => {
     const m = new Map<number, typeof items>();
     for (const item of items) {
       const arr = m.get(item.layer) ?? [];
       arr.push(item);
       m.set(item.layer, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort(
+        (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
+      );
     }
     return m;
   }, [items]);
@@ -295,53 +301,59 @@ export default function Timeline() {
         onWheel={onWheel}
       >
         <div
-          className="relative"
+          className="relative flex flex-col"
           style={{ width: contentWidth, minWidth: '100%' }}
         >
-          <div
-            className="relative h-5 bg-slate-850 border-b border-slate-700 cursor-pointer"
-            onClick={onRulerClick}
-            onWheel={onWheel}
-          >
-            {ticks.map((t) => {
-              const x = t * pxPerSecond;
-              return (
-                <span
-                  key={t}
-                  className="absolute top-0 text-[9px] text-slate-500 pointer-events-none"
-                  style={{ left: `${x}px` }}
-                >
-                  {t.toFixed(tickInterval < 1 ? 1 : 0)}s
-                </span>
-              );
-            })}
+          {/* Ruler + scene layers + playhead only — keeps playhead from spanning audio */}
+          <div className="relative z-20 isolate">
+            <div
+              className="relative h-5 bg-slate-850 border-b border-slate-700 cursor-pointer"
+              onClick={onRulerClick}
+              onWheel={onWheel}
+            >
+              {ticks.map((t) => {
+                const x = t * pxPerSecond;
+                return (
+                  <span
+                    key={t}
+                    className="absolute top-0 text-[9px] text-slate-500 pointer-events-none"
+                    style={{ left: `${x}px` }}
+                  >
+                    {t.toFixed(tickInterval < 1 ? 1 : 0)}s
+                  </span>
+                );
+              })}
+            </div>
+
+            {layers.map((layer) => (
+              <TimelineTrack
+                key={layer}
+                layer={layer}
+                items={layerMap.get(layer) ?? []}
+                pxPerSecond={pxPerSecond}
+                viewStart={0}
+              />
+            ))}
+
+            <Playhead pixelsPerSecond={pxPerSecond} />
           </div>
 
-          {layers.map((layer) => (
-            <TimelineTrack
-              key={layer}
-              layer={layer}
-              items={layerMap.get(layer) ?? []}
-              pxPerSecond={pxPerSecond}
-              viewStart={0}
-            />
-          ))}
-
-          <div className="relative z-10 min-h-10 h-10 border-t-2 border-slate-600 bg-slate-800/50">
-            <span className="absolute left-1 top-1 text-[9px] text-slate-300 z-20 pointer-events-none">
+          {/* Below scene tracks; low z-index so it never intercepts hits meant for clips above */}
+          <div className="relative z-0 min-h-10 h-10 shrink-0 border-t-2 border-slate-600 bg-slate-800/50">
+            <span className="pointer-events-none absolute left-1 top-1 z-0 text-[9px] text-slate-300">
               Audio
             </span>
-            {audioItems.map((item) => (
+            {audioItems.map((item, i) => (
               <AudioClip
                 key={item.id}
                 item={item}
                 pxPerSecond={pxPerSecond}
                 viewStart={0}
+                stackIndex={i}
+                isSelected={selectedIds.has(item.id)}
               />
             ))}
           </div>
-
-          <Playhead pixelsPerSecond={pxPerSecond} />
         </div>
       </div>
 

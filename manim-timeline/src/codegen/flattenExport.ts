@@ -1,9 +1,19 @@
-import type { SceneItem, TextLineItem, GraphItem, CompoundItem, ItemId } from '@/types/scene';
+import type {
+  SceneItem,
+  TextLineItem,
+  AxesItem,
+  GraphPlotItem,
+  GraphDotItem,
+  GraphFieldItem,
+  GraphSeriesVizItem,
+  CompoundItem,
+  ItemId,
+} from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
 
 /**
  * Top-level timeline order expanded so compound clips become their child text lines in order.
- * Graphs and top-level text lines appear where they occur in time order.
+ * Axes and graph overlays appear where they occur in time order.
  */
 export function flattenExportItems(items: SceneItem[]): SceneItem[] {
   const map = new Map<ItemId, SceneItem>(items.map((i) => [i.id, i]));
@@ -26,10 +36,22 @@ export function flattenExportItems(items: SceneItem[]): SceneItem[] {
   return out;
 }
 
-export type ExportLeaf = TextLineItem | GraphItem;
+export type ExportLeaf =
+  | TextLineItem
+  | AxesItem
+  | GraphPlotItem
+  | GraphDotItem
+  | GraphFieldItem
+  | GraphSeriesVizItem;
 
 export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
   return flattenExportItems(items).filter(
-    (it): it is ExportLeaf => it.kind === 'textLine' || it.kind === 'graph',
+    (it): it is ExportLeaf =>
+      it.kind === 'textLine' ||
+      it.kind === 'axes' ||
+      it.kind === 'graphPlot' ||
+      it.kind === 'graphDot' ||
+      it.kind === 'graphField' ||
+      it.kind === 'graphSeriesViz',
   );
 }
