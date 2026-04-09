@@ -290,4 +290,62 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('[0]');
     expect(code).toContain('[1]');
   });
+
+  it('segment waitAfterSec does not inflate run_time when bound audio is present', () => {
+    // The segment wait must appear as Wait() inside Succession, NOT be included in
+    // run_time — which would double-count it and cause the Write to run past the audio end.
+    const defaults = defaultSceneDefaults();
+    const line = createTextLine(defaults, 0);
+    line.duration = 3;
+    line.raw = 'A||B';
+    line.segments = [
+      {
+        text: 'A',
+        isMath: false,
+        color: '#fff',
+        bold: false,
+        italic: false,
+        waitAfterSec: 2,
+      },
+      {
+        text: 'B',
+        isMath: false,
+        color: '#fff',
+        bold: false,
+        italic: false,
+      },
+    ];
+    line.audioTrackId = 'narr';
+
+    // Audio: 4-second file covering the 3-second animation (not the 5-second effective duration).
+    const code = exportManimCode([line], {
+      fullFile: false,
+      defaults,
+      audioItems: [
+        {
+          id: 'narr',
+          text: 'narration',
+          audioUrl: '/assets/audio/narr.webm',
+          assetRelPath: 'assets/audio/narr.webm',
+          startTime: 0,
+          duration: 4,
+          boundaries: [
+            { word: 'A', start: 0, end: 1.5 },
+            { word: 'B', start: 1.5, end: 3 },
+          ],
+        },
+      ],
+    });
+
+    // run_time for each segment must be based on the 3-second narration boundary span,
+    // NOT the 5-second effective duration (3 + 2 wait).  So per-segment ≈ 1.5s.
+    expect(code).toMatch(/Write\([^)]+\[0\][^)]+run_time=1\.5/);
+    // The Wait(2) must still appear as a separate node.
+    expect(code).toContain('Wait(2.0000)');
+    // The total self.play Succession runs for 3s (narration) + 2s (wait) = 5s,
+    // so a 1-second tail wait follows to let the 4s file finish from scene-time 0.
+    // audioEnd = 0 + 4 = 4; animEnd = 0 + 3 + 2 = 5 → tail = max(0, 4 - 5) = 0.
+    // Actually 4 < 5 so tail = 0 — the audio ends before the animation; no tail wait needed.
+    expect(code).not.toMatch(/self\.wait\(\d/);
+  });
 });

@@ -292,11 +292,16 @@ export function resolveRecordedPlayback(
   if (!audioItems?.length) return null;
 
   const absStart = effectiveStart(item, itemsMap);
-  const timelineDur =
+  // Use the animation-only duration (no segment waitAfterSec) for boundary matching and
+  // the fallback run_time.  Segment waits are emitted as separate Wait() nodes in the
+  // Succession; including them in absEnd would inflate the boundary snap target and cause
+  // runTimeFromBoundaries to fall back to a duration that already includes the waits —
+  // which then gets double-counted when textLineWriteFadePlayExpr adds the Wait() nodes.
+  const animOnlyDur =
     item.kind === 'textLine'
-      ? effectiveDuration(item, itemsMap)
+      ? textLineAnimOnlyDuration(item, itemsMap)
       : item.duration;
-  const absEnd = absStart + timelineDur;
+  const absEnd = absStart + animOnlyDur;
 
   const track = findAudioTrackForLeaf(item, itemsMap, audioItems);
   if (!track) return null;
@@ -305,7 +310,7 @@ export function resolveRecordedPlayback(
     track,
     absStart,
     absEnd,
-    timelineDur,
+    animOnlyDur,
   );
   return {
     runTime,
