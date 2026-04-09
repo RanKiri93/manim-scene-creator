@@ -6,7 +6,10 @@ interface SegmentEditorProps {
   onChange: (segments: SegmentStyle[]) => void;
 }
 
-export default function SegmentEditor({ segments, onChange }: SegmentEditorProps) {
+export default function SegmentEditor({
+  segments,
+  onChange,
+}: SegmentEditorProps) {
   if (segments.length === 0) {
     return <p className="text-xs text-slate-500 italic">No segments parsed yet.</p>;
   }
@@ -29,6 +32,29 @@ export default function SegmentEditor({ segments, onChange }: SegmentEditorProps
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-1 text-xs text-slate-400">
+              <span className="text-slate-500 shrink-0">Wait after (s)</span>
+              <input
+                type="number"
+                min={0}
+                step={0.1}
+                value={seg.waitAfterSec ?? ''}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') {
+                    update(i, { waitAfterSec: undefined });
+                    return;
+                  }
+                  const n = Number(raw);
+                  if (!Number.isFinite(n) || n <= 0) {
+                    update(i, { waitAfterSec: undefined });
+                  } else {
+                    update(i, { waitAfterSec: n });
+                  }
+                }}
+                className="w-16 rounded border border-slate-600 bg-slate-900 px-1 py-0.5 text-slate-200 text-xs"
+              />
+            </label>
             <ColorPicker value={seg.color} onChange={(c) => update(i, { color: c })} />
             <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
               <input
@@ -49,15 +75,6 @@ export default function SegmentEditor({ segments, onChange }: SegmentEditorProps
               I
             </label>
           </div>
-
-          <input
-            type="text"
-            value={seg.voiceText}
-            onChange={(e) => update(i, { voiceText: e.target.value })}
-            placeholder="Segment narration (optional)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300"
-            dir="rtl"
-          />
         </div>
       ))}
     </div>

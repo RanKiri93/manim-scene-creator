@@ -55,6 +55,9 @@ function LangToggle(props: {
 }
 
 export default function AudioPanel({ mode }: AudioPanelProps) {
+  const isTimelinePlaying = useSceneStore((s) => s.isPlaying);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const [script, setScript] = useState('');
   const [lang, setLang] = useState<'iw' | 'en'>('iw');
   const [loading, setLoading] = useState(false);
@@ -81,6 +84,12 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (isTimelinePlaying) {
+      previewAudioRef.current?.pause();
+    }
+  }, [isTimelinePlaying]);
 
   const clearPendingPreview = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -259,6 +268,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           <div className="flex flex-col gap-2 rounded border border-slate-600 bg-slate-900/80 p-3">
             <span className="text-slate-400 text-[11px]">Preview</span>
             <audio
+              ref={previewAudioRef}
               controls
               src={previewUrl ?? undefined}
               className="w-full h-9"
@@ -328,7 +338,12 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
       ) : (
         <div className="flex flex-col gap-2 rounded border border-slate-600 bg-slate-900/80 p-3">
           <span className="text-slate-400 text-[11px]">Preview</span>
-          <audio controls src={previewUrl ?? undefined} className="w-full h-9" />
+          <audio
+            ref={previewAudioRef}
+            controls
+            src={previewUrl ?? undefined}
+            className="w-full h-9"
+          />
           <div className="flex flex-wrap gap-2 pt-1">
             <button
               type="button"

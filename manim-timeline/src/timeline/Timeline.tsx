@@ -9,17 +9,15 @@ import {
 } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { SceneItem } from '@/types/scene';
-import { isTopLevelItem } from '@/lib/time';
+import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
 import AudioClip from './AudioClip';
 import PlaybackControls from './PlaybackControls';
 import Playhead from './Playhead';
-import { usePlaybackLoop } from './hooks/usePlaybackLoop';
 import { usePlaybackEngine } from './hooks/usePlaybackEngine';
+import { useTimelineAudioSync } from './hooks/useTimelineAudioSync';
 
 export default function Timeline() {
-  usePlaybackLoop();
-
   const itemsMap = useSceneStore((s) => s.items);
   const items = useMemo(
     () =>
@@ -51,17 +49,18 @@ export default function Timeline() {
   const containerWidth = viewportWidth;
   const pxPerSecond = containerWidth / Math.max(viewDuration, 0.1);
   usePlaybackEngine(timelineRef as RefObject<HTMLDivElement>, pxPerSecond);
+  useTimelineAudioSync();
 
   const contentEndTime = useMemo(
     () =>
       Math.max(
-        ...items.map((item) => item.startTime + item.duration),
+        ...items.map((item) => timelineSpanEnd(item, itemsMap)),
         ...audioItems.map((item) => item.startTime + item.duration),
         getSceneDuration(),
         viewEnd,
         0.1,
       ),
-    [items, audioItems, getSceneDuration, viewEnd],
+    [items, itemsMap, audioItems, getSceneDuration, viewEnd],
   );
   const contentWidth = Math.max((contentEndTime + dynamicPadding) * pxPerSecond, containerWidth);
 
@@ -275,6 +274,25 @@ export default function Timeline() {
         if (!isHovered.current) return;
         e.preventDefault();
         togglePlayback();
+        return;
+      }
+      if (e.code === 'Delete' || e.code === 'Backspace') {
+        if (!isHovered.current) return;
+        const { selectedIds, audioItems, items, removeAudioItem, removeItem } =
+          useSceneStore.getState();
+        const ids = [...selectedIds];
+        if (ids.length === 0) return;
+        let handled = false;
+        for (const id of ids) {
+          if (audioItems.some((a) => a.id === id)) {
+            removeAudioItem(id);
+            handled = true;
+          } else if (items.has(id)) {
+            removeItem(id);
+            handled = true;
+          }
+        }
+        if (handled) e.preventDefault();
       }
     };
     window.addEventListener('keydown', onKeyDown);

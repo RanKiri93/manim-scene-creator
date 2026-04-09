@@ -17,9 +17,20 @@ import { generateAudio, uploadRecordedAudio } from '@/services/measureClient';
 import {
   isTopLevelItem,
   isActiveAtTime,
+  isTransformSourceHiddenInPreview,
+  runDuration,
+  segmentWaitTotal,
   timelineSpanEnd,
-  minExitStartTime,
+  minExitStartTimeForClip,
 } from '@/lib/time';
+
+function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
+  for (const it of items.values()) {
+    if (it.kind !== 'exit_animation') continue;
+    const minT = minExitStartTimeForClip(it, items);
+    if (minT != null && it.startTime < minT) it.startTime = minT;
+  }
+}
 import {
   MEASURE_SERVER_DEFAULT_URL,
   PROJECT_VERSION,
@@ -27,6 +38,9 @@ import {
 import { createTextLineInCompound, defaultSceneDefaults } from './factories';
 import { migrateSceneItems } from '@/lib/migrateSceneItems';
 import { migrateItemsFromPreV10 } from '@/lib/migrateProjectToV10';
+import { migrateItemsToV11 } from '@/lib/migrateProjectToV11';
+import { migrateItemsToV13 } from '@/lib/migrateProjectToV13';
+import { migrateItemsToV14 } from '@/lib/migrateProjectToV14';
 
 enableMapSet();
 
@@ -54,8 +68,7 @@ function syncCompoundDuration(
     const ch = items.get(cid);
     if (ch?.kind === 'textLine') {
       const ls = ch.localStart ?? 0;
-      const ld = ch.localDuration ?? ch.duration;
-      maxEnd = Math.max(maxEnd, ls + ld);
+      maxEnd = Math.max(maxEnd, ls + runDuration(ch, items));
     }
   }
   c.duration = Math.max(0.5, maxEnd);
@@ -124,6 +137,17 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   // Timeline mutations
   moveItem: (id: ItemId, newStartTime: number) => void;
   moveAudioItem: (id: string, newStartTime: number) => void;
+  /** Remove a timeline audio track (revokes blob URL; clears matching `audioTrackId` on clips). */
+  removeAudioItem: (id: string) => void;
+  /**
+   * Remove empty timeline time [gapStart, gapEnd): shift every top-level clip and audio
+   * track with startTime >= gapEnd left by (gapEnd - gapStart).
+   */
+  closeGap: (gapStart: number, gapEnd: number) => void;
+  /** Move many scene clips in one undo step; reclamps exit_animation starts. */
+  setSceneItemStartTimes: (updates: { id: ItemId; startTime: number }[]) => void;
+  /** Move many audio clips in one undo step. */
+  setAudioItemStartTimes: (updates: { id: string; startTime: number }[]) => void;
   resizeItem: (id: ItemId, newDuration: number) => void;
   setItemLayer: (id: ItemId, layer: number) => void;
 
@@ -251,10 +275,20 @@ export const useSceneStore = create<SceneStore>()(
           }
         }
         for (const [eid, ex] of [...s.items.entries()]) {
-          if (ex.kind === 'exit_animation' && ex.targetId === id) {
+          if (
+            ex.kind === 'exit_animation' &&
+            ex.targets.some((t) => t.targetId === id)
+          ) {
             s.items.delete(eid);
             s.selectedIds.delete(eid);
             if (s.inspectedId === eid) s.inspectedId = null;
+          }
+        }
+        for (const [rid, sr] of [...s.items.entries()]) {
+          if (sr.kind === 'surroundingRect' && sr.targetId === id) {
+            s.items.delete(rid);
+            s.selectedIds.delete(rid);
+            if (s.inspectedId === rid) s.inspectedId = null;
           }
         }
         s.items.delete(id);
@@ -270,7 +304,8 @@ export const useSceneStore = create<SceneStore>()(
           src.kind === 'graphPlot' ||
           src.kind === 'graphDot' ||
           src.kind === 'graphField' ||
-          src.kind === 'graphSeriesViz'
+          src.kind === 'graphSeriesViz' ||
+          src.kind === 'shape'
         ) {
           const clone = structuredClone(src) as SceneItem;
           clone.id = crypto.randomUUID().slice(0, 12);
@@ -296,12 +331,21 @@ export const useSceneStore = create<SceneStore>()(
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
+        if (src.kind === 'surroundingRect') {
+          const clone = structuredClone(src) as typeof src;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
         const clone = structuredClone(src) as SceneItem;
         clone.id = crypto.randomUUID().slice(0, 12);
         clone.label = src.label + ' (copy)';
         if (
           (clone.kind === 'textLine' && !clone.parentId) ||
-          clone.kind === 'axes'
+          clone.kind === 'axes' ||
+          clone.kind === 'shape'
         ) {
           clone.startTime = src.startTime + src.duration;
         }
@@ -315,7 +359,10 @@ export const useSceneStore = create<SceneStore>()(
         for (const cid of c.childIds) {
           const ch = s.items.get(cid);
           if (ch?.kind === 'textLine') {
-            maxEnd = Math.max(maxEnd, (ch.localStart ?? 0) + (ch.localDuration ?? ch.duration));
+            maxEnd = Math.max(
+              maxEnd,
+              (ch.localStart ?? 0) + runDuration(ch, s.items),
+            );
           }
         }
         const child = createTextLineInCompound(s.defaults, compoundId, maxEnd, 3);
@@ -330,7 +377,7 @@ export const useSceneStore = create<SceneStore>()(
         if (!item) return;
         let t = Math.max(0, newStartTime);
         if (item.kind === 'exit_animation') {
-          const minT = minExitStartTime(item.targetId, s.items);
+          const minT = minExitStartTimeForClip(item, s.items);
           if (minT != null) t = Math.max(t, minT);
         }
         item.startTime = t;
@@ -339,9 +386,82 @@ export const useSceneStore = create<SceneStore>()(
         const track = s.audioItems.find((a) => a.id === id);
         if (track) track.startTime = Math.max(0, newStartTime);
       }),
+
+      removeAudioItem: (id) => set((s) => {
+        const idx = s.audioItems.findIndex((a) => a.id === id);
+        if (idx < 0) return;
+        const track = s.audioItems[idx]!;
+        const u = track.audioUrl;
+        if (typeof u === 'string' && u.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(u);
+          } catch {
+            /* ignore */
+          }
+        }
+        s.audioItems.splice(idx, 1);
+        s.selectedIds.delete(id);
+        for (const it of s.items.values()) {
+          if (!('audioTrackId' in it)) continue;
+          const link = it as { audioTrackId?: string | null };
+          if (link.audioTrackId === id) link.audioTrackId = null;
+        }
+      }),
+
+      closeGap: (gapStart, gapEnd) => set((s) => {
+        if (
+          !Number.isFinite(gapStart) ||
+          !Number.isFinite(gapEnd) ||
+          !(gapEnd > gapStart)
+        ) {
+          return;
+        }
+        const delta = gapEnd - gapStart;
+        for (const it of s.items.values()) {
+          if (!isTopLevelItem(it)) continue;
+          if (it.startTime >= gapEnd) {
+            it.startTime = Math.max(0, it.startTime - delta);
+          }
+        }
+        for (const a of s.audioItems) {
+          if (a.startTime >= gapEnd) {
+            a.startTime = Math.max(0, a.startTime - delta);
+          }
+        }
+        clampAllExitStarts(s.items);
+      }),
+
+      setSceneItemStartTimes: (updates) => set((s) => {
+        for (const { id, startTime } of updates) {
+          const item = s.items.get(id);
+          if (!item || !isTopLevelItem(item)) continue;
+          item.startTime = Math.max(0, startTime);
+        }
+        clampAllExitStarts(s.items);
+      }),
+
+      setAudioItemStartTimes: (updates) => set((s) => {
+        for (const { id, startTime } of updates) {
+          const track = s.audioItems.find((a) => a.id === id);
+          if (track) track.startTime = Math.max(0, startTime);
+        }
+      }),
+
       resizeItem: (id, newDuration) => set((s) => {
         const item = s.items.get(id);
-        if (item) item.duration = Math.max(0.01, newDuration);
+        if (!item) return;
+        if (item.kind === 'textLine') {
+          const w = segmentWaitTotal(item.segments);
+          const base = Math.max(0.01, newDuration - w);
+          if (item.parentId) {
+            item.localDuration = base;
+            syncCompoundDuration(s.items, item.parentId);
+          } else {
+            item.duration = base;
+          }
+          return;
+        }
+        item.duration = Math.max(0.01, newDuration);
       }),
       setItemLayer: (id, layer) => set((s) => {
         const item = s.items.get(id);
@@ -351,12 +471,24 @@ export const useSceneStore = create<SceneStore>()(
       // ── Spatial mutations ──
       setItemPosition: (id, x, y) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'compound' || item?.kind === 'exit_animation') return;
+        if (
+          item?.kind === 'compound' ||
+          item?.kind === 'exit_animation' ||
+          item?.kind === 'surroundingRect'
+        ) {
+          return;
+        }
         if (item) { item.x = x; item.y = y; }
       }),
       setItemScale: (id, scale) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'compound' || item?.kind === 'exit_animation') return;
+        if (
+          item?.kind === 'compound' ||
+          item?.kind === 'exit_animation' ||
+          item?.kind === 'surroundingRect'
+        ) {
+          return;
+        }
         if (item) item.scale = Math.max(0.01, scale);
       }),
 
@@ -387,7 +519,16 @@ export const useSceneStore = create<SceneStore>()(
       getVisibleItems: (time) => {
         const items = get().items;
         return Array.from(items.values())
-          .filter((it) => isActiveAtTime(it, time, items))
+          .filter((it) => {
+            if (!isActiveAtTime(it, time, items)) return false;
+            if (
+              it.kind === 'textLine' &&
+              isTransformSourceHiddenInPreview(it, time, items)
+            ) {
+              return false;
+            }
+            return true;
+          })
           .sort((a, b) => a.layer - b.layer);
       },
 
@@ -440,6 +581,15 @@ export const useSceneStore = create<SceneStore>()(
         let migrated = migrateSceneItems(file.items as SceneItem[]);
         if ((file.version ?? 0) < 10) {
           migrated = migrateItemsFromPreV10(migrated);
+        }
+        if ((file.version ?? 0) < 11) {
+          migrated = migrateItemsToV11(migrated);
+        }
+        if ((file.version ?? 0) < 13) {
+          migrated = migrateItemsToV13(migrated);
+        }
+        if ((file.version ?? 0) < 14) {
+          migrated = migrateItemsToV14(migrated);
         }
         for (const item of migrated) {
           s.items.set(item.id, item);

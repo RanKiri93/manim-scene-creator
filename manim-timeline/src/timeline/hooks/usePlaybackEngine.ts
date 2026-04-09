@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 
+/**
+ * Single RAF loop: advance `currentTime`, auto-scroll the timeline, stop at scene end.
+ * (Do not mount a second playback loop — duplicate loops double clock speed and can
+ * restart or stack media that keys off `currentTime`.)
+ */
 export function usePlaybackEngine(
   timelineRef: React.RefObject<HTMLDivElement>,
   pixelsPerSecond: number,
@@ -27,8 +32,20 @@ export function usePlaybackEngine(
         const deltaTime = (ts - lastTsRef.current) / 1000;
         lastTsRef.current = ts;
 
-        const prevTime = useSceneStore.getState().currentTime;
-        const newTime = Math.max(0, prevTime + deltaTime);
+        const store = useSceneStore.getState();
+        const prevTime = store.currentTime;
+        let newTime = Math.max(0, prevTime + deltaTime);
+        const dur = store.getSceneDuration();
+
+        if (dur > 0 && newTime >= dur) {
+          newTime = dur;
+          setCurrentTime(newTime);
+          store.pause();
+          lastTsRef.current = null;
+          rafIdRef.current = null;
+          return;
+        }
+
         setCurrentTime(newTime);
 
         const timeline = timelineRef.current;

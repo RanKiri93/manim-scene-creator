@@ -10,9 +10,12 @@ interface UseDragSnapOptions {
   gridSnap?: number | null;
 }
 
-/** True when the chain contains only `absolute` steps (free dragging allowed). */
-function isFreelyDraggable(steps: PosStep[]): boolean {
-  return steps.every((s) => s.kind === 'absolute');
+/** True when the chain is empty or only `absolute` steps (free dragging allowed). */
+export function isFreelyDraggable(steps: PosStep[]): boolean {
+  return (
+    steps.length === 0 ||
+    steps.every((s) => s.kind === 'absolute')
+  );
 }
 
 function applyDragPosition(

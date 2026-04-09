@@ -22,7 +22,7 @@ export type ManimDirection =
 export interface PosStepAbsolute { kind: 'absolute' }
 export interface PosStepNextTo {
   kind: 'next_to';
-  refKind: 'line' | 'axes';
+  refKind: 'line' | 'axes' | 'shape';
   refId: ItemId | null;
   dir: ManimDirection;
   buff: number;
@@ -48,7 +48,8 @@ export interface SegmentStyle {
   color: string;
   bold: boolean;
   italic: boolean;
-  voiceText: string;
+  /** Optional pause (seconds) after this segment in timeline + export; omitted or ≤0 = none. */
+  waitAfterSec?: number;
 }
 
 /** How a text line is introduced or transitioned in the scene. */
@@ -112,23 +113,6 @@ export function getAudioBoundaries(item: AudioTrackItem): WordBoundary[] {
   }));
 }
 
-// ── Voiceover ──
-
-export type AnimMode = 'runtime' | 'voiceover';
-export type VoiceKind = 'tts' | 'recorder';
-
-export interface VoiceoverConfig {
-  animMode: AnimMode;
-  voiceKind: VoiceKind;
-  /** When set, export ties this clip to a specific `audioItems` track (Whisper boundaries). */
-  audioTrackId?: string | null;
-  script: string;
-  preamble: string;
-  singleTakeBookmarks: boolean;
-  mergeWithNext: boolean;
-  perSegmentNarration: boolean;
-}
-
 // ── Measurement cache ──
 
 export interface MeasureResult {
@@ -160,15 +144,25 @@ export type ExitAnimStyle =
   | 'shrink_to_center'
   | 'none';
 
+/** One object in a multi-target exit clip; each row can use a different `animStyle`. */
+export interface ExitTargetSpec {
+  targetId: ItemId;
+  animStyle: ExitAnimStyle;
+}
+
 interface SceneItemBase extends TimeSpan, SpatialTransform {
   id: ItemId;
   label: string;
   layer: number;
   posSteps: PosStep[];
-  voice: VoiceoverConfig;
+  /** When set, export ties this clip to a specific `audioItems` track (Whisper boundaries). */
+  audioTrackId?: string | null;
 }
 
-/** Top-level clip: runs exit animation on `targetId` at `startTime` for `duration` seconds. */
+/**
+ * Top-level clip: runs exit animations on all `targets` at `startTime` concurrently
+ * (`AnimationGroup` in export) for `duration` seconds.
+ */
 export interface ExitAnimationItem {
   kind: 'exit_animation';
   id: ItemId;
@@ -176,8 +170,56 @@ export interface ExitAnimationItem {
   layer: number;
   startTime: number;
   duration: number;
+  targets: ExitTargetSpec[];
+}
+
+/** Highlight box around another object; optional label; remove with a normal exit clip. */
+export interface SurroundingRectItem {
+  kind: 'surroundingRect';
+  id: ItemId;
+  label: string;
+  layer: number;
+  startTime: number;
+  duration: number;
   targetId: ItemId;
-  animStyle: ExitAnimStyle;
+  /**
+   * When the target is a `textLine`, optional 0-based segment indices on the exported
+   * `HebrewMathLine` (omit or empty = surround the whole line).
+   */
+  segmentIndices?: number[] | null;
+  buff: number;
+  color: string;
+  cornerRadius: number;
+  strokeWidth: number;
+  labelText: string;
+  labelDir: ManimDirection;
+  labelFontSize: number;
+  introStyle: 'create' | 'fade_in';
+  introRunTime: number;
+}
+
+export type ShapeKind = 'circle' | 'rectangle' | 'arrow' | 'line';
+
+/** Primitive shape: circle, rectangle, arrow, or line; positioned like other scene objects. */
+export interface ShapeItem extends SceneItemBase {
+  kind: 'shape';
+  shapeType: ShapeKind;
+  /** Degrees, CCW; applied in Manim after move_to. */
+  rotationDeg: number;
+  /** Circle radius (Manim units). */
+  radius: number;
+  /** Rectangle width / height (Manim units). */
+  width: number;
+  height: number;
+  /** Arrow or line: vector from tail to tip in local space before rotation/scale. */
+  endX: number;
+  endY: number;
+  strokeColor: string;
+  strokeWidth: number;
+  /** Fill color; null = no fill (stroke only). */
+  fillColor: string | null;
+  fillOpacity: number;
+  introStyle: 'create' | 'fade_in';
 }
 
 export interface TextLineItem extends SceneItemBase {
@@ -204,7 +246,6 @@ export interface GraphFunction {
   pyExpr: string;
   color: string;
   label: string;
-  voiceText: string;
 }
 
 export interface GraphDot {
@@ -215,7 +256,6 @@ export interface GraphDot {
   radius: number;
   label: string;
   labelDir: ManimDirection;
-  voiceText: string;
 }
 
 /** Seed (x0, y0) for ODE streamline γ′ = F(γ) in graph coordinates. */
@@ -261,7 +301,6 @@ export interface GraphSeriesVizItem extends SceneItemBase {
   strokeWidth: number;
   /** Optional horizontal line y = L (graph coordinates); null to hide. */
   limitY: number | null;
-  voiceText: string;
 }
 
 /**
@@ -293,9 +332,6 @@ export interface AxesItem extends SceneItemBase {
   yLabel: string;
   includeNumbers: boolean;
   includeTip: boolean;
-  perPartVoice: boolean;
-  voiceAxesScript: string;
-  voiceLabelsScript: string;
 }
 
 /** One function plot on an existing axes. */
@@ -341,8 +377,10 @@ export type SceneItem =
   | GraphDotItem
   | GraphFieldItem
   | GraphSeriesVizItem
+  | ShapeItem
   | CompoundItem
-  | ExitAnimationItem;
+  | ExitAnimationItem
+  | SurroundingRectItem;
 
 // ── Project file ──
 

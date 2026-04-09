@@ -3,7 +3,6 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { GraphDotItem, ManimDirection } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
-import VoiceoverEditor from './VoiceoverEditor';
 import AxesIdSelect from './AxesIdSelect';
 
 const DIRS: ManimDirection[] = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'UL', 'UR', 'DL', 'DR'];
@@ -73,12 +72,6 @@ export default function GraphDotEditor({ item }: GraphDotEditorProps) {
         <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
       </div>
 
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">Voiceover</summary>
-        <div className="mt-2">
-          <VoiceoverEditor voice={item.voice} onChange={(v) => set({ voice: v })} />
-        </div>
-      </details>
     </div>
   );
 }

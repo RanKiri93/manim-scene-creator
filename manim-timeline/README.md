@@ -11,17 +11,18 @@ This document is the **canonical** reference for the `manim-timeline/` package. 
 1. [What the application does](#what-the-application-does)
 2. [Global audio timeline (narration)](#global-audio-timeline-narration)
 3. [Export to Python (Manim)](#export-to-python-manim)
-4. [Compound clips](#compound-clips-chain-calculations)
-5. [Project file format](#project-file-format)
+4. [Export timing and audio synchronization](#export-timing-and-audio-synchronization)
+5. [Compound clips](#compound-clips-chain-calculations)
+6. [Project file format](#project-file-format)
    - [Portable bundle (`.mtproj`)](#portable-bundle-mtproj)
-6. [Tech stack](#tech-stack)
-7. [Source layout (`src/`)](#source-layout-src)
-8. [Architecture notes](#architecture-notes)
-9. [Running locally](#running-locally)
-10. [Tauri desktop (optional)](#tauri-desktop-optional)
-11. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
-12. [Roadmap and known gaps](#roadmap-and-known-gaps)
-13. [Troubleshooting](#troubleshooting)
+7. [Tech stack](#tech-stack)
+8. [Source layout (`src/`)](#source-layout-src)
+9. [Architecture notes](#architecture-notes)
+10. [Running locally](#running-locally)
+11. [Tauri desktop (optional)](#tauri-desktop-optional)
+12. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
+13. [Roadmap and known gaps](#roadmap-and-known-gaps)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -33,13 +34,13 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 
 | Kind | Purpose |
 |------|---------|
-| **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic; measurement fills bbox and optional PNG preview. |
+| **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic, optional **`waitAfterSec`**; measurement fills bbox and optional PNG preview. |
 | **Axes** | Coordinate system only; plots, dots, fields, and series viz are **separate clips** referencing `axesId`. |
 | **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphSeriesViz` — timed like other clips, anchored to an axes item. |
 | **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
 | **Exit animation** | A **separate timeline clip** (`exit_animation`) that targets another animatable item by `targetId`. It runs `FadeOut` / `Uncreate` / `ShrinkToCenter` (or `none`) at its own `startTime` for `duration` seconds. The exit must start at or after the target’s **hold end** (`effectiveStart + run duration`, including compound-local duration for child lines). Adding an object does not create an exit; add exits from **+ Object → Exit animation** when needed. |
 
-**Time** — Each timed item has `startTime`, `duration`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children. Pauses after a clip’s main run are expressed by **spacing clips on the timeline** (there is no per-item `waitAfter`).
+**Time** — Each timed item has `startTime`, `duration`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children. Pauses can be **spacing clips on the timeline**, or optional **`waitAfterSec` on each text-line segment** (extends that line’s `runDuration` and shows as amber stripes on the timeline bar; export uses `Succession` / `Wait`).
 
 **Space** — `x`, `y`, `scale`, plus an ordered list **`posSteps`**: absolute `move_to`, `next_to` (another line or axes), `to_edge`, `shift`, `set_x`, `set_y`. Compounds and exit clips do not occupy the canvas; only drawable leaves do.
 
@@ -91,7 +92,7 @@ Narration is **not** stored per line or per graph in the data model. Instead:
 1. Use the **Audio** floating panel: **TTS** (script + language) or **record** → upload.
 2. Clips live in **`audioItems`** with `startTime`, `duration`, `text`, `audioUrl`, and optional **word boundaries** (Whisper).
 
-**Export alignment** — When generating Manim playback for a **text line** or **graph**, the codegen may resolve a **matching** `audioItems` entry by **timeline position** (start time proximity / overlap). If a match is found, export emits **`self.add_sound("assets/audio/…")`** and sets **`run_time`** from **word-boundary span** when boundaries are available; otherwise it falls back to the clip’s timeline duration. Gaps between scheduled events (including before an exit clip) are expressed with **`self.wait`** from the exporter’s timeline cursor. There is **no** `manim-voiceover` dependency: the exported scene subclasses Manim’s **`Scene`** and uses ordinary **`self.play`** / **`self.wait`**.
+**Export alignment** — When generating Manim playback for a **text line** or **graph**, the codegen may resolve a **matching** `audioItems` entry by **timeline position** (start time proximity / overlap). If a match is found, export emits **`self.add_sound("assets/audio/…")`** and sets **`run_time`** from **word-boundary span** when boundaries are available; otherwise it falls back to the clip’s timeline duration. Gaps between scheduled events (including before an exit clip) are expressed with **`self.wait`** from the exporter’s timeline cursor. There is **no** `manim-voiceover` dependency: the exported scene subclasses Manim’s **`Scene`** and uses ordinary **`self.play`** / **`self.wait`**. For **early narration**, **post-play tails**, and **one file under many lines**, see [Export timing and audio synchronization](#export-timing-and-audio-synchronization).
 
 ---
 
@@ -106,6 +107,95 @@ Narration is **not** stored per line or per graph in the data model. Instead:
 - **Download Script (.md)** — **`exportScriptToMarkdown`** produces a **human-readable outline** (line headings + raw LaTeX, graph summaries, compound children). It is **not** a TTS script format; use **`audioItems`** for spoken content.
 
 **Scene class name** — Editable in the header; sanitized with **`safeSceneClassName`** (`src/lib/pythonIdent.ts`) for valid Python identifiers.
+
+---
+
+## Export timing and audio synchronization
+
+This section documents how **editor timeline time** maps to **`self.play` / `self.wait` / `self.add_sound`** in exported Manim code, and summarizes the timing-related behavior implemented in codegen.
+
+### Timeline primitives (`src/lib/time.ts`)
+
+- **`effectiveStart(item, itemsMap)`** — Global start: for compound children, `compound.startTime + localStart`; otherwise `item.startTime`.
+- **`runDuration` / `effectiveDuration` (text lines)** — Base clip duration plus **`segmentWaitTotal`** (sum of positive **`waitAfterSec`** on segments). Segment waits extend the line’s run segment and appear in export as **`Wait(...)`** inside a **`Succession`** (write/fade per segment).
+- **`holdEnd(item, itemsMap)`** — `effectiveStart + runDuration`: end of the line’s **intro / hold** window on the timeline (before any separate **exit_animation** clip).
+- **`textLineAnimOnlyDuration`** — Intro animation span **without** per-segment waits (used where waits are emitted separately in Python).
+
+Export ordering uses these values so the **next clip’s** scheduled time can be compared to the **scene clock** the exporter maintains while emitting Python.
+
+### Playback event stream (`src/codegen/manimExporter.ts`)
+
+1. **Flatten** drawable leaves in timeline order (`flattenExportLeaves`).
+2. Build **`playEvents`**: leaf starts, **visual clusters** (concurrent `AnimationGroup`), **audio** tracks that need an early or unbound `add_sound`, surrounding rects, exits — then **sort by `t`** (with a stable kind order so audio and visuals at the same timestamp behave predictably).
+3. Walk events in groups of equal **`t`** (within **`TIMELINE_GAP_EPS` ≈ 1 ms).
+4. For each group, emit **`self.wait(Δ)`** when the timeline jumps forward from **`timelineCursor`** to **`t0`**.
+5. Emit **`add_sound`** lines, concurrent **`AnimationGroup`** blocks, sequential leaf plays, etc.
+6. **`padAfter`** — After the group, compare **how much timeline span** this group is allowed to consume (capped by the **next** event’s `t`) with **how many seconds of Manim animation** were emitted; add **`self.wait(padAfter)`** so the cursor stays consistent when **`add_sound`** (which does not advance Manim’s scene clock) or short animations would otherwise desync the next wait.
+
+If **`sequentialAnimSecondsForLeaf`** (see below) does not match the **actual** waits and `run_time`s emitted for a leaf, **`timelineCursor`** drifts and later clips can appear **late** or **never align** with the editor playhead.
+
+### Bound narration on visuals (`src/codegen/lineCodegen.ts`)
+
+- **`pickAudioTrackForClip` / `findAudioTrackForLeaf`** — Chooses an **`audioItems`** track from explicit **`audioTrackId`** or from **timeline overlap** with the leaf’s `[effectiveStart, effectiveStart + duration]` window.
+- **`resolveRecordedPlayback`** — **`run_time`** for `self.play` from **Whisper word boundaries** when they match the clip window; **`soundPath`** for `add_sound`; **`audioFileDuration`** from the track’s **`duration`** (full file length Manim plays from `add_sound`).
+
+**Post-play audio tail** — After the visual animation, export may append **`self.wait`** so the **scene clock** catches up when the **spoken file** is longer than the boundary-derived **`run_time`**. Two notions:
+
+- **`audioTailWaitSec`** — `max(0, audioFileDuration - runTime)` when sound is tied to the **same moment** as `add_sound` at the leaf.
+- **`audioTailWaitAfterLeafPlayback`** — When the track is positioned on the timeline, tail is based on **absolute** **animation end** vs **absolute** **end of file on the timeline** (`track.startTime + audioFileDuration`), so early-started narration stays consistent with the clock.
+
+**`sceneClockSecForLeafBoundPlayback`** — Seconds the exported leaf block should consume (**animation + tail**), used by **`sequentialAnimSecondsForLeaf`** (`groupPlaybackSpan.ts`) so **`manimExporter`**’s **`animSec`** matches codegen.
+
+### Early-bound audio (narration starts before the visual clip)
+
+If the chosen track’s **`startTime`** is **before** the leaf’s **`effectiveStart`**, the file must not wait until the line plays to call **`add_sound`**:
+
+- **`listUnboundAudioTracksForExport`** — Emits **`add_sound`** at the track’s timeline time for tracks that are **unbound** or **bound but early** (deduped).
+- **`boundSoundEmittedAtTrackStart`** — For those leaves, the sequential / concurrent leaf codegen **skips** a second **`add_sound`** and still appends the appropriate **tail** wait so the clock matches **`audioTailWaitAfterLeafPlayback`**.
+
+Concurrent clusters (**`buildConcurrentVisualClusterPlay`**) skip per-leaf **`add_sound`** when the sound was already emitted at track start, and use the same tail logic in **`Succession`** branches.
+
+### Tail ceiling (multiple lines, one long file)
+
+A single uploaded track often spans **several** text lines. Waiting until **`track.startTime + file duration`** after **every** line would push the Manim scene clock **past** the next line’s **`effectiveStart`**. The exporter would then **omit** the `self.wait` needed to reach that start, so the **next** `Write` ran far too late (or seemed “missing” at editor time).
+
+**Mitigation** — **`BoundAudioTailOpts.tailCeilingAbs`**: an **absolute** timeline time. **`audioTailWaitAfterLeafPlayback`** returns **`min(uncappedTail, max(0, tailCeilingAbs - animEnd))`**.
+
+**`manimExporter`** sets **`tailCeilingAbs`** to **`nextTimelineEventAfter(holdEnd(leaf))`**: the earliest **`playEvents[].t`** strictly after this clip’s **hold end**. The same option is passed into **`sequentialAnimSecondsForLeaf`** for that leaf so **`timelineCursor` / `padAfter`** stay aligned with the shortened tail.
+
+**Concurrent clusters** use a ceiling derived from **`nextTimelineEventAfter(clusterWallTimelineEnd)`**, where the wall is the max of participant **hold ends** / rect intro ends / exit spans.
+
+### Concurrent visuals (`src/codegen/leafConcurrentCodegen.ts`)
+
+Overlapping intro intervals (by **`holdEnd`**, not only **`effectiveStart`**) merge into one **`AnimationGroup`** with per-participant **`Succession(Wait(rel), …)`** stagger. **Adjacent** clips that only **touch** at an endpoint do **not** merge (**`MIN_INTERVAL_OVERLAP_SEC`**).
+
+### Per-leaf duration accuracy
+
+For the padding math to produce correct `self.wait` gaps, `sequentialAnimSecondsForLeaf` (`groupPlaybackSpan.ts`) must return exactly the number of Manim scene-clock seconds the emitted code block consumes. Key invariants:
+
+| Leaf kind | No audio | With audio |
+|-----------|----------|------------|
+| `textLine` | `effectiveDuration` (anim + segment waits) | `sceneClockSecForLeafBoundPlayback` (includes boundary `run_time`, segment waits, and capped tail wait) |
+| `axes`, `graphPlot`, `graphSeriesViz`, `shape` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
+| `graphDot` | `leaf.duration + (label ? 1 : 0)` | `sceneClockSecForLeafBoundPlayback` (already includes the label `Write` second — do **not** add it again) |
+| `graphField` | `leaf.duration + (seeds ? 1 : 0)` | `sceneClockSecForLeafBoundPlayback` (already includes the streams `Create` second — do **not** add it again) |
+
+`graphDot` without audio emits `FadeIn(..., run_time=item.duration)` — the `run_time` is now explicitly passed so it matches the clip's timeline duration (previously omitted, causing Manim's 1 s default to be used regardless of `leaf.duration`).
+
+### Tests
+
+- **`src/codegen/manimExporter.overlap.test.ts`** — Overlap clustering, early **`add_sound`**, **tail ceiling** for two lines sharing one long track, segment **`waitAfterSec`**, audio tail when file longer than slice, etc.
+
+### Files to read first
+
+| Area | Files |
+|------|--------|
+| Event ordering & cursor | `src/codegen/manimExporter.ts` |
+| Text line + audio resolution + tails | `src/codegen/lineCodegen.ts` |
+| Per-leaf duration for cursor | `src/codegen/groupPlaybackSpan.ts` |
+| Concurrent `AnimationGroup` | `src/codegen/leafConcurrentCodegen.ts` |
+| Graph / shape bound audio | `src/codegen/graphCodegen.ts`, `src/codegen/shapeCodegen.ts` |
+| Timeline math | `src/lib/time.ts` |
 
 ---
 
@@ -295,4 +385,4 @@ Native shell and optional **PyInstaller** sidecar: see **`TAURI.md`** and **`src
 
 ---
 
-*Last updated: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps.*
+*Last updated: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps; `graphDot` FadeIn now passes `run_time=item.duration` explicitly; `sequentialAnimSecondsForLeaf` no longer double-counts the label/streams extra second when bound audio is present.*

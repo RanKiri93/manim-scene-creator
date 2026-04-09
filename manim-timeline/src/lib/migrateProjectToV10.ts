@@ -39,8 +39,7 @@ export function migrateItemsFromPreV10(items: SceneItem[]): SceneItem[] {
       layer: item.layer,
       startTime: effStart + rd + wait,
       duration: Math.max(0.01, rt),
-      targetId: item.id,
-      animStyle: style,
+      targets: [{ targetId: item.id, animStyle: style }],
     });
   }
 

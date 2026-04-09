@@ -1,6 +1,7 @@
 import type {
   ItemId,
   SceneItem,
+  SegmentStyle,
   TextLineItem,
   CompoundItem,
   ExitAnimationItem,
@@ -20,16 +21,22 @@ export function getCompound(
   return it?.kind === 'compound' ? it : undefined;
 }
 
-/** Leaf kinds that can be the target of an exit_animation clip. */
-export function canBeExitTarget(item: SceneItem): boolean {
+/** Objects that can be highlighted with a surrounding rectangle (not another highlight). */
+export function canBeSurroundTarget(item: SceneItem): boolean {
   return (
     item.kind === 'textLine' ||
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
-    item.kind === 'graphSeriesViz'
+    item.kind === 'graphSeriesViz' ||
+    item.kind === 'shape'
   );
+}
+
+/** Objects that can be the target of an exit_animation clip (includes surroundingRect). */
+export function canBeExitTarget(item: SceneItem): boolean {
+  return canBeSurroundTarget(item) || item.kind === 'surroundingRect';
 }
 
 function exitClipsForTarget(
@@ -38,13 +45,11 @@ function exitClipsForTarget(
 ): ExitAnimationItem[] {
   const out: ExitAnimationItem[] = [];
   for (const it of items.values()) {
-    if (
-      it.kind === 'exit_animation' &&
-      it.targetId === targetId &&
-      it.animStyle !== 'none'
-    ) {
-      out.push(it);
-    }
+    if (it.kind !== 'exit_animation') continue;
+    const hit = it.targets.some(
+      (t) => t.targetId === targetId && t.animStyle !== 'none',
+    );
+    if (hit) out.push(it);
   }
   return out;
 }
@@ -85,21 +90,49 @@ export function effectiveStart(item: SceneItem, items: Map<ItemId, SceneItem>): 
   return item.startTime;
 }
 
-/** Run segment length in seconds (intro / main play window, not exit). */
-export function runDuration(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'textLine' && item.parentId) {
+function textLineBaseDuration(item: TextLineItem, items: Map<ItemId, SceneItem>): number {
+  if (item.parentId) {
     const p = items.get(item.parentId);
     if (p?.kind === 'compound') {
       return item.localDuration ?? item.duration;
     }
   }
+  return item.duration;
+}
+
+/** Sum of positive per-segment post-waits (timeline + export). */
+export function segmentWaitTotal(segments: readonly SegmentStyle[]): number {
+  let t = 0;
+  for (const s of segments) {
+    const w = s.waitAfterSec;
+    if (w != null && w > 0) t += w;
+  }
+  return t;
+}
+
+/** Text line duration for intro/write animation only (excludes segment `waitAfterSec`). */
+export function textLineAnimOnlyDuration(
+  item: TextLineItem,
+  items: Map<ItemId, SceneItem>,
+): number {
+  return textLineBaseDuration(item, items);
+}
+
+/** Run segment length in seconds (intro / main play window, not exit). */
+export function runDuration(item: SceneItem, items: Map<ItemId, SceneItem>): number {
+  if (item.kind === 'textLine') {
+    return (
+      textLineBaseDuration(item, items) + segmentWaitTotal(item.segments)
+    );
+  }
   if (
-    item.kind === 'textLine' ||
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
-    item.kind === 'graphSeriesViz'
+    item.kind === 'graphSeriesViz' ||
+    item.kind === 'shape' ||
+    item.kind === 'surroundingRect'
   ) {
     return item.duration;
   }
@@ -137,13 +170,7 @@ export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>):
 }
 
 export function effectiveDuration(item: TextLineItem, items: Map<ItemId, SceneItem>): number {
-  if (item.parentId) {
-    const p = items.get(item.parentId);
-    if (p?.kind === 'compound') {
-      return item.localDuration ?? item.duration;
-    }
-  }
-  return item.duration;
+  return textLineBaseDuration(item, items) + segmentWaitTotal(item.segments);
 }
 
 /** Whether `time` falls inside this item's playback window. */
@@ -159,6 +186,33 @@ export function isActiveAtTime(
   return time < end;
 }
 
+/**
+ * Canvas preview: a line used as `transformConfig.sourceLineId` should disappear after
+ * the transform animation on the target finishes (same notion as `holdEnd` on the target),
+ * otherwise the source LaTeX preview stays on screen forever because `effectiveEnd` has no exit.
+ */
+export function isTransformSourceHiddenInPreview(
+  sourceLine: TextLineItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+): boolean {
+  const targets: TextLineItem[] = [];
+  for (const it of items.values()) {
+    if (it.kind !== 'textLine') continue;
+    if (it.animStyle !== 'transform') continue;
+    if (it.transformConfig?.sourceLineId !== sourceLine.id) continue;
+    targets.push(it);
+  }
+  if (targets.length === 0) return false;
+  targets.sort(
+    (a, b) =>
+      effectiveStart(a, items) - effectiveStart(b, items) ||
+      a.id.localeCompare(b.id),
+  );
+  const lastByStart = targets[targets.length - 1]!;
+  return time >= holdEnd(lastByStart, items);
+}
+
 /** Minimum legal `startTime` for an exit clip targeting `targetId`. */
 export function minExitStartTime(
   targetId: ItemId,
@@ -167,4 +221,19 @@ export function minExitStartTime(
   const t = items.get(targetId);
   if (!t || !canBeExitTarget(t)) return null;
   return holdEnd(t, items);
+}
+
+/** Latest `holdEnd` among all non–`none` targets on this exit clip (null if none apply). */
+export function minExitStartTimeForClip(
+  exit: ExitAnimationItem,
+  items: Map<ItemId, SceneItem>,
+): number | null {
+  const mins: number[] = [];
+  for (const t of exit.targets) {
+    if (t.animStyle === 'none') continue;
+    const m = minExitStartTime(t.targetId, items);
+    if (m != null) mins.push(m);
+  }
+  if (mins.length === 0) return null;
+  return Math.max(...mins);
 }

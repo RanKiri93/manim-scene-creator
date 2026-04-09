@@ -40,11 +40,18 @@ export function itemClipDisplayName(item: SceneItem): string {
           ? 'Slope field'
           : 'Field';
     case 'graphSeriesViz': {
-      const bit = trunc(item.voiceText, 18) || trunc(item.jsExpr, 18);
+      const bit = trunc(item.jsExpr, 22);
       return bit ? `Series: ${bit}` : 'Series viz';
     }
     case 'compound':
       return `Compound (${item.childIds.length})`;
+    case 'surroundingRect': {
+      return item.label.trim() || 'Surrounding rect';
+    }
+    case 'shape': {
+      const t = item.shapeType;
+      return item.label.trim() || `${t[0]!.toUpperCase()}${t.slice(1)}`;
+    }
     default:
       return '?';
   }

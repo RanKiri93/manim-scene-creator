@@ -64,9 +64,24 @@ export default function ExportPanel() {
       a.click();
       a.remove();
       if (openAfterRender) {
-        window.open(url, '_blank', 'noopener,noreferrer');
+        const safeTitle = filename.replace(/[<>&"]/g, '');
+        const html =
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' +
+          safeTitle +
+          '</title></head><body style="margin:0;background:#111">' +
+          '<video src="' +
+          url +
+          '" controls autoplay playsinline ' +
+          'style="width:100%;height:100vh;object-fit:contain"></video></body></html>';
+        const docUrl = URL.createObjectURL(
+          new Blob([html], { type: 'text/html;charset=utf-8' }),
+        );
+        window.open(docUrl, '_blank', 'noopener,noreferrer');
+        setTimeout(() => URL.revokeObjectURL(docUrl), 120_000);
+        setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      } else {
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
       }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setRenderModalOpen(false);
     } catch (err) {
       setRenderError(err instanceof Error ? err.message : String(err));

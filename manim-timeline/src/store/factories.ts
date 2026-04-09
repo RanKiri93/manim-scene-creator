@@ -11,9 +11,10 @@ import type {
   GraphDotItem,
   GraphFieldItem,
   GraphSeriesVizItem,
+  ShapeItem,
   CompoundItem,
   ExitAnimationItem,
-  VoiceoverConfig,
+  SurroundingRectItem,
   SegmentStyle,
   GraphFunction,
   GraphDot,
@@ -21,18 +22,6 @@ import type {
   SceneDefaults,
   ItemId,
 } from '@/types/scene';
-
-function defaultVoice(): VoiceoverConfig {
-  return {
-    animMode: 'runtime',
-    voiceKind: 'tts',
-    script: '',
-    preamble: '',
-    singleTakeBookmarks: true,
-    mergeWithNext: false,
-    perSegmentNarration: false,
-  };
-}
 
 export function createTextLine(
   defaults: SceneDefaults,
@@ -49,7 +38,7 @@ export function createTextLine(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     raw: '',
     font: defaults.font,
     fontSize: defaults.fontSize,
@@ -78,10 +67,14 @@ export function createTextLineInCompound(
 }
 
 export function createExitAnimation(
-  targetId: ItemId,
+  targetIds: ItemId[],
   startTime: number,
   duration = 1,
 ): ExitAnimationItem {
+  const ids = targetIds.length > 0 ? targetIds : [];
+  if (ids.length === 0) {
+    throw new Error('createExitAnimation requires at least one target id');
+  }
   return {
     kind: 'exit_animation',
     id: newId(),
@@ -89,8 +82,35 @@ export function createExitAnimation(
     layer: 0,
     startTime,
     duration: Math.max(0.05, duration),
+    targets: ids.map((targetId) => ({
+      targetId,
+      animStyle: 'fade_out' as const,
+    })),
+  };
+}
+
+export function createSurroundingRect(
+  targetId: ItemId,
+  startTime = 0,
+): SurroundingRectItem {
+  return {
+    kind: 'surroundingRect',
+    id: newId(),
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 2,
     targetId,
-    animStyle: 'fade_out',
+    segmentIndices: null,
+    buff: 0.15,
+    color: '#fbbf24',
+    cornerRadius: 0.08,
+    strokeWidth: 2,
+    labelText: '',
+    labelDir: 'UP',
+    labelFontSize: 22,
+    introStyle: 'create',
+    introRunTime: 0.45,
   };
 }
 
@@ -104,6 +124,34 @@ export function createCompound(startTime = 0): CompoundItem {
     duration: 6,
     childIds: [],
     centerHorizontally: true,
+  };
+}
+
+export function createShape(startTime = 0): ShapeItem {
+  return {
+    id: newId(),
+    kind: 'shape',
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 2,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    shapeType: 'circle',
+    rotationDeg: 0,
+    radius: 0.5,
+    width: 2,
+    height: 1,
+    endX: 2,
+    endY: 0,
+    strokeColor: '#60a5fa',
+    strokeWidth: 3,
+    fillColor: null,
+    fillOpacity: 0.25,
+    introStyle: 'create',
   };
 }
 
@@ -122,16 +170,13 @@ export function createAxes(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     xRange: [-5, 5, 1],
     yRange: [-3, 3, 1],
     xLabel: 'x',
     yLabel: 'y',
     includeNumbers: false,
     includeTip: true,
-    perPartVoice: false,
-    voiceAxesScript: '',
-    voiceLabelsScript: '',
   };
 }
 
@@ -150,7 +195,7 @@ export function createGraphPlot(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     axesId,
     fn: createGraphFunction(),
   };
@@ -171,7 +216,7 @@ export function createGraphDotItem(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     axesId,
     dot: createGraphDot(),
   };
@@ -192,7 +237,7 @@ export function createGraphSeriesViz(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     axesId,
     vizMode: 'series',
     nMin: 1,
@@ -209,7 +254,6 @@ export function createGraphSeriesViz(
     headColor: '#fde047',
     strokeWidth: 2.5,
     limitY: null,
-    voiceText: '',
   };
 }
 
@@ -228,7 +272,7 @@ export function createGraphFieldItem(
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
-    voice: defaultVoice(),
+    audioTrackId: null,
     axesId,
     fieldMode: 'vector',
     pyExprSlope: '0',
@@ -264,7 +308,6 @@ export function createGraphFunction(): GraphFunction {
     pyExpr: 'np.sin(x)',
     color: '#3b82f6',
     label: '',
-    voiceText: '',
   };
 }
 
@@ -277,7 +320,6 @@ export function createGraphDot(): GraphDot {
     radius: 0.08,
     label: '',
     labelDir: 'UP',
-    voiceText: '',
   };
 }
 
@@ -292,7 +334,6 @@ export function createSegmentStyle(
     color: isMath ? defaults.mathColor : '#ffffff',
     bold: false,
     italic: false,
-    voiceText: '',
   };
 }
 

@@ -2,7 +2,6 @@ import { useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { AxesItem } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
-import VoiceoverEditor from './VoiceoverEditor';
 import PositionStepsEditor from './PositionStepsEditor';
 
 interface AxesEditorProps {
@@ -102,31 +101,6 @@ export default function AxesEditor({ item }: AxesEditorProps) {
             onChange={(s) => set({ posSteps: s })}
             currentItemId={item.id}
           />
-        </div>
-      </details>
-
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">Voiceover (axes)</summary>
-        <div className="mt-2 flex flex-col gap-2">
-          <VoiceoverEditor voice={item.voice} onChange={(v) => set({ voice: v })} />
-          <label className="text-xs text-slate-400">
-            Extra: axes narration
-            <textarea
-              value={item.voiceAxesScript}
-              onChange={(e) => set({ voiceAxesScript: e.target.value })}
-              rows={2}
-              className="mt-1 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300"
-            />
-          </label>
-          <label className="text-xs text-slate-400">
-            Extra: labels narration
-            <textarea
-              value={item.voiceLabelsScript}
-              onChange={(e) => set({ voiceLabelsScript: e.target.value })}
-              rows={2}
-              className="mt-1 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300"
-            />
-          </label>
         </div>
       </details>
     </div>

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import { runDuration } from '@/lib/time';
 import type { CompoundItem } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 
@@ -98,10 +99,11 @@ export default function CompoundEditor({ item }: CompoundEditorProps) {
                 ? ch.raw.slice(0, 40) || '(empty)'
                 : '?';
             const ls = ch?.kind === 'textLine' ? (ch.localStart ?? 0) : 0;
-            const ld = ch?.kind === 'textLine' ? (ch.localDuration ?? ch.duration) : 0;
+            const span =
+              ch?.kind === 'textLine' ? runDuration(ch, itemsMap) : 0;
             return (
               <li key={cid}>
-                +{ls.toFixed(1)}s–{(ls + ld).toFixed(1)}s — {preview}
+                +{ls.toFixed(1)}s–{(ls + span).toFixed(1)}s — {preview}
               </li>
             );
           })}

@@ -3,10 +3,14 @@ import { Stage, Layer } from 'react-konva';
 import { useSceneStore } from '@/store/useSceneStore';
 import GridLayer from './layers/GridLayer';
 import TextLineNode from './layers/TextLineNode';
+import ShapeNode from './layers/ShapeNode';
 import GraphNode from './layers/GraphNode';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
-import { isActiveAtTime } from '@/lib/time';
+import {
+  isActiveAtTime,
+  isTransformSourceHiddenInPreview,
+} from '@/lib/time';
 import {
   graphGroupShouldRender,
   cumulativePlots,
@@ -20,6 +24,7 @@ import type {
   GraphSeriesVizItem,
   ItemId,
   SceneItem,
+  ShapeItem,
   TextLineItem,
 } from '@/types/scene';
 
@@ -37,7 +42,8 @@ type GraphLayerState = {
 
 type CanvasEntry =
   | { kind: 'graph'; layer: number; graph: GraphLayerState }
-  | { kind: 'text'; layer: number; item: TextLineItem };
+  | { kind: 'text'; layer: number; item: TextLineItem }
+  | { kind: 'shape'; layer: number; item: ShapeItem };
 
 function selectionTouchesAxes(
   axesId: ItemId,
@@ -78,10 +84,30 @@ export default function SceneCanvas() {
       Array.from(itemsMap.values())
         .filter(
           (it): it is TextLineItem =>
-            it.kind === 'textLine' && isActiveAtTime(it, currentTime, itemsMap),
+            it.kind === 'textLine' &&
+            isActiveAtTime(it, currentTime, itemsMap) &&
+            (!isTransformSourceHiddenInPreview(it, currentTime, itemsMap) ||
+              selectedIds.has(it.id)),
         )
         .sort((a, b) => a.layer - b.layer),
-    [itemsMap, currentTime],
+    [itemsMap, currentTime, selectedIds],
+  );
+
+  const visibleShapes = useMemo(
+    () =>
+      Array.from(itemsMap.values())
+        .filter(
+          (it): it is ShapeItem =>
+            it.kind === 'shape' && isActiveAtTime(it, currentTime, itemsMap),
+        )
+        .sort((a, b) => {
+          if (a.layer !== b.layer) return a.layer - b.layer;
+          // Same layer: draw selected shape last so its transformer handles sit on top.
+          const sa = selectedIds.has(a.id) ? 1 : 0;
+          const sb = selectedIds.has(b.id) ? 1 : 0;
+          return sa - sb;
+        }),
+    [itemsMap, currentTime, selectedIds],
   );
 
   const graphLayers = useMemo((): GraphLayerState[] => {
@@ -131,11 +157,15 @@ export default function SceneCanvas() {
     for (const item of visibleItems) {
       e.push({ kind: 'text', layer: item.layer, item });
     }
+    for (const item of visibleShapes) {
+      e.push({ kind: 'shape', layer: item.layer, item });
+    }
     e.sort((a, b) => a.layer - b.layer);
     return e;
-  }, [graphLayers, visibleItems]);
+  }, [graphLayers, visibleItems, visibleShapes]);
 
   const resolvedPositions = useResolvedPositions(visibleItems, itemsMap);
+  const resolvedShapePositions = useResolvedPositions(visibleShapes, itemsMap);
 
   const updateSize = useCallback(() => {
     if (!containerRef.current) return;
@@ -231,11 +261,27 @@ export default function SceneCanvas() {
                   />
                 );
               }
+              if (entry.kind === 'text') {
+                const item = entry.item;
+                const selected = selectedIds.has(item.id);
+                const pos = resolvedPositions.get(item.id);
+                return (
+                  <TextLineNode
+                    key={item.id}
+                    item={item}
+                    canvasWidth={size.width}
+                    canvasHeight={size.height}
+                    isSelected={selected}
+                    resolvedX={pos?.x ?? item.x}
+                    resolvedY={pos?.y ?? item.y}
+                  />
+                );
+              }
               const item = entry.item;
               const selected = selectedIds.has(item.id);
-              const pos = resolvedPositions.get(item.id);
+              const pos = resolvedShapePositions.get(item.id);
               return (
-                <TextLineNode
+                <ShapeNode
                   key={item.id}
                   item={item}
                   canvasWidth={size.width}

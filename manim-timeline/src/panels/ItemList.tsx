@@ -9,9 +9,17 @@ import {
   createGraphSeriesViz,
   createCompound,
   createExitAnimation,
+  createSurroundingRect,
+  createShape,
 } from '@/store/factories';
 import type { ItemId, SceneItem } from '@/types/scene';
-import { canBeExitTarget, holdEnd, isTopLevelItem } from '@/lib/time';
+import {
+  canBeExitTarget,
+  canBeSurroundTarget,
+  holdEnd,
+  isTopLevelItem,
+  effectiveStart,
+} from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 
 function pickDefaultAxesId(
@@ -86,6 +94,12 @@ export default function ItemList() {
     select(item.id);
   };
 
+  const addShape = () => {
+    const item = createShape(currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
   const addGraphPlot = () => {
     const axId = ensureAxesId();
     const item = createGraphPlot(axId, currentTime);
@@ -123,33 +137,65 @@ export default function ItemList() {
 
   const addExitAnimationClip = () => {
     const map = useSceneStore.getState().items;
+    const selectedTargets = [...selectedIds]
+      .map((id) => map.get(id))
+      .filter((it): it is SceneItem => !!it && canBeExitTarget(it));
+    const seen = new Set<ItemId>();
+    const targetIds: ItemId[] = [];
+    for (const it of selectedTargets) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      targetIds.push(it.id);
+    }
+    if (targetIds.length === 0) {
+      const candidates = [...map.values()].filter(canBeExitTarget);
+      if (candidates.length === 0) return;
+      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
+      targetIds.push(candidates[0]!.id);
+    }
+    const holdEnds = targetIds.map((id) => {
+      const t = map.get(id);
+      return t && canBeExitTarget(t) ? holdEnd(t, map) : 0;
+    });
+    const start = Math.max(currentTime, ...holdEnds);
+    const toRemove = [...map.entries()]
+      .filter(
+        ([, it]) =>
+          it.kind === 'exit_animation' &&
+          it.targets.some((row) => targetIds.includes(row.targetId)),
+      )
+      .map(([id]) => id);
+    for (const id of toRemove) {
+      removeItem(id);
+    }
+    const ex = createExitAnimation(targetIds, start, 1);
+    addItem(ex);
+    select(ex.id);
+  };
+
+  const addSurroundingRectClip = () => {
+    const map = useSceneStore.getState().items;
     let targetId: ItemId | null = null;
     for (const id of selectedIds) {
       const it = map.get(id);
-      if (it && canBeExitTarget(it)) {
+      if (it && canBeSurroundTarget(it)) {
         targetId = id;
         break;
       }
     }
     if (!targetId) {
-      const candidates = [...map.values()].filter(canBeExitTarget);
+      const candidates = [...map.values()].filter(canBeSurroundTarget);
       if (candidates.length === 0) return;
       candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
       targetId = candidates[0]!.id;
     }
     const t = map.get(targetId);
-    if (!t || !canBeExitTarget(t)) return;
-    const he = holdEnd(t, map);
-    const start = Math.max(currentTime, he);
-    const toRemove = [...map.entries()]
-      .filter(([, it]) => it.kind === 'exit_animation' && it.targetId === targetId)
-      .map(([id]) => id);
-    for (const id of toRemove) {
-      removeItem(id);
-    }
-    const ex = createExitAnimation(targetId, start, 1);
-    addItem(ex);
-    select(ex.id);
+    if (!t || !canBeSurroundTarget(t)) return;
+    const t0 = effectiveStart(t, map);
+    const start = Math.max(currentTime, t0);
+    const item = createSurroundingRect(targetId, start);
+    addItem(item);
+    select(item.id);
   };
 
   const renderRow = (
@@ -159,15 +205,23 @@ export default function ItemList() {
     const depth = opts.depth ?? 0;
     const isChild = opts.isChild ?? false;
     const isSelected = selectedIds.has(item.id);
-    const exitTarget =
-      item.kind === 'exit_animation' ? itemsMap.get(item.targetId) : undefined;
+    const exitTargets =
+      item.kind === 'exit_animation'
+        ? item.targets
+            .map((row) => itemsMap.get(row.targetId))
+            .filter((x): x is SceneItem => !!x)
+        : [];
     const label =
       item.kind === 'exit_animation'
-        ? `Exit → ${
-            exitTarget
-              ? itemClipDisplayName(exitTarget)
-              : `(missing ${item.targetId.slice(0, 8)}…)`
-          }`
+        ? (() => {
+            if (exitTargets.length === 0) return 'Exit (no targets)';
+            const names = exitTargets.map((t) => itemClipDisplayName(t));
+            const joined =
+              names.length <= 2
+                ? names.join(', ')
+                : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+            return `Exit → ${joined}`;
+          })()
         : itemClipDisplayName(item);
     let kindBadge = 'bg-slate-600/30 text-slate-300';
     let kindLetter = '?';
@@ -195,6 +249,12 @@ export default function ItemList() {
     } else if (item.kind === 'exit_animation') {
       kindBadge = 'bg-rose-600/30 text-rose-300';
       kindLetter = 'X';
+    } else if (item.kind === 'surroundingRect') {
+      kindBadge = 'bg-orange-600/30 text-orange-200';
+      kindLetter = 'R';
+    } else if (item.kind === 'shape') {
+      kindBadge = 'bg-pink-600/30 text-pink-200';
+      kindLetter = 'S';
     }
 
     const timeLabel =
@@ -340,6 +400,18 @@ export default function ItemList() {
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Circle, rectangle, arrow, or line"
+                onClick={() => {
+                  addShape();
+                  closeMenus();
+                }}
+              >
+                Shape
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
                 onClick={() => {
                   addGraphPlot();
                   closeMenus();
@@ -397,13 +469,25 @@ export default function ItemList() {
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Separate timeline clip that removes a target object (replaces any prior exit for that target)"
+                title="Exit one or more objects at once (replaces prior exits touching those targets)"
                 onClick={() => {
                   addExitAnimationClip();
                   closeMenus();
                 }}
               >
                 Exit animation
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="SurroundingRectangle highlight; remove with Exit targeting this clip"
+                onClick={() => {
+                  addSurroundingRectClip();
+                  closeMenus();
+                }}
+              >
+                Surrounding rectangle
               </button>
             </div>
           )}

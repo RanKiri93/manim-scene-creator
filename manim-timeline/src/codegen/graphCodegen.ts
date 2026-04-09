@@ -11,10 +11,16 @@ import type {
 } from '@/types/scene';
 import { canBeExitTarget } from '@/lib/time';
 import { pythonStringLiteral } from './texUtils';
-import { lineExitAnimTarget, resolveRecordedPlayback } from './lineCodegen';
+import {
+  type BoundAudioTailOpts,
+  appendAudioTailAfterLeafPlayback,
+  boundSoundEmittedAtTrackStart,
+  lineExitAnimTarget,
+  resolveRecordedPlayback,
+} from './lineCodegen';
 import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 
-function manimColor(hex: string): string {
+export function manimColor(hex: string): string {
   return `ManimColor("${hex}")`;
 }
 
@@ -105,6 +111,19 @@ export function generateAxesPos(
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
 
+export function exitAnimationExpr(targets: string, animStyle: ExitAnimStyle): string {
+  switch (animStyle) {
+    case 'fade_out':
+      return `FadeOut(${targets})`;
+    case 'uncreate':
+      return `Uncreate(${targets})`;
+    case 'shrink_to_center':
+      return `ShrinkToCenter(${targets})`;
+    default:
+      return '';
+  }
+}
+
 /** Emit `self.play(FadeOut|...)` for resolved Python target expression(s). */
 export function formatExitPlayLine(
   targets: string,
@@ -114,16 +133,33 @@ export function formatExitPlayLine(
 ): string {
   if (!animStyle || animStyle === 'none') return '';
   const rt = Math.max(0.01, runTime).toFixed(4);
-  switch (animStyle) {
-    case 'fade_out':
-      return `${pad}self.play(FadeOut(${targets}), run_time=${rt})\n`;
-    case 'uncreate':
-      return `${pad}self.play(Uncreate(${targets}), run_time=${rt})\n`;
-    case 'shrink_to_center':
-      return `${pad}self.play(ShrinkToCenter(${targets}), run_time=${rt})\n`;
-    default:
-      return '';
+  const inner = exitAnimationExpr(targets, animStyle);
+  if (!inner) return '';
+  return `${pad}self.play(${inner}, run_time=${rt})\n`;
+}
+
+/**
+ * One synchronized `self.play(AnimationGroup(...))` for multiple targets / styles.
+ */
+export function formatExitGroupPlayLine(
+  parts: { targetsStr: string; animStyle: ExitAnimStyle }[],
+  runTime: number,
+  pad: string,
+): string {
+  const active = parts.filter(
+    (p) => p.animStyle && p.animStyle !== 'none',
+  );
+  if (active.length === 0) return '';
+  const rt = Math.max(0.01, runTime).toFixed(4);
+  if (active.length === 1) {
+    const p = active[0]!;
+    return formatExitPlayLine(p.targetsStr, p.animStyle, runTime, pad);
   }
+  const anims = active
+    .map((p) => exitAnimationExpr(p.targetsStr, p.animStyle))
+    .filter(Boolean);
+  if (anims.length === 0) return '';
+  return `${pad}self.play(AnimationGroup(${anims.join(', ')}, lag_ratio=0), run_time=${rt})\n`;
 }
 
 /**
@@ -134,6 +170,10 @@ export function resolveExitTargetsForExport(
   idToVarName: Map<ItemId, string>,
 ): string | null {
   if (!canBeExitTarget(target)) return null;
+
+  if (target.kind === 'surroundingRect') {
+    return idToVarName.get(target.id) ?? null;
+  }
 
   if (target.kind === 'textLine') {
     const v = idToVarName.get(target.id);
@@ -181,6 +221,9 @@ export function resolveExitTargetsForExport(
     }
     return parts.join(', ');
   }
+  if (target.kind === 'shape') {
+    return idToVarName.get(target.id) ?? null;
+  }
   return null;
 }
 
@@ -190,6 +233,7 @@ export function generateAxesPlay(
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
   let s = '';
@@ -197,8 +241,21 @@ export function generateAxesPlay(
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    if (
+      !audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
+    ) {
+      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    }
     s += `${pad}self.play(Create(${axVar}), run_time=${rt})\n`;
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
   } else {
     s += `${pad}self.play(Create(${axVar}), run_time=${item.duration})\n`;
   }
@@ -227,6 +284,7 @@ export function generateGraphPlotPlay(
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
   const pVar = overlayPlotVar(axVar, item.id);
@@ -235,8 +293,21 @@ export function generateGraphPlotPlay(
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    if (
+      !audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
+    ) {
+      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    }
     s += `${pad}self.play(Create(${pVar}), run_time=${rt})\n`;
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
   } else {
     s += `${pad}self.play(Create(${pVar}), run_time=${item.duration})\n`;
   }
@@ -274,6 +345,7 @@ export function generateGraphDotPlay(
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
   const dVar = overlayDotVar(axVar, item.id);
@@ -284,13 +356,26 @@ export function generateGraphDotPlay(
 
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    if (
+      !audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
+    ) {
+      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    }
     s += `${pad}self.play(FadeIn(${dVar}), run_time=${rt})\n`;
     if (dot.label.trim()) {
       s += `${pad}self.play(Write(${dVar}_lbl))\n`;
     }
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
   } else {
-    s += `${pad}self.play(FadeIn(${dVar}))\n`;
+    s += `${pad}self.play(FadeIn(${dVar}), run_time=${item.duration})\n`;
     if (dot.label.trim()) {
       s += `${pad}self.play(Write(${dVar}_lbl))\n`;
     }
@@ -388,6 +473,7 @@ export function generateGraphFieldPlay(
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
 ): string {
   if (item.fieldMode === 'none') return '';
 
@@ -401,13 +487,28 @@ export function generateGraphFieldPlay(
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    if (
+      !audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
+    ) {
+      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    }
     s += `${pad}self.play(Create(${vfVar}), run_time=${rt})\n`;
   } else {
     s += `${pad}self.play(Create(${vfVar}), run_time=${item.duration})\n`;
   }
   if (seeds.length > 0) {
     s += `${pad}self.play(Create(${streamsVar}))\n`;
+  }
+  if (recorded) {
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
   }
 
   return s;
@@ -433,7 +534,7 @@ function seriesPyExpr(expr: string): string {
   return t.replace(/\n/g, ' ');
 }
 
-function seriesRateFuncArg(easing: GraphSeriesVizItem['nEasing']): string {
+export function seriesRateFuncArg(easing: GraphSeriesVizItem['nEasing']): string {
   switch (easing) {
     case 'ease_out':
       return ', rate_func=ease_out_sine';
@@ -609,35 +710,59 @@ export function generateGraphSeriesVizDef(
   return s;
 }
 
+/** `self.add(...)` for series viz mobjects (before tracker play). */
+export function buildGraphSeriesVizAddLine(
+  item: GraphSeriesVizItem,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent);
+  const suf = pythonOverlaySuffix(item.id);
+  const ghostN = Math.max(0, Math.min(12, Math.floor(item.ghostCount ?? 0)));
+  const addParts: string[] = [`sv_main_${suf}`];
+  if (ghostN > 0) addParts.push(`sv_ghost_${suf}`);
+  if (item.showHeadDot) addParts.push(`sv_head_${suf}`);
+  if (item.limitY !== null && Number.isFinite(item.limitY)) addParts.push(`sv_lim_${suf}`);
+  return `${pad}self.add(${addParts.join(', ')})\n`;
+}
+
 export function generateGraphSeriesVizPlay(
   item: GraphSeriesVizItem,
   _axVar: string,
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
   const suf = pythonOverlaySuffix(item.id);
   const hi = Math.max(Math.round(item.nMin), Math.round(item.nMax));
   const rateArg = seriesRateFuncArg(item.nEasing);
-  const ghostN = Math.max(0, Math.min(12, Math.floor(item.ghostCount ?? 0)));
 
   let s = '';
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
   const rt = recorded ? recorded.runTime.toFixed(6) : item.duration.toFixed(6);
 
-  const addParts: string[] = [`sv_main_${suf}`];
-  if (ghostN > 0) addParts.push(`sv_ghost_${suf}`);
-  if (item.showHeadDot) addParts.push(`sv_head_${suf}`);
-  if (item.limitY !== null && Number.isFinite(item.limitY)) addParts.push(`sv_lim_${suf}`);
-
-  if (recorded) {
+  if (
+    recorded &&
+    (!audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems))
+  ) {
     s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
   }
-  s += `${pad}self.add(${addParts.join(', ')})\n`;
+  s += buildGraphSeriesVizAddLine(item, indent);
   s += `${pad}self.play(\n`;
   s += `${pad}    sv_nt_${suf}.animate.set_value(${hi}), run_time=${rt}${rateArg}\n`;
   s += `${pad})\n`;
+  if (recorded) {
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
+  }
 
   return s;
 }
@@ -649,8 +774,9 @@ export function validateAxesExit(
   const hasExit = items.some(
     (it) =>
       it.kind === 'exit_animation' &&
-      it.targetId === axes.id &&
-      it.animStyle !== 'none',
+      it.targets.some(
+        (t) => t.targetId === axes.id && t.animStyle !== 'none',
+      ),
   );
   if (!hasExit) return null;
   if (countOverlaysReferencingAxes(axes.id, items) === 0) return null;

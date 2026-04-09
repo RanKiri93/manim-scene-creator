@@ -8,6 +8,8 @@ import GraphFieldEditor from './GraphFieldEditor';
 import SeriesVizEditor from './SeriesVizEditor';
 import CompoundEditor from './CompoundEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
+import SurroundingRectEditor from './SurroundingRectEditor';
+import ShapeEditor from './ShapeEditor';
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
@@ -122,6 +124,12 @@ export default function PropertyPanel() {
       break;
     case 'exit_animation':
       body = <ExitAnimationEditor item={item} />;
+      break;
+    case 'surroundingRect':
+      body = <SurroundingRectEditor item={item} />;
+      break;
+    case 'shape':
+      body = <ShapeEditor item={item} />;
       break;
     default:
       body = <p className="text-xs text-slate-500 p-4">Unknown item kind.</p>;

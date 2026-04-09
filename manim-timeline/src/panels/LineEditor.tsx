@@ -8,7 +8,6 @@ import type { AnimStyle, TextLineItem, SegmentStyle, TransformMapping } from '@/
 import NumberInput from '@/components/NumberInput';
 import SegmentEditor from './SegmentEditor';
 import SegmentMapperModal from './SegmentMapperModal';
-import VoiceoverEditor from './VoiceoverEditor';
 import PositionStepsEditor from './PositionStepsEditor';
 
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
@@ -313,14 +312,6 @@ export default function LineEditor({ item }: LineEditorProps) {
         </summary>
         <div className="mt-2">
           <SegmentEditor segments={item.segments} onChange={(s) => set({ segments: s })} />
-        </div>
-      </details>
-
-      {/* Voiceover */}
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">Voiceover</summary>
-        <div className="mt-2">
-          <VoiceoverEditor voice={item.voice} onChange={(v) => set({ voice: v })} />
         </div>
       </details>
     </div>

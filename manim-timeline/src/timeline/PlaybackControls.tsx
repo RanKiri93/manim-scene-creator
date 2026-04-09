@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import NumberInput from '@/components/NumberInput';
+import { isTopLevelItem } from '@/lib/time';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -12,13 +14,57 @@ export default function PlaybackControls() {
   const isPlaying = useSceneStore((s) => s.isPlaying);
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
+  const closeGap = useSceneStore((s) => s.closeGap);
   const itemsMap = useSceneStore((s) => s.items);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
+  const [gapDialogOpen, setGapDialogOpen] = useState(false);
+  const [gapStart, setGapStart] = useState(0);
+  const [gapEnd, setGapEnd] = useState(5);
+  const [gapHint, setGapHint] = useState<string | null>(null);
+  const gapHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (gapHintTimer.current) clearTimeout(gapHintTimer.current);
+    };
+  }, []);
+
   const duration = useMemo(() => getSceneDuration(), [getSceneDuration, itemsMap]);
 
+  const openGapDialog = useCallback(() => {
+    const t = useSceneStore.getState().currentTime;
+    setGapStart(t);
+    setGapEnd(t + 5);
+    setGapDialogOpen(true);
+  }, []);
+
+  const applyCloseGap = useCallback(() => {
+    if (!(gapEnd > gapStart)) return;
+    const state = useSceneStore.getState();
+    let wouldMove = 0;
+    for (const it of state.items.values()) {
+      if (isTopLevelItem(it) && it.startTime >= gapEnd) wouldMove++;
+    }
+    for (const a of state.audioItems) {
+      if (a.startTime >= gapEnd) wouldMove++;
+    }
+    closeGap(gapStart, gapEnd);
+    setGapDialogOpen(false);
+    if (wouldMove === 0) {
+      if (gapHintTimer.current) clearTimeout(gapHintTimer.current);
+      setGapHint('Nothing moved — set gap end to the first start time of the block you want to pull left.');
+      gapHintTimer.current = setTimeout(() => {
+        setGapHint(null);
+        gapHintTimer.current = null;
+      }, 5000);
+    } else {
+      setGapHint(null);
+    }
+  }, [closeGap, gapStart, gapEnd]);
+
   return (
-    <div className="flex items-center gap-3 px-3 py-2 bg-slate-800 border-t border-slate-700">
+    <div className="relative z-30 flex flex-wrap items-center gap-3 px-3 py-2 bg-slate-800 border-t border-slate-700">
       {/* Play/Pause */}
       <button
         onClick={togglePlayback}
@@ -49,6 +95,20 @@ export default function PlaybackControls() {
         </svg>
       </button>
 
+      <div className="flex flex-col gap-0.5">
+        <button
+          type="button"
+          onClick={openGapDialog}
+          className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600"
+          title="Shift clips and audio that start at or after the gap end, left by the gap length"
+        >
+          Close gap…
+        </button>
+        {gapHint ? (
+          <span className="max-w-[220px] text-[10px] leading-tight text-amber-400/95">{gapHint}</span>
+        ) : null}
+      </div>
+
       {/* Time display */}
       <span className="text-xs text-slate-400 font-mono min-w-[100px]">
         {formatTime(currentTime)} / {formatTime(duration || 0)}
@@ -64,6 +124,41 @@ export default function PlaybackControls() {
         onChange={(e) => setCurrentTime(parseFloat(e.target.value))}
         className="flex-1 accent-blue-500 h-1.5 cursor-pointer"
       />
+
+      {gapDialogOpen ? (
+        <div
+          className="absolute left-3 right-3 top-full z-50 mt-1 max-h-[min(280px,50vh)] overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 p-3 shadow-xl"
+          role="dialog"
+          aria-label="Close timeline gap"
+        >
+          <p className="mb-2 text-[11px] text-slate-400">
+            Removes time <span className="text-slate-300">[gap start, gap end)</span>. Every top-level
+            clip and audio track with start ≥ gap end moves left by (gap end − gap start). Best if
+            nothing starts inside the gap.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <NumberInput label="Gap start (s)" value={gapStart} onChange={setGapStart} min={0} step={0.1} />
+            <NumberInput label="Gap end (s)" value={gapEnd} onChange={setGapEnd} min={0} step={0.1} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={applyCloseGap}
+                disabled={!(gapEnd > gapStart)}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => setGapDialogOpen(false)}
+                className="rounded-md bg-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

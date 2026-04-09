@@ -45,6 +45,25 @@ function buildSegmentStyles(segments: SegmentStyle[]) {
   }));
 }
 
+const MEASURE_FETCH_HINT =
+  'Start measure_server from the ManimStuff repo root, e.g. ' +
+  'python -m uvicorn measure_server:app --host 127.0.0.1 --port 8765. ' +
+  'Then set Measure server URL in app settings to match (default http://127.0.0.1:8765).';
+
+/**
+ * Wraps `fetch` so connection failures (browser: "NetworkError" / TypeError: Failed to fetch)
+ * show a clear hint instead of a bare network error.
+ */
+async function measureFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    const message =
+      e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new Error(`${message}\n${MEASURE_FETCH_HINT}\nRequest: ${url}`);
+  }
+}
+
 export async function measureLine(
   baseUrl: string,
   item: TextLineItem,
@@ -59,7 +78,7 @@ export async function measureLine(
     segment_styles: buildSegmentStyles(item.segments),
   };
 
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/measure`, {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/measure`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -125,7 +144,7 @@ export async function generateAudio(
   text: string,
   lang: string,
 ): Promise<GenerateAudioApiResult> {
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/api/generate_audio`, {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/generate_audio`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, lang }),
@@ -182,7 +201,7 @@ export async function uploadRecordedAudio(
   formData.append('file', blob, safeName);
   const lang = options?.lang?.trim();
   if (lang) formData.append('lang', lang);
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/api/upload_audio`, {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/upload_audio`, {
     method: 'POST',
     body: formData,
   });
@@ -216,7 +235,7 @@ export async function renderSceneMp4(
   quality: string,
   sceneName: string,
 ): Promise<Blob> {
-  const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/api/render`, {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/render`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -241,5 +260,13 @@ export async function renderSceneMp4(
     }
     throw new Error(msg.slice(0, 2000) || 'render failed');
   }
-  return resp.blob();
+  try {
+    return await resp.blob();
+  } catch (e) {
+    const message =
+      e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new Error(
+      `${message}\nReading the MP4 response body failed (connection drop or browser blocked).\n${MEASURE_FETCH_HINT}`,
+    );
+  }
 }

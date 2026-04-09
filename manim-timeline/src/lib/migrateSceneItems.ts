@@ -25,7 +25,8 @@ interface LegacyGraph {
   scale: number;
   waitAfter: number;
   posSteps: PosStep[];
-  voice: AxesItem['voice'];
+  /** Legacy only; migrated to `audioTrackId` on AxesItem. */
+  voice?: { audioTrackId?: string | null };
   exitAnimStyle?: ExitAnimStyle;
   exitRunTime?: number;
   xRange: [number, number, number];
@@ -69,7 +70,13 @@ function normalizePosSteps(steps: PosStep[]): PosStep[] {
 }
 
 function normalizeItem(item: SceneItem): SceneItem {
-  if (item.kind === 'compound' || item.kind === 'exit_animation') return item;
+  if (
+    item.kind === 'compound' ||
+    item.kind === 'exit_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
+    return item;
+  }
   return { ...item, posSteps: normalizePosSteps(item.posSteps) } as SceneItem;
 }
 
@@ -97,16 +104,13 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
         y: g.y,
         scale: g.scale,
         posSteps: normalizePosSteps(g.posSteps),
-        voice: { ...g.voice },
+        audioTrackId: g.voice?.audioTrackId ?? null,
         xRange: [...g.xRange] as [number, number, number],
         yRange: [...g.yRange] as [number, number, number],
         xLabel: g.xLabel,
         yLabel: g.yLabel,
         includeNumbers: g.includeNumbers,
         includeTip: g.includeTip,
-        perPartVoice: g.perPartVoice,
-        voiceAxesScript: g.voiceAxesScript,
-        voiceLabelsScript: g.voiceLabelsScript,
       };
       out.push(axes);
 
@@ -119,8 +123,7 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           layer: g.layer,
           startTime: g.startTime + g.duration + g.waitAfter,
           duration: Math.max(0.01, g.exitRunTime ?? 1),
-          targetId: axesId,
-          animStyle: exStyle,
+          targets: [{ targetId: axesId, animStyle: exStyle }],
         };
         out.push(ex);
       }
@@ -140,16 +143,7 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           y: 0,
           scale: 1,
           posSteps: [{ kind: 'absolute' }],
-          voice: {
-            animMode: 'runtime',
-            voiceKind: 'tts',
-            audioTrackId: null,
-            script: '',
-            preamble: '',
-            singleTakeBookmarks: true,
-            mergeWithNext: false,
-            perSegmentNarration: false,
-          },
+          audioTrackId: null,
           axesId,
           fn: { ...fn },
         };
@@ -169,16 +163,7 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           y: 0,
           scale: 1,
           posSteps: [{ kind: 'absolute' }],
-          voice: {
-            animMode: 'runtime',
-            voiceKind: 'tts',
-            audioTrackId: null,
-            script: '',
-            preamble: '',
-            singleTakeBookmarks: true,
-            mergeWithNext: false,
-            perSegmentNarration: false,
-          },
+          audioTrackId: null,
           axesId,
           dot: { ...dot },
         };
@@ -199,16 +184,7 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           y: 0,
           scale: 1,
           posSteps: [{ kind: 'absolute' }],
-          voice: {
-            animMode: 'runtime',
-            voiceKind: 'tts',
-            audioTrackId: null,
-            script: '',
-            preamble: '',
-            singleTakeBookmarks: true,
-            mergeWithNext: false,
-            perSegmentNarration: false,
-          },
+          audioTrackId: null,
           axesId,
           fieldMode: fm,
           pyExprSlope: g.pyExprSlope ?? '0',

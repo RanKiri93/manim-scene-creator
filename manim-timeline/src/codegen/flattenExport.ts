@@ -6,6 +6,7 @@ import type {
   GraphDotItem,
   GraphFieldItem,
   GraphSeriesVizItem,
+  ShapeItem,
   CompoundItem,
   ItemId,
 } from '@/types/scene';
@@ -42,7 +43,8 @@ export type ExportLeaf =
   | GraphPlotItem
   | GraphDotItem
   | GraphFieldItem
-  | GraphSeriesVizItem;
+  | GraphSeriesVizItem
+  | ShapeItem;
 
 export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
   return flattenExportItems(items).filter(
@@ -52,6 +54,7 @@ export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
       it.kind === 'graphPlot' ||
       it.kind === 'graphDot' ||
       it.kind === 'graphField' ||
-      it.kind === 'graphSeriesViz',
+      it.kind === 'graphSeriesViz' ||
+      it.kind === 'shape',
   );
 }

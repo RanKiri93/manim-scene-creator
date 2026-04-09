@@ -3,7 +3,6 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { GraphSeriesVizItem, SeriesNEasing, SeriesNMapping, SeriesVizMode } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
-import VoiceoverEditor from './VoiceoverEditor';
 import AxesIdSelect from './AxesIdSelect';
 import { MAX_SERIES_N_SPAN } from '@/lib/seriesVizPreview';
 
@@ -171,28 +170,12 @@ export default function SeriesVizEditor({ item }: SeriesVizEditorProps) {
         />
       </label>
 
-      <label className="text-xs text-slate-400 block">
-        Voice note (script export)
-        <textarea
-          value={item.voiceText}
-          onChange={(e) => set({ voiceText: e.target.value })}
-          rows={2}
-          className="mt-1 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300"
-        />
-      </label>
-
       <div className="flex items-end gap-3 flex-wrap">
         <NumberInput label="Start (s)" value={item.startTime} onChange={(v) => set({ startTime: v })} min={0} />
         <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
         <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
       </div>
 
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">Voiceover</summary>
-        <div className="mt-2">
-          <VoiceoverEditor voice={item.voice} onChange={(v) => set({ voice: v })} />
-        </div>
-      </details>
     </div>
   );
 }

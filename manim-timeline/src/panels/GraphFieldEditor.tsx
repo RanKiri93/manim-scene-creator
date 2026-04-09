@@ -3,7 +3,6 @@ import { useSceneStore } from '@/store/useSceneStore';
 import { createGraphStreamPoint } from '@/store/factories';
 import type { GraphFieldItem, GraphFieldMode, GraphFieldColormap } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
-import VoiceoverEditor from './VoiceoverEditor';
 import AxesIdSelect from './AxesIdSelect';
 import {
   GRAPH_FIELD_SECTION_HELP,
@@ -276,12 +275,6 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
         </div>
       </details>
 
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">Voiceover</summary>
-        <div className="mt-2">
-          <VoiceoverEditor voice={item.voice} onChange={(v) => set({ voice: v })} />
-        </div>
-      </details>
     </div>
   );
 }

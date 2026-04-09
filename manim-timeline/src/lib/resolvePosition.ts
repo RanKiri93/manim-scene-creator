@@ -9,7 +9,11 @@ export interface ItemBBox {
 }
 
 export function getItemBBox(item: SceneItem): ItemBBox {
-  if (item.kind === 'compound' || item.kind === 'exit_animation') {
+  if (
+    item.kind === 'compound' ||
+    item.kind === 'exit_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   const x = item.x;
@@ -24,6 +28,25 @@ export function getItemBBox(item: SceneItem): ItemBBox {
     const [yMin, yMax] = item.yRange;
     w = (xMax - xMin) * item.scale;
     h = (yMax - yMin) * item.scale;
+  } else if (item.kind === 'shape') {
+    switch (item.shapeType) {
+      case 'circle':
+        w = 2 * item.radius;
+        h = 2 * item.radius;
+        break;
+      case 'rectangle':
+        w = item.width;
+        h = item.height;
+        break;
+      case 'arrow':
+      case 'line':
+        w = Math.max(0.15, Math.abs(item.endX));
+        h = Math.max(0.15, Math.abs(item.endY));
+        break;
+      default:
+        w = 0.5;
+        h = 0.5;
+    }
   } else {
     w = 0.5;
     h = 0.5;
@@ -52,7 +75,11 @@ export function resolvePosition(
   item: SceneItem,
   allItems: Map<ItemId, SceneItem>,
 ): { x: number; y: number } {
-  if (item.kind === 'compound' || item.kind === 'exit_animation') {
+  if (
+    item.kind === 'compound' ||
+    item.kind === 'exit_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0 };
   }
 

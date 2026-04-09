@@ -6,11 +6,11 @@ import type {
   GraphDotItem,
   GraphFieldItem,
   GraphSeriesVizItem,
+  ShapeItem,
   CompoundItem,
   ItemId,
 } from '@/types/scene';
 import { isTopLevelItem, effectiveStart } from '@/lib/time';
-
 
 export type SceneState = {
   items: Map<ItemId, SceneItem>;
@@ -23,54 +23,24 @@ function lineHeading(raw: string): string {
   return `## Line: ${preview}${suffix}`;
 }
 
-function appendVo(lines: string[], preamble: string, script: string): void {
-  const p = preamble?.trim();
-  const s = script?.trim();
-  if (p) {
-    lines.push('');
-    lines.push(`**Preamble:** ${p}`);
-  }
-  if (s) {
-    lines.push('');
-    lines.push(s);
-  }
-}
-
 function appendTextLine(lines: string[], item: TextLineItem): void {
   lines.push('');
   lines.push(lineHeading(item.raw ?? ''));
-  appendVo(lines, item.voice.preamble, item.voice.script);
 }
 
 function appendAxes(lines: string[], item: AxesItem): void {
   lines.push('');
   lines.push(`## Axes ${item.id}`);
-  appendVo(lines, item.voice.preamble, item.voice.script);
-  const axes = item.voiceAxesScript?.trim();
-  const labels = item.voiceLabelsScript?.trim();
-  if (axes) {
-    lines.push('');
-    lines.push('**Axes:**');
-    lines.push(axes);
-  }
-  if (labels) {
-    lines.push('');
-    lines.push('**Labels:**');
-    lines.push(labels);
-  }
+  lines.push(
+    `x: [${item.xRange[0]}, ${item.xRange[1]}] step ${item.xRange[2]} — y: [${item.yRange[0]}, ${item.yRange[1]}] step ${item.yRange[2]}`,
+  );
+  lines.push(`Labels: ${item.xLabel}, ${item.yLabel}`);
 }
 
 function appendGraphPlot(lines: string[], item: GraphPlotItem): void {
   lines.push('');
   lines.push(`## Graph plot → axes ${item.axesId}`);
-  appendVo(lines, item.voice.preamble, item.voice.script);
   const fn = item.fn;
-  const vt = fn.voiceText?.trim();
-  if (vt) {
-    lines.push('');
-    lines.push(`**Function (${fn.label || fn.id}):**`);
-    lines.push(vt);
-  }
   lines.push('');
   lines.push(`Py: ${(fn.pyExpr ?? '').trim() || '(empty)'}`);
 }
@@ -78,35 +48,26 @@ function appendGraphPlot(lines: string[], item: GraphPlotItem): void {
 function appendGraphDot(lines: string[], item: GraphDotItem): void {
   lines.push('');
   lines.push(`## Graph dot → axes ${item.axesId}`);
-  appendVo(lines, item.voice.preamble, item.voice.script);
-  const dot = item.dot;
-  const vt = dot.voiceText?.trim();
-  if (vt) {
-    lines.push('');
-    lines.push(`**Dot (${dot.label || dot.id}):**`);
-    lines.push(vt);
-  }
 }
 
 function appendGraphSeriesViz(lines: string[], item: GraphSeriesVizItem): void {
   lines.push('');
   lines.push(`## Series/sequence viz → axes ${item.axesId}`);
-  appendVo(lines, item.voice.preamble, item.voice.script);
-  const vt = item.voiceText?.trim();
-  if (vt) {
-    lines.push('');
-    lines.push('**Note:**');
-    lines.push(vt);
-  }
   lines.push('');
   lines.push(`Mode: ${item.vizMode}, n ∈ [${item.nMin}, ${item.nMax}]`);
-  lines.push(`Py (${item.vizMode === 'partialPlot' ? 'k, x' : 'n'}): ${(item.pyExpr ?? '').trim() || '(empty)'}`);
+  lines.push(
+    `Py (${item.vizMode === 'partialPlot' ? 'k, x' : 'n'}): ${(item.pyExpr ?? '').trim() || '(empty)'}`,
+  );
+}
+
+function appendShape(lines: string[], item: ShapeItem): void {
+  lines.push('');
+  lines.push(`## Shape (${item.shapeType})`);
 }
 
 function appendGraphField(lines: string[], item: GraphFieldItem): void {
   lines.push('');
   lines.push(`## Graph field → axes ${item.axesId}`);
-  appendVo(lines, item.voice.preamble, item.voice.script);
   const fm = item.fieldMode ?? 'none';
   if (fm === 'none') return;
   lines.push('');
@@ -153,7 +114,7 @@ export function exportScriptToMarkdown(state: SceneState): void {
       (a, b) => effectiveStart(a, items) - effectiveStart(b, items),
     );
 
-  const parts: string[] = ['# Voiceover script', ''];
+  const parts: string[] = ['# Scene outline', ''];
   for (const it of ordered) {
     if (it.kind === 'textLine') appendTextLine(parts, it);
     else if (it.kind === 'axes') appendAxes(parts, it);
@@ -161,6 +122,7 @@ export function exportScriptToMarkdown(state: SceneState): void {
     else if (it.kind === 'graphDot') appendGraphDot(parts, it);
     else if (it.kind === 'graphField') appendGraphField(parts, it);
     else if (it.kind === 'graphSeriesViz') appendGraphSeriesViz(parts, it);
+    else if (it.kind === 'shape') appendShape(parts, it);
     else if (it.kind === 'compound') appendCompound(parts, it, items);
   }
 
@@ -170,9 +132,7 @@ export function exportScriptToMarkdown(state: SceneState): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = 'scene_script.md';
-  a.style.display = 'none';
-  document.body.appendChild(a);
+  a.rel = 'noopener';
   a.click();
-  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
