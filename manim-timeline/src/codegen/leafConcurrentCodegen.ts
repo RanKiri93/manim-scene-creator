@@ -2,7 +2,6 @@ import type {
   AudioTrackItem,
   ExitAnimationItem,
   ExitAnimStyle,
-  GraphSeriesVizItem,
   ItemId,
   SceneItem,
   SurroundingRectItem,
@@ -22,14 +21,14 @@ import {
 } from './lineCodegen';
 import { segmentWaitTotal } from '@/lib/time';
 import {
-  buildGraphSeriesVizAddLine,
   exitAnimationExpr,
+  overlayAreaVar,
   overlayDotVar,
   overlayPlotVar,
   pythonOverlaySuffix,
   resolveExitTargetsForExport,
-  seriesRateFuncArg,
 } from './graphCodegen';
+import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
 
 const MANIM_DEFAULT_PLAY_SEC = 1;
 
@@ -231,9 +230,7 @@ function concurrentBranchForLeaf(
   if (leaf.kind === 'textLine') {
     const item = leaf;
     const varName = idToVarName.get(item.id)!;
-    const runDur = item.parentId
-      ? (item.localDuration ?? item.duration)
-      : item.duration;
+    const runDur = item.duration;
     const tc = item.transformConfig;
     const sourceVar =
       item.animStyle === 'transform' && tc
@@ -325,14 +322,34 @@ function concurrentBranchForLeaf(
     return `Succession(Wait(${wStr}), Create(${vf}, run_time=${fmtRt(baseRt)})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
 
-  if (leaf.kind === 'graphSeriesViz') {
-    const item: GraphSeriesVizItem = leaf;
-    const suf = pythonOverlaySuffix(item.id);
-    const hi = Math.max(Math.round(item.nMin), Math.round(item.nMax));
-    const rateArg = seriesRateFuncArg(item.nEasing);
-    const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
-    const rtStr = recorded ? recorded.runTime.toFixed(6) : item.duration.toFixed(6);
-    return `Succession(Wait(${wStr}), sv_nt_${suf}.animate.set_value(${hi})${concurrentAudioTailArg(recorded, item, itemsMap, audioItems, tailOpts)}, run_time=${rtStr}${rateArg})`;
+  if (leaf.kind === 'graphFunctionSeries') {
+    const axVar = idToVarName.get(leaf.axesId)!;
+    return functionSeriesConcurrentBranch(leaf, axVar, relWait);
+  }
+
+  if (leaf.kind === 'graphArea') {
+    const axVar = idToVarName.get(leaf.axesId)!;
+    const areaVar = overlayAreaVar(axVar, leaf.id);
+    const suf = pythonOverlaySuffix(leaf.id);
+    const base = `${axVar}_areaplot_${suf}_`;
+    const m = leaf.mode;
+    const boundaries: string[] = [];
+    if (m.areaKind === 'underCurve' && m.curve.sourceKind === 'expr' && m.showBoundaryPlot) {
+      boundaries.push(`${base}c`);
+    }
+    if (m.areaKind === 'betweenCurves') {
+      if (m.lower.sourceKind === 'expr' && m.showBoundaryPlot) boundaries.push(`${base}l`);
+      if (m.upper.sourceKind === 'expr' && m.showBoundaryPlot) boundaries.push(`${base}u`);
+    }
+    const bRt = Math.max(0.05, Math.min(0.75, leaf.duration * 0.35)).toFixed(4);
+    const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
+    const rtStr = recorded ? recorded.runTime.toFixed(6) : leaf.duration.toFixed(6);
+    const tail = concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts);
+    const bCreates = boundaries.map((bv) => `Create(${bv}, run_time=${bRt})`).join(', ');
+    if (boundaries.length > 0) {
+      return `Succession(Wait(${wStr}), AnimationGroup(${bCreates}, lag_ratio=0), FadeIn(${areaVar}, run_time=${rtStr})${tail})`;
+    }
+    return `Succession(Wait(${wStr}), FadeIn(${areaVar}, run_time=${rtStr})${tail})`;
   }
 
   if (leaf.kind === 'shape') {
@@ -362,7 +379,7 @@ function concurrentBranchForSurroundingRect(
   idToVarName: Map<ItemId, string>,
 ): string {
   const sv = idToVarName.get(sr.id)!;
-  const rt = Math.max(0.05, sr.introRunTime);
+  const rt = Math.max(0.05, sr.runTime);
   const rtStr = rt.toFixed(4);
   const wStr = Math.max(0, relWait).toFixed(4);
   const intro =
@@ -450,7 +467,7 @@ export function buildConcurrentVisualClusterPlay(
   surroundingRects: SurroundingRectItem[],
   exitClips: ExitAnimationItem[],
   playPad: string,
-  baseIndent: number,
+  _baseIndent: number,
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems: AudioTrackItem[] | undefined,
@@ -465,15 +482,6 @@ export function buildConcurrentVisualClusterPlay(
   if (parts.length === 0) return '';
 
   const t0 = parts[0]!.t;
-
-  let preamble = '';
-  const seenSeries = new Set<ItemId>();
-  for (const leaf of leaves) {
-    if (leaf.kind !== 'graphSeriesViz') continue;
-    if (seenSeries.has(leaf.id)) continue;
-    seenSeries.add(leaf.id);
-    preamble += buildGraphSeriesVizAddLine(leaf, baseIndent);
-  }
 
   type SoundLine = { rel: number; line: string };
   const soundEntries: SoundLine[] = [];
@@ -527,7 +535,6 @@ export function buildConcurrentVisualClusterPlay(
   const wallStr = wall.toFixed(4);
   const joined = branches.join(`,\n${innerPad}`);
   return (
-    preamble +
     soundBlock +
     `${playPad}self.play(AnimationGroup(\n${innerPad}${joined},\n${innerPad}lag_ratio=0,\n${playPad}), run_time=${wallStr})\n`
   );

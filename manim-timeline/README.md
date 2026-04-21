@@ -13,16 +13,17 @@ This document is the **canonical** reference for the `manim-timeline/` package. 
 3. [Export to Python (Manim)](#export-to-python-manim)
 4. [Export timing and audio synchronization](#export-timing-and-audio-synchronization)
 5. [Compound clips](#compound-clips-chain-calculations)
-6. [Project file format](#project-file-format)
+6. [Function series](#function-series)
+7. [Project file format](#project-file-format)
    - [Portable bundle (`.mtproj`)](#portable-bundle-mtproj)
-7. [Tech stack](#tech-stack)
-8. [Source layout (`src/`)](#source-layout-src)
-9. [Architecture notes](#architecture-notes)
-10. [Running locally](#running-locally)
-11. [Tauri desktop (optional)](#tauri-desktop-optional)
-12. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
-13. [Roadmap and known gaps](#roadmap-and-known-gaps)
-14. [Troubleshooting](#troubleshooting)
+8. [Tech stack](#tech-stack)
+9. [Source layout (`src/`)](#source-layout-src)
+10. [Architecture notes](#architecture-notes)
+11. [Running locally](#running-locally)
+12. [Tauri desktop (optional)](#tauri-desktop-optional)
+13. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
+14. [Roadmap and known gaps](#roadmap-and-known-gaps)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -35,8 +36,8 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 | Kind | Purpose |
 |------|---------|
 | **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic, optional **`waitAfterSec`**; measurement fills bbox and optional PNG preview. |
-| **Axes** | Coordinate system only; plots, dots, fields, and series viz are **separate clips** referencing `axesId`. |
-| **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphSeriesViz` — timed like other clips, anchored to an axes item. |
+| **Axes** | Coordinate system only; plots, dots, fields, and function series are **separate clips** referencing `axesId`. |
+| **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphFunctionSeries` — timed like other clips, anchored to an axes item. `graphFunctionSeries` renders a family of curves parameterized by integer `n ∈ [nMin, nMax]`; see [Function series](#function-series). |
 | **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
 | **Exit animation** | A **separate timeline clip** (`exit_animation`) that targets another animatable item by `targetId`. It runs `FadeOut` / `Uncreate` / `ShrinkToCenter` (or `none`) at its own `startTime` for `duration` seconds. The exit must start at or after the target’s **hold end** (`effectiveStart + run duration`, including compound-local duration for child lines). Adding an object does not create an exit; add exits from **+ Object → Exit animation** when needed. |
 
@@ -176,7 +177,7 @@ For the padding math to produce correct `self.wait` gaps, `sequentialAnimSeconds
 | Leaf kind | No audio | With audio |
 |-----------|----------|------------|
 | `textLine` | `effectiveDuration` (anim + segment waits) | `sceneClockSecForLeafBoundPlayback` (includes boundary `run_time`, segment waits, and capped tail wait) |
-| `axes`, `graphPlot`, `graphSeriesViz`, `shape` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
+| `axes`, `graphPlot`, `graphFunctionSeries`, `shape` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
 | `graphDot` | `leaf.duration + (label ? 1 : 0)` | `sceneClockSecForLeafBoundPlayback` (already includes the label `Write` second — do **not** add it again) |
 | `graphField` | `leaf.duration + (seeds ? 1 : 0)` | `sceneClockSecForLeafBoundPlayback` (already includes the streams `Create` second — do **not** add it again) |
 
@@ -213,6 +214,34 @@ Use a **compound** when several equations or lines should appear as **one block*
 | **Centering** | New compounds default **`centerHorizontally: true`**; older projects may omit it (treated as off). Best results after **measure** has widths. |
 
 **Modules** — `src/lib/time.ts`, `src/lib/compoundLayout.ts`, `src/lib/resolvePosition.ts`, `src/codegen/flattenExport.ts`, `src/codegen/lineCodegen.ts`, `src/store/useSceneStore.ts`.
+
+---
+
+## Function series
+
+A **`graphFunctionSeries`** item renders a family of curves parameterized by an integer `n` on an existing axes. It is the unified successor to the old sequence / partial-sum / series visualizers (legacy `graphSeriesViz` items are silently dropped on load — see `migrateSceneItems.ts`).
+
+| Topic | Behavior |
+|--------|----------|
+| **Expression** | `jsExpr` (JavaScript, used for canvas preview and validation) and `pyExpr` (Python, embedded verbatim in the Manim export). Both evaluate a function of `n` and `x`. |
+| **Range** | `nMin`, `nMax` integers; the set of curves is `n = nMin, nMin+1, …, nMax`. Empty or inverted ranges emit no playback. |
+| **`displayMode`** | `'individual'` draws each `f_n(x)` as its own curve; `'partialSum'` draws the partial sums `S_k(x) = Σ_{n=nMin}^{k} f_n(x)` for `k = nMin…nMax` (computed incrementally, `O(N · samples)`). |
+| **`mode`** (playback) | `'accumulation'` — each curve stays on screen as the next is drawn. `'replacement'` — each curve morphs into the next via `ReplacementTransform` (continuous transform). |
+| **Per-`n` styling (`perN`)** | Per-index overrides for `color`, `strokeWidth`, `lineStyle`, `animDuration`, `waitAfter`. A shared **defaults** block (“Apply to all” / עיצוב גורף) provides baseline values; individual overrides survive changes to `nMin` / `nMax` because `perN` is keyed by `n`. |
+| **Timeline behavior** | Clip duration is the sum of per-`n` `animDuration + waitAfter` (last wait skipped); drag-to-scale on the clip scales all participating `animDuration`s proportionally. Bookmarks / ripple on `waitAfter` work as for ordinary clips. |
+| **Validation** | `src/lib/functionSeriesValidation.ts` evaluates the JS expression on a sample grid for every `n` in range. In `partialSum` mode, sample points are tracked as **poisoned** once any `f_n(x)` at that `x` is non-finite, so later `S_k` values at that `x` are flagged too. Any validation error **locks global playback** until the expression is fixed. |
+| **Preview** | `src/lib/functionSeriesPreview.ts` produces the Konva polyline segments for each `n` (honoring `displayMode`); the canvas layer (`canvas/layers/GraphNode.tsx`) renders only the curves visible at the current playhead. |
+| **Export** | `src/codegen/functionSeriesCodegen.ts` emits a per-item builder function (one `VMobject` per `n`), an `axes_k_fs_<id> = VGroup()` registration, and a playback block that is either a sequence of `Create` + `Wait` (accumulation) or an initial `Create` followed by `ReplacementTransform` hops (replacement). It also plugs into the concurrent cluster codegen as a `Succession` branch. |
+
+**Files to read first**
+
+| Area | Files |
+|------|--------|
+| Model + totals | `src/types/scene.ts` (`GraphFunctionSeriesItem`, `functionSeriesIndices`, `functionSeriesTotalDuration`) |
+| Editor UI | `src/panels/FunctionSeriesEditor.tsx`, `src/panels/FunctionSeriesIndividualPanel.tsx` |
+| Validation | `src/lib/functionSeriesValidation.ts`, `src/lib/functionSeriesValidation.test.ts` |
+| Canvas preview | `src/lib/functionSeriesPreview.ts`, `src/canvas/layers/GraphNode.tsx` |
+| Manim codegen | `src/codegen/functionSeriesCodegen.ts`, `src/codegen/functionSeriesCodegen.test.ts` |
 
 ---
 
@@ -385,4 +414,4 @@ Native shell and optional **PyInstaller** sidecar: see **`TAURI.md`** and **`src
 
 ---
 
-*Last updated: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps; `graphDot` FadeIn now passes `run_time=item.duration` explicitly; `sequentialAnimSecondsForLeaf` no longer double-counts the label/streams extra second when bound audio is present.*
+*Last updated: Function series (`graphFunctionSeries`) now supports a `displayMode` toggle between individual curves `f_n(x)` and incremental partial sums `S_k(x) = Σ f_n(x)`, with validation-locks-playback semantics and per-`n` styling preserved across range changes; legacy `graphSeriesViz` removed (items in older projects are dropped on load). Earlier: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps; `graphDot` FadeIn now passes `run_time=item.duration` explicitly; `sequentialAnimSecondsForLeaf` no longer double-counts the label/streams extra second when bound audio is present.*

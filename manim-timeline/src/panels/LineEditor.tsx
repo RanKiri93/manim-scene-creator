@@ -4,6 +4,7 @@ import { useMeasureLine } from '@/services/measureHooks';
 import { parseSegments } from '@/codegen/texUtils';
 import { createSegmentStyle } from '@/store/factories';
 import { effectiveStart } from '@/lib/time';
+import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 import type { AnimStyle, TextLineItem, SegmentStyle, TransformMapping } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import SegmentEditor from './SegmentEditor';
@@ -66,8 +67,6 @@ export default function LineEditor({ item }: LineEditorProps) {
     set({ raw, segments: segs });
   };
 
-  const inCompound = Boolean(item.parentId);
-
   const animStyle: AnimStyle = item.animStyle ?? 'write';
 
   const onAnimStyleChange = (style: AnimStyle) => {
@@ -102,11 +101,6 @@ export default function LineEditor({ item }: LineEditorProps) {
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Text Line</h3>
-      {inCompound && (
-        <p className="text-[10px] text-violet-400/90 bg-violet-950/40 border border-violet-700/50 rounded px-2 py-1">
-          This line is inside a compound clip. Timing is <strong>local</strong> (seconds from the compound start).
-        </p>
-      )}
 
       <label className="text-xs text-slate-400 block">
         Clip name
@@ -221,55 +215,39 @@ export default function LineEditor({ item }: LineEditorProps) {
       )}
 
       {/* Timeline properties */}
-      {inCompound ? (
-        <div className="flex items-end gap-3 flex-wrap">
-          <NumberInput
-            label="Local start (s)"
-            value={item.localStart ?? 0}
-            onChange={(v) => set({ localStart: v, startTime: 0 })}
-            min={0}
-            step={0.1}
-          />
-          <NumberInput
-            label="Local duration"
-            value={item.localDuration ?? item.duration}
-            onChange={(v) => set({ localDuration: v, duration: v })}
-            min={0.01}
-            step={0.1}
-          />
-          <NumberInput
-            label="Layer"
-            value={item.layer}
-            onChange={(v) => set({ layer: Math.round(v) })}
-            min={0}
-            step={1}
-          />
-        </div>
-      ) : (
-        <div className="flex items-end gap-3 flex-wrap">
-          <NumberInput
-            label="Start (s)"
-            value={item.startTime}
-            onChange={(v) => set({ startTime: v })}
-            min={0}
-            step={0.1}
-          />
-          <NumberInput
-            label="Duration"
-            value={item.duration}
-            onChange={(v) => set({ duration: v })}
-            min={0.01}
-            step={0.1}
-          />
-          <NumberInput
-            label="Layer"
-            value={item.layer}
-            onChange={(v) => set({ layer: Math.round(v) })}
-            min={0}
-            step={1}
-          />
-        </div>
-      )}
+      <div className="flex items-end gap-3 flex-wrap">
+        <NumberInput
+          label="Start (s)"
+          value={item.startTime}
+          onChange={(v) => set({ startTime: v })}
+          min={0}
+          step={0.1}
+        />
+        <NumberInput
+          label="Duration"
+          value={item.duration}
+          onChange={(v) => {
+            const next = Math.max(0.01, v);
+            set({
+              duration: next,
+              segments: scaleSegmentAnimForLineDuration(
+                item.segments,
+                item.duration,
+                next,
+              ),
+            });
+          }}
+          min={0.01}
+          step={0.1}
+        />
+        <NumberInput
+          label="Layer"
+          value={item.layer}
+          onChange={(v) => set({ layer: Math.round(v) })}
+          min={0}
+          step={1}
+        />
+      </div>
 
       {/* Position: absolute coords + scale */}
       <div className="flex items-end gap-3 flex-wrap">
@@ -311,7 +289,11 @@ export default function LineEditor({ item }: LineEditorProps) {
           Segments ({item.segments.length})
         </summary>
         <div className="mt-2">
-          <SegmentEditor segments={item.segments} onChange={(s) => set({ segments: s })} />
+          <SegmentEditor
+            segments={item.segments}
+            animDuration={item.duration}
+            onChange={(s) => set({ segments: s })}
+          />
         </div>
       </details>
     </div>

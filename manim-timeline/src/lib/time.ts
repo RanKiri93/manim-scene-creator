@@ -3,22 +3,12 @@ import type {
   SceneItem,
   SegmentStyle,
   TextLineItem,
-  CompoundItem,
   ExitAnimationItem,
 } from '@/types/scene';
 
-/** Items shown on the main timeline (not nested under a compound). */
-export function isTopLevelItem(item: SceneItem): boolean {
-  if (item.kind === 'textLine' && item.parentId) return false;
+/** Items shown on the main timeline. */
+export function isTopLevelItem(_item: SceneItem): boolean {
   return true;
-}
-
-export function getCompound(
-  items: Map<ItemId, SceneItem>,
-  id: ItemId,
-): CompoundItem | undefined {
-  const it = items.get(id);
-  return it?.kind === 'compound' ? it : undefined;
 }
 
 /** Objects that can be highlighted with a surrounding rectangle (not another highlight). */
@@ -29,7 +19,8 @@ export function canBeSurroundTarget(item: SceneItem): boolean {
     item.kind === 'graphPlot' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
-    item.kind === 'graphSeriesViz' ||
+    item.kind === 'graphFunctionSeries' ||
+    item.kind === 'graphArea' ||
     item.kind === 'shape'
   );
 }
@@ -80,23 +71,11 @@ export function earliestExitClipForTarget(
 }
 
 /** Global start time for any scene item (for playback & export ordering). */
-export function effectiveStart(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'textLine' && item.parentId) {
-    const p = items.get(item.parentId);
-    if (p?.kind === 'compound') {
-      return p.startTime + (item.localStart ?? 0);
-    }
-  }
+export function effectiveStart(item: SceneItem, _items: Map<ItemId, SceneItem>): number {
   return item.startTime;
 }
 
-function textLineBaseDuration(item: TextLineItem, items: Map<ItemId, SceneItem>): number {
-  if (item.parentId) {
-    const p = items.get(item.parentId);
-    if (p?.kind === 'compound') {
-      return item.localDuration ?? item.duration;
-    }
-  }
+function textLineBaseDuration(item: TextLineItem): number {
   return item.duration;
 }
 
@@ -110,29 +89,32 @@ export function segmentWaitTotal(segments: readonly SegmentStyle[]): number {
   return t;
 }
 
+export { applyWaitBodyShift } from './segmentAnimDurations';
+
 /** Text line duration for intro/write animation only (excludes segment `waitAfterSec`). */
 export function textLineAnimOnlyDuration(
   item: TextLineItem,
-  items: Map<ItemId, SceneItem>,
+  _items: Map<ItemId, SceneItem>,
 ): number {
-  return textLineBaseDuration(item, items);
+  return textLineBaseDuration(item);
 }
 
 /** Run segment length in seconds (intro / main play window, not exit). */
-export function runDuration(item: SceneItem, items: Map<ItemId, SceneItem>): number {
+export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): number {
   if (item.kind === 'textLine') {
-    return (
-      textLineBaseDuration(item, items) + segmentWaitTotal(item.segments)
-    );
+    return textLineBaseDuration(item) + segmentWaitTotal(item.segments);
+  }
+  if (item.kind === 'surroundingRect') {
+    return Math.max(0.05, item.runTime);
   }
   if (
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
-    item.kind === 'graphSeriesViz' ||
-    item.kind === 'shape' ||
-    item.kind === 'surroundingRect'
+    item.kind === 'graphFunctionSeries' ||
+    item.kind === 'graphArea' ||
+    item.kind === 'shape'
   ) {
     return item.duration;
   }
@@ -145,22 +127,23 @@ export function holdEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number 
 }
 
 /**
- * Exclusive end of on-screen presence: after last exit completes, or +Infinity if no exit clip.
+ * Exclusive end of on-screen presence for preview. With **no** exit clip targeting this id,
+ * returns +Infinity so lines/shapes/graphs stay on the canvas after their timeline segment (like
+ * Manim). With an exit, returns the later of `holdEnd` and when that exit finishes.
+ * Use `timelineSpanEnd` for finite scene-length / layout.
  */
 export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'compound' || item.kind === 'exit_animation') {
+  if (item.kind === 'exit_animation') {
     return 0;
   }
   const exEnd = exitVisualEndExclusive(item.id, items);
   if (exEnd === null) return Number.POSITIVE_INFINITY;
-  return exEnd;
+  const he = holdEnd(item, items);
+  return Math.max(he, exEnd);
 }
 
 /** Finite end for scene length / layout when the object has no exit (hold only). */
 export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'compound') {
-    return item.startTime + item.duration;
-  }
   if (item.kind === 'exit_animation') {
     return item.startTime + item.duration;
   }
@@ -169,8 +152,8 @@ export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>):
   return exEnd !== null ? Math.max(he, exEnd) : he;
 }
 
-export function effectiveDuration(item: TextLineItem, items: Map<ItemId, SceneItem>): number {
-  return textLineBaseDuration(item, items) + segmentWaitTotal(item.segments);
+export function effectiveDuration(item: TextLineItem, _items: Map<ItemId, SceneItem>): number {
+  return textLineBaseDuration(item) + segmentWaitTotal(item.segments);
 }
 
 /** Whether `time` falls inside this item's playback window. */
@@ -179,7 +162,7 @@ export function isActiveAtTime(
   time: number,
   items: Map<ItemId, SceneItem>,
 ): boolean {
-  if (item.kind === 'compound' || item.kind === 'exit_animation') return false;
+  if (item.kind === 'exit_animation') return false;
   const start = effectiveStart(item, items);
   if (time < start) return false;
   const end = effectiveEnd(item, items);
@@ -188,29 +171,28 @@ export function isActiveAtTime(
 
 /**
  * Canvas preview: a line used as `transformConfig.sourceLineId` should disappear after
- * the transform animation on the target finishes (same notion as `holdEnd` on the target),
- * otherwise the source LaTeX preview stays on screen forever because `effectiveEnd` has no exit.
+ * the transform `play()` on the target finishes. Export uses `run_time=item.duration` then
+ * optional `wait()` for segment post-waits — the source mobject is gone after `play`, not after
+ * those waits, so we must not use `holdEnd` (which includes post-waits) or the preview keeps
+ * drawing the source during pauses after the morph. Without this, `effectiveEnd` on the source
+ * is still +Infinity (no exit), so the LaTeX preview would never leave.
  */
 export function isTransformSourceHiddenInPreview(
   sourceLine: TextLineItem,
   time: number,
   items: Map<ItemId, SceneItem>,
 ): boolean {
-  const targets: TextLineItem[] = [];
+  let hideAt = Number.POSITIVE_INFINITY;
   for (const it of items.values()) {
     if (it.kind !== 'textLine') continue;
     if (it.animStyle !== 'transform') continue;
     if (it.transformConfig?.sourceLineId !== sourceLine.id) continue;
-    targets.push(it);
+    const end =
+      effectiveStart(it, items) + textLineAnimOnlyDuration(it, items);
+    hideAt = Math.min(hideAt, end);
   }
-  if (targets.length === 0) return false;
-  targets.sort(
-    (a, b) =>
-      effectiveStart(a, items) - effectiveStart(b, items) ||
-      a.id.localeCompare(b.id),
-  );
-  const lastByStart = targets[targets.length - 1]!;
-  return time >= holdEnd(lastByStart, items);
+  if (hideAt === Number.POSITIVE_INFINITY) return false;
+  return time >= hideAt;
 }
 
 /** Minimum legal `startTime` for an exit clip targeting `targetId`. */

@@ -39,12 +39,13 @@ export function itemClipDisplayName(item: SceneItem): string {
         : item.fieldMode === 'slope'
           ? 'Slope field'
           : 'Field';
-    case 'graphSeriesViz': {
+    case 'graphFunctionSeries': {
       const bit = trunc(item.jsExpr, 22);
-      return bit ? `Series: ${bit}` : 'Series viz';
+      const range = `n=${item.nMin}..${item.nMax}`;
+      return bit ? `f(n,x)=${bit} [${range}]` : `Function series [${range}]`;
     }
-    case 'compound':
-      return `Compound (${item.childIds.length})`;
+    case 'graphArea':
+      return 'Graph area';
     case 'surroundingRect': {
       return item.label.trim() || 'Surrounding rect';
     }
@@ -67,7 +68,6 @@ export function exitTargetSelectLabel(
   const name = itemClipDisplayName(item);
   const t0 = effectiveStart(item, itemsMap).toFixed(2);
   const idShort = item.id.length > 10 ? `${item.id.slice(0, 10)}…` : item.id;
-  const kindHint =
-    item.kind === 'textLine' && item.parentId ? 'line in compound' : item.kind;
+  const kindHint = item.kind;
   return `${name}  ·  @${t0}s  ·  ${kindHint}  ·  ${idShort}`;
 }

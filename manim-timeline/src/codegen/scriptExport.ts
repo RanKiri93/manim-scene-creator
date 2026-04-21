@@ -5,9 +5,9 @@ import type {
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
-  GraphSeriesVizItem,
+  GraphFunctionSeriesItem,
+  GraphAreaItem,
   ShapeItem,
-  CompoundItem,
   ItemId,
 } from '@/types/scene';
 import { isTopLevelItem, effectiveStart } from '@/lib/time';
@@ -34,6 +34,7 @@ function appendAxes(lines: string[], item: AxesItem): void {
   lines.push(
     `x: [${item.xRange[0]}, ${item.xRange[1]}] step ${item.xRange[2]} — y: [${item.yRange[0]}, ${item.yRange[1]}] step ${item.yRange[2]}`,
   );
+  lines.push(`Scale: x=${item.scaleX}, y=${item.scaleY} (Manim units per graph unit)`);
   lines.push(`Labels: ${item.xLabel}, ${item.yLabel}`);
 }
 
@@ -43,6 +44,12 @@ function appendGraphPlot(lines: string[], item: GraphPlotItem): void {
   const fn = item.fn;
   lines.push('');
   lines.push(`Py: ${(fn.pyExpr ?? '').trim() || '(empty)'}`);
+  if (item.xDomain) {
+    const lo = Math.min(item.xDomain[0], item.xDomain[1]);
+    const hi = Math.max(item.xDomain[0], item.xDomain[1]);
+    lines.push(`x domain: [${lo}, ${hi}]`);
+  }
+  lines.push(`stroke width: ${item.strokeWidth}`);
 }
 
 function appendGraphDot(lines: string[], item: GraphDotItem): void {
@@ -50,19 +57,26 @@ function appendGraphDot(lines: string[], item: GraphDotItem): void {
   lines.push(`## Graph dot → axes ${item.axesId}`);
 }
 
-function appendGraphSeriesViz(lines: string[], item: GraphSeriesVizItem): void {
+function appendGraphFunctionSeries(
+  lines: string[],
+  item: GraphFunctionSeriesItem,
+): void {
   lines.push('');
-  lines.push(`## Series/sequence viz → axes ${item.axesId}`);
+  lines.push(`## Function series → axes ${item.axesId}`);
   lines.push('');
-  lines.push(`Mode: ${item.vizMode}, n ∈ [${item.nMin}, ${item.nMax}]`);
-  lines.push(
-    `Py (${item.vizMode === 'partialPlot' ? 'k, x' : 'n'}): ${(item.pyExpr ?? '').trim() || '(empty)'}`,
-  );
+  lines.push(`Mode: ${item.mode}, n ∈ [${item.nMin}, ${item.nMax}]`);
+  lines.push(`Py: ${(item.pyExpr ?? '').trim() || '(empty)'}`);
 }
 
 function appendShape(lines: string[], item: ShapeItem): void {
   lines.push('');
   lines.push(`## Shape (${item.shapeType})`);
+}
+
+function appendGraphArea(lines: string[], item: GraphAreaItem): void {
+  lines.push('');
+  lines.push(`## Graph area → axes ${item.axesId}`);
+  lines.push(`Mode: ${item.mode.areaKind}`);
 }
 
 function appendGraphField(lines: string[], item: GraphFieldItem): void {
@@ -86,26 +100,6 @@ function appendGraphField(lines: string[], item: GraphFieldItem): void {
   }
 }
 
-function appendCompound(
-  lines: string[],
-  item: CompoundItem,
-  items: Map<ItemId, SceneItem>,
-): void {
-  lines.push('');
-  lines.push(`## Compound: ${item.label || item.id}`);
-  const children: TextLineItem[] = [];
-  for (const cid of item.childIds) {
-    const ch = items.get(cid);
-    if (ch?.kind === 'textLine') children.push(ch);
-  }
-  children.sort(
-    (a, b) => effectiveStart(a, items) - effectiveStart(b, items),
-  );
-  for (const child of children) {
-    appendTextLine(lines, child);
-  }
-}
-
 export function exportScriptToMarkdown(state: SceneState): void {
   const { items } = state;
   const ordered = Array.from(items.values())
@@ -121,9 +115,10 @@ export function exportScriptToMarkdown(state: SceneState): void {
     else if (it.kind === 'graphPlot') appendGraphPlot(parts, it);
     else if (it.kind === 'graphDot') appendGraphDot(parts, it);
     else if (it.kind === 'graphField') appendGraphField(parts, it);
-    else if (it.kind === 'graphSeriesViz') appendGraphSeriesViz(parts, it);
+    else if (it.kind === 'graphFunctionSeries')
+      appendGraphFunctionSeries(parts, it);
+    else if (it.kind === 'graphArea') appendGraphArea(parts, it);
     else if (it.kind === 'shape') appendShape(parts, it);
-    else if (it.kind === 'compound') appendCompound(parts, it, items);
   }
 
   const md = parts.join('\n');

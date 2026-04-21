@@ -12,6 +12,7 @@ import type { ShapeItem } from '@/types/scene';
 import { isFreelyDraggable } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
+import { isMultiSelectModifier } from '@/lib/uiModifiers';
 
 const TRANSFORMER_ANCHORS = [
   'top-left',
@@ -127,10 +128,10 @@ export default function ShapeNode({
   const rh = bboxHalfPx();
 
   const onDragStart = useCallback(
-    (_e: Konva.KonvaEventObject<DragEvent>) => {
+    (e: Konva.KonvaEventObject<DragEvent>) => {
       interactionRef.current = true;
       useSceneStore.temporal.getState().pause();
-      select(item.id);
+      select(item.id, isMultiSelectModifier(e.evt));
     },
     [item.id, select],
   );
@@ -277,11 +278,11 @@ export default function ShapeNode({
         onDragEnd={onDragEnd}
         onClick={(e) => {
           e.cancelBubble = true;
-          useSceneStore.getState().select(item.id);
+          useSceneStore.getState().select(item.id, isMultiSelectModifier(e.evt));
         }}
         onTap={(e) => {
           e.cancelBubble = true;
-          useSceneStore.getState().select(item.id);
+          useSceneStore.getState().select(item.id, isMultiSelectModifier(e.evt));
         }}
       >
         {inner}

@@ -1,4 +1,5 @@
 import type { ItemId, ShapeItem, SceneItem } from '@/types/scene';
+import { emitNextToPython } from './nextToCodegen';
 import { manimColor } from './graphCodegen';
 import {
   type BoundAudioTailOpts,
@@ -55,12 +56,14 @@ export function generateShapePos(
   varName: string,
   indent: number,
   idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
   const lines: string[] = [];
   let emittedPlacement = false;
 
-  for (const step of item.posSteps) {
+  for (let si = 0; si < item.posSteps.length; si++) {
+    const step = item.posSteps[si]!;
     switch (step.kind) {
       case 'absolute':
         lines.push(
@@ -72,8 +75,19 @@ export function generateShapePos(
         if (!step.refId) break;
         const refVar = idToVarName.get(step.refId);
         if (!refVar) break;
+        const refItem = itemsMap.get(step.refId);
+        if (!refItem) break;
         lines.push(
-          `${pad}${varName}.next_to(${refVar}, ${step.dir}, buff=${step.buff})`,
+          emitNextToPython({
+            varName,
+            step,
+            refVar,
+            item,
+            refItem,
+            itemsMap,
+            stepIndex: si,
+            indent: pad,
+          }),
         );
         emittedPlacement = true;
         break;
@@ -109,13 +123,43 @@ export function generateShapePos(
     );
   }
 
-  if (Math.abs(item.rotationDeg) > 1e-6) {
+  // Canvas anchors the arrow at the shaft midpoint (start+end)/2. Manim's Arrow includes the
+  // tip in get_center(), so move_to/rotate/scale use a slightly offset pivot — visible on short arrows.
+  if (item.shapeType === 'arrow') {
+    const c0 = `_${varName}_shaft_c`;
+    const s0 = `_${varName}_shaft_s`;
     lines.push(
-      `${pad}${varName}.rotate(${item.rotationDeg.toFixed(4)} * DEGREES)`,
+      `${pad}${c0} = ${varName}.get_center()`,
+      `${pad}${s0} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
+      `${pad}${varName}.shift(${c0} - ${s0})`,
     );
   }
+
+  if (Math.abs(item.rotationDeg) > 1e-6) {
+    // Canvas (Konva): +deg is clockwise. Manim: +deg is CCW in the xy plane (y up).
+    const manimDeg = -item.rotationDeg;
+    if (item.shapeType === 'arrow') {
+      const rp = `_${varName}_shaft_rp`;
+      lines.push(
+        `${pad}${rp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
+        `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES, about_point=${rp})`,
+      );
+    } else {
+      lines.push(
+        `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES)`,
+      );
+    }
+  }
   if (Math.abs(item.scale - 1) > 1e-6) {
-    lines.push(`${pad}${varName}.scale(${item.scale.toFixed(6)})`);
+    if (item.shapeType === 'arrow') {
+      const sp = `_${varName}_shaft_sp`;
+      lines.push(
+        `${pad}${sp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
+        `${pad}${varName}.scale(${item.scale.toFixed(6)}, about_point=${sp})`,
+      );
+    } else {
+      lines.push(`${pad}${varName}.scale(${item.scale.toFixed(6)})`);
+    }
   }
 
   return lines.join('\n') + (lines.length ? '\n' : '');

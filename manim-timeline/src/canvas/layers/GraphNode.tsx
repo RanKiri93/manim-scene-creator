@@ -1,15 +1,20 @@
 import { useCallback, useMemo } from 'react';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { Group, Rect, Line, Circle, Text } from 'react-konva';
+import { Group, Rect, Line, Circle, Text, Ellipse } from 'react-konva';
 import type {
   AxesItem,
-  GraphDot,
+  GraphAreaCurveSource,
+  GraphAreaItem,
   GraphFieldItem,
-  GraphFunction,
-  GraphSeriesVizItem,
   ItemId,
+  SceneItem,
 } from '@/types/scene';
-import { buildSeriesVizDrawSpec } from '@/lib/seriesVizPreview';
+import type { GraphAxesDrawSlot } from '@/lib/graphPreview';
+import {
+  buildFunctionSeriesDrawSpec,
+  functionSeriesDashArray,
+} from '@/lib/functionSeriesPreview';
+import { functionSeriesIsDisabled } from '@/lib/graphPreview';
 import { useDragSnap } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
@@ -20,12 +25,111 @@ import {
 } from '@/canvas/layers/graphFieldPreview';
 import { createGraphStreamPoint } from '@/store/factories';
 
+function evalGraphY(jsExpr: string, x: number): number | null {
+  try {
+    const y = new Function('x', `return ${jsExpr}`)(x) as number;
+    return Number.isFinite(y) ? y : null;
+  } catch {
+    return null;
+  }
+}
+
+function yFromAreaCurveSource(
+  src: GraphAreaCurveSource,
+  x: number,
+  itemsMap: Map<ItemId, SceneItem>,
+): number | null {
+  if (src.sourceKind === 'plot') {
+    const p = itemsMap.get(src.plotId);
+    if (!p || p.kind !== 'graphPlot') return null;
+    return evalGraphY(p.fn.jsExpr, x);
+  }
+  return evalGraphY(src.jsExpr, x);
+}
+
+function graphAreaPreviewPoints(
+  area: GraphAreaItem,
+  itemsMap: Map<ItemId, SceneItem>,
+  xMin: number,
+  xMax: number,
+  _yMin: number,
+  _yMax: number,
+  toLocal: (gx: number, gy: number) => { lx: number; ly: number },
+): number[] | null {
+  const m = area.mode;
+  const axLo = xMin;
+  const axHi = xMax;
+
+  if (m.areaKind === 'underCurve') {
+    const xa = Math.max(axLo, Math.min(axHi, m.xMin));
+    const xb = Math.max(axLo, Math.min(axHi, m.xMax));
+    if (!(xb > xa)) return null;
+    const steps = 80;
+    const pts: number[] = [];
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const gx = xa + t * (xb - xa);
+      const y = yFromAreaCurveSource(m.curve, gx, itemsMap);
+      if (y == null) continue;
+      const { lx, ly } = toLocal(gx, y);
+      pts.push(lx, ly);
+    }
+    if (pts.length < 4) return null;
+    const br = toLocal(xb, 0);
+    const bl = toLocal(xa, 0);
+    return [...pts, br.lx, br.ly, bl.lx, bl.ly];
+  }
+
+  if (m.areaKind === 'betweenCurves') {
+    const xa = Math.max(axLo, Math.min(axHi, m.xMin));
+    const xb = Math.max(axLo, Math.min(axHi, m.xMax));
+    if (!(xb > xa)) return null;
+    const steps = 80;
+    const lower: { lx: number; ly: number }[] = [];
+    const upper: { lx: number; ly: number }[] = [];
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const gx = xa + t * (xb - xa);
+      const y1 = yFromAreaCurveSource(m.lower, gx, itemsMap);
+      const y2 = yFromAreaCurveSource(m.upper, gx, itemsMap);
+      if (y1 != null) lower.push(toLocal(gx, y1));
+      if (y2 != null) upper.push(toLocal(gx, y2));
+    }
+    if (lower.length < 2 || upper.length < 2) return null;
+    const pts: number[] = [];
+    for (const p of lower) pts.push(p.lx, p.ly);
+    for (let i = upper.length - 1; i >= 0; i--) {
+      const p = upper[i]!;
+      pts.push(p.lx, p.ly);
+    }
+    return pts;
+  }
+
+  if (m.areaKind === 'parallelogramFour') {
+    return m.corners.flatMap((c) => {
+      const p = toLocal(c.x, c.y);
+      return [p.lx, p.ly];
+    });
+  }
+
+  if (m.areaKind === 'parallelogramVec') {
+    const { ox, oy, ux, uy, vx, vy } = m;
+    const corners = [
+      toLocal(ox, oy),
+      toLocal(ox + ux, oy + uy),
+      toLocal(ox + ux + vx, oy + uy + vy),
+      toLocal(ox + vx, oy + vy),
+    ];
+    return corners.flatMap((p) => [p.lx, p.ly]);
+  }
+
+  return null;
+}
+
 interface GraphNodeProps {
   axes: AxesItem;
-  plots: GraphFunction[];
-  dots: GraphDot[];
+  drawOrder: GraphAxesDrawSlot[];
   field: GraphFieldItem | null;
-  seriesViz: GraphSeriesVizItem | null;
   /** When set, clicks add streamline seeds to this field item. */
   streamPlacementFieldId: ItemId | null;
   isSelected: boolean;
@@ -37,10 +141,8 @@ interface GraphNodeProps {
 
 export default function GraphNode({
   axes,
-  plots,
-  dots,
+  drawOrder,
   field,
-  seriesViz,
   streamPlacementFieldId,
   isSelected,
   canvasWidth,
@@ -76,18 +178,20 @@ export default function GraphNode({
 
   const [xMin, xMax] = axes.xRange;
   const [yMin, yMax] = axes.yRange;
-  const axW = (xMax - xMin) * axes.scale * pxPerUnitX;
-  const axH = (yMax - yMin) * axes.scale * pxPerUnitY;
+  const axW = (xMax - xMin) * axes.scaleX * pxPerUnitX;
+  const axH = (yMax - yMin) * axes.scaleY * pxPerUnitY;
 
   const ox = (-xMin / (xMax - xMin)) * axW;
   const oy = (yMax / (yMax - yMin)) * axH;
 
-  const plotFn = (jsExpr: string): number[] => {
+  const plotPolyline = (jsExpr: string, xLo: number, xHi: number): number[] => {
     const points: number[] = [];
     const steps = 200;
+    const span = xMax - xMin;
+    if (!(span > 0) || !(xHi > xLo)) return points;
     for (let s = 0; s <= steps; s++) {
       const t = s / steps;
-      const x = xMin + t * (xMax - xMin);
+      const x = xLo + t * (xHi - xLo);
       let y: number;
       try {
         y = new Function('x', `return ${jsExpr}`)(x) as number;
@@ -95,7 +199,7 @@ export default function GraphNode({
         continue;
       }
       if (!isFinite(y)) continue;
-      const px = -axW / 2 + t * axW;
+      const px = -axW / 2 + ((x - xMin) / span) * axW;
       const py = -axH / 2 + (1 - (y - yMin) / (yMax - yMin)) * axH;
       points.push(px, py);
     }
@@ -110,11 +214,6 @@ export default function GraphNode({
     },
     [axW, axH, xMin, xMax, yMin, yMax],
   );
-
-  const seriesSpec = useMemo(() => {
-    if (!seriesViz) return null;
-    return buildSeriesVizDrawSpec(seriesViz, axes, currentTime, itemsMap, toLocal);
-  }, [seriesViz, axes, currentTime, itemsMap, toLocal]);
 
   const fieldMode = field?.fieldMode ?? 'none';
   const cmin = field?.colorSchemeMin ?? 0;
@@ -270,116 +369,174 @@ export default function GraphNode({
         listening={false}
       />
 
-      {plots.map((fn, i) => {
-        const pts = plotFn(fn.jsExpr);
-        if (pts.length < 4) return null;
-        return (
-          <Line
-            key={fn.id || i}
-            points={pts}
-            stroke={fn.color}
-            strokeWidth={2}
-            lineCap="round"
-            lineJoin="round"
-            listening={false}
-          />
-        );
-      })}
-
-      {fieldArrows.map((a) => (
-        <Line
-          key={a.key}
-          points={a.points}
-          stroke={a.color}
-          strokeWidth={1.5}
-          lineCap="round"
-          listening={false}
-        />
-      ))}
-
-      {streamPreviewLines.map((sl) => (
-        <Line
-          key={sl.key}
-          points={sl.points}
-          stroke="#38bdf8"
-          strokeWidth={2}
-          lineCap="round"
-          lineJoin="round"
-          opacity={0.9}
-          listening={false}
-        />
-      ))}
-
-      {seriesSpec?.limitLineY !== undefined && (
-        <Line
-          points={[
-            -axW / 2,
-            -axH / 2 + (1 - (seriesSpec.limitLineY - yMin) / (yMax - yMin)) * axH,
-            axW / 2,
-            -axH / 2 + (1 - (seriesSpec.limitLineY - yMin) / (yMax - yMin)) * axH,
-          ]}
-          stroke="#94a3b8"
-          strokeWidth={1}
-          dash={[6, 4]}
-          opacity={0.65}
-          listening={false}
-        />
-      )}
-
-      {seriesSpec?.ghosts.map((g, gi) =>
-        g.points.length >= 4 ? (
-          <Line
-            key={`sv-ghost-${gi}`}
-            points={g.points}
-            stroke={seriesSpec.strokeColor}
-            strokeWidth={Math.max(0.5, seriesSpec.strokeWidth * 0.85)}
-            lineCap="round"
-            lineJoin="round"
-            opacity={g.opacity}
-            listening={false}
-          />
-        ) : null,
-      )}
-
-      {seriesSpec && seriesSpec.mainLine.length >= 4 && (
-        <Line
-          points={seriesSpec.mainLine}
-          stroke={seriesSpec.strokeColor}
-          strokeWidth={seriesSpec.strokeWidth}
-          lineCap="round"
-          lineJoin="round"
-          listening={false}
-        />
-      )}
-
-      {seriesSpec?.showHeadDot && seriesSpec.head && (
-        <Circle
-          x={seriesSpec.head.lx}
-          y={seriesSpec.head.ly}
-          radius={5}
-          fill={seriesSpec.headColor}
-          listening={false}
-        />
-      )}
-
-      {dots.map((dot, i) => {
-        const dx = -axW / 2 + ((dot.dx - xMin) / (xMax - xMin)) * axW;
-        const dy = -axH / 2 + (1 - (dot.dy - yMin) / (yMax - yMin)) * axH;
-        return (
-          <Group key={dot.id || i}>
-            <Circle x={dx} y={dy} radius={4} fill={dot.color} listening={false} />
-            {dot.label && (
-              <Text
-                x={dx + 6}
-                y={dy - 8}
-                text={dot.label}
-                fontSize={10}
-                fill="#e2e8f0"
+      {drawOrder.map((slot) => {
+        const key = `${slot.kind}-${slot.id}`;
+        if (slot.kind === 'area') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphArea') return null;
+          const fill = it.fillColor;
+          const fo = Math.max(0, Math.min(1, it.fillOpacity));
+          const sw = Math.max(0, it.strokeWidth);
+          const sc = it.strokeColor;
+          const m = it.mode;
+          if (m.areaKind === 'disk') {
+            const c = toLocal(m.cx, m.cy);
+            const pr = toLocal(m.cx + m.radius, m.cy);
+            const pu = toLocal(m.cx, m.cy + m.radius);
+            const rx = Math.hypot(pr.lx - c.lx, pr.ly - c.ly);
+            const ry = Math.hypot(pu.lx - c.lx, pu.ly - c.ly);
+            if (!(rx > 0.5 && ry > 0.5)) return null;
+            return (
+              <Ellipse
+                key={key}
+                x={c.lx}
+                y={c.ly}
+                radiusX={rx}
+                radiusY={ry}
+                fill={fill}
+                opacity={fo}
+                stroke={sc}
+                strokeWidth={sw}
                 listening={false}
               />
-            )}
-          </Group>
-        );
+            );
+          }
+          const poly = graphAreaPreviewPoints(it, itemsMap, xMin, xMax, yMin, yMax, toLocal);
+          if (!poly || poly.length < 6) return null;
+          return (
+            <Line
+              key={key}
+              points={poly}
+              closed
+              fill={fill}
+              opacity={fo}
+              stroke={sw > 0 ? sc : undefined}
+              strokeWidth={sw}
+              listening={false}
+            />
+          );
+        }
+        if (slot.kind === 'plot') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphPlot') return null;
+          const xd = it.xDomain;
+          const xLo = xd == null ? xMin : Math.min(xd[0], xd[1]);
+          const xHi = xd == null ? xMax : Math.max(xd[0], xd[1]);
+          const pts = plotPolyline(it.fn.jsExpr, xLo, xHi);
+          if (pts.length < 4) return null;
+          return (
+            <Line
+              key={key}
+              points={pts}
+              stroke={it.fn.color}
+              strokeWidth={Math.max(0, it.strokeWidth)}
+              lineCap="round"
+              lineJoin="round"
+              listening={false}
+            />
+          );
+        }
+        if (slot.kind === 'field' && field && field.id === slot.id) {
+          return (
+            <Group key={key} listening={false}>
+              {fieldArrows.map((a) => (
+                <Line
+                  key={a.key}
+                  points={a.points}
+                  stroke={a.color}
+                  strokeWidth={1.5}
+                  lineCap="round"
+                  listening={false}
+                />
+              ))}
+              {streamPreviewLines.map((sl) => (
+                <Line
+                  key={sl.key}
+                  points={sl.points}
+                  stroke="#38bdf8"
+                  strokeWidth={2}
+                  lineCap="round"
+                  lineJoin="round"
+                  opacity={0.9}
+                  listening={false}
+                />
+              ))}
+            </Group>
+          );
+        }
+        if (slot.kind === 'functionSeries') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphFunctionSeries') return null;
+          if (functionSeriesIsDisabled(it)) {
+            // Origin marker so disabled series is visible but playback-blocked.
+            const o = toLocal(0, 0);
+            return (
+              <Group key={key} listening={false}>
+                <Text
+                  x={o.lx - 8}
+                  y={o.ly - 10}
+                  text="⚠"
+                  fontSize={18}
+                  fill="#fca5a5"
+                  listening={false}
+                />
+              </Group>
+            );
+          }
+          const spec = buildFunctionSeriesDrawSpec(
+            it,
+            axes,
+            currentTime,
+            itemsMap,
+            toLocal,
+          );
+          if (!spec) return null;
+          return (
+            <Group key={key} listening={false}>
+              {spec.layers.map((layer) =>
+                layer.points.length >= 4 ? (
+                  <Line
+                    key={layer.key}
+                    points={layer.points}
+                    stroke={layer.color}
+                    strokeWidth={layer.strokeWidth}
+                    lineCap="round"
+                    lineJoin="round"
+                    opacity={layer.opacity}
+                    dash={functionSeriesDashArray(
+                      layer.lineStyle,
+                      layer.strokeWidth,
+                    )}
+                    listening={false}
+                  />
+                ) : null,
+              )}
+            </Group>
+          );
+        }
+        if (slot.kind === 'dot') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphDot') return null;
+          const dot = it.dot;
+          const dx = -axW / 2 + ((dot.dx - xMin) / (xMax - xMin)) * axW;
+          const dy = -axH / 2 + (1 - (dot.dy - yMin) / (yMax - yMin)) * axH;
+          return (
+            <Group key={key}>
+              <Circle x={dx} y={dy} radius={4} fill={dot.color} listening={false} />
+              {dot.label && (
+                <Text
+                  x={dx + 6}
+                  y={dy - 8}
+                  text={dot.label}
+                  fontSize={10}
+                  fill="#e2e8f0"
+                  listening={false}
+                />
+              )}
+            </Group>
+          );
+        }
+        return null;
       })}
 
       {placement && (

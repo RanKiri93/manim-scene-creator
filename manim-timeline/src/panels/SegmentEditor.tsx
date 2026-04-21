@@ -1,13 +1,20 @@
 import type { SegmentStyle } from '@/types/scene';
 import ColorPicker from '@/components/ColorPicker';
+import {
+  getSegmentAnimSec,
+  setSegmentAnimSecAtIndex,
+} from '@/lib/segmentAnimDurations';
 
 interface SegmentEditorProps {
   segments: SegmentStyle[];
+  /** Animation-only line duration; per-segment anim times sum to this. */
+  animDuration: number;
   onChange: (segments: SegmentStyle[]) => void;
 }
 
 export default function SegmentEditor({
   segments,
+  animDuration,
   onChange,
 }: SegmentEditorProps) {
   if (segments.length === 0) {
@@ -32,6 +39,26 @@ export default function SegmentEditor({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
+            <label className="flex items-center gap-1 text-xs text-slate-400">
+              <span className="text-slate-500 shrink-0">Anim (s)</span>
+              <input
+                type="number"
+                min={0.01}
+                step={0.05}
+                value={(() => {
+                  const arr = getSegmentAnimSec(segments, animDuration);
+                  const v = arr[i];
+                  return Number.isFinite(v) ? Math.round(v * 1000) / 1000 : '';
+                })()}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (!Number.isFinite(n)) return;
+                  onChange(setSegmentAnimSecAtIndex(segments, animDuration, i, n));
+                }}
+                className="w-16 rounded border border-slate-600 bg-slate-900 px-1 py-0.5 text-slate-200 text-xs"
+                title="Write/FadeIn time for this segment; others rebalance to keep total duration"
+              />
+            </label>
             <label className="flex items-center gap-1 text-xs text-slate-400">
               <span className="text-slate-500 shrink-0">Wait after (s)</span>
               <input

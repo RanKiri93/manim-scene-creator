@@ -61,13 +61,14 @@ def get_hebrew_tex_template(
         else:
             font_options = f"[Scale={hebrew_font_scale}]"
 
+    # amsmath must load before polyglossia (Hebrew loads bidi; bidi forbids amsmath after it).
     preamble = "\n".join(filter(None, [
+        r"\usepackage{amsmath}",
+        r"\usepackage{amssymb}",
         r"\usepackage{polyglossia}",
         r"\setmainlanguage{hebrew}",
         r"\setotherlanguage{english}",
         rf"\newfontfamily\hebrewfont{font_options}{{{hebrew_font}}}",
-        r"\usepackage{amsmath}",
-        r"\usepackage{amssymb}",
         math_preamble,
     ]))
 

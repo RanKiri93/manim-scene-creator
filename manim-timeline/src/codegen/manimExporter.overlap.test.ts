@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { exportManimCode } from './manimExporter';
 import {
+  createAxes,
+  createGraphPlot,
+  createShape,
   createSurroundingRect,
   createTextLine,
   defaultSceneDefaults,
@@ -16,6 +19,66 @@ const seg = (text: string) =>
   }) as const;
 
 describe('exportManimCode concurrent overlap (composable leaves)', () => {
+  it('emits graph plot() after axes positioning so coords_to_point uses the final pose', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    ax.x = 2.5;
+    ax.y = -1.25;
+    const plot = createGraphPlot(ax.id, 0);
+    plot.fn.pyExpr = 'x';
+
+    const code = exportManimCode([ax, plot], {
+      fullFile: true,
+      defaults,
+      audioItems: [],
+    });
+
+    const defStart = code.indexOf('# ========== 1. Definitions ==========');
+    const posStart = code.indexOf('# ========== 2. Positioning ==========');
+    const playStart = code.indexOf('# ========== 3. Playback ==========');
+    expect(defStart).toBeGreaterThan(-1);
+    expect(posStart).toBeGreaterThan(-1);
+    expect(playStart).toBeGreaterThan(-1);
+
+    const defBlock = code.slice(defStart, posStart);
+    const posBlock = code.slice(posStart, playStart);
+    expect(defBlock).not.toMatch(/\.plot\(/);
+    expect(posBlock).toMatch(/\.plot\(/);
+    expect(posBlock.indexOf('.move_to(')).toBeLessThan(posBlock.indexOf('.plot('));
+  });
+
+  it('emits plot x_range when graph plot has xDomain', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    const plot = createGraphPlot(ax.id, 0);
+    plot.fn.pyExpr = 'x';
+    plot.xDomain = [0, 2];
+
+    const code = exportManimCode([ax, plot], {
+      fullFile: true,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('x_range=[0, 2]');
+  });
+
+  it('sets plot curve width via set_stroke after plot()', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    const plot = createGraphPlot(ax.id, 0);
+    plot.fn.pyExpr = 'x';
+    plot.strokeWidth = 6;
+
+    const code = exportManimCode([ax, plot], {
+      fullFile: true,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('.set_stroke(width=6)');
+  });
+
   it('merges two overlapping lines into one AnimationGroup with staggered Succession', () => {
     const defaults = defaultSceneDefaults();
     const a = createTextLine(defaults, 50);
@@ -66,8 +129,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     line.duration = 3;
     line.raw = 'ODE';
     line.segments = [seg('ODE')];
-    const sr = createSurroundingRect(line.id, 56);
-    sr.introRunTime = 0.45;
+    const sr = createSurroundingRect([line.id], 56);
 
     const code = exportManimCode([line, sr], {
       fullFile: false,
@@ -92,7 +154,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
       { text: 'a', isMath: false, color: '#fff', bold: false, italic: false },
       { text: 'b', isMath: false, color: '#fff', bold: false, italic: false },
     ];
-    const sr = createSurroundingRect(line.id, 0);
+    const sr = createSurroundingRect([line.id], 0);
     sr.segmentIndices = [0, 1];
 
     const code = exportManimCode([line, sr], {
@@ -105,6 +167,29 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toMatch(/line_1\[0\]/);
     expect(code).toMatch(/line_1\[1\]/);
     expect(code).toContain('SurroundingRectangle(');
+  });
+
+  it('surrounding rect around two shapes uses VGroup of both vars', () => {
+    const defaults = defaultSceneDefaults();
+    const a = createShape(0);
+    a.layer = 0;
+    const b = createShape(0);
+    b.layer = 1;
+    const sr = createSurroundingRect([a.id, b.id], 0);
+
+    const code = exportManimCode([a, b, sr], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('VGroup(');
+    expect(code).toContain('SurroundingRectangle(');
+    const m = code.match(/VGroup\(([^)]+)\)/);
+    expect(m).toBeTruthy();
+    const inner = m![1]!.split(',').map((s) => s.trim()).filter(Boolean);
+    expect(inner.length).toBe(2);
+    expect(inner.every((x) => x.startsWith('shape_'))).toBe(true);
   });
 
   it('merges overlapping multi-segment line with another line (no per-segment waits)', () => {
@@ -347,5 +432,39 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     // audioEnd = 0 + 4 = 4; animEnd = 0 + 3 + 2 = 5 → tail = max(0, 4 - 5) = 0.
     // Actually 4 < 5 so tail = 0 — the audio ends before the animation; no tail wait needed.
     expect(code).not.toMatch(/self\.wait\(\d/);
+  });
+
+  it('uses per-segment animSec for unequal Write run_time in Succession', () => {
+    const defaults = defaultSceneDefaults();
+    const line = createTextLine(defaults, 0);
+    line.duration = 3;
+    line.raw = 'A||B';
+    line.segments = [
+      {
+        text: 'A',
+        isMath: false,
+        color: '#fff',
+        bold: false,
+        italic: false,
+        animSec: 2,
+      },
+      {
+        text: 'B',
+        isMath: false,
+        color: '#fff',
+        bold: false,
+        italic: false,
+        animSec: 1,
+      },
+    ];
+
+    const code = exportManimCode([line], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toMatch(/Write\([^)]+\[0\][^)]+run_time=2\.0/);
+    expect(code).toMatch(/Write\([^)]+\[1\][^)]+run_time=1\.0/);
   });
 });

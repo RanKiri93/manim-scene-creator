@@ -6,8 +6,8 @@ import {
   createGraphPlot,
   createGraphDotItem,
   createGraphFieldItem,
-  createGraphSeriesViz,
-  createCompound,
+  createGraphFunctionSeries,
+  createGraphArea,
   createExitAnimation,
   createSurroundingRect,
   createShape,
@@ -21,6 +21,16 @@ import {
   effectiveStart,
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { isMultiSelectModifier } from '@/lib/uiModifiers';
+import {
+  expandFragmentSelection,
+  buildProjectFragmentFile,
+} from '@/lib/projectFragment';
+import {
+  downloadProjectFragmentFile,
+  downloadMtprojFragmentBundle,
+  MtprojPackError,
+} from '@/lib/projectIO';
 
 function pickDefaultAxesId(
   itemsMap: Map<ItemId, SceneItem>,
@@ -46,23 +56,63 @@ export default function ItemList() {
   const addItem = useSceneStore((s) => s.addItem);
   const defaults = useSceneStore((s) => s.defaults);
 
-  const [expandedCompounds, setExpandedCompounds] = useState<Set<string>>(() => new Set());
   const [objectMenuOpen, setObjectMenuOpen] = useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+  const [fragmentCompact, setFragmentCompact] = useState(false);
+  const [fragmentStripSegmentTiming, setFragmentStripSegmentTiming] =
+    useState(false);
 
   const closeMenus = useCallback(() => {
     setObjectMenuOpen(false);
     setAudioMenuOpen(false);
   }, []);
 
-  const toggleCompound = useCallback((id: string) => {
-    setExpandedCompounds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const buildFragmentOrAlert = useCallback(() => {
+    const { items: im, audioItems, selectedIds } = useSceneStore.getState();
+    const exp = expandFragmentSelection(im, audioItems, selectedIds);
+    if (!exp.ok) {
+      window.alert(exp.message);
+      return null;
+    }
+    return buildProjectFragmentFile(
+      exp.items,
+      exp.audioItems,
+      fragmentCompact,
+      fragmentStripSegmentTiming,
+    );
+  }, [fragmentCompact, fragmentStripSegmentTiming]);
+
+  const handleExportFragmentJson = useCallback(() => {
+    const frag = buildFragmentOrAlert();
+    if (frag) downloadProjectFragmentFile(frag);
+  }, [buildFragmentOrAlert]);
+
+  const handleExportFragmentMtproj = useCallback(async () => {
+    const frag = buildFragmentOrAlert();
+    if (!frag) return;
+    try {
+      await downloadMtprojFragmentBundle(frag);
+    } catch (e) {
+      if (e instanceof MtprojPackError) {
+        const lines = e.failed
+          .map((f) => `• ${f.text.slice(0, 40)}${f.text.length > 40 ? '…' : ''} — ${f.reason}`)
+          .join('\n');
+        window.alert(`${e.message}\n\n${lines}`);
+      } else {
+        window.alert(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }, [buildFragmentOrAlert]);
+
+  const handleCopyFragmentJson = useCallback(async () => {
+    const frag = buildFragmentOrAlert();
+    if (!frag) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(frag, null, 2));
+    } catch {
+      window.alert('Could not copy to clipboard.');
+    }
+  }, [buildFragmentOrAlert]);
 
   const items = useMemo(
     () =>
@@ -121,18 +171,18 @@ export default function ItemList() {
     select(item.id);
   };
 
-  const addGraphSeriesViz = () => {
+  const addGraphFunctionSeries = () => {
     const axId = ensureAxesId();
-    const item = createGraphSeriesViz(axId, currentTime);
+    const item = createGraphFunctionSeries(axId, currentTime);
     addItem(item);
     select(item.id);
   };
 
-  const addCompound = () => {
-    const item = createCompound(currentTime);
+  const addGraphArea = () => {
+    const axId = ensureAxesId();
+    const item = createGraphArea(axId, currentTime);
     addItem(item);
     select(item.id);
-    setExpandedCompounds((s) => new Set(s).add(item.id));
   };
 
   const addExitAnimationClip = () => {
@@ -175,40 +225,44 @@ export default function ItemList() {
 
   const addSurroundingRectClip = () => {
     const map = useSceneStore.getState().items;
-    let targetId: ItemId | null = null;
-    for (const id of selectedIds) {
-      const it = map.get(id);
-      if (it && canBeSurroundTarget(it)) {
-        targetId = id;
-        break;
-      }
+    const selectedTargets = [...selectedIds]
+      .map((id) => map.get(id))
+      .filter((it): it is SceneItem => !!it && canBeSurroundTarget(it));
+    const seen = new Set<ItemId>();
+    const surroundTargetIds: ItemId[] = [];
+    for (const it of selectedTargets) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      surroundTargetIds.push(it.id);
     }
-    if (!targetId) {
+    if (surroundTargetIds.length === 0) {
       const candidates = [...map.values()].filter(canBeSurroundTarget);
       if (candidates.length === 0) return;
       candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      targetId = candidates[0]!.id;
+      surroundTargetIds.push(candidates[0]!.id);
     }
-    const t = map.get(targetId);
-    if (!t || !canBeSurroundTarget(t)) return;
-    const t0 = effectiveStart(t, map);
-    const start = Math.max(currentTime, t0);
-    const item = createSurroundingRect(targetId, start);
+    const starts = surroundTargetIds.map((id) => {
+      const t = map.get(id);
+      return t && canBeSurroundTarget(t) ? effectiveStart(t, map) : 0;
+    });
+    const start = Math.max(currentTime, ...starts);
+    const item = createSurroundingRect(surroundTargetIds, start);
     addItem(item);
     select(item.id);
   };
 
-  const renderRow = (
-    item: SceneItem,
-    opts: { depth?: number; isChild?: boolean } = {},
-  ) => {
-    const depth = opts.depth ?? 0;
-    const isChild = opts.isChild ?? false;
+  const renderRow = (item: SceneItem) => {
     const isSelected = selectedIds.has(item.id);
     const exitTargets =
       item.kind === 'exit_animation'
         ? item.targets
             .map((row) => itemsMap.get(row.targetId))
+            .filter((x): x is SceneItem => !!x)
+        : [];
+    const surroundTargets =
+      item.kind === 'surroundingRect'
+        ? item.targetIds
+            .map((id) => itemsMap.get(id))
             .filter((x): x is SceneItem => !!x)
         : [];
     const label =
@@ -222,7 +276,17 @@ export default function ItemList() {
                 : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
             return `Exit → ${joined}`;
           })()
-        : itemClipDisplayName(item);
+        : item.kind === 'surroundingRect'
+          ? (() => {
+              if (surroundTargets.length === 0) return 'Rect (no targets)';
+              const names = surroundTargets.map((t) => itemClipDisplayName(t));
+              const joined =
+                names.length <= 2
+                  ? names.join(', ')
+                  : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+              return `Rect → ${joined}`;
+            })()
+          : itemClipDisplayName(item);
     let kindBadge = 'bg-slate-600/30 text-slate-300';
     let kindLetter = '?';
     if (item.kind === 'textLine') {
@@ -240,12 +304,12 @@ export default function ItemList() {
     } else if (item.kind === 'graphField') {
       kindBadge = 'bg-lime-600/30 text-lime-300';
       kindLetter = 'F';
-    } else if (item.kind === 'graphSeriesViz') {
-      kindBadge = 'bg-amber-600/30 text-amber-300';
-      kindLetter = 'S';
-    } else if (item.kind === 'compound') {
-      kindBadge = 'bg-violet-600/30 text-violet-300';
-      kindLetter = 'C';
+    } else if (item.kind === 'graphFunctionSeries') {
+      kindBadge = 'bg-fuchsia-600/30 text-fuchsia-300';
+      kindLetter = 'Fn';
+    } else if (item.kind === 'graphArea') {
+      kindBadge = 'bg-violet-600/30 text-violet-200';
+      kindLetter = 'G';
     } else if (item.kind === 'exit_animation') {
       kindBadge = 'bg-rose-600/30 text-rose-300';
       kindLetter = 'X';
@@ -257,37 +321,19 @@ export default function ItemList() {
       kindLetter = 'S';
     }
 
-    const timeLabel =
-      item.kind === 'textLine' && item.parentId
-        ? `+${(item.localStart ?? 0).toFixed(1)}s`
-        : `${item.startTime.toFixed(1)}s`;
+    const timeLabel = `${item.startTime.toFixed(1)}s`;
 
     return (
       <div
         key={item.id}
-        onClick={() => select(item.id)}
-        style={{ paddingLeft: depth ? 12 + depth * 10 : undefined }}
+        onClick={(e) => select(item.id, isMultiSelectModifier(e))}
         className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs transition-colors ${
           isSelected
             ? 'bg-blue-600/20 border border-blue-500/40'
             : 'bg-slate-800/50 border border-transparent hover:bg-slate-700/50'
         }`}
       >
-        {item.kind === 'compound' && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleCompound(item.id);
-            }}
-            className="text-slate-400 hover:text-slate-200 w-4 text-center shrink-0"
-            title={expandedCompounds.has(item.id) ? 'Collapse' : 'Expand sequence'}
-          >
-            {expandedCompounds.has(item.id) ? '▼' : '▶'}
-          </button>
-        )}
-        {isChild && <span className="w-4 shrink-0 text-slate-600">↳</span>}
-        {!isChild && item.kind !== 'compound' && <span className="w-4 shrink-0" />}
+        <span className="w-4 shrink-0" />
 
         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${kindBadge}`}>
           {kindLetter}
@@ -297,50 +343,31 @@ export default function ItemList() {
         </span>
         <span className="text-slate-500 font-mono text-[10px] shrink-0">{timeLabel}</span>
 
-        {isChild && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              removeItem(item.id);
-            }}
-            className="text-slate-500 hover:text-red-400 transition-colors"
-            title="Remove line from sequence"
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        )}
-
-        {!isChild && (
-          <>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                duplicateItem(item.id);
-              }}
-              className="text-slate-500 hover:text-slate-300 transition-colors"
-              title="Duplicate"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="4" y="4" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                <rect x="2" y="2" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                removeItem(item.id);
-              }}
-              className="text-slate-500 hover:text-red-400 transition-colors"
-              title="Delete"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          </>
-        )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            duplicateItem(item.id);
+          }}
+          className="text-slate-500 hover:text-slate-300 transition-colors"
+          title="Duplicate"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="4" y="4" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <rect x="2" y="2" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            removeItem(item.id);
+          }}
+          className="text-slate-500 hover:text-red-400 transition-colors"
+          title="Delete"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
     );
   };
@@ -445,31 +472,31 @@ export default function ItemList() {
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Animated n — sequence, partial sums, or partial function plots"
+                title="Family f(n, x) or partial sums S_k(x) = Σ f(n, x) for integer n; Accumulation or Replacement playback"
                 onClick={() => {
-                  addGraphSeriesViz();
+                  addGraphFunctionSeries();
                   closeMenus();
                 }}
               >
-                Series / sequence viz
+                Function series
               </button>
               <button
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Compound clip — group text lines on one timeline row"
+                title="Filled region on axes: under/between curves, parallelogram, or disk"
                 onClick={() => {
-                  addCompound();
+                  addGraphArea();
                   closeMenus();
                 }}
               >
-                Compound Clip
+                Graph area
               </button>
               <button
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Exit one or more objects at once (replaces prior exits touching those targets)"
+                title="Exit one or more objects at once (replaces prior exits touching those targets). Shift/Ctrl/Cmd+click clips in the list or timeline to multi-select targets."
                 onClick={() => {
                   addExitAnimationClip();
                   closeMenus();
@@ -547,32 +574,68 @@ export default function ItemList() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="px-3 pb-2 flex flex-col gap-1.5 border-b border-slate-700/80 shrink-0">
+          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+            Selection fragment
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={fragmentCompact}
+              onChange={(e) => setFragmentCompact(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800"
+            />
+            Compact (omit measure previews)
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={fragmentStripSegmentTiming}
+              onChange={(e) => setFragmentStripSegmentTiming(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-800"
+            />
+            Strip segment wait/anim (waitAfterSec, animSec)
+          </label>
+          <div className="flex flex-wrap gap-1">
+            <button
+              type="button"
+              onClick={handleExportFragmentJson}
+              className="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
+              title="Export selection + dependencies as .json"
+            >
+              Export JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportFragmentMtproj()}
+              className="px-2 py-1 text-[11px] bg-emerald-800/80 hover:bg-emerald-700/80 rounded text-slate-100"
+              title="Portable ZIP with embedded audio for this selection"
+            >
+              Export .mtproj
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCopyFragmentJson()}
+              className="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
+              title="Copy fragment JSON to clipboard"
+            >
+              Copy JSON
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {items.length === 0 && (
           <p className="text-xs text-slate-500 italic py-4 text-center">
-            No items yet. Add text, axes, graph overlays, or a compound clip.
+            No items yet. Add text, axes, graph overlays, or shapes.
           </p>
         )}
 
         <div className="flex flex-col gap-0.5">
           {items.map((item) => (
-            <div key={item.id}>
-              {renderRow(item)}
-              {item.kind === 'compound' && expandedCompounds.has(item.id) && (
-                <div className="flex flex-col gap-0.5 border-l border-violet-800/50 ml-3 pl-1 mt-0.5">
-                  {item.childIds.length === 0 && (
-                    <p className="text-[10px] text-slate-500 pl-6 py-1">
-                      No lines yet. Select the compound and click &quot;Add line to sequence&quot;, or use + Add line in properties.
-                    </p>
-                  )}
-                  {item.childIds.map((cid) => {
-                    const ch = itemsMap.get(cid);
-                    if (!ch) return null;
-                    return renderRow(ch, { depth: 1, isChild: true });
-                  })}
-                </div>
-              )}
-            </div>
+            <div key={item.id}>{renderRow(item)}</div>
           ))}
         </div>
       </div>

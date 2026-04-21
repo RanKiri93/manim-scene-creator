@@ -5,8 +5,8 @@ import AxesEditor from './AxesEditor';
 import GraphPlotEditor from './GraphPlotEditor';
 import GraphDotEditor from './GraphDotEditor';
 import GraphFieldEditor from './GraphFieldEditor';
-import SeriesVizEditor from './SeriesVizEditor';
-import CompoundEditor from './CompoundEditor';
+import FunctionSeriesEditor from './FunctionSeriesEditor';
+import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
@@ -116,11 +116,11 @@ export default function PropertyPanel() {
     case 'graphField':
       body = <GraphFieldEditor item={item} />;
       break;
-    case 'graphSeriesViz':
-      body = <SeriesVizEditor item={item} />;
+    case 'graphFunctionSeries':
+      body = <FunctionSeriesEditor item={item} />;
       break;
-    case 'compound':
-      body = <CompoundEditor item={item} />;
+    case 'graphArea':
+      body = <GraphAreaEditor item={item} />;
       break;
     case 'exit_animation':
       body = <ExitAnimationEditor item={item} />;

@@ -9,19 +9,21 @@ import {
   type GraphPlotItem,
   type GraphDotItem,
   type GraphFieldItem,
-  type GraphSeriesVizItem,
+  type GraphFunctionSeriesItem,
+  type GraphAreaItem,
   type ShapeItem,
 } from '@/types/scene';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
-import { compoundHorizontalShiftX } from '@/lib/compoundLayout';
 import {
   effectiveDuration,
   effectiveStart,
   segmentWaitTotal,
   textLineAnimOnlyDuration,
 } from '@/lib/time';
+import { getSegmentAnimSec } from '@/lib/segmentAnimDurations';
 import type { ExportLeaf } from './flattenExport';
 import { buildExportParts, pythonStringLiteral } from './texUtils';
+import { emitNextToPython } from './nextToCodegen';
 
 const BOUNDARY_SNAP_SEC = 0.15;
 const OVERLAP_EPS = 1e-6;
@@ -117,7 +119,8 @@ export type ExportLeafWithAudio =
   | GraphPlotItem
   | GraphDotItem
   | GraphFieldItem
-  | GraphSeriesVizItem
+  | GraphFunctionSeriesItem
+  | GraphAreaItem
   | ShapeItem;
 
 /**
@@ -362,7 +365,10 @@ export function generateLinePos(
   const pad = ' '.repeat(indent);
   const lines: string[] = [];
 
-  for (const step of item.posSteps) {
+  const imap = itemsMap ?? new Map<ItemId, SceneItem>();
+
+  for (let si = 0; si < item.posSteps.length; si++) {
+    const step = item.posSteps[si]!;
     switch (step.kind) {
       case 'absolute':
         lines.push(
@@ -373,7 +379,20 @@ export function generateLinePos(
         if (!step.refId) break;
         const refVar = idToVarName.get(step.refId);
         if (!refVar) break;
-        lines.push(`${pad}${varName}.next_to(${refVar}, ${step.dir}, buff=${step.buff})`);
+        const refItem = imap.get(step.refId);
+        if (!refItem) break;
+        lines.push(
+          emitNextToPython({
+            varName,
+            step,
+            refVar,
+            item,
+            refItem,
+            itemsMap: imap,
+            stepIndex: si,
+            indent: pad,
+          }),
+        );
         break;
       }
       case 'to_edge':
@@ -397,13 +416,6 @@ export function generateLinePos(
       lines.push(`${pad}${varName}[${i}].set_color(ManimColor("${seg.color}"))`);
     }
   });
-
-  if (itemsMap && item.parentId) {
-    const dx = compoundHorizontalShiftX(item.parentId, itemsMap);
-    if (Math.abs(dx) > 1e-9) {
-      lines.push(`${pad}${varName}.shift(${dx.toFixed(6)} * RIGHT)`);
-    }
-  }
 
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
@@ -480,14 +492,18 @@ export function textLineWriteFadePlayExpr(
       ? `FadeIn(${varName}, run_time=${fmtSegRt(rt)})`
       : `Write(${varName}, run_time=${fmtSegRt(rt)})`;
   }
-  const perSeg =
-    recordedRunTime != null ? recordedRunTime / n : animOnlySec / n;
+  const animSecs = getSegmentAnimSec(item.segments, animOnlySec);
+  const denom = animOnlySec > 1e-12 ? animOnlySec : 1;
   const parts: string[] = [];
   for (let i = 0; i < n; i++) {
+    const perSegRt =
+      recordedRunTime != null
+        ? (recordedRunTime * animSecs[i]!) / denom
+        : animSecs[i]!;
     parts.push(
       fade
-        ? `FadeIn(${varName}[${i}], run_time=${fmtSegRt(perSeg)})`
-        : `Write(${varName}[${i}], run_time=${fmtSegRt(perSeg)})`,
+        ? `FadeIn(${varName}[${i}], run_time=${fmtSegRt(perSegRt)})`
+        : `Write(${varName}[${i}], run_time=${fmtSegRt(perSegRt)})`,
     );
     const w = item.segments[i]?.waitAfterSec;
     if (w != null && w > 0) {
@@ -538,14 +554,18 @@ export function textLineConcurrentWriteFadeExpr(
       : `Write(${varName}, run_time=${fmtSegRt(effRt)})`;
     return `Succession(Wait(${wStr}), ${intro}${tailArg})`;
   }
-  const perSeg =
-    recordedRunTime != null ? recordedRunTime / n : animOnlySec / n;
+  const animSecs = getSegmentAnimSec(item.segments, animOnlySec);
+  const denom = animOnlySec > 1e-12 ? animOnlySec : 1;
   const parts: string[] = [`Wait(${wStr})`];
   for (let i = 0; i < n; i++) {
+    const perSegRt =
+      recordedRunTime != null
+        ? (recordedRunTime * animSecs[i]!) / denom
+        : animSecs[i]!;
     parts.push(
       fade
-        ? `FadeIn(${varName}[${i}], run_time=${fmtSegRt(perSeg)})`
-        : `Write(${varName}[${i}], run_time=${fmtSegRt(perSeg)})`,
+        ? `FadeIn(${varName}[${i}], run_time=${fmtSegRt(perSegRt)})`
+        : `Write(${varName}[${i}], run_time=${fmtSegRt(perSegRt)})`,
     );
     const w = item.segments[i]?.waitAfterSec;
     if (w != null && w > 0) {
@@ -568,7 +588,7 @@ export function generateLinePlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
-  const runDur = item.parentId ? (item.localDuration ?? item.duration) : item.duration;
+  const runDur = item.duration;
   let s = '';
 
   const tc = item.transformConfig;

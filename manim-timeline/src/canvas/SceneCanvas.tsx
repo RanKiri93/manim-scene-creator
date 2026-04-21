@@ -4,6 +4,7 @@ import { useSceneStore } from '@/store/useSceneStore';
 import GridLayer from './layers/GridLayer';
 import TextLineNode from './layers/TextLineNode';
 import ShapeNode from './layers/ShapeNode';
+import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
@@ -13,27 +14,25 @@ import {
 } from '@/lib/time';
 import {
   graphGroupShouldRender,
-  cumulativePlots,
-  cumulativeDots,
+  cumulativeAxesDrawOrder,
   cumulativeField,
-  cumulativeSeriesViz,
+  type GraphAxesDrawSlot,
 } from '@/lib/graphPreview';
-import { resolvePositionWithCompound } from '@/lib/compoundLayout';
+import { resolvePosition } from '@/lib/resolvePosition';
+import { surroundPreviewBBoxManim } from '@/lib/surroundCanvasPreview';
 import type {
   AxesItem,
-  GraphSeriesVizItem,
   ItemId,
   SceneItem,
   ShapeItem,
+  SurroundingRectItem,
   TextLineItem,
 } from '@/types/scene';
 
 type GraphLayerState = {
   axes: AxesItem;
-  plots: ReturnType<typeof cumulativePlots>;
-  dots: ReturnType<typeof cumulativeDots>;
+  drawOrder: GraphAxesDrawSlot[];
   field: ReturnType<typeof cumulativeField>;
-  seriesViz: GraphSeriesVizItem | null;
   streamPlacementFieldId: ItemId | null;
   resolvedX: number;
   resolvedY: number;
@@ -43,7 +42,13 @@ type GraphLayerState = {
 type CanvasEntry =
   | { kind: 'graph'; layer: number; graph: GraphLayerState }
   | { kind: 'text'; layer: number; item: TextLineItem }
-  | { kind: 'shape'; layer: number; item: ShapeItem };
+  | { kind: 'shape'; layer: number; item: ShapeItem }
+  | {
+      kind: 'surround';
+      layer: number;
+      item: SurroundingRectItem;
+      bboxManim: { left: number; right: number; bottom: number; top: number };
+    };
 
 function selectionTouchesAxes(
   axesId: ItemId,
@@ -58,7 +63,8 @@ function selectionTouchesAxes(
       (it.kind === 'graphPlot' ||
         it.kind === 'graphDot' ||
         it.kind === 'graphField' ||
-        it.kind === 'graphSeriesViz') &&
+        it.kind === 'graphFunctionSeries' ||
+        it.kind === 'graphArea') &&
       it.axesId === axesId
     ) {
       return true;
@@ -110,6 +116,27 @@ export default function SceneCanvas() {
     [itemsMap, currentTime, selectedIds],
   );
 
+  const surroundCanvasEntries = useMemo((): CanvasEntry[] => {
+    const out: CanvasEntry[] = [];
+    for (const it of itemsMap.values()) {
+      if (it.kind !== 'surroundingRect') continue;
+      const bboxManim = surroundPreviewBBoxManim(
+        it,
+        itemsMap,
+        currentTime,
+        selectedIds,
+      );
+      if (!bboxManim) continue;
+      out.push({
+        kind: 'surround',
+        layer: it.layer,
+        item: it,
+        bboxManim,
+      });
+    }
+    return out;
+  }, [itemsMap, currentTime, selectedIds]);
+
   const graphLayers = useMemo((): GraphLayerState[] => {
     const axesItems = Array.from(itemsMap.values()).filter(
       (it): it is AxesItem => it.kind === 'axes',
@@ -122,7 +149,7 @@ export default function SceneCanvas() {
           selectionTouchesAxes(ax.id, selectedIds, itemsMap),
       )
       .map((axes) => {
-        const pos = resolvePositionWithCompound(axes, itemsMap);
+        const pos = resolvePosition(axes, itemsMap);
         let streamPlacementFieldId: ItemId | null = null;
         for (const it of itemsMap.values()) {
           if (
@@ -135,12 +162,16 @@ export default function SceneCanvas() {
             break;
           }
         }
+        const field = cumulativeField(axes.id, currentTime, itemsMap);
         return {
           axes,
-          plots: cumulativePlots(axes.id, currentTime, itemsMap),
-          dots: cumulativeDots(axes.id, currentTime, itemsMap),
-          field: cumulativeField(axes.id, currentTime, itemsMap),
-          seriesViz: cumulativeSeriesViz(axes.id, currentTime, itemsMap),
+          drawOrder: cumulativeAxesDrawOrder(
+            axes.id,
+            currentTime,
+            itemsMap,
+            field,
+          ),
+          field,
           streamPlacementFieldId,
           resolvedX: pos.x,
           resolvedY: pos.y,
@@ -160,9 +191,10 @@ export default function SceneCanvas() {
     for (const item of visibleShapes) {
       e.push({ kind: 'shape', layer: item.layer, item });
     }
+    e.push(...surroundCanvasEntries);
     e.sort((a, b) => a.layer - b.layer);
     return e;
-  }, [graphLayers, visibleItems, visibleShapes]);
+  }, [graphLayers, visibleItems, visibleShapes, surroundCanvasEntries]);
 
   const resolvedPositions = useResolvedPositions(visibleItems, itemsMap);
   const resolvedShapePositions = useResolvedPositions(visibleShapes, itemsMap);
@@ -248,10 +280,8 @@ export default function SceneCanvas() {
                   <GraphNode
                     key={layer.axes.id}
                     axes={layer.axes}
-                    plots={layer.plots}
-                    dots={layer.dots}
+                    drawOrder={layer.drawOrder}
                     field={layer.field}
-                    seriesViz={layer.seriesViz}
                     streamPlacementFieldId={layer.streamPlacementFieldId}
                     isSelected={layer.isSelected}
                     canvasWidth={size.width}
@@ -277,18 +307,31 @@ export default function SceneCanvas() {
                   />
                 );
               }
-              const item = entry.item;
-              const selected = selectedIds.has(item.id);
-              const pos = resolvedShapePositions.get(item.id);
+              if (entry.kind === 'shape') {
+                const item = entry.item;
+                const selected = selectedIds.has(item.id);
+                const pos = resolvedShapePositions.get(item.id);
+                return (
+                  <ShapeNode
+                    key={item.id}
+                    item={item}
+                    canvasWidth={size.width}
+                    canvasHeight={size.height}
+                    isSelected={selected}
+                    resolvedX={pos?.x ?? item.x}
+                    resolvedY={pos?.y ?? item.y}
+                  />
+                );
+              }
+              const sr = entry.item;
               return (
-                <ShapeNode
-                  key={item.id}
-                  item={item}
+                <SurroundingRectNode
+                  key={sr.id}
+                  item={sr}
+                  bboxManim={entry.bboxManim}
                   canvasWidth={size.width}
                   canvasHeight={size.height}
-                  isSelected={selected}
-                  resolvedX={pos?.x ?? item.x}
-                  resolvedY={pos?.y ?? item.y}
+                  isSelected={selectedIds.has(sr.id)}
                 />
               );
             })}

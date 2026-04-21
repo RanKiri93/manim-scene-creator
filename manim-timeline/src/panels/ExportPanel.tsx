@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback, type FormEvent } from 'react';
+import { useState, useMemo, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { exportManimCode } from '@/codegen/manimExporter';
 import { exportScriptToMarkdown } from '@/codegen/scriptExport';
-import { renderSceneMp4 } from '@/services/measureClient';
+import { concatMp4Files, renderSceneMp4 } from '@/services/measureClient';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
 
@@ -30,6 +30,9 @@ export default function ExportPanel() {
   const [renderSceneName, setRenderSceneName] = useState('');
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [mergeFiles, setMergeFiles] = useState<File[]>([]);
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   const code = useMemo(
     () => exportManimCode(items, { fullFile, defaults, audioItems }),
@@ -100,6 +103,33 @@ export default function ExportPanel() {
     exportScriptToMarkdown({ items: useSceneStore.getState().items });
   };
 
+  const onMergeFilesChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    setMergeFiles(Array.from(e.target.files ?? []));
+    setMergeError(null);
+  }, []);
+
+  const handleMergeMp4s = useCallback(async () => {
+    if (mergeFiles.length < 2) return;
+    setMerging(true);
+    setMergeError(null);
+    try {
+      const blob = await concatMp4Files(measureUrl, mergeFiles);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'merged.mp4';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMerging(false);
+    }
+  }, [measureUrl, mergeFiles]);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
@@ -134,6 +164,45 @@ export default function ExportPanel() {
           className="px-2 py-1 text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
         >
           Render MP4
+        </button>
+      </div>
+
+      <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
+        <h4 className="text-xs font-semibold text-slate-200">Merge MP4s</h4>
+        <p className="text-[10px] text-slate-500 leading-relaxed">
+          Join rendered clips end-to-end. The measure server runs{' '}
+          <span className="font-mono text-slate-400">ffmpeg</span> — it must be installed and on{' '}
+          <span className="font-mono text-slate-400">PATH</span> for the server process. File order is the order you
+          select (same as listed in the file picker).
+        </p>
+        <label className="flex flex-col gap-1 text-xs text-slate-400">
+          <span>Videos (.mp4)</span>
+          <input
+            type="file"
+            accept="video/mp4,video/*"
+            multiple
+            disabled={merging}
+            onChange={onMergeFilesChange}
+            className="text-[11px] text-slate-300 file:mr-2 file:rounded file:border-0 file:bg-slate-700 file:px-2 file:py-1 file:text-xs"
+          />
+        </label>
+        {mergeFiles.length > 0 && (
+          <p className="text-[10px] text-slate-500">
+            {mergeFiles.length} file{mergeFiles.length === 1 ? '' : 's'} selected
+          </p>
+        )}
+        {mergeError && (
+          <p className="text-[10px] text-red-400 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+            {mergeError}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={handleMergeMp4s}
+          disabled={merging || mergeFiles.length < 2}
+          className="self-start px-2 py-1 text-xs bg-indigo-800 hover:bg-indigo-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+        >
+          {merging ? 'Merging…' : 'Download merged.mp4'}
         </button>
       </div>
 

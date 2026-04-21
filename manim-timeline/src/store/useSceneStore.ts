@@ -10,19 +10,23 @@ import type {
   MeasureConfig,
   MeasureResult,
   ProjectFile,
+  ProjectFragmentFile,
   TransformMapping,
   AudioTrackItem,
+  GraphFunctionSeriesItem,
 } from '@/types/scene';
+import { functionSeriesTotalDuration } from '@/types/scene';
+import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
 import { generateAudio, uploadRecordedAudio } from '@/services/measureClient';
 import {
   isTopLevelItem,
   isActiveAtTime,
   isTransformSourceHiddenInPreview,
-  runDuration,
   segmentWaitTotal,
   timelineSpanEnd,
   minExitStartTimeForClip,
 } from '@/lib/time';
+import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 
 function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
   for (const it of items.values()) {
@@ -31,16 +35,33 @@ function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
     if (minT != null && it.startTime < minT) it.startTime = minT;
   }
 }
+
+/**
+ * Recompute derived fields on a function series (total duration + validation).
+ * Called after any mutation that affects range / timings / expression / xDomain.
+ */
+function syncFunctionSeriesDerived(
+  item: GraphFunctionSeriesItem,
+  itemsMap: Map<ItemId, SceneItem>,
+): void {
+  item.duration = Math.max(0.01, functionSeriesTotalDuration(item));
+  const v = validateFunctionSeries(item, itemsMap);
+  item.topLevelError = v.topLevelError;
+  item.perNErrors = v.perNErrors;
+}
 import {
   MEASURE_SERVER_DEFAULT_URL,
   PROJECT_VERSION,
 } from '@/lib/constants';
-import { createTextLineInCompound, defaultSceneDefaults } from './factories';
-import { migrateSceneItems } from '@/lib/migrateSceneItems';
-import { migrateItemsFromPreV10 } from '@/lib/migrateProjectToV10';
-import { migrateItemsToV11 } from '@/lib/migrateProjectToV11';
-import { migrateItemsToV13 } from '@/lib/migrateProjectToV13';
-import { migrateItemsToV14 } from '@/lib/migrateProjectToV14';
+import { defaultSceneDefaults } from './factories';
+import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
+import {
+  applyTimeShiftToFragment,
+  collectReservedIdsFromMap,
+  fragmentEarliestStart,
+  remapFragmentItemsInPlace,
+  type FragmentTimeMode,
+} from '@/lib/projectFragment';
 
 enableMapSet();
 
@@ -55,23 +76,6 @@ function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
       }
     }
   }
-}
-
-function syncCompoundDuration(
-  items: Map<ItemId, SceneItem>,
-  compoundId: ItemId,
-): void {
-  const c = items.get(compoundId);
-  if (c?.kind !== 'compound') return;
-  let maxEnd = 0;
-  for (const cid of c.childIds) {
-    const ch = items.get(cid);
-    if (ch?.kind === 'textLine') {
-      const ls = ch.localStart ?? 0;
-      maxEnd = Math.max(maxEnd, ls + runDuration(ch, items));
-    }
-  }
-  c.duration = Math.max(0.5, maxEnd);
 }
 
 // ── Playback slice ──
@@ -131,9 +135,6 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   ) => void;
   removeItem: (id: ItemId) => void;
   duplicateItem: (id: ItemId) => void;
-  /** Append a new text line inside a compound (local timing after existing children). */
-  addChildLineToCompound: (compoundId: ItemId) => void;
-
   // Timeline mutations
   moveItem: (id: ItemId, newStartTime: number) => void;
   moveAudioItem: (id: string, newStartTime: number) => void;
@@ -181,6 +182,11 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   // Serialization
   toProjectFile: () => ProjectFile;
   loadProjectFile: (file: ProjectFile) => void;
+  /** Merge a portable fragment into the current scene (new ids; optional time shift). */
+  importFragment: (
+    fragment: ProjectFragmentFile,
+    opts: { timeMode: FragmentTimeMode },
+  ) => void;
 
   /** TTS + Whisper: append an audio track at the current playhead. */
   addAudioItem: (text: string, lang: string) => Promise<void>;
@@ -247,33 +253,23 @@ export const useSceneStore = create<SceneStore>()(
       // ── CRUD ──
       addItem: (item) => set((s) => {
         s.items.set(item.id, item as SceneItem);
+        if (item.kind === 'graphFunctionSeries') {
+          const fs = s.items.get(item.id) as GraphFunctionSeriesItem;
+          syncFunctionSeriesDerived(fs, s.items);
+        }
       }),
 
       updateItem: (id, patch) => set((s) => {
         const item = s.items.get(id);
-        if (item) Object.assign(item, patch);
-        const after = s.items.get(id);
-        if (after?.kind === 'textLine' && after.parentId) {
-          syncCompoundDuration(s.items, after.parentId);
+        if (item) {
+          Object.assign(item, patch);
+          if (item.kind === 'graphFunctionSeries') {
+            syncFunctionSeriesDerived(item, s.items);
+          }
         }
       }),
 
       removeItem: (id) => set((s) => {
-        const it = s.items.get(id);
-        if (it?.kind === 'compound') {
-          for (const cid of [...it.childIds]) {
-            s.items.delete(cid);
-            s.selectedIds.delete(cid);
-            if (s.inspectedId === cid) s.inspectedId = null;
-          }
-        }
-        if (it?.kind === 'textLine' && it.parentId) {
-          const p = s.items.get(it.parentId);
-          if (p?.kind === 'compound') {
-            p.childIds = p.childIds.filter((x) => x !== id);
-            syncCompoundDuration(s.items, it.parentId);
-          }
-        }
         for (const [eid, ex] of [...s.items.entries()]) {
           if (
             ex.kind === 'exit_animation' &&
@@ -285,10 +281,20 @@ export const useSceneStore = create<SceneStore>()(
           }
         }
         for (const [rid, sr] of [...s.items.entries()]) {
-          if (sr.kind === 'surroundingRect' && sr.targetId === id) {
+          if (sr.kind !== 'surroundingRect') continue;
+          const tids = sr.targetIds ?? [];
+          if (!tids.includes(id)) continue;
+          const next = tids.filter((x) => x !== id);
+          if (next.length === 0) {
             s.items.delete(rid);
             s.selectedIds.delete(rid);
             if (s.inspectedId === rid) s.inspectedId = null;
+          } else {
+            sr.targetIds = next;
+            const sole = next.length === 1 ? s.items.get(next[0]!) : null;
+            if (!sole || sole.kind !== 'textLine') {
+              sr.segmentIndices = null;
+            }
           }
         }
         s.items.delete(id);
@@ -299,28 +305,24 @@ export const useSceneStore = create<SceneStore>()(
       duplicateItem: (id) => {
         const src = get().items.get(id);
         if (!src) return;
-        if (src.kind === 'textLine' && src.parentId) return;
         if (
           src.kind === 'graphPlot' ||
           src.kind === 'graphDot' ||
           src.kind === 'graphField' ||
-          src.kind === 'graphSeriesViz' ||
+          src.kind === 'graphFunctionSeries' ||
+          src.kind === 'graphArea' ||
           src.kind === 'shape'
         ) {
           const clone = structuredClone(src) as SceneItem;
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || '') + ' (copy)';
           clone.startTime = src.startTime + src.duration;
-          set((s) => { s.items.set(clone.id, clone); });
-          return;
-        }
-        if (src.kind === 'compound') {
-          const clone = structuredClone(src) as typeof src;
-          clone.id = crypto.randomUUID().slice(0, 12);
-          clone.label = (src.label || 'Compound') + ' (copy)';
-          clone.childIds = [];
-          clone.startTime = src.startTime + src.duration;
-          set((s) => { s.items.set(clone.id, clone); });
+          set((s) => {
+            s.items.set(clone.id, clone);
+            if (clone.kind === 'graphFunctionSeries') {
+              syncFunctionSeriesDerived(clone, s.items);
+            }
+          });
           return;
         }
         if (src.kind === 'exit_animation') {
@@ -335,41 +337,18 @@ export const useSceneStore = create<SceneStore>()(
           const clone = structuredClone(src) as typeof src;
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || '') + ' (copy)';
-          clone.startTime = src.startTime + src.duration;
+          clone.startTime = src.startTime + src.runTime;
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
         const clone = structuredClone(src) as SceneItem;
         clone.id = crypto.randomUUID().slice(0, 12);
         clone.label = src.label + ' (copy)';
-        if (
-          (clone.kind === 'textLine' && !clone.parentId) ||
-          clone.kind === 'axes' ||
-          clone.kind === 'shape'
-        ) {
+        if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape') {
           clone.startTime = src.startTime + src.duration;
         }
         set((s) => { s.items.set(clone.id, clone); });
       },
-
-      addChildLineToCompound: (compoundId) => set((s) => {
-        const c = s.items.get(compoundId);
-        if (c?.kind !== 'compound') return;
-        let maxEnd = 0;
-        for (const cid of c.childIds) {
-          const ch = s.items.get(cid);
-          if (ch?.kind === 'textLine') {
-            maxEnd = Math.max(
-              maxEnd,
-              (ch.localStart ?? 0) + runDuration(ch, s.items),
-            );
-          }
-        }
-        const child = createTextLineInCompound(s.defaults, compoundId, maxEnd, 3);
-        c.childIds.push(child.id);
-        s.items.set(child.id, child);
-        syncCompoundDuration(s.items, compoundId);
-      }),
 
       // ── Timeline mutations ──
       moveItem: (id, newStartTime) => set((s) => {
@@ -453,12 +432,21 @@ export const useSceneStore = create<SceneStore>()(
         if (item.kind === 'textLine') {
           const w = segmentWaitTotal(item.segments);
           const base = Math.max(0.01, newDuration - w);
-          if (item.parentId) {
-            item.localDuration = base;
-            syncCompoundDuration(s.items, item.parentId);
-          } else {
-            item.duration = base;
-          }
+          const tl = item as TextLineItem;
+          tl.segments = scaleSegmentAnimForLineDuration(
+            tl.segments,
+            tl.duration,
+            base,
+          );
+          tl.duration = base;
+          return;
+        }
+        if (item.kind === 'surroundingRect') {
+          item.runTime = Math.max(0.05, newDuration);
+          return;
+        }
+        if (item.kind === 'graphFunctionSeries') {
+          // Function series duration is derived from per-n anim+wait; ignore direct resize.
           return;
         }
         item.duration = Math.max(0.01, newDuration);
@@ -471,25 +459,29 @@ export const useSceneStore = create<SceneStore>()(
       // ── Spatial mutations ──
       setItemPosition: (id, x, y) => set((s) => {
         const item = s.items.get(id);
-        if (
-          item?.kind === 'compound' ||
-          item?.kind === 'exit_animation' ||
-          item?.kind === 'surroundingRect'
-        ) {
+        if (item?.kind === 'exit_animation' || item?.kind === 'surroundingRect') {
           return;
         }
         if (item) { item.x = x; item.y = y; }
       }),
       setItemScale: (id, scale) => set((s) => {
         const item = s.items.get(id);
-        if (
-          item?.kind === 'compound' ||
-          item?.kind === 'exit_animation' ||
-          item?.kind === 'surroundingRect'
-        ) {
+        if (item?.kind === 'exit_animation' || item?.kind === 'surroundingRect') {
           return;
         }
-        if (item) item.scale = Math.max(0.01, scale);
+        if (!item) return;
+        const sc = Math.max(0.01, scale);
+        if (item.kind === 'axes') {
+          const prev = Math.sqrt(
+            Math.max(0.01, item.scaleX) * Math.max(0.01, item.scaleY),
+          );
+          const ratio = sc / prev;
+          item.scaleX = Math.max(0.01, item.scaleX * ratio);
+          item.scaleY = Math.max(0.01, item.scaleY * ratio);
+          item.scale = sc;
+          return;
+        }
+        item.scale = sc;
       }),
 
       // ── Measurement ──
@@ -502,6 +494,7 @@ export const useSceneStore = create<SceneStore>()(
           tl.previewDataUrl = result?.pngBase64
             ? `data:image/png;base64,${result.pngBase64}`
             : null;
+          tl.segmentMeasures = result?.segmentMeasures ?? null;
         }
       }),
 
@@ -542,16 +535,7 @@ export const useSceneStore = create<SceneStore>()(
         const items = get().items;
         let max = 0;
         for (const it of items.values()) {
-          let end: number;
-          if (it.kind === 'compound') {
-            end = it.startTime + it.duration;
-          } else if (it.kind === 'textLine' && it.parentId) {
-            end = timelineSpanEnd(it, items);
-          } else if (isTopLevelItem(it)) {
-            end = timelineSpanEnd(it, items);
-          } else {
-            end = it.startTime + it.duration;
-          }
+          const end = timelineSpanEnd(it, items);
           if (end > max) max = end;
         }
         for (const a of get().audioItems) {
@@ -578,21 +562,17 @@ export const useSceneStore = create<SceneStore>()(
       loadProjectFile: (file) => set((s) => {
         revokeAudioBlobUrls(s.audioItems);
         s.items = new Map();
-        let migrated = migrateSceneItems(file.items as SceneItem[]);
-        if ((file.version ?? 0) < 10) {
-          migrated = migrateItemsFromPreV10(migrated);
-        }
-        if ((file.version ?? 0) < 11) {
-          migrated = migrateItemsToV11(migrated);
-        }
-        if ((file.version ?? 0) < 13) {
-          migrated = migrateItemsToV13(migrated);
-        }
-        if ((file.version ?? 0) < 14) {
-          migrated = migrateItemsToV14(migrated);
-        }
+        const migrated = migrateItemsToCurrentVersion(
+          file.items as SceneItem[],
+          file.version ?? 0,
+        );
         for (const item of migrated) {
           s.items.set(item.id, item);
+        }
+        for (const it of s.items.values()) {
+          if (it.kind === 'graphFunctionSeries') {
+            syncFunctionSeriesDerived(it, s.items);
+          }
         }
         s.defaults = { ...s.defaults, ...file.defaults };
         if (!s.defaults.sceneName?.trim()) {
@@ -607,6 +587,55 @@ export const useSceneStore = create<SceneStore>()(
         s.selectedIds = new Set();
         s.inspectedId = null;
       }),
+
+      importFragment: (fragment, opts) =>
+        set((s) => {
+          const migrated = migrateItemsToCurrentVersion(
+            fragment.items as SceneItem[],
+            fragment.version ?? 0,
+          );
+          const audioIn =
+            fragment.audioItems?.map((a) => ({ ...a })) ?? [];
+
+          const reserved = collectReservedIdsFromMap(s.items);
+          for (const a of s.audioItems) {
+            reserved.add(a.id);
+          }
+          remapFragmentItemsInPlace(migrated, audioIn, reserved);
+
+          const t0 = fragmentEarliestStart(migrated, audioIn);
+          let delta = 0;
+          if (opts.timeMode === 'playhead') {
+            delta = get().currentTime - t0;
+          } else if (opts.timeMode === 'appendEnd') {
+            let max = 0;
+            for (const it of s.items.values()) {
+              const end = timelineSpanEnd(it, s.items);
+              if (end > max) max = end;
+            }
+            for (const a of s.audioItems) {
+              max = Math.max(max, a.startTime + a.duration);
+            }
+            delta = max - t0;
+          }
+          applyTimeShiftToFragment(migrated, audioIn, delta);
+
+          for (const it of migrated) {
+            s.items.set(it.id, it);
+          }
+          for (const a of audioIn) {
+            s.audioItems.push(a);
+          }
+          for (const it of migrated) {
+            if (it.kind === 'graphFunctionSeries') {
+              syncFunctionSeriesDerived(it, s.items);
+            }
+          }
+          clampAllExitStarts(s.items);
+
+          s.selectedIds = new Set(migrated.map((it) => it.id));
+          s.inspectedId = migrated[0]?.id ?? null;
+        }),
 
       addAudioItem: async (text, lang) => {
         const trimmed = text.trim();

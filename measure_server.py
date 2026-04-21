@@ -27,6 +27,9 @@ Response::
 
 Requires the same toolchain as Manim + HebrewMathLine (XeLaTeX, dvisvgm, fonts).
 
+**Merge videos:** ``POST /api/concat_mp4`` accepts multiple uploads (multipart field ``files``)
+and concatenates them with ``ffmpeg`` (must be on ``PATH``). See endpoint docstring in code.
+
 **Security:** Do not expose this on the public internet without a sandbox: TeX can
 execute shell commands if templates are attacker-controlled.
 
@@ -61,7 +64,11 @@ from pydantic import BaseModel, Field
 
 from manim import config
 from manim.mobject.mobject import Mobject
-from manim.utils.color import ManimColor
+
+try:
+    from manim.utils.color import ManimColor
+except ImportError:  # older Manim CE: no ManimColor wrapper
+    ManimColor = None  # type: ignore[misc, assignment]
 
 # Headless-friendly renderer (no OpenGL window)
 config.renderer = "cairo"
@@ -97,6 +104,15 @@ class MeasureRequest(BaseModel):
     )
 
 
+class SegmentBoxOut(BaseModel):
+    """One ``HebrewMathLine`` submobject bbox in the line's frame (line centered)."""
+
+    cx: float
+    cy: float
+    w: float
+    h: float
+
+
 class MeasureResponse(BaseModel):
     ok: bool
     width: float | None = None
@@ -122,6 +138,7 @@ class MeasureResponse(BaseModel):
     ink_right_x: float | None = None
     ink_top_y: float | None = None
     ink_bottom_y: float | None = None
+    segment_boxes: list[SegmentBoxOut] | None = None
     error: str | None = None
 
 
@@ -303,7 +320,10 @@ def _apply_segment_styles(line: HebrewMathLine, req_tex: str, styles: list[Segme
         mob = line[li]
         if st.color:
             try:
-                mob.set_color(ManimColor(st.color))
+                if ManimColor is not None:
+                    mob.set_color(ManimColor(st.color))
+                else:
+                    mob.set_color(st.color)
             except Exception:
                 mob.set_color(st.color)
 
@@ -372,6 +392,18 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             ity = float(line.get_top()[1])
             iby = float(line.get_bottom()[1])
 
+        seg_boxes: list[SegmentBoxOut] = []
+        for sub in line:
+            c = sub.get_center()
+            seg_boxes.append(
+                SegmentBoxOut(
+                    cx=float(c[0]),
+                    cy=float(c[1]),
+                    w=float(sub.get_width()),
+                    h=float(sub.get_height()),
+                )
+            )
+
         return MeasureResponse(
             ok=True,
             width=w,
@@ -391,6 +423,7 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             png_base64=png_b64,
             png_width=pw,
             png_height=ph,
+            segment_boxes=seg_boxes or None,
         )
     except Exception as e:
         return MeasureResponse(
@@ -400,7 +433,7 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
 
 
 try:
-    from fastapi import FastAPI, HTTPException, UploadFile
+    from fastapi import FastAPI, File, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
@@ -412,6 +445,8 @@ try:
         allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
+        # Chrome: fetch from http://localhost:5173 → http://127.0.0.1:8765 needs this on preflight.
+        allow_private_network=True,
     )
 
     _AUDIO_ASSETS_DIR = os.path.join(_ROOT, "assets", "audio")
@@ -608,6 +643,132 @@ try:
                     os.unlink(abs_path)
                 except OSError:
                     pass
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+
+    def _which_ffmpeg() -> str | None:
+        return shutil.which("ffmpeg")
+
+    @app.post("/api/concat_mp4")
+    async def concat_mp4(files: list[UploadFile] = File()) -> FileResponse:
+        """Concatenate uploaded MP4s in order using ffmpeg (concat demuxer; re-encode if stream copy fails)."""
+        if len(files) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide at least 2 video files (multipart field name: files).",
+            )
+        ffmpeg_bin = _which_ffmpeg()
+        if not ffmpeg_bin:
+            raise HTTPException(
+                status_code=503,
+                detail="ffmpeg not found on PATH. Install ffmpeg and ensure it is available to the server process.",
+            )
+
+        work_dir = tempfile.mkdtemp(prefix="manim_concat_")
+        list_path = os.path.join(work_dir, "concat_list.txt")
+
+        def _cleanup_concat_workdir(path: str) -> None:
+            shutil.rmtree(path, ignore_errors=True)
+
+        try:
+            abs_paths: list[str] = []
+            for i, uf in enumerate(files):
+                body = await uf.read()
+                if not body:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Empty upload for part {i + 1}.",
+                    )
+                seg = os.path.join(work_dir, f"part_{i:04d}.mp4")
+                with open(seg, "wb") as out_f:
+                    out_f.write(body)
+                abs_paths.append(os.path.abspath(seg))
+
+            with open(list_path, "w", encoding="utf-8") as lf:
+                for p in abs_paths:
+                    esc = p.replace("'", "'\\''")
+                    lf.write(f"file '{esc}'\n")
+
+            out_mp4 = os.path.join(work_dir, "merged.mp4")
+
+            def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    args,
+                    cwd=work_dir,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=3600,
+                )
+
+            copy_cmd = [
+                ffmpeg_bin,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                list_path,
+                "-c",
+                "copy",
+                out_mp4,
+            ]
+            proc = _run_ffmpeg(copy_cmd)
+            if proc.returncode != 0 or not os.path.isfile(out_mp4):
+                enc_cmd = [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    list_path,
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "23",
+                    "-preset",
+                    "veryfast",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-movflags",
+                    "+faststart",
+                    out_mp4,
+                ]
+                proc2 = _run_ffmpeg(enc_cmd)
+                if proc2.returncode != 0 or not os.path.isfile(out_mp4):
+                    err = (proc2.stderr or proc2.stdout or "").strip()
+                    if not err:
+                        err = (proc.stderr or proc.stdout or "").strip()
+                    raise HTTPException(
+                        status_code=500,
+                        detail=err or "ffmpeg concat failed (stream copy and re-encode).",
+                    )
+
+            return FileResponse(
+                out_mp4,
+                media_type="video/mp4",
+                filename="merged.mp4",
+                background=BackgroundTask(_cleanup_concat_workdir, work_dir),
+            )
+        except HTTPException:
+            _cleanup_concat_workdir(work_dir)
+            raise
+        except Exception as e:
+            _cleanup_concat_workdir(work_dir)
             raise HTTPException(
                 status_code=500,
                 detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",

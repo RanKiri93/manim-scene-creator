@@ -2,6 +2,7 @@ import { useRef, useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { boundaryTimeToSeconds, type AudioTrackItem } from '@/types/scene';
 import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
+import { isMultiSelectModifier } from '@/lib/uiModifiers';
 
 interface AudioClipProps {
   item: AudioTrackItem;
@@ -43,7 +44,7 @@ export default function AudioClip({
   const onMouseDownMove = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      select(item.id, e.shiftKey);
+      select(item.id, isMultiSelectModifier(e));
       const state = useSceneStore.getState();
       const baselines: Record<string, number> = {};
       for (const id of state.selectedIds) {

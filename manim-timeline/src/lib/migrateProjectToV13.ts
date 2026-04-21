@@ -5,7 +5,6 @@ import type {
   GraphFieldItem,
   GraphFunction,
   GraphPlotItem,
-  GraphSeriesVizItem,
   SceneItem,
   SegmentStyle,
   ShapeItem,
@@ -87,11 +86,16 @@ function migrateGraphField(item: GraphFieldItem): GraphFieldItem {
   return { ...(rec as unknown as GraphFieldItem), audioTrackId };
 }
 
-function migrateGraphSeriesViz(item: GraphSeriesVizItem): GraphSeriesVizItem {
+/**
+ * Legacy `graphSeriesViz` items no longer have a TypeScript type (the feature was removed and
+ * replaced by `graphFunctionSeries` with partial-sum displayMode). We still touch the raw JSON here
+ * to strip voiceover fields so the subsequent v9-style scene migration can drop these items cleanly.
+ */
+function migrateLegacyGraphSeriesViz(item: SceneItem): SceneItem {
   const rec = { ...item } as unknown as Record<string, unknown>;
   const audioTrackId = stripVoiceAudioId(rec);
   delete rec.voiceText;
-  return { ...(rec as unknown as GraphSeriesVizItem), audioTrackId };
+  return { ...(rec as Record<string, unknown>), audioTrackId } as unknown as SceneItem;
 }
 
 function migrateShape(item: ShapeItem): ShapeItem {
@@ -106,6 +110,11 @@ function migrateShape(item: ShapeItem): ShapeItem {
  */
 export function migrateItemsToV13(items: SceneItem[]): SceneItem[] {
   return items.map((item) => {
+    // Legacy `graphSeriesViz` items may still appear in on-disk JSON; strip voice fields so the
+    // scene-items migration can drop them uniformly. We compare as string since the kind is gone.
+    if ((item as { kind?: string }).kind === 'graphSeriesViz') {
+      return migrateLegacyGraphSeriesViz(item);
+    }
     switch (item.kind) {
       case 'textLine':
         return migrateTextLine(item);
@@ -117,8 +126,6 @@ export function migrateItemsToV13(items: SceneItem[]): SceneItem[] {
         return migrateGraphDotItem(item);
       case 'graphField':
         return migrateGraphField(item);
-      case 'graphSeriesViz':
-        return migrateGraphSeriesViz(item);
       case 'shape':
         return migrateShape(item);
       default:

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { AxesItem } from '@/types/scene';
+import { syncAxesLegacyScale } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import PositionStepsEditor from './PositionStepsEditor';
 
@@ -88,7 +89,28 @@ export default function AxesEditor({ item }: AxesEditorProps) {
       <div className="flex items-end gap-3 flex-wrap">
         <NumberInput label="X" value={item.x} onChange={(v) => set({ x: v })} />
         <NumberInput label="Y" value={item.y} onChange={(v) => set({ y: v })} />
-        <NumberInput label="Scale" value={item.scale} onChange={(v) => set({ scale: v })} min={0.01} step={0.05} />
+        <NumberInput
+          label="Scale X"
+          value={item.scaleX}
+          onChange={(v) => {
+            const scaleX = Math.max(0.01, v);
+            const scaleY = Math.max(0.01, item.scaleY);
+            set({ scaleX, scale: syncAxesLegacyScale(scaleX, scaleY) });
+          }}
+          min={0.01}
+          step={0.05}
+        />
+        <NumberInput
+          label="Scale Y"
+          value={item.scaleY}
+          onChange={(v) => {
+            const scaleY = Math.max(0.01, v);
+            const scaleX = Math.max(0.01, item.scaleX);
+            set({ scaleY, scale: syncAxesLegacyScale(scaleX, scaleY) });
+          }}
+          min={0.01}
+          step={0.05}
+        />
       </div>
 
       <details>

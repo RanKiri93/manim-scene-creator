@@ -2,6 +2,7 @@ import type {
   ItemId,
   SceneItem,
   SurroundingRectItem,
+  TextLineItem,
 } from '@/types/scene';
 import { canBeSurroundTarget } from '@/lib/time';
 import { pythonStringLiteral } from './texUtils';
@@ -9,7 +10,18 @@ import {
   resolveExitTargetsForExport,
   manimColor,
 } from './graphCodegen';
-import type { TextLineItem } from '@/types/scene';
+import type { ExportLeaf } from './flattenExport';
+
+function dedupeTargetIds(ids: readonly ItemId[]): ItemId[] {
+  const seen = new Set<ItemId>();
+  const out: ItemId[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 /** Axes id for graph overlays; otherwise the item id (line / axes / shape). */
 export function surroundPosAnchorId(target: SceneItem): ItemId | null {
@@ -18,7 +30,8 @@ export function surroundPosAnchorId(target: SceneItem): ItemId | null {
     target.kind === 'graphPlot' ||
     target.kind === 'graphDot' ||
     target.kind === 'graphField' ||
-    target.kind === 'graphSeriesViz'
+    target.kind === 'graphFunctionSeries' ||
+    target.kind === 'graphArea'
   ) {
     return target.axesId;
   }
@@ -66,6 +79,59 @@ export function resolveSurroundTargetExpr(
   return `VGroup(${parts.join(', ')})`;
 }
 
+/**
+ * Python expression for `SurroundingRectangle`'s first argument: one mobject or `VGroup(...)`.
+ */
+export function resolveSurroundRectTargetExpr(
+  item: SurroundingRectItem,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string | null {
+  const ids = dedupeTargetIds(item.targetIds ?? []);
+  if (ids.length === 0) return null;
+  const parts: string[] = [];
+  for (const tid of ids) {
+    const tgt = itemsMap.get(tid);
+    if (!tgt || !canBeSurroundTarget(tgt)) return null;
+    const seg =
+      ids.length === 1 && tgt.kind === 'textLine'
+        ? item.segmentIndices
+        : null;
+    const ex = resolveSurroundTargetExpr(tgt, idToVarName, seg);
+    if (!ex) return null;
+    parts.push(ex);
+  }
+  if (parts.length === 1) return parts[0]!;
+  return `VGroup(${parts.join(', ')})`;
+}
+
+/**
+ * Emit surrounding-rect position block after this leaf's `generate*Pos` so every target is placed.
+ */
+export function surroundPlacementLeafId(
+  sr: SurroundingRectItem,
+  flat: ExportLeaf[],
+  itemsMap: Map<ItemId, SceneItem>,
+): ItemId | null {
+  const anchorKeys = new Set<ItemId>();
+  for (const tid of dedupeTargetIds(sr.targetIds ?? [])) {
+    const tgt = itemsMap.get(tid);
+    if (!tgt || !canBeSurroundTarget(tgt)) continue;
+    const aid = surroundPosAnchorId(tgt);
+    if (aid) anchorKeys.add(aid);
+  }
+  let bestIdx = -1;
+  let bestId: ItemId | null = null;
+  for (let i = 0; i < flat.length; i++) {
+    const leaf = flat[i]!;
+    if (anchorKeys.has(leaf.id) && i > bestIdx) {
+      bestIdx = i;
+      bestId = leaf.id;
+    }
+  }
+  return bestId;
+}
+
 export function generateSurroundingRectPosBlock(
   item: SurroundingRectItem,
   srVar: string,
@@ -74,13 +140,7 @@ export function generateSurroundingRectPosBlock(
   indent: number,
 ): string {
   const pad = ' '.repeat(indent);
-  const tgt = itemsMap.get(item.targetId);
-  if (!tgt || !canBeSurroundTarget(tgt)) return '';
-  const expr = resolveSurroundTargetExpr(
-    tgt,
-    idToVarName,
-    item.segmentIndices,
-  );
+  const expr = resolveSurroundRectTargetExpr(item, idToVarName, itemsMap);
   if (!expr) return '';
   const cr =
     item.cornerRadius > 0
@@ -102,7 +162,7 @@ export function generateSurroundingRectPlay(
   indent: number,
 ): string {
   const pad = ' '.repeat(indent);
-  const rt = Math.max(0.05, item.introRunTime).toFixed(4);
+  const rt = Math.max(0.05, item.runTime).toFixed(4);
   const intro =
     item.introStyle === 'fade_in' ? `FadeIn(${srVar})` : `Create(${srVar})`;
   if (item.labelText.trim()) {

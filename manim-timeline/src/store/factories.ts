@@ -10,9 +10,9 @@ import type {
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
-  GraphSeriesVizItem,
+  GraphFunctionSeriesItem,
+  GraphAreaItem,
   ShapeItem,
-  CompoundItem,
   ExitAnimationItem,
   SurroundingRectItem,
   SegmentStyle,
@@ -22,6 +22,7 @@ import type {
   SceneDefaults,
   ItemId,
 } from '@/types/scene';
+import { functionSeriesTotalDuration } from '@/types/scene';
 
 export function createTextLine(
   defaults: SceneDefaults,
@@ -46,24 +47,8 @@ export function createTextLine(
     measure: null,
     measureError: null,
     previewDataUrl: null,
-    parentId: null,
+    segmentMeasures: null,
   };
-}
-
-/** Text line inside a compound; timing is local to the compound start. */
-export function createTextLineInCompound(
-  defaults: SceneDefaults,
-  compoundId: ItemId,
-  localStart: number,
-  localDuration = 3,
-): TextLineItem {
-  const line = createTextLine(defaults, 0);
-  line.parentId = compoundId;
-  line.localStart = localStart;
-  line.localDuration = localDuration;
-  line.startTime = 0;
-  line.duration = localDuration;
-  return line;
 }
 
 export function createExitAnimation(
@@ -90,7 +75,7 @@ export function createExitAnimation(
 }
 
 export function createSurroundingRect(
-  targetId: ItemId,
+  targetIds: ItemId[],
   startTime = 0,
 ): SurroundingRectItem {
   return {
@@ -99,8 +84,8 @@ export function createSurroundingRect(
     label: '',
     layer: 0,
     startTime,
-    duration: 2,
-    targetId,
+    runTime: 0.45,
+    targetIds: [...targetIds],
     segmentIndices: null,
     buff: 0.15,
     color: '#fbbf24',
@@ -110,20 +95,6 @@ export function createSurroundingRect(
     labelDir: 'UP',
     labelFontSize: 22,
     introStyle: 'create',
-    introRunTime: 0.45,
-  };
-}
-
-export function createCompound(startTime = 0): CompoundItem {
-  return {
-    id: newId(),
-    kind: 'compound',
-    label: '',
-    layer: 0,
-    startTime,
-    duration: 6,
-    childIds: [],
-    centerHorizontally: true,
   };
 }
 
@@ -169,6 +140,8 @@ export function createAxes(
     x: 0,
     y: 0,
     scale: 1,
+    scaleX: 1,
+    scaleY: 1,
     posSteps: [{ kind: 'absolute' }],
     audioTrackId: null,
     xRange: [-5, 5, 1],
@@ -198,6 +171,8 @@ export function createGraphPlot(
     audioTrackId: null,
     axesId,
     fn: createGraphFunction(),
+    xDomain: null,
+    strokeWidth: 2,
   };
 }
 
@@ -222,39 +197,43 @@ export function createGraphDotItem(
   };
 }
 
-export function createGraphSeriesViz(
+export function createGraphFunctionSeries(
   axesId: ItemId,
   startTime = 0,
-): GraphSeriesVizItem {
-  return {
+): GraphFunctionSeriesItem {
+  const base: GraphFunctionSeriesItem = {
     id: newId(),
-    kind: 'graphSeriesViz',
+    kind: 'graphFunctionSeries',
     label: '',
     layer: 0,
     startTime,
-    duration: 4,
+    duration: 0,
     x: 0,
     y: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],
     audioTrackId: null,
     axesId,
-    vizMode: 'series',
+    jsExpr: 'Math.sin(n * x)',
+    pyExpr: 'np.sin(n * x)',
     nMin: 1,
-    nMax: 30,
-    nMapping: 'linear_smooth',
-    nEasing: 'ease_out',
-    jsExpr: '1/n',
-    pyExpr: '1/n',
-    ghostCount: 6,
-    ghostOpacityMin: 0.12,
-    ghostOpacityMax: 0.45,
-    showHeadDot: true,
-    strokeColor: '#f97316',
-    headColor: '#fde047',
-    strokeWidth: 2.5,
-    limitY: null,
+    nMax: 5,
+    mode: 'accumulation',
+    displayMode: 'individual',
+    xDomain: null,
+    defaults: {
+      color: '#3b82f6',
+      strokeWidth: 4,
+      lineStyle: 'solid',
+      animDuration: 1,
+      waitAfter: 0.3,
+    },
+    perN: {},
+    perNErrors: {},
+    topLevelError: null,
   };
+  base.duration = Math.max(0.01, functionSeriesTotalDuration(base));
+  return base;
 }
 
 export function createGraphFieldItem(
@@ -290,6 +269,34 @@ export function createGraphFieldItem(
     streamPlacementActive: false,
     streamDt: 0.05,
     streamVirtualTime: 3,
+  };
+}
+
+export function createGraphArea(axesId: ItemId, startTime = 0): GraphAreaItem {
+  return {
+    id: newId(),
+    kind: 'graphArea',
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 1,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    axesId,
+    mode: {
+      areaKind: 'underCurve',
+      xMin: -1,
+      xMax: 1,
+      curve: { sourceKind: 'expr', jsExpr: '0', pyExpr: '0' },
+      showBoundaryPlot: false,
+    },
+    fillColor: '#3b82f6',
+    fillOpacity: 0.35,
+    strokeColor: '#1e40af',
+    strokeWidth: 0,
   };
 }
 

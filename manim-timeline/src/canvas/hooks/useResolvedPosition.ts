@@ -1,13 +1,12 @@
 import { useMemo } from 'react';
 import type { SceneItem, ItemId } from '@/types/scene';
-import { resolvePositionWithCompound } from '@/lib/compoundLayout';
+import { resolvePosition } from '@/lib/resolvePosition';
 
 export { resolvePosition } from '@/lib/resolvePosition';
 export type { ItemBBox } from '@/lib/resolvePosition';
 
 /**
  * Hook that resolves all visible items' positions, returning a map of ItemId → {x, y}.
- * Text lines inside a compound with `centerHorizontally` get a shared x-offset so the chain is centered.
  */
 export function useResolvedPositions(
   visibleItems: SceneItem[],
@@ -16,7 +15,7 @@ export function useResolvedPositions(
   return useMemo(() => {
     const result = new Map<ItemId, { x: number; y: number }>();
     for (const item of visibleItems) {
-      result.set(item.id, resolvePositionWithCompound(item, allItems));
+      result.set(item.id, resolvePosition(item, allItems));
     }
     return result;
   }, [visibleItems, allItems]);

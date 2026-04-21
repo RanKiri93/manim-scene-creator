@@ -1,6 +1,11 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import * as SparkMd5Pkg from 'spark-md5';
-import type { ProjectFile, AudioTrackItem } from '@/types/scene';
+import {
+  isProjectFragmentFile,
+  type AudioTrackItem,
+  type ProjectFile,
+  type ProjectFragmentFile,
+} from '@/types/scene';
 import { deriveAudioAssetRelPath, isBundledVirtualAudioUrl } from '@/lib/audioAssetPath';
 import {
   MtprojPackError,
@@ -170,7 +175,7 @@ function parseManifest(raw: string): MtprojManifest {
 }
 
 function rehydrateAudioFromZip(
-  state: ProjectFile,
+  state: Pick<ProjectFile, 'audioItems'>,
   files: Record<string, Uint8Array>,
   manifest: MtprojManifest,
 ): void {
@@ -212,9 +217,11 @@ function verifyManifest(files: Record<string, Uint8Array>, manifest: MtprojManif
 }
 
 /**
- * Parse a .mtproj ZIP buffer and return a `ProjectFile` with blob `audioUrl`s.
+ * Parse a .mtproj ZIP buffer and return a full project or fragment with blob `audioUrl`s.
  */
-export function parseMtprojFromUint8Array(zipBytes: Uint8Array): ProjectFile {
+export function parseMtprojFromUint8Array(
+  zipBytes: Uint8Array,
+): ProjectFile | ProjectFragmentFile {
   let files: Record<string, Uint8Array>;
   try {
     files = unzipSync(zipBytes);
@@ -234,18 +241,26 @@ export function parseMtprojFromUint8Array(zipBytes: Uint8Array): ProjectFile {
   const manifest = parseManifest(strFromU8(manifestRaw));
   verifyManifest(files, manifest);
 
-  let state: ProjectFile;
+  let state: unknown;
   try {
-    state = JSON.parse(strFromU8(stateRaw)) as ProjectFile;
+    state = JSON.parse(strFromU8(stateRaw)) as unknown;
   } catch {
     throw new MtprojUnpackError('state.json is not valid JSON');
   }
 
-  rehydrateAudioFromZip(state, files, manifest);
-  return state;
+  if (isProjectFragmentFile(state)) {
+    rehydrateAudioFromZip(state, files, manifest);
+    return state;
+  }
+
+  const project = state as ProjectFile;
+  rehydrateAudioFromZip(project, files, manifest);
+  return project;
 }
 
-export async function parseMtprojFromFile(file: File): Promise<ProjectFile> {
+export async function parseMtprojFromFile(
+  file: File,
+): Promise<ProjectFile | ProjectFragmentFile> {
   const buf = new Uint8Array(await file.arrayBuffer());
   return parseMtprojFromUint8Array(buf);
 }

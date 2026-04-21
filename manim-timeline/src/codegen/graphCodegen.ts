@@ -5,7 +5,9 @@ import type {
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
-  GraphSeriesVizItem,
+  GraphFunctionSeriesItem,
+  GraphAreaItem,
+  GraphAreaCurveSource,
   ItemId,
   SceneItem,
 } from '@/types/scene';
@@ -19,6 +21,7 @@ import {
   resolveRecordedPlayback,
 } from './lineCodegen';
 import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
+import { emitNextToPython } from './nextToCodegen';
 
 export function manimColor(hex: string): string {
   return `ManimColor("${hex}")`;
@@ -43,8 +46,8 @@ export function generateAxesDef(item: AxesItem, axVar: string, indent: number): 
   s += `${pad}${axVar} = Axes(\n`;
   s += `${inner}x_range=[${xMin}, ${xMax}, ${xStep}],\n`;
   s += `${inner}y_range=[${yMin}, ${yMax}, ${yStep}],\n`;
-  s += `${inner}x_length=${((xMax - xMin) * item.scale).toFixed(2)},\n`;
-  s += `${inner}y_length=${((yMax - yMin) * item.scale).toFixed(2)},\n`;
+  s += `${inner}x_length=${((xMax - xMin) * item.scaleX).toFixed(2)},\n`;
+  s += `${inner}y_length=${((yMax - yMin) * item.scaleY).toFixed(2)},\n`;
 
   if (item.includeNumbers) {
     s += `${inner}axis_config={"include_numbers": True}`;
@@ -71,11 +74,13 @@ export function generateAxesPos(
   axVar: string,
   indent: number,
   idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
   const lines: string[] = [];
 
-  for (const step of item.posSteps) {
+  for (let si = 0; si < item.posSteps.length; si++) {
+    const step = item.posSteps[si]!;
     switch (step.kind) {
       case 'absolute':
         lines.push(
@@ -86,8 +91,19 @@ export function generateAxesPos(
         if (!step.refId) break;
         const refVar = idToVarName.get(step.refId);
         if (!refVar) break;
+        const refItem = itemsMap.get(step.refId);
+        if (!refItem) break;
         lines.push(
-          `${pad}${axVar}.next_to(${refVar}, ${step.dir}, buff=${step.buff})`,
+          emitNextToPython({
+            varName: axVar,
+            step,
+            refVar,
+            item,
+            refItem,
+            itemsMap,
+            stepIndex: si,
+            indent: pad,
+          }),
         );
         break;
       }
@@ -208,18 +224,16 @@ export function resolveExitTargetsForExport(
     }
     return vfVar;
   }
-  if (target.kind === 'graphSeriesViz') {
+  if (target.kind === 'graphFunctionSeries') {
     const axVar = idToVarName.get(target.axesId);
     if (!axVar) return null;
     const suf = pythonOverlaySuffix(target.id);
-    const ghostN = Math.max(0, Math.min(12, Math.floor(target.ghostCount ?? 0)));
-    const parts: string[] = [`sv_main_${suf}`];
-    if (ghostN > 0) parts.push(`sv_ghost_${suf}`);
-    if (target.showHeadDot) parts.push(`sv_head_${suf}`);
-    if (target.limitY !== null && Number.isFinite(target.limitY)) {
-      parts.push(`sv_lim_${suf}`);
-    }
-    return parts.join(', ');
+    return `${axVar}_fs_${suf}`;
+  }
+  if (target.kind === 'graphArea') {
+    const axVar = idToVarName.get(target.axesId);
+    if (!axVar) return null;
+    return overlayAreaVar(axVar, target.id);
   }
   if (target.kind === 'shape') {
     return idToVarName.get(target.id) ?? null;
@@ -267,6 +281,60 @@ export function overlayPlotVar(axVar: string, itemId: ItemId): string {
   return `${axVar}_plot_${pythonOverlaySuffix(itemId)}`;
 }
 
+export function overlayAreaVar(axVar: string, itemId: ItemId): string {
+  return `${axVar}_area_${pythonOverlaySuffix(itemId)}`;
+}
+
+/** After overlay defs + positioning; higher `zIndex` draws on top in Manim. */
+export function generateGraphOverlayZIndexLines(
+  ov:
+    | GraphPlotItem
+    | GraphDotItem
+    | GraphFieldItem
+    | GraphFunctionSeriesItem
+    | GraphAreaItem,
+  axVar: string,
+  zIndex: number,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent);
+  const z = zIndex.toFixed(6);
+  if (ov.kind === 'graphArea') {
+    return `${pad}${overlayAreaVar(axVar, ov.id)}.set_z_index(${z})\n`;
+  }
+  if (ov.kind === 'graphPlot') {
+    return `${pad}${overlayPlotVar(axVar, ov.id)}.set_z_index(${z})\n`;
+  }
+  if (ov.kind === 'graphDot') {
+    const dVar = overlayDotVar(axVar, ov.id);
+    let s = `${pad}${dVar}.set_z_index(${z})\n`;
+    if (ov.dot.label.trim()) {
+      s += `${pad}${dVar}_lbl.set_z_index(${z})\n`;
+    }
+    return s;
+  }
+  if (ov.kind === 'graphField' && ov.fieldMode !== 'none') {
+    const suf = pythonOverlaySuffix(ov.id);
+    const vfVar = `${axVar}_vf_${suf}`;
+    const streamsVar = `${axVar}_streams_${suf}`;
+    let s = `${pad}${vfVar}.set_z_index(${z})\n`;
+    if ((ov.streamPoints ?? []).length > 0) {
+      s += `${pad}${streamsVar}.set_z_index(${z})\n`;
+    }
+    return s;
+  }
+  if (ov.kind === 'graphFunctionSeries') {
+    const suf = pythonOverlaySuffix(ov.id);
+    return `${pad}${axVar}_fs_${suf}.set_z_index(${z})\n`;
+  }
+  return '';
+}
+
+/**
+ * Must run after `generateAxesPos` for `axVar`. Manim's `Axes.plot()` samples
+ * `coords_to_point` when the ParametricFunction is built; the curve is not a
+ * child of the axes, so defining it before `move_to` leaves it stuck at the origin.
+ */
 export function generateGraphPlotDef(
   item: GraphPlotItem,
   axVar: string,
@@ -275,7 +343,19 @@ export function generateGraphPlotDef(
   const pad = ' '.repeat(indent);
   const pVar = overlayPlotVar(axVar, item.id);
   const fn = item.fn;
-  return `${pad}${pVar} = ${axVar}.plot(lambda x: ${fn.pyExpr || 'x'}, color=${manimColor(fn.color)})\n`;
+  let xRangeKw = '';
+  if (item.xDomain != null) {
+    const lo = Math.min(item.xDomain[0], item.xDomain[1]);
+    const hi = Math.max(item.xDomain[0], item.xDomain[1]);
+    xRangeKw = `, x_range=[${lo}, ${hi}]`;
+  }
+  const sw = Math.max(0, item.strokeWidth);
+  // `stroke_width=` on `Axes.plot` is not always honored (kwargs vs. VMobject init).
+  // Setting width after construction matches Manim docs / common usage.
+  return (
+    `${pad}${pVar} = ${axVar}.plot(lambda x: ${fn.pyExpr || 'x'}, color=${manimColor(fn.color)}${xRangeKw})\n` +
+    `${pad}${pVar}.set_stroke(width=${sw})\n`
+  );
 }
 
 export function generateGraphPlotPlay(
@@ -327,13 +407,31 @@ export function generateGraphDotDef(
   const pad = ' '.repeat(indent);
   const dVar = overlayDotVar(axVar, item.id);
   const dot = item.dot;
-  let line = `${pad}${dVar} = Dot(${axVar}.coords_to_point(${dot.dx}, ${dot.dy}), color=${manimColor(dot.color)}`;
+  // Dot must not use coords_to_point here: defs run before generateAxesPos, so the axes
+  // transform would still be default. Snap to graph coords in generateGraphDotSnapToAxes.
+  let line = `${pad}${dVar} = Dot(color=${manimColor(dot.color)}`;
   if (dot.radius !== 0.08) line += `, radius=${dot.radius}`;
   line += ')\n';
   let s = line;
   if (dot.label.trim()) {
     const lblVar = `${dVar}_lbl`;
     s += `${pad}${lblVar} = Text(${pythonStringLiteral(dot.label.trim())}, font_size=18)\n`;
+  }
+  return s;
+}
+
+/** Call after generateAxesPos for `axVar` so coords_to_point uses the final axes placement. */
+export function generateGraphDotSnapToAxes(
+  item: GraphDotItem,
+  axVar: string,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent);
+  const dVar = overlayDotVar(axVar, item.id);
+  const dot = item.dot;
+  let s = `${pad}${dVar}.move_to(${axVar}.coords_to_point(${dot.dx}, ${dot.dy}))\n`;
+  if (dot.label.trim()) {
+    const lblVar = `${dVar}_lbl`;
     s += `${pad}${lblVar}.next_to(${dVar}, ${dot.labelDir}, buff=0.15)\n`;
   }
   return s;
@@ -520,7 +618,12 @@ export function countOverlaysReferencingAxes(
 ): number {
   let n = 0;
   for (const it of items) {
-    if (it.kind === 'graphPlot' || it.kind === 'graphDot' || it.kind === 'graphSeriesViz') {
+    if (
+      it.kind === 'graphPlot' ||
+      it.kind === 'graphDot' ||
+      it.kind === 'graphFunctionSeries' ||
+      it.kind === 'graphArea'
+    ) {
       if (it.axesId === axesId) n += 1;
     } else if (it.kind === 'graphField' && it.fieldMode !== 'none') {
       if (it.axesId === axesId) n += 1;
@@ -529,214 +632,148 @@ export function countOverlaysReferencingAxes(
   return n;
 }
 
-function seriesPyExpr(expr: string): string {
-  const t = (expr ?? '').trim() || '0';
-  return t.replace(/\n/g, ' ');
+function tmpAreaPlotVar(axVar: string, areaId: ItemId, tag: string): string {
+  return `${axVar}_areaplot_${pythonOverlaySuffix(areaId)}_${tag}`;
 }
 
-export function seriesRateFuncArg(easing: GraphSeriesVizItem['nEasing']): string {
-  switch (easing) {
-    case 'ease_out':
-      return ', rate_func=ease_out_sine';
-    case 'ease_in_out':
-      return ', rate_func=smooth';
-    default:
-      return '';
-  }
-}
-
-export function generateGraphSeriesVizDef(
-  item: GraphSeriesVizItem,
+function resolveGraphAreaCurve(
+  item: GraphAreaItem,
   axVar: string,
-  axItem: AxesItem,
+  src: GraphAreaCurveSource,
+  tag: string,
+  pad: string,
+  itemsMap: Map<ItemId, SceneItem>,
+): { prelude: string; varName: string } {
+  if (src.sourceKind === 'plot') {
+    const p = itemsMap.get(src.plotId);
+    if (!p || p.kind !== 'graphPlot' || p.axesId !== item.axesId) {
+      throw new Error(
+        `Graph area "${item.label || item.id}" references plot "${src.plotId}" that is missing or not on the same axes.`,
+      );
+    }
+    return { prelude: '', varName: overlayPlotVar(axVar, src.plotId) };
+  }
+  const ex = (src.pyExpr ?? '0').trim() || '0';
+  const v = tmpAreaPlotVar(axVar, item.id, tag);
+  const prelude =
+    `${pad}${v} = ${axVar}.plot(lambda x: (${ex}), color=${manimColor('#94a3b8')})\n` +
+    `${pad}${v}.set_stroke(width=2)\n`;
+  return { prelude, varName: v };
+}
+
+function graphAreaBoundaryPlotVars(item: GraphAreaItem, axVar: string): string[] {
+  const suf = pythonOverlaySuffix(item.id);
+  const base = `${axVar}_areaplot_${suf}_`;
+  const m = item.mode;
+  if (m.areaKind === 'underCurve') {
+    if (m.curve.sourceKind === 'expr' && m.showBoundaryPlot) return [`${base}c`];
+    return [];
+  }
+  if (m.areaKind === 'betweenCurves') {
+    const v: string[] = [];
+    if (m.lower.sourceKind === 'expr' && m.showBoundaryPlot) v.push(`${base}l`);
+    if (m.upper.sourceKind === 'expr' && m.showBoundaryPlot) v.push(`${base}u`);
+    return v;
+  }
+  return [];
+}
+
+/**
+ * After axes position + `plot`/`field`/`series` defs on this axes (needs referenced plot vars).
+ */
+export function generateGraphAreaDef(
+  item: GraphAreaItem,
+  axVar: string,
   indent: number,
+  itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
   const inner = ' '.repeat(indent + 4);
-  const inner2 = ' '.repeat(indent + 8);
-  const inner3 = ' '.repeat(indent + 12);
-  const suf = pythonOverlaySuffix(item.id);
-  const [xMin, xMax] = axItem.xRange;
-  const nMin = Math.round(item.nMin);
-  const nMax = Math.round(item.nMax);
-  const lo = Math.min(nMin, nMax);
-  const hi = Math.max(nMin, nMax);
-  const py = seriesPyExpr(item.pyExpr);
-  const strokeW = Math.max(0.5, item.strokeWidth ?? 2);
+  const areaVar = overlayAreaVar(axVar, item.id);
+  const fillC = manimColor(item.fillColor);
+  const op = Math.max(0, Math.min(1, item.fillOpacity)).toFixed(4);
+  const strokeW = Math.max(0, item.strokeWidth ?? 0);
   const strokeC = manimColor(item.strokeColor);
-  const headC = manimColor(item.headColor);
-  const discrete = item.nMapping === 'linear_discrete';
-  const mode = item.vizMode;
-  const steps = 100;
-  const ghostN = Math.max(0, Math.min(12, Math.floor(item.ghostCount ?? 0)));
+  const suf = pythonOverlaySuffix(item.id);
+  const mode = item.mode;
 
   let s = '';
-  s += `${pad}n_min_${suf} = ${lo}\n`;
-  s += `${pad}n_max_${suf} = ${hi}\n`;
-  s += `${pad}x_min_${suf} = ${xMin}\n`;
-  s += `${pad}x_max_${suf} = ${xMax}\n`;
-  s += `${pad}sv_nt_${suf} = ValueTracker(${lo})\n`;
 
-  if (mode === 'partialPlot') {
-    s += `${pad}def sv_term_kx_${suf}(k, x):\n`;
-    s += `${inner}return (${py})\n`;
-  } else {
-    s += `${pad}def sv_term_n_${suf}(n):\n`;
-    s += `${inner}return (${py})\n`;
+  if (mode.areaKind === 'underCurve') {
+    const { prelude, varName } = resolveGraphAreaCurve(item, axVar, mode.curve, 'c', pad, itemsMap);
+    s += prelude;
+    s += `${pad}${areaVar} = ${axVar}.get_area(${varName}, x_range=(${mode.xMin}, ${mode.xMax}), color=${fillC}, opacity=${op})\n`;
+    return s;
   }
 
-  s += `${pad}def sv_poly_at_${suf}(n_end, opacity, width, color):\n`;
-  s += `${inner}n_end = int(np.clip(n_end, n_min_${suf}, n_max_${suf}))\n`;
-  s += `${inner}pts = []\n`;
-
-  if (mode === 'sequence') {
-    s += `${inner}for i in range(n_min_${suf}, n_end + 1):\n`;
-    s += `${inner2}yv = sv_term_n_${suf}(i)\n`;
-    s += `${inner2}pts.append(${axVar}.coords_to_point(i, yv))\n`;
-  } else if (mode === 'series') {
-    s += `${inner}acc = 0.0\n`;
-    s += `${inner}for i in range(n_min_${suf}, n_end + 1):\n`;
-    s += `${inner2}acc += sv_term_n_${suf}(i)\n`;
-    s += `${inner2}pts.append(${axVar}.coords_to_point(i, acc))\n`;
-  } else {
-    s += `${inner}for sidx in range(${steps} + 1):\n`;
-    s += `${inner2}t = sidx / ${steps}\n`;
-    s += `${inner2}xv = x_min_${suf} + t * (x_max_${suf} - x_min_${suf})\n`;
-    s += `${inner2}s = 0.0\n`;
-    s += `${inner2}for k in range(n_min_${suf}, n_end + 1):\n`;
-    s += `${inner3}s += sv_term_kx_${suf}(k, xv)\n`;
-    s += `${inner2}pts.append(${axVar}.coords_to_point(xv, s))\n`;
+  if (mode.areaKind === 'betweenCurves') {
+    const lo = resolveGraphAreaCurve(item, axVar, mode.lower, 'l', pad, itemsMap);
+    const up = resolveGraphAreaCurve(item, axVar, mode.upper, 'u', pad, itemsMap);
+    s += lo.prelude;
+    s += up.prelude;
+    s += `${pad}${areaVar} = ${axVar}.get_area(${lo.varName}, x_range=(${mode.xMin}, ${mode.xMax}), color=${fillC}, opacity=${op}, bounded_graph=${up.varName})\n`;
+    return s;
   }
 
-  s += `${inner}if len(pts) < 2:\n`;
-  s += `${inner2}return VMobject()\n`;
-  s += `${inner}m = VMobject()\n`;
-  s += `${inner}m.set_points_as_corners(np.array(pts))\n`;
-  s += `${inner}m.set_stroke(width=width, color=color, opacity=opacity)\n`;
-  s += `${inner}return m\n`;
-
-  s += `${pad}def sv_n_disc_${suf}():\n`;
-  if (discrete) {
-    s += `${inner}nf = float(sv_nt_${suf}.get_value())\n`;
-    s += `${inner}return int(np.clip(np.floor(nf + 1e-9), n_min_${suf}, n_max_${suf}))\n`;
-  } else {
-    s += `${inner}nf = float(np.clip(sv_nt_${suf}.get_value(), n_min_${suf}, n_max_${suf}))\n`;
-    s += `${inner}return int(np.clip(np.floor(nf + 1e-9), n_min_${suf}, n_max_${suf}))\n`;
+  if (mode.areaKind === 'parallelogramFour') {
+    const pts = mode.corners
+      .map((c) => `${inner}${axVar}.coords_to_point(${c.x}, ${c.y})`)
+      .join(',\n');
+    s += `${pad}${areaVar} = Polygon(\n${pts},\n${inner}fill_color=${fillC}, fill_opacity=${op}, stroke_width=${strokeW.toFixed(4)}, stroke_color=${strokeC}\n${pad})\n`;
+    return s;
   }
 
-  s += `${pad}sv_main_${suf} = always_redraw(\n`;
-  s += `${inner}lambda: sv_poly_at_${suf}(sv_n_disc_${suf}(), 1.0, ${strokeW}, ${strokeC})\n`;
-  s += `${pad})\n`;
-
-  if (ghostN > 0) {
-    s += `${pad}sv_ghost_${suf} = VGroup()\n`;
-    for (let g = 1; g <= ghostN; g++) {
-      const op = 0.15 + (0.35 * (ghostN - g)) / Math.max(1, ghostN - 1);
-      s += `${pad}sv_ghost_${suf}.add(\n`;
-      s += `${inner}always_redraw(\n`;
-      s += `${inner2}lambda g=${g}: sv_poly_at_${suf}(\n`;
-      s += `${inner2}    max(n_min_${suf}, sv_n_disc_${suf}() - g),\n`;
-      s += `${inner2}    ${op.toFixed(3)},\n`;
-      s += `${inner2}    ${(strokeW * 0.85).toFixed(3)},\n`;
-      s += `${inner2}    ${strokeC},\n`;
-      s += `${inner2})\n`;
-      s += `${inner})\n`;
-      s += `${pad})\n`;
-    }
-  }
-
-  if (item.showHeadDot) {
-    s += `${pad}def sv_head_point_${suf}():\n`;
-    s += `${inner}nf = float(np.clip(sv_nt_${suf}.get_value(), n_min_${suf}, n_max_${suf}))\n`;
-    if (mode === 'partialPlot') {
-      if (discrete) {
-        s += `${inner}ni = sv_n_disc_${suf}()\n`;
-        s += `${inner}xv = 0.5 * (x_min_${suf} + x_max_${suf})\n`;
-        s += `${inner}s = 0.0\n`;
-        s += `${inner}for k in range(n_min_${suf}, ni + 1):\n`;
-        s += `${inner2}s += sv_term_kx_${suf}(k, xv)\n`;
-        s += `${inner}return ${axVar}.coords_to_point(xv, s)\n`;
-      } else {
-        s += `${inner}i0 = int(np.clip(np.floor(nf), n_min_${suf}, n_max_${suf}))\n`;
-        s += `${inner}i1 = int(np.clip(min(i0 + 1, n_max_${suf}), n_min_${suf}, n_max_${suf}))\n`;
-        s += `${inner}frac = nf - i0\n`;
-        s += `${inner}xv = 0.5 * (x_min_${suf} + x_max_${suf})\n`;
-        s += `${inner}s0 = sum(sv_term_kx_${suf}(k, xv) for k in range(n_min_${suf}, i0 + 1))\n`;
-        s += `${inner}s1 = sum(sv_term_kx_${suf}(k, xv) for k in range(n_min_${suf}, i1 + 1))\n`;
-        s += `${inner}gy = s0 + frac * (s1 - s0)\n`;
-        s += `${inner}return ${axVar}.coords_to_point(xv, gy)\n`;
-      }
-    } else if (discrete) {
-      s += `${inner}ni = sv_n_disc_${suf}()\n`;
-      if (mode === 'sequence') {
-        s += `${inner}return ${axVar}.coords_to_point(ni, sv_term_n_${suf}(ni))\n`;
-      } else {
-        s += `${inner}acc = sum(sv_term_n_${suf}(j) for j in range(n_min_${suf}, ni + 1))\n`;
-        s += `${inner}return ${axVar}.coords_to_point(ni, acc)\n`;
-      }
-    } else {
-      s += `${inner}i0 = int(np.clip(np.floor(nf), n_min_${suf}, n_max_${suf}))\n`;
-      s += `${inner}i1 = int(np.clip(min(i0 + 1, n_max_${suf}), n_min_${suf}, n_max_${suf}))\n`;
-      s += `${inner}frac = nf - i0\n`;
-      if (mode === 'sequence') {
-        s += `${inner}y0 = sv_term_n_${suf}(i0)\n`;
-        s += `${inner}y1 = sv_term_n_${suf}(i1)\n`;
-        s += `${inner}gx = i0 + frac * (i1 - i0)\n`;
-        s += `${inner}gy = y0 + frac * (y1 - y0)\n`;
-        s += `${inner}return ${axVar}.coords_to_point(gx, gy)\n`;
-      } else {
-        s += `${inner}y0 = sum(sv_term_n_${suf}(j) for j in range(n_min_${suf}, i0 + 1))\n`;
-        s += `${inner}y1 = sum(sv_term_n_${suf}(j) for j in range(n_min_${suf}, i1 + 1))\n`;
-        s += `${inner}gx = i0 + frac * (i1 - i0)\n`;
-        s += `${inner}gy = y0 + frac * (y1 - y0)\n`;
-        s += `${inner}return ${axVar}.coords_to_point(gx, gy)\n`;
-      }
-    }
-    s += `${pad}sv_head_${suf} = always_redraw(\n`;
-    s += `${inner}lambda: Dot(sv_head_point_${suf}(), radius=0.08, color=${headC})\n`;
+  if (mode.areaKind === 'parallelogramVec') {
+    const { ox, oy, ux, uy, vx, vy } = mode;
+    const x0 = ox;
+    const y0 = oy;
+    const x1 = ox + ux;
+    const y1 = oy + uy;
+    const x2 = ox + ux + vx;
+    const y2 = oy + uy + vy;
+    const x3 = ox + vx;
+    const y3 = oy + vy;
+    s += `${pad}${areaVar} = Polygon(\n`;
+    s += `${inner}${axVar}.coords_to_point(${x0}, ${y0}),\n`;
+    s += `${inner}${axVar}.coords_to_point(${x1}, ${y1}),\n`;
+    s += `${inner}${axVar}.coords_to_point(${x2}, ${y2}),\n`;
+    s += `${inner}${axVar}.coords_to_point(${x3}, ${y3}),\n`;
+    s += `${inner}fill_color=${fillC}, fill_opacity=${op}, stroke_width=${strokeW.toFixed(4)}, stroke_color=${strokeC}\n`;
     s += `${pad})\n`;
+    return s;
   }
 
-  if (item.limitY !== null && Number.isFinite(item.limitY)) {
-    const L = item.limitY;
-    s += `${pad}sv_lim_${suf} = DashedLine(\n`;
-    s += `${inner}${axVar}.coords_to_point(x_min_${suf}, ${L}),\n`;
-    s += `${inner}${axVar}.coords_to_point(x_max_${suf}, ${L}),\n`;
-    s += `${inner}color=GRAY,\n`;
-    s += `${inner}stroke_opacity=0.45,\n`;
+  if (mode.areaKind === 'disk') {
+    const { cx, cy, radius: r } = mode;
+    const cvar = `_gadisk_${suf}_c`;
+    const rxv = `_gadisk_${suf}_rx`;
+    const ryv = `_gadisk_${suf}_ry`;
+    s += `${pad}${cvar} = np.array(${axVar}.coords_to_point(${cx}, ${cy}))\n`;
+    s += `${pad}${rxv} = float(np.linalg.norm(np.array(${axVar}.coords_to_point(${cx + r}, ${cy})) - ${cvar}))\n`;
+    s += `${pad}${ryv} = float(np.linalg.norm(np.array(${axVar}.coords_to_point(${cx}, ${cy + r})) - ${cvar}))\n`;
+    s += `${pad}${areaVar} = Ellipse(\n`;
+    s += `${inner}width=2 * ${rxv}, height=2 * ${ryv},\n`;
+    s += `${inner}fill_color=${fillC}, fill_opacity=${op}, stroke_width=${strokeW.toFixed(4)}, stroke_color=${strokeC}\n`;
     s += `${pad})\n`;
+    s += `${pad}${areaVar}.move_to(${cvar})\n`;
+    return s;
   }
 
   return s;
 }
 
-/** `self.add(...)` for series viz mobjects (before tracker play). */
-export function buildGraphSeriesVizAddLine(
-  item: GraphSeriesVizItem,
-  indent: number,
-): string {
-  const pad = ' '.repeat(indent);
-  const suf = pythonOverlaySuffix(item.id);
-  const ghostN = Math.max(0, Math.min(12, Math.floor(item.ghostCount ?? 0)));
-  const addParts: string[] = [`sv_main_${suf}`];
-  if (ghostN > 0) addParts.push(`sv_ghost_${suf}`);
-  if (item.showHeadDot) addParts.push(`sv_head_${suf}`);
-  if (item.limitY !== null && Number.isFinite(item.limitY)) addParts.push(`sv_lim_${suf}`);
-  return `${pad}self.add(${addParts.join(', ')})\n`;
-}
-
-export function generateGraphSeriesVizPlay(
-  item: GraphSeriesVizItem,
-  _axVar: string,
+export function generateGraphAreaPlay(
+  item: GraphAreaItem,
+  axVar: string,
   indent: number,
   itemsMap: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
-  const suf = pythonOverlaySuffix(item.id);
-  const hi = Math.max(Math.round(item.nMin), Math.round(item.nMax));
-  const rateArg = seriesRateFuncArg(item.nEasing);
+  const areaVar = overlayAreaVar(axVar, item.id);
+  const boundaries = graphAreaBoundaryPlotVars(item, axVar);
+  const bRt = Math.max(0.05, Math.min(0.75, item.duration * 0.35)).toFixed(4);
 
   let s = '';
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
@@ -744,16 +781,17 @@ export function generateGraphSeriesVizPlay(
 
   if (
     recorded &&
-    (!audioItems?.length ||
-      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems))
+    (!audioItems?.length || !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems))
   ) {
     s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
   }
-  s += buildGraphSeriesVizAddLine(item, indent);
-  s += `${pad}self.play(\n`;
-  s += `${pad}    sv_nt_${suf}.animate.set_value(${hi}), run_time=${rt}${rateArg}\n`;
-  s += `${pad})\n`;
+
+  for (const bv of boundaries) {
+    s += `${pad}self.play(Create(${bv}), run_time=${bRt})\n`;
+  }
+
   if (recorded) {
+    s += `${pad}self.play(FadeIn(${areaVar}), run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
       pad,
       recorded,
@@ -762,6 +800,8 @@ export function generateGraphSeriesVizPlay(
       audioItems,
       tailOpts,
     );
+  } else {
+    s += `${pad}self.play(FadeIn(${areaVar}), run_time=${item.duration})\n`;
   }
 
   return s;

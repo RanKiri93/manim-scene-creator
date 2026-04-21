@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import NumberInput from '@/components/NumberInput';
 import { isTopLevelItem } from '@/lib/time';
+import { functionSeriesHasErrors } from '@/types/scene';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -31,6 +32,32 @@ export default function PlaybackControls() {
   }, []);
 
   const duration = useMemo(() => getSceneDuration(), [getSceneDuration, itemsMap]);
+
+  // Global playback is locked while any function series has validation errors —
+  // rendering a broken series at playback time would produce an incorrect scene
+  // and the export is already hard-blocked for the same reason.
+  const fsErrorLabels = useMemo(() => {
+    const labels: string[] = [];
+    for (const it of itemsMap.values()) {
+      if (it.kind === 'graphFunctionSeries' && functionSeriesHasErrors(it)) {
+        labels.push(it.label?.trim() || `#${it.id.slice(0, 4)}`);
+      }
+    }
+    return labels;
+  }, [itemsMap]);
+  const playbackLocked = fsErrorLabels.length > 0;
+  const lockedTitle = playbackLocked
+    ? `ינעל עד לתיקון שגיאה בטור הפונקציות (${fsErrorLabels.join(', ')})`
+    : undefined;
+
+  // If a validation error is introduced while playback is running (e.g. the user
+  // edits a formula mid-play), pause immediately so we don't keep advancing time
+  // over a broken scene.
+  useEffect(() => {
+    if (playbackLocked && isPlaying) {
+      useSceneStore.getState().pause();
+    }
+  }, [playbackLocked, isPlaying]);
 
   const openGapDialog = useCallback(() => {
     const t = useSceneStore.getState().currentTime;
@@ -68,8 +95,11 @@ export default function PlaybackControls() {
       {/* Play/Pause */}
       <button
         onClick={togglePlayback}
-        className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+        disabled={playbackLocked && !isPlaying}
+        className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-600 disabled:hover:bg-slate-600 disabled:opacity-60"
         aria-label={isPlaying ? 'Pause' : 'Play'}
+        aria-disabled={playbackLocked && !isPlaying}
+        title={lockedTitle}
       >
         {isPlaying ? (
           <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">

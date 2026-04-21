@@ -8,11 +8,14 @@ import type {
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
-  GraphSeriesVizItem,
+  GraphFunctionSeriesItem,
+  GraphAreaItem,
   SurroundingRectItem,
   ExitAnimStyle,
 } from '@/types/scene';
+import { functionSeriesHasErrors } from '@/types/scene';
 import { safeSceneClassName } from '@/lib/pythonIdent';
+import { compareGraphStackOverlays } from '@/lib/graphPreview';
 import {
   type BoundAudioTailOpts,
   generateLineDef,
@@ -28,11 +31,13 @@ import {
   generateGraphPlotDef,
   generateGraphPlotPlay,
   generateGraphDotDef,
+  generateGraphDotSnapToAxes,
   generateGraphDotPlay,
+  generateGraphOverlayZIndexLines,
   generateGraphFieldDef,
   generateGraphFieldPlay,
-  generateGraphSeriesVizDef,
-  generateGraphSeriesVizPlay,
+  generateGraphAreaDef,
+  generateGraphAreaPlay,
   validateAxesExit,
   formatExitGroupPlayLine,
   resolveExitTargetsForExport,
@@ -40,8 +45,8 @@ import {
 import {
   generateSurroundingRectPosBlock,
   generateSurroundingRectPlay,
-  resolveSurroundTargetExpr,
-  surroundPosAnchorId,
+  resolveSurroundRectTargetExpr,
+  surroundPlacementLeafId,
 } from './surroundCodegen';
 import {
   generateShapeDef,
@@ -59,6 +64,10 @@ import {
   clusterConcurrentVisualPlayback,
   visualClusterWallSeconds,
 } from './leafConcurrentCodegen';
+import {
+  generateGraphFunctionSeriesDef,
+  generateGraphFunctionSeriesPlay,
+} from './functionSeriesCodegen';
 
 type PlaybackEvent =
   | { t: number; kind: 'audio'; track: AudioTrackItem }
@@ -104,10 +113,7 @@ function concurrentClusterWallTimelineEnd(
     m = Math.max(m, holdEnd(L, itemsMap));
   }
   for (const sr of vc.surroundingRects) {
-    m = Math.max(
-      m,
-      effectiveStart(sr, itemsMap) + sequentialAnimSecondsForSurroundingRect(sr),
-    );
+    m = Math.max(m, holdEnd(sr, itemsMap));
   }
   for (const ex of vc.exitClips) {
     m = Math.max(m, ex.startTime + ex.duration);
@@ -130,16 +136,18 @@ function leafNeedsNumpy(it: ExportLeaf): boolean {
     it.kind === 'axes' ||
     it.kind === 'graphPlot' ||
     it.kind === 'graphField' ||
-    it.kind === 'graphSeriesViz'
+    it.kind === 'graphFunctionSeries' ||
+    it.kind === 'graphArea'
   );
 }
 
-function leafNeedsRateFuncs(it: ExportLeaf): boolean {
-  return it.kind === 'graphSeriesViz' && it.nEasing !== 'linear';
-}
-
 function validateOverlayAxes(
-  item: GraphPlotItem | GraphDotItem | GraphFieldItem | GraphSeriesVizItem,
+  item:
+    | GraphPlotItem
+    | GraphDotItem
+    | GraphFieldItem
+    | GraphFunctionSeriesItem
+    | GraphAreaItem,
   itemsMap: Map<ItemId, SceneItem>,
 ): string | null {
   const ax = itemsMap.get(item.axesId);
@@ -149,6 +157,129 @@ function validateOverlayAxes(
     );
   }
   return null;
+}
+
+function validateGraphPlotExport(
+  item: GraphPlotItem,
+  itemsMap: Map<ItemId, SceneItem>,
+): string | null {
+  const axErr = validateOverlayAxes(item, itemsMap);
+  if (axErr) return axErr;
+  if (item.xDomain == null) return null;
+  const ax = itemsMap.get(item.axesId)! as AxesItem;
+  const xLo = ax.xRange[0];
+  const xHi = ax.xRange[1];
+  const lo = Math.min(item.xDomain[0], item.xDomain[1]);
+  const hi = Math.max(item.xDomain[0], item.xDomain[1]);
+  if (!(hi > lo)) {
+    return `Graph plot "${item.label || item.id}": x domain must have min < max.`;
+  }
+  if (hi < xLo || lo > xHi) {
+    return `Graph plot "${item.label || item.id}": x domain [${lo}, ${hi}] is outside axes domain [${xLo}, ${xHi}].`;
+  }
+  return null;
+}
+
+function validateGraphAreaExport(
+  item: GraphAreaItem,
+  itemsMap: Map<ItemId, SceneItem>,
+): string | null {
+  const axErr = validateOverlayAxes(item, itemsMap);
+  if (axErr) return axErr;
+  const ax = itemsMap.get(item.axesId)! as AxesItem;
+  const xLo = ax.xRange[0];
+  const xHi = ax.xRange[1];
+  const checkX = (a: number, b: number) => {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (hi < xLo || lo > xHi) {
+      return `x range [${lo}, ${hi}] is outside axes domain [${xLo}, ${xHi}].`;
+    }
+    return null;
+  };
+  const checkPlot = (plotId: ItemId) => {
+    const p = itemsMap.get(plotId);
+    if (!p || p.kind !== 'graphPlot' || p.axesId !== item.axesId) {
+      return `invalid plot reference "${plotId}".`;
+    }
+    return null;
+  };
+  const m = item.mode;
+  if (m.areaKind === 'underCurve') {
+    const xE = checkX(m.xMin, m.xMax);
+    if (xE) return `Graph area "${item.label || item.id}": ${xE}`;
+    if (m.curve.sourceKind === 'plot') {
+      const pe = checkPlot(m.curve.plotId);
+      if (pe) return `Graph area "${item.label || item.id}": ${pe}`;
+    }
+  } else if (m.areaKind === 'betweenCurves') {
+    const xE = checkX(m.xMin, m.xMax);
+    if (xE) return `Graph area "${item.label || item.id}": ${xE}`;
+    if (m.lower.sourceKind === 'plot') {
+      const pe = checkPlot(m.lower.plotId);
+      if (pe) return `Graph area "${item.label || item.id}": ${pe}`;
+    }
+    if (m.upper.sourceKind === 'plot') {
+      const pe = checkPlot(m.upper.plotId);
+      if (pe) return `Graph area "${item.label || item.id}": ${pe}`;
+    }
+  }
+  return null;
+}
+
+function validateNextToExportOrder(
+  flat: ExportLeaf[],
+  itemsMap: Map<ItemId, SceneItem>,
+): void {
+  const orderIndex = new Map<ItemId, number>();
+  flat.forEach((leaf, i) => orderIndex.set(leaf.id, i));
+
+  for (const it of flat) {
+    if (it.kind !== 'textLine' && it.kind !== 'axes' && it.kind !== 'shape') {
+      continue;
+    }
+    const ti = orderIndex.get(it.id);
+    if (ti === undefined) continue;
+
+    for (const step of it.posSteps) {
+      if (step.kind !== 'next_to' || !step.refId) continue;
+      const ri = orderIndex.get(step.refId);
+      if (ri === undefined) {
+        throw new Error(
+          `Positioning: "${it.label || it.id}" next_to references "${step.refId}", which is not exported as a top-level line/axes/shape.`,
+        );
+      }
+      if (ri >= ti) {
+        throw new Error(
+          `Positioning: "${it.label || it.id}" uses next_to toward "${step.refId}", but that object must be defined earlier in export order (place it before this clip on the timeline or reorder).`,
+        );
+      }
+      const refItem = itemsMap.get(step.refId);
+      if (!refItem) continue;
+      if (
+        step.refSegmentIndex != null &&
+        refItem.kind === 'textLine'
+      ) {
+        const n = refItem.segments.length;
+        if (n === 0 || step.refSegmentIndex < 0 || step.refSegmentIndex >= n) {
+          throw new Error(
+            `Positioning: "${it.label || it.id}" next_to ref segment index ${step.refSegmentIndex} is out of range for line "${refItem.label || refItem.id}" (${n} segments).`,
+          );
+        }
+      }
+      if (
+        step.selfSegmentIndex != null &&
+        it.kind === 'textLine'
+      ) {
+        const n = it.segments.length;
+        if (n === 0 || step.selfSegmentIndex < 0 || step.selfSegmentIndex >= n) {
+          throw new Error(
+            `Positioning: "${it.label || it.id}" next_to self segment index ${step.selfSegmentIndex} is out of range (${n} segments).`,
+          );
+        }
+      }
+    }
+  }
 }
 
 function exportManimCodeInner(
@@ -172,19 +303,35 @@ function exportManimCodeInner(
       const err = validateAxesExit(it, items);
       if (err) throw new Error(err);
     }
+    if (it.kind === 'graphPlot') {
+      const err = validateGraphPlotExport(it, itemsMap);
+      if (err) throw new Error(err);
+    }
     if (
-      it.kind === 'graphPlot' ||
       it.kind === 'graphDot' ||
-      it.kind === 'graphField' ||
-      it.kind === 'graphSeriesViz'
+      it.kind === 'graphField'
     ) {
       const err = validateOverlayAxes(it, itemsMap);
       if (err) throw new Error(err);
     }
+    if (it.kind === 'graphFunctionSeries') {
+      const err = validateOverlayAxes(it, itemsMap);
+      if (err) throw new Error(err);
+      if (functionSeriesHasErrors(it)) {
+        throw new Error(
+          `Function series "${it.label || it.id}" has validation errors — fix the formula / n range before exporting.`,
+        );
+      }
+    }
+    if (it.kind === 'graphArea') {
+      const err = validateGraphAreaExport(it, itemsMap);
+      if (err) throw new Error(err);
+    }
   }
 
+  validateNextToExportOrder(flat, itemsMap);
+
   const needsNumpy = flat.some(leafNeedsNumpy);
-  const needsRateFuncs = flat.some(leafNeedsRateFuncs);
 
   const base = options.fullFile ? 8 : 4;
   const prefix = options.defaults.exportNamePrefix;
@@ -219,13 +366,11 @@ function exportManimCodeInner(
   const surroundByAnchor = new Map<ItemId, SurroundingRectItem[]>();
   for (const raw of items) {
     if (raw.kind !== 'surroundingRect') continue;
-    const tgt = itemsMap.get(raw.targetId);
-    if (!tgt || !canBeSurroundTarget(tgt)) continue;
-    const aid = surroundPosAnchorId(tgt);
-    if (!aid) continue;
-    const list = surroundByAnchor.get(aid) ?? [];
+    const placementId = surroundPlacementLeafId(raw, flat, itemsMap);
+    if (!placementId) continue;
+    const list = surroundByAnchor.get(placementId) ?? [];
     list.push(raw);
-    surroundByAnchor.set(aid, list);
+    surroundByAnchor.set(placementId, list);
   }
   for (const list of surroundByAnchor.values()) {
     list.sort((a, b) => a.id.localeCompare(b.id));
@@ -233,13 +378,21 @@ function exportManimCodeInner(
 
   for (const it of items) {
     if (it.kind !== 'surroundingRect') continue;
-    const tgt = itemsMap.get(it.targetId);
-    if (!tgt || !canBeSurroundTarget(tgt)) {
+    const ids = it.targetIds?.filter(Boolean) ?? [];
+    if (ids.length === 0) {
       throw new Error(
-        `Surrounding rectangle "${it.label || it.id}" has a missing or invalid target.`,
+        `Surrounding rectangle "${it.label || it.id}" has no targets.`,
       );
     }
-    if (!resolveSurroundTargetExpr(tgt, idToVarName, it.segmentIndices)) {
+    for (const tid of ids) {
+      const tgt = itemsMap.get(tid);
+      if (!tgt || !canBeSurroundTarget(tgt)) {
+        throw new Error(
+          `Surrounding rectangle "${it.label || it.id}" has a missing or invalid target.`,
+        );
+      }
+    }
+    if (!resolveSurroundRectTargetExpr(it, idToVarName, itemsMap)) {
       throw new Error(
         `Surrounding rectangle "${it.label || it.id}" could not resolve a Manim target for export.`,
       );
@@ -249,6 +402,8 @@ function exportManimCodeInner(
   let defStr = '';
   let posStr = '';
   let playStr = '';
+  /** Monotonic z_index for graph overlays so curves/dots stack predictably in Manim. */
+  let nextGraphOverlayZ = 10;
 
   const axesLeaves = flat.filter((it): it is AxesItem => it.kind === 'axes');
   for (const it of axesLeaves) {
@@ -257,29 +412,32 @@ function exportManimCodeInner(
   }
 
   const overlays = flat.filter(
-    (it): it is GraphPlotItem | GraphDotItem | GraphFieldItem | GraphSeriesVizItem =>
+    (
+      it,
+    ): it is
+      | GraphPlotItem
+      | GraphDotItem
+      | GraphFieldItem
+      | GraphFunctionSeriesItem
+      | GraphAreaItem =>
       it.kind === 'graphPlot' ||
       it.kind === 'graphDot' ||
       it.kind === 'graphField' ||
-      it.kind === 'graphSeriesViz',
+      it.kind === 'graphFunctionSeries' ||
+      it.kind === 'graphArea',
   );
   overlays.sort((a, b) => a.id.localeCompare(b.id));
 
   for (const ov of overlays) {
     const axVar = idToVarName.get(ov.axesId);
     if (!axVar) continue;
-    const axItem = itemsMap.get(ov.axesId);
-    if (!axItem || axItem.kind !== 'axes') continue;
+    if (itemsMap.get(ov.axesId)?.kind !== 'axes') continue;
 
-    if (ov.kind === 'graphPlot') {
-      defStr += generateGraphPlotDef(ov, axVar, base);
-    } else if (ov.kind === 'graphDot') {
+    if (ov.kind === 'graphDot') {
       defStr += generateGraphDotDef(ov, axVar, base);
-    } else if (ov.kind === 'graphField') {
-      defStr += generateGraphFieldDef(ov, axVar, axItem, base);
-    } else {
-      defStr += generateGraphSeriesVizDef(ov, axVar, axItem, base);
     }
+    // graphPlot / graphField / graphFunctionSeries: emitted after generateAxesPos — they sample
+    // coords_to_point or fit_to the axes while the axes may still be at the default pose.
   }
 
   for (const it of flat) {
@@ -295,7 +453,41 @@ function exportManimCodeInner(
   for (const it of flat) {
     if (it.kind === 'axes') {
       const axVar = idToVarName.get(it.id)!;
-      posStr += generateAxesPos(it, axVar, base, idToVarName);
+      posStr += generateAxesPos(it, axVar, base, idToVarName, itemsMap);
+      for (const ov of overlays) {
+        if (ov.kind === 'graphDot' && ov.axesId === it.id) {
+          posStr += generateGraphDotSnapToAxes(ov, axVar, base);
+        } else if (ov.kind === 'graphPlot' && ov.axesId === it.id) {
+          posStr += generateGraphPlotDef(ov, axVar, base);
+        } else if (ov.kind === 'graphField' && ov.axesId === it.id) {
+          posStr += generateGraphFieldDef(ov, axVar, it, base);
+        } else if (ov.kind === 'graphFunctionSeries' && ov.axesId === it.id) {
+          posStr += generateGraphFunctionSeriesDef(ov, axVar, base);
+        }
+      }
+      for (const ov of overlays) {
+        if (ov.kind === 'graphArea' && ov.axesId === it.id) {
+          posStr += generateGraphAreaDef(ov, axVar, base, itemsMap);
+        }
+      }
+      const stack = overlays.filter(
+        (o) =>
+          o.axesId === it.id &&
+          (o.kind === 'graphPlot' ||
+            o.kind === 'graphDot' ||
+            o.kind === 'graphFunctionSeries' ||
+            o.kind === 'graphArea' ||
+            (o.kind === 'graphField' && o.fieldMode !== 'none')),
+      );
+      stack.sort(compareGraphStackOverlays);
+      for (const ov of stack) {
+        posStr += generateGraphOverlayZIndexLines(
+          ov,
+          axVar,
+          nextGraphOverlayZ++,
+          base,
+        );
+      }
       const srs = surroundByAnchor.get(it.id);
       if (srs) {
         for (const sr of srs) {
@@ -329,7 +521,7 @@ function exportManimCodeInner(
       }
     } else if (it.kind === 'shape') {
       const varName = idToVarName.get(it.id)!;
-      posStr += generateShapePos(it, varName, base, idToVarName);
+      posStr += generateShapePos(it, varName, base, idToVarName, itemsMap);
       const srs = surroundByAnchor.get(it.id);
       if (srs) {
         for (const sr of srs) {
@@ -535,10 +727,22 @@ function exportManimCodeInner(
         tailOpts,
       );
     }
-    if (it.kind === 'graphSeriesViz') {
+    if (it.kind === 'graphFunctionSeries') {
       const axVar = idToVarName.get(it.axesId);
       if (!axVar) return '';
-      return generateGraphSeriesVizPlay(
+      return generateGraphFunctionSeriesPlay(
+        it,
+        axVar,
+        base,
+        itemsMap,
+        options.audioItems,
+        tailOpts,
+      );
+    }
+    if (it.kind === 'graphArea') {
+      const axVar = idToVarName.get(it.axesId);
+      if (!axVar) return '';
+      return generateGraphAreaPlay(
         it,
         axVar,
         base,
@@ -662,10 +866,7 @@ function exportManimCodeInner(
       groupEnd = Math.max(groupEnd, holdEnd(e.leaf, itemsMap));
     }
     for (const su of surrounds) {
-      groupEnd = Math.max(
-        groupEnd,
-        su.sr.startTime + sequentialAnimSecondsForSurroundingRect(su.sr),
-      );
+      groupEnd = Math.max(groupEnd, holdEnd(su.sr, itemsMap));
     }
     for (const ex of exits) {
       groupEnd = Math.max(groupEnd, ex.exit.startTime + ex.exit.duration);
@@ -745,12 +946,14 @@ function exportManimCodeInner(
   }
 
   let header = 'from manim import *\n';
-  header += 'from manim.utils.color import ManimColor\n';
+  header +=
+    'try:\n' +
+    '    from manim.utils.color import ManimColor\n' +
+    'except ImportError:\n' +
+    '    def ManimColor(c):\n' +
+    '        return c\n';
   if (needsNumpy) {
     header += 'import numpy as np\n';
-  }
-  if (needsRateFuncs) {
-    header += 'from manim.utils.rate_functions import smooth, ease_out_sine\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
 
@@ -770,7 +973,6 @@ function exportManimCodeInner(
 
 /**
  * Generate the complete Manim Python source from a list of SceneItems.
- * Compound clips are flattened to their child text lines in timeline order.
  */
 export function exportManimCode(
   items: SceneItem[],

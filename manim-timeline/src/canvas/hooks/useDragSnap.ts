@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import type Konva from 'konva';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, PosStep } from '@/types/scene';
+import { isMultiSelectModifier } from '@/lib/uiModifiers';
 
 interface UseDragSnapOptions {
   itemId: ItemId;
@@ -41,10 +42,10 @@ export function useDragSnap({ itemId, posSteps, canvasToManim, gridSnap = null }
   const draggable = isFreelyDraggable(posSteps);
 
   const onDragStart = useCallback(
-    (_e: Konva.KonvaEventObject<DragEvent>) => {
+    (e: Konva.KonvaEventObject<DragEvent>) => {
       useSceneStore.temporal.getState().pause();
       isDragging.current = true;
-      select(itemId);
+      select(itemId, isMultiSelectModifier(e.evt));
     },
     [itemId, select],
   );

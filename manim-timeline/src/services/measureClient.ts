@@ -1,4 +1,9 @@
-import type { TextLineItem, MeasureResult, SegmentStyle } from '@/types/scene';
+import type {
+  TextLineItem,
+  MeasureResult,
+  SegmentStyle,
+  SegmentLocalBox,
+} from '@/types/scene';
 
 interface MeasureRequestBody {
   tex: string;
@@ -12,6 +17,13 @@ interface MeasureRequestBody {
     bold: boolean;
     italic: boolean;
   }[];
+}
+
+interface SegmentBoxBody {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
 }
 
 interface MeasureResponseBody {
@@ -33,6 +45,7 @@ interface MeasureResponseBody {
   png_base64?: string;
   png_width?: number;
   png_height?: number;
+  segment_boxes?: SegmentBoxBody[];
   error?: string;
 }
 
@@ -90,6 +103,15 @@ export async function measureLine(
     return { result: null, error: j.error ?? 'Unknown error' };
   }
 
+  const segmentMeasures: SegmentLocalBox[] | null = Array.isArray(j.segment_boxes)
+    ? j.segment_boxes.map((b) => ({
+        cx: b.cx,
+        cy: b.cy,
+        w: b.w,
+        h: b.h,
+      }))
+    : null;
+
   const result: MeasureResult = {
     width: j.width!,
     height: j.height!,
@@ -108,6 +130,7 @@ export async function measureLine(
     pngBase64: j.png_base64 ?? null,
     pngWidth: j.png_width ?? null,
     pngHeight: j.png_height ?? null,
+    segmentMeasures,
   };
 
   return { result, error: null };
@@ -267,6 +290,49 @@ export async function renderSceneMp4(
       e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     throw new Error(
       `${message}\nReading the MP4 response body failed (connection drop or browser blocked).\n${MEASURE_FETCH_HINT}`,
+    );
+  }
+}
+
+/**
+ * Concatenate multiple MP4 files on the measure server (ffmpeg; requires ffmpeg on server PATH).
+ * Files are joined in the order given.
+ */
+export async function concatMp4Files(baseUrl: string, files: File[]): Promise<Blob> {
+  if (files.length < 2) {
+    throw new Error('Select at least two video files to merge.');
+  }
+  const formData = new FormData();
+  for (const f of files) {
+    formData.append('files', f);
+  }
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/concat_mp4`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    let msg = text.trim() || `HTTP ${resp.status}`;
+    try {
+      const j = JSON.parse(text) as { detail?: string | { msg?: string }[] };
+      if (typeof j.detail === 'string') {
+        msg = j.detail;
+      } else if (Array.isArray(j.detail)) {
+        const parts = j.detail.map((d) => d.msg).filter(Boolean);
+        if (parts.length) msg = parts.join('; ');
+      }
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(msg.slice(0, 2000) || 'concat failed');
+  }
+  try {
+    return await resp.blob();
+  } catch (e) {
+    const message =
+      e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new Error(
+      `${message}\nReading the merged MP4 failed.\n${MEASURE_FETCH_HINT}`,
     );
   }
 }

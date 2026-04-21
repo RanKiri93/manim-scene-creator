@@ -20,12 +20,32 @@ export type ManimDirection =
   | 'UL' | 'UR' | 'DL' | 'DR';
 
 export interface PosStepAbsolute { kind: 'absolute' }
+
+/** Bbox of one `HebrewMathLine` submobject in the line's local frame (line centered at origin). */
+export interface SegmentLocalBox {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
+/** `null` on `bounds` = legacy preview (tight ink size, mobject center — matches older projects). */
+export type NextToBoundsMode = 'mobject' | 'ink';
+
 export interface PosStepNextTo {
   kind: 'next_to';
   refKind: 'line' | 'axes' | 'shape';
   refId: ItemId | null;
   dir: ManimDirection;
   buff: number;
+  /** `null` = Manim `ORIGIN` (center along perpendicular axes). */
+  alignedEdge: ManimDirection | null;
+  /** Text line target: `refVar[i]` in export / segment bbox for preview. */
+  refSegmentIndex: number | null;
+  /** Text line self: Manim `submobject_to_align=var[i]`. */
+  selfSegmentIndex: number | null;
+  /** Text line geometry for alignment; `null` = legacy hybrid. */
+  bounds: NextToBoundsMode | null;
 }
 export interface PosStepToEdge { kind: 'to_edge'; edge: ManimDirection; buff: number }
 export interface PosStepShift  { kind: 'shift'; dx: number; dy: number }
@@ -50,6 +70,11 @@ export interface SegmentStyle {
   italic: boolean;
   /** Optional pause (seconds) after this segment in timeline + export; omitted or ≤0 = none. */
   waitAfterSec?: number;
+  /**
+   * Optional seconds for this segment's Write/FadeIn run_time; omitted = equal share of line `duration`.
+   * Sum of resolved per-segment anim times should match the line's animation-only `duration`.
+   */
+  animSec?: number;
 }
 
 /** How a text line is introduced or transitioned in the scene. */
@@ -133,6 +158,8 @@ export interface MeasureResult {
   pngBase64: string | null;
   pngWidth: number | null;
   pngHeight: number | null;
+  /** Per `HebrewMathLine` submobject (same index as export `line[i]`). */
+  segmentMeasures: SegmentLocalBox[] | null;
 }
 
 // ── Scene items ──
@@ -173,18 +200,23 @@ export interface ExitAnimationItem {
   targets: ExitTargetSpec[];
 }
 
-/** Highlight box around another object; optional label; remove with a normal exit clip. */
+/** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */
 export interface SurroundingRectItem {
   kind: 'surroundingRect';
   id: ItemId;
   label: string;
   layer: number;
   startTime: number;
-  duration: number;
-  targetId: ItemId;
   /**
-   * When the target is a `textLine`, optional 0-based segment indices on the exported
-   * `HebrewMathLine` (omit or empty = surround the whole line).
+   * `self.play` duration for Create/FadeIn; timeline clip width. The rectangle stays on screen
+   * until an exit animation targets this clip (no separate hold in Manim).
+   */
+  runTime: number;
+  /** Ordered unique ids; export uses `VGroup(...)` when length > 1. */
+  targetIds: ItemId[];
+  /**
+   * When there is exactly one target and it is a `textLine`, optional 0-based segment indices
+   * on the exported `HebrewMathLine` (omit or empty = surround the whole line).
    */
   segmentIndices?: number[] | null;
   buff: number;
@@ -195,7 +227,6 @@ export interface SurroundingRectItem {
   labelDir: ManimDirection;
   labelFontSize: number;
   introStyle: 'create' | 'fade_in';
-  introRunTime: number;
 }
 
 export type ShapeKind = 'circle' | 'rectangle' | 'arrow' | 'line';
@@ -234,10 +265,8 @@ export interface TextLineItem extends SceneItemBase {
   measure: MeasureResult | null;
   measureError: string | null;
   previewDataUrl: string | null;
-  /** If set, this line belongs to a compound clip; use localStart/localDuration (seconds from compound start). */
-  parentId?: ItemId | null;
-  localStart?: number;
-  localDuration?: number;
+  /** Per-submobject boxes from measure server (same index as exported `line[i]`). */
+  segmentMeasures: SegmentLocalBox[] | null;
 }
 
 export interface GraphFunction {
@@ -269,60 +298,6 @@ export type GraphFieldMode = 'none' | 'vector' | 'slope';
 
 export type GraphFieldColormap = 'viridis' | 'plasma' | 'inferno' | 'magma';
 
-/** Sequence: (n, a_n); series: (n, partial sum of a_i); partialPlot: y = sum_k term(k,x) over x. */
-export type SeriesVizMode = 'sequence' | 'series' | 'partialPlot';
-
-/** discrete: floor index vs time; smooth: fractional n for head interpolation. */
-export type SeriesNMapping = 'linear_discrete' | 'linear_smooth';
-
-/** Easing on progress u in [0,1] before mapping to n. */
-export type SeriesNEasing = 'linear' | 'ease_out' | 'ease_in_out';
-
-/**
- * Animated sequence / series / partial-sum plot on axes. Index n is driven by clip-local time.
- */
-export interface GraphSeriesVizItem extends SceneItemBase {
-  kind: 'graphSeriesViz';
-  axesId: ItemId;
-  vizMode: SeriesVizMode;
-  nMin: number;
-  nMax: number;
-  nMapping: SeriesNMapping;
-  nEasing: SeriesNEasing;
-  /** Sequence/series: a(n). partialPlot: term(k, x) — use k and x. */
-  jsExpr: string;
-  pyExpr: string;
-  ghostCount: number;
-  ghostOpacityMin: number;
-  ghostOpacityMax: number;
-  showHeadDot: boolean;
-  strokeColor: string;
-  headColor: string;
-  strokeWidth: number;
-  /** Optional horizontal line y = L (graph coordinates); null to hide. */
-  limitY: number | null;
-}
-
-/**
- * Groups multiple text lines as one clip on the main timeline.
- * Children are TextLineItems with `parentId` pointing here; they use localStart/localDuration.
- */
-export interface CompoundItem {
-  kind: 'compound';
-  id: ItemId;
-  label: string;
-  layer: number;
-  startTime: number;
-  duration: number;
-  /** Ordered list of child text line ids */
-  childIds: ItemId[];
-  /**
-   * When true, all child lines are shifted together so the bounding box of the
-   * chain is centered on x=0 (preview + export). Uses measured widths when available.
-   */
-  centerHorizontally?: boolean;
-}
-
 /** Coordinate axes only; plots/dots/fields are separate items referencing `id` via `axesId`. */
 export interface AxesItem extends SceneItemBase {
   kind: 'axes';
@@ -332,6 +307,17 @@ export interface AxesItem extends SceneItemBase {
   yLabel: string;
   includeNumbers: boolean;
   includeTip: boolean;
+  /**
+   * Manim scene units per graph unit along x / y (horizontal length = `(xMax-xMin)*scaleX`, etc.).
+   * Legacy `scale` on `SceneItemBase` is kept in sync for compatibility (geometric mean of scaleX/Y).
+   */
+  scaleX: number;
+  scaleY: number;
+}
+
+/** Update `scale` when editing per-axis scales (geometric mean, clamped). */
+export function syncAxesLegacyScale(scaleX: number, scaleY: number): number {
+  return Math.sqrt(Math.max(0.01, scaleX) * Math.max(0.01, scaleY));
 }
 
 /** One function plot on an existing axes. */
@@ -339,6 +325,13 @@ export interface GraphPlotItem extends SceneItemBase {
   kind: 'graphPlot';
   axesId: ItemId;
   fn: GraphFunction;
+  /**
+   * Optional interval in axes x-coordinates over which the curve is sampled.
+   * `null` uses the full axes `xRange` (same as Manim default).
+   */
+  xDomain: [number, number] | null;
+  /** Curve stroke width (exported as `plot_var.set_stroke(width=…)` after `Axes.plot`). */
+  strokeWidth: number;
 }
 
 /** One labeled dot on an existing axes. */
@@ -346,6 +339,209 @@ export interface GraphDotItem extends SceneItemBase {
   kind: 'graphDot';
   axesId: ItemId;
   dot: GraphDot;
+}
+
+/** 2D point in graph coordinates (axes data space). */
+export interface GraphPoint2 {
+  x: number;
+  y: number;
+}
+
+/** Boundary curve for a graph area: existing plot clip or inline expression. */
+export type GraphAreaCurveSource =
+  | { sourceKind: 'plot'; plotId: ItemId }
+  | { sourceKind: 'expr'; jsExpr: string; pyExpr: string };
+
+/** Geometry + bounds for a filled region on an axes (exported after axes + plots are positioned). */
+export type GraphAreaMode =
+  | {
+      areaKind: 'underCurve';
+      xMin: number;
+      xMax: number;
+      curve: GraphAreaCurveSource;
+      /** When `curve` is expr: also `Create` the boundary plot in the play block. */
+      showBoundaryPlot: boolean;
+    }
+  | {
+      areaKind: 'betweenCurves';
+      xMin: number;
+      xMax: number;
+      lower: GraphAreaCurveSource;
+      upper: GraphAreaCurveSource;
+      /** When any side is expr: `Create` those boundary plots in the play block. */
+      showBoundaryPlot: boolean;
+    }
+  | {
+      areaKind: 'parallelogramFour';
+      corners: [GraphPoint2, GraphPoint2, GraphPoint2, GraphPoint2];
+    }
+  | {
+      areaKind: 'parallelogramVec';
+      ox: number;
+      oy: number;
+      ux: number;
+      uy: number;
+      vx: number;
+      vy: number;
+    }
+  | {
+      areaKind: 'disk';
+      cx: number;
+      cy: number;
+      /** Radius in graph x-units (horizontal axis scale → scene units; vertical via separate sample). */
+      radius: number;
+    };
+
+/** Filled region on an axes: under/between curves, parallelogram, or ellipse from graph disk. */
+export interface GraphAreaItem extends SceneItemBase {
+  kind: 'graphArea';
+  axesId: ItemId;
+  mode: GraphAreaMode;
+  fillColor: string;
+  fillOpacity: number;
+  strokeColor: string;
+  /** 0 = no stroke (polygon / ellipse only; `get_area` uses fill only). */
+  strokeWidth: number;
+}
+
+// ── Function series (family of curves f(n, x)) ──
+
+/** Playback mode for a function series animation. */
+export type FunctionSeriesMode = 'accumulation' | 'replacement';
+
+/**
+ * Geometry mode: each curve is either the individual term f(n, x) or the partial sum
+ * S_k(x) = Σ_{n=nMin}^{k} f(n, x). Optional on disk: legacy scenes load as 'individual'.
+ */
+export type FunctionSeriesDisplayMode = 'individual' | 'partialSum';
+
+/** Line-style for a rendered curve in a function series. */
+export type FunctionLineStyle = 'solid' | 'dashed' | 'dotted';
+
+/** Per-n style / timing overrides (missing fields fall back to `defaults`). */
+export interface FunctionSeriesPerN {
+  color?: string;
+  strokeWidth?: number;
+  lineStyle?: FunctionLineStyle;
+  animDuration?: number;
+  waitAfter?: number;
+}
+
+/** Apply-to-all defaults for a function series (every field required). */
+export interface FunctionSeriesDefaults {
+  color: string;
+  strokeWidth: number;
+  lineStyle: FunctionLineStyle;
+  animDuration: number;
+  waitAfter: number;
+}
+
+/**
+ * Family of curves y = f(n, x) drawn on existing axes for integer n in [nMin, nMax].
+ * Playback mode determines whether curves accumulate (Create each) or replace one another
+ * (Create the first, then ReplacementTransform into each next).
+ *
+ * `perN` is a retention dictionary keyed by the integer n (stringified) — shrinking the
+ * range does NOT delete entries, so expanding later restores prior per-index styling.
+ */
+export interface GraphFunctionSeriesItem extends SceneItemBase {
+  kind: 'graphFunctionSeries';
+  axesId: ItemId;
+  jsExpr: string;
+  pyExpr: string;
+  nMin: number;
+  nMax: number;
+  mode: FunctionSeriesMode;
+  /**
+   * When 'partialSum', each rendered curve is S_k(x) = Σ_{n=nMin}^{k} f(n, x); with
+   * `mode='replacement'` this produces the Transform/Morph convergence animation
+   * (e.g. Taylor / Fourier partial sums). Optional so existing saved scenes default
+   * to the legacy 'individual' behavior.
+   */
+  displayMode?: FunctionSeriesDisplayMode;
+  xDomain: [number, number] | null;
+  defaults: FunctionSeriesDefaults;
+  perN: Record<string, FunctionSeriesPerN>;
+  /** Transient (recomputed in store); per-n validation messages keyed by n (stringified). */
+  perNErrors?: Record<string, string>;
+  /** Top-level validation error (e.g. nMin >= nMax, syntax, range too large). */
+  topLevelError?: string | null;
+}
+
+/** Effective display mode; legacy items with no `displayMode` render as 'individual'. */
+export function resolveFunctionSeriesDisplayMode(
+  item: GraphFunctionSeriesItem,
+): FunctionSeriesDisplayMode {
+  return item.displayMode ?? 'individual';
+}
+
+/** Resolve per-n fields with defaults. */
+export function resolveFunctionSeriesN(
+  item: GraphFunctionSeriesItem,
+  n: number,
+): Required<FunctionSeriesPerN> {
+  const override = item.perN[String(n)] ?? {};
+  const d = item.defaults;
+  return {
+    color: override.color ?? d.color,
+    strokeWidth: override.strokeWidth ?? d.strokeWidth,
+    lineStyle: override.lineStyle ?? d.lineStyle,
+    animDuration: override.animDuration ?? d.animDuration,
+    waitAfter: override.waitAfter ?? d.waitAfter,
+  };
+}
+
+/** Deterministic list of integer n from nMin..nMax (inclusive). Empty if invalid. */
+export function functionSeriesIndices(item: GraphFunctionSeriesItem): number[] {
+  if (!Number.isFinite(item.nMin) || !Number.isFinite(item.nMax)) return [];
+  const lo = Math.trunc(item.nMin);
+  const hi = Math.trunc(item.nMax);
+  if (lo >= hi) return [];
+  const out: number[] = [];
+  for (let n = lo; n <= hi; n++) out.push(n);
+  return out;
+}
+
+/** Cumulative offset (relative to item start) at which curve for index n begins its Create. */
+export function functionSeriesChildStartOffset(
+  item: GraphFunctionSeriesItem,
+  n: number,
+): number {
+  const list = functionSeriesIndices(item);
+  let t = 0;
+  for (const k of list) {
+    if (k === n) return t;
+    const r = resolveFunctionSeriesN(item, k);
+    t += Math.max(0, r.animDuration) + Math.max(0, r.waitAfter);
+  }
+  return t;
+}
+
+/** Total runtime of a function series (sum of per-n anim + wait). */
+export function functionSeriesTotalDuration(
+  item: GraphFunctionSeriesItem,
+): number {
+  const list = functionSeriesIndices(item);
+  let t = 0;
+  const last = list[list.length - 1];
+  for (const k of list) {
+    const r = resolveFunctionSeriesN(item, k);
+    t += Math.max(0, r.animDuration);
+    if (k !== last) t += Math.max(0, r.waitAfter);
+  }
+  return t;
+}
+
+/** True when the item has any per-n error or a top-level error. */
+export function functionSeriesHasErrors(
+  item: GraphFunctionSeriesItem,
+): boolean {
+  if (item.topLevelError) return true;
+  if (!item.perNErrors) return false;
+  for (const v of Object.values(item.perNErrors)) {
+    if (v) return true;
+  }
+  return false;
 }
 
 /** Vector or slope field (+ optional streamlines) on an existing axes. */
@@ -376,9 +572,9 @@ export type SceneItem =
   | GraphPlotItem
   | GraphDotItem
   | GraphFieldItem
-  | GraphSeriesVizItem
+  | GraphFunctionSeriesItem
+  | GraphAreaItem
   | ShapeItem
-  | CompoundItem
   | ExitAnimationItem
   | SurroundingRectItem;
 
@@ -406,4 +602,26 @@ export interface ProjectFile {
   items: SceneItem[];
   measureConfig: MeasureConfig;
   audioItems?: AudioTrackItem[];
+}
+
+/** Portable subset of a project for merge into another scene (not a full save file). */
+export const PROJECT_FRAGMENT_KIND = 'manim-timeline-fragment' as const;
+
+export interface ProjectFragmentFile {
+  kind: typeof PROJECT_FRAGMENT_KIND;
+  version: number;
+  savedAt: string;
+  items: SceneItem[];
+  audioItems?: AudioTrackItem[];
+}
+
+export function isProjectFragmentFile(v: unknown): v is ProjectFragmentFile {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    o.kind === PROJECT_FRAGMENT_KIND &&
+    typeof o.version === 'number' &&
+    typeof o.savedAt === 'string' &&
+    Array.isArray(o.items)
+  );
 }

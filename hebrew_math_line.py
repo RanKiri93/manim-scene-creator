@@ -12,7 +12,12 @@ from typing import Any
 
 import numpy as np
 from manim import BLACK, RIGHT, WHITE, config, logger
-from manim.constants import DEFAULT_FONT_SIZE, SCALE_FACTOR_PER_FONT_POINT
+from manim.constants import DEFAULT_FONT_SIZE
+
+try:
+    from manim.constants import SCALE_FACTOR_PER_FONT_POINT
+except ImportError:  # older Manim CE: lives on Tex/MathTex module
+    from manim.mobject.text.tex_mobject import SCALE_FACTOR_PER_FONT_POINT
 from manim.mobject.svg.svg_mobject import SVGMobject
 from manim.mobject.types.vectorized_mobject import VGroup, VMobject
 from manim.utils.tex_file_writing import tex_to_svg_file

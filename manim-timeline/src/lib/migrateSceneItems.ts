@@ -11,6 +11,7 @@ import type {
   PosStep,
   SceneItem,
 } from '@/types/scene';
+import { normalizeNextToPosStep } from '@/lib/migrateProjectToV20';
 
 /** Legacy monolithic graph from project version < 8. */
 interface LegacyGraph {
@@ -60,21 +61,16 @@ interface LegacyGraph {
 
 function normalizePosSteps(steps: PosStep[]): PosStep[] {
   return steps.map((step) => {
-    if (step.kind === 'next_to') {
-      const refKind =
-        (step as { refKind?: string }).refKind === 'graph' ? 'axes' : step.refKind;
-      return { ...step, refKind: refKind === 'line' || refKind === 'axes' ? refKind : 'line' };
-    }
-    return step;
+    if (step.kind !== 'next_to') return step;
+    const refKind =
+      (step as { refKind?: string }).refKind === 'graph' ? 'axes' : step.refKind;
+    const rk = refKind === 'line' || refKind === 'axes' || refKind === 'shape' ? refKind : 'line';
+    return normalizeNextToPosStep({ ...step, refKind: rk });
   });
 }
 
 function normalizeItem(item: SceneItem): SceneItem {
-  if (
-    item.kind === 'compound' ||
-    item.kind === 'exit_animation' ||
-    item.kind === 'surroundingRect'
-  ) {
+  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
     return item;
   }
   return { ...item, posSteps: normalizePosSteps(item.posSteps) } as SceneItem;
@@ -82,7 +78,7 @@ function normalizeItem(item: SceneItem): SceneItem {
 
 /**
  * Split legacy `graph` items into `axes` + overlay clips. Normalize `next_to` refKind graph → axes.
- * Project version 9 adds `graphSeriesViz`; no transform needed for older JSON (new fields appear only on new items).
+ * Legacy `graphSeriesViz` items are dropped here (superseded by `graphFunctionSeries` with partial-sum displayMode).
  */
 export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
   const out: SceneItem[] = [];
@@ -103,6 +99,8 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
         x: g.x,
         y: g.y,
         scale: g.scale,
+        scaleX: Math.max(0.01, g.scale ?? 1),
+        scaleY: Math.max(0.01, g.scale ?? 1),
         posSteps: normalizePosSteps(g.posSteps),
         audioTrackId: g.voice?.audioTrackId ?? null,
         xRange: [...g.xRange] as [number, number, number],
@@ -146,6 +144,8 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           audioTrackId: null,
           axesId,
           fn: { ...fn },
+          xDomain: null,
+          strokeWidth: 2,
         };
         out.push(plot);
         t += step + layoutGap;
@@ -205,6 +205,9 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
         };
         out.push(field);
       }
+    } else if ((raw as { kind?: string }).kind === 'graphSeriesViz') {
+      // Drop legacy series-viz items (superseded by graphFunctionSeries with partial-sum displayMode).
+      continue;
     } else {
       out.push(normalizeItem(raw));
     }

@@ -7,6 +7,7 @@ import {
   MtprojPackError,
   MtprojUnpackError,
 } from '@/lib/projectIO';
+import type { FragmentTimeMode } from '@/lib/projectFragment';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
@@ -15,6 +16,18 @@ import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
+
+function promptFragmentTimeMode(): FragmentTimeMode | null {
+  const v = window.prompt(
+    'Fragment placement:\n1 = keep original times\n2 = start at playhead\n3 = append after scene (default)\n\nEnter 1, 2, or 3:',
+    '3',
+  );
+  if (v === null) return null;
+  const t = v.trim();
+  if (t === '1') return 'preserve';
+  if (t === '2') return 'playhead';
+  return 'appendEnd';
+}
 
 export default function App() {
   const [timelineHeight, setTimelineHeight] = useState(220);
@@ -40,6 +53,7 @@ export default function App() {
   }, []);
   const toProjectFile = useSceneStore((s) => s.toProjectFile);
   const loadProject = useSceneStore((s) => s.loadProjectFile);
+  const importFragment = useSceneStore((s) => s.importFragment);
   const defaults = useSceneStore((s) => s.defaults);
   const setDefaults = useSceneStore((s) => s.setDefaults);
 
@@ -60,8 +74,15 @@ export default function App() {
   };
   const handleLoad = async () => {
     try {
-      const f = await loadProjectFile();
-      if (f) loadProject(f);
+      const loaded = await loadProjectFile();
+      if (!loaded) return;
+      if (loaded.kind === 'fragment') {
+        const mode = promptFragmentTimeMode();
+        if (mode == null) return;
+        importFragment(loaded.data, { timeMode: mode });
+        return;
+      }
+      loadProject(loaded.data);
     } catch (e) {
       if (e instanceof MtprojUnpackError) {
         window.alert(e.message);
@@ -97,9 +118,9 @@ export default function App() {
           type="button"
           onClick={() => void handleLoad()}
           className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
-          title="Open .json or portable .mtproj (ZIP)"
+          title="Open full project or import a selection fragment (.json / .mtproj)"
         >
-          Open project
+          Open / import
         </button>
         <button
           onClick={handleSave}

@@ -66,10 +66,16 @@ export default function GraphDotEditor({ item }: GraphDotEditorProps) {
         </select>
       </label>
 
-      <div className="flex items-end gap-3 flex-wrap">
-        <NumberInput label="Start (s)" value={item.startTime} onChange={(v) => set({ startTime: v })} min={0} />
-        <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
-        <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
+      <div className="flex flex-col gap-1">
+        <div className="flex items-end gap-3 flex-wrap">
+          <NumberInput label="Start (s)" value={item.startTime} onChange={(v) => set({ startTime: v })} min={0} />
+          <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
+          <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
+        </div>
+        <p className="text-[10px] text-slate-500 leading-snug max-w-md">
+          Raise Layer above the plot&apos;s Layer to draw this dot on top (preview + Manim export). Same Layer: dots
+          render above curves by default.
+        </p>
       </div>
 
     </div>

@@ -89,7 +89,16 @@ export function sequentialAnimSecondsForLeaf(
       if (clock != null) return clock;
       return leaf.duration + extra;
     }
-    case 'graphSeriesViz': {
+    case 'graphFunctionSeries': {
+      const clock = sceneClockSecForLeafBoundPlayback(
+        leaf,
+        itemsMap,
+        audioItems,
+        tailOpts,
+      );
+      return clock ?? leaf.duration;
+    }
+    case 'graphArea': {
       const clock = sceneClockSecForLeafBoundPlayback(
         leaf,
         itemsMap,
@@ -119,5 +128,5 @@ export function sequentialAnimSecondsForExit(ex: ExitAnimationItem): number {
 export function sequentialAnimSecondsForSurroundingRect(
   sr: SurroundingRectItem,
 ): number {
-  return Math.max(0.05, sr.introRunTime);
+  return Math.max(0.05, sr.runTime);
 }
