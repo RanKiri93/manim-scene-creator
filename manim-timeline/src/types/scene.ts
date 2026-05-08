@@ -27,6 +27,8 @@ export interface SegmentLocalBox {
   cy: number;
   w: number;
   h: number;
+  /** Math/text flag in the same visual submobject order as this box, when supplied by measure server. */
+  isMath?: boolean | null;
 }
 
 /** `null` on `bounds` = legacy preview (tight ink size, mobject center — matches older projects). */
@@ -47,7 +49,13 @@ export interface PosStepNextTo {
   /** Text line geometry for alignment; `null` = legacy hybrid. */
   bounds: NextToBoundsMode | null;
 }
-export interface PosStepToEdge { kind: 'to_edge'; edge: ManimDirection; buff: number }
+export interface PosStepToEdge {
+  kind: 'to_edge';
+  edge: ManimDirection;
+  buff: number;
+  /** Text line geometry for frame-edge alignment; `null` = legacy hybrid. */
+  bounds?: NextToBoundsMode | null;
+}
 export interface PosStepShift  { kind: 'shift'; dx: number; dy: number }
 export interface PosStepSetX   { kind: 'set_x'; x: number }
 export interface PosStepSetY   { kind: 'set_y'; y: number }
@@ -182,7 +190,15 @@ interface SceneItemBase extends TimeSpan, SpatialTransform {
   label: string;
   layer: number;
   posSteps: PosStep[];
-  /** When set, export ties this clip to a specific `audioItems` track (Whisper boundaries). */
+  /**
+   * When true, the object is on screen from the first frame (`t=0`): preview shows it immediately
+   * and export uses `self.add(...)` instead of an intro animation. Requires `startTime === 0`.
+   */
+  visibleAtSceneStart?: boolean;
+  /**
+   * Export audio binding: `undefined`/`null` = auto (timeline overlap), explicit id = that track,
+   * `AUDIO_BINDING_NONE` (`__none__`) = never bind audio for this clip.
+   */
   audioTrackId?: string | null;
 }
 
@@ -198,6 +214,47 @@ export interface ExitAnimationItem {
   startTime: number;
   duration: number;
   targets: ExitTargetSpec[];
+}
+
+/** Visual pulse / emphasis: scale and/or color, then restore. Does not remove targets. */
+export type BlinkMode = 'scale' | 'color' | 'scale_color';
+
+export interface BlinkTargetSpec {
+  targetId: ItemId;
+  mode: BlinkMode;
+  /**
+   * Peak scale factor (1 = none). Used when `mode` is `scale` or `scale_color`.
+   * Default in UI / export when omitted: 1.15.
+   */
+  scaleFactor?: number;
+  /**
+   * Highlight color (CSS hex). Used when `mode` is `color` or `scale_color`.
+   * Default when omitted: `#fbbf24`.
+   */
+  blinkColor?: string;
+  /**
+   * For `textLine` targets: subset of segment indices (same order as `line[i]` / export).
+   * Omit or empty = whole line.
+   */
+  segmentIndices?: number[] | null;
+}
+
+/**
+ * Timeline clip: run blink on all `targets` at `startTime` in parallel for `duration` seconds.
+ */
+export interface BlinkAnimationItem {
+  kind: 'blink_animation';
+  id: ItemId;
+  label: string;
+  layer: number;
+  startTime: number;
+  duration: number;
+  /**
+   * Number of up→down cycles packed into `duration` (default 1).
+   * Each cycle: ramp up over half the cycle time, ramp down over the other half.
+   */
+  repetitions: number;
+  targets: BlinkTargetSpec[];
 }
 
 /** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */
@@ -227,11 +284,24 @@ export interface SurroundingRectItem {
   labelDir: ManimDirection;
   labelFontSize: number;
   introStyle: 'create' | 'fade_in';
+  /** Same semantics as {@link SceneItemBase.visibleAtSceneStart}. */
+  visibleAtSceneStart?: boolean;
 }
 
-export type ShapeKind = 'circle' | 'rectangle' | 'arrow' | 'line';
+export type ShapeKind = 'circle' | 'rectangle' | 'arrow' | 'line' | 'polyline';
 
-/** Primitive shape: circle, rectangle, arrow, or line; positioned like other scene objects. */
+export interface ShapePoint {
+  x: number;
+  y: number;
+}
+
+export const DEFAULT_SHAPE_POLYLINE_POINTS: ShapePoint[] = [
+  { x: -1, y: 0 },
+  { x: 0, y: 0.75 },
+  { x: 1, y: 0 },
+];
+
+/** Primitive shape: circle, rectangle, arrow, line, or polyline; positioned like other scene objects. */
 export interface ShapeItem extends SceneItemBase {
   kind: 'shape';
   shapeType: ShapeKind;
@@ -245,6 +315,12 @@ export interface ShapeItem extends SceneItemBase {
   /** Arrow or line: vector from tail to tip in local space before rotation/scale. */
   endX: number;
   endY: number;
+  /** Polyline: ordered local points relative to the shape anchor. */
+  points: ShapePoint[];
+  /** Polyline: arrowhead at the first vertex. */
+  tailArrow: boolean;
+  /** Polyline: arrowhead at the last vertex. */
+  headArrow: boolean;
   strokeColor: string;
   strokeWidth: number;
   /** Fill color; null = no fill (stroke only). */
@@ -298,6 +374,23 @@ export type GraphFieldMode = 'none' | 'vector' | 'slope';
 
 export type GraphFieldColormap = 'viridis' | 'plasma' | 'inferno' | 'magma';
 
+/** Manim axis `tip_shape` class passed through `axis_config` (omit or `default` = Manim default). */
+export type AxesTipShape =
+  | 'default'
+  | 'ArrowTriangleTip'
+  | 'StealthTip'
+  | 'ArrowSquareTip';
+
+/** Manim ink bbox for a rasterized axes preview (measure server `/api/preview_axes`). */
+export interface AxisPreviewBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  offsetInkX: number;
+  offsetInkY: number;
+}
+
 /** Coordinate axes only; plots/dots/fields are separate items referencing `id` via `axesId`. */
 export interface AxesItem extends SceneItemBase {
   kind: 'axes';
@@ -313,6 +406,45 @@ export interface AxesItem extends SceneItemBase {
    */
   scaleX: number;
   scaleY: number;
+  /** Stroke color (`axis_config["stroke_color"]`); omit = Manim default. */
+  axisColor?: string;
+  /** Stroke width (`axis_config["stroke_width"]`); omit = Manim default. */
+  axisStrokeWidth?: number;
+  /** Tick length (`axis_config["tick_size"]`); omit = Manim default. */
+  tickLength?: number;
+  /** Tick stroke color, applied after axes construction; omit = axis/default color. */
+  tickColor?: string;
+  /** Tick stroke width, applied after axes construction; omit = axis/default stroke width. */
+  tickStrokeWidth?: number;
+  /** Decimal label color (`decimal_number_config["color"]`); omit = Manim default. */
+  numberColor?: string;
+  /** Decimal label font size (`decimal_number_config["font_size"]`); omit = Manim default. */
+  numberFontSize?: number;
+  tipShape?: AxesTipShape;
+  /**
+   * Axis arrow tip extent along the axis (Manim `NumberLine` `tip_height`).
+   * Prefer this over legacy `tipLength`.
+   */
+  tipHeight?: number;
+  /** Axis arrow tip width perpendicular to the axis (`tip_width`). */
+  tipWidth?: number;
+  /** Optional stroke width of the axis tip VMobject (applied after `Axes` construction). */
+  tipStrokeWidth?: number;
+  /** Optional tip fill opacity in `[0, 1]` (`set_fill` on the tip). */
+  tipFillOpacity?: number;
+  /**
+   * Legacy: was emitted as `axis_config["tip_length"]` (not aligned with Manim `tip_height`).
+   * Migrated to `tipHeight` in v31; omit in new data.
+   */
+  tipLength?: number;
+  /** Client-only: data URL from measure server axes raster preview. */
+  axisPreviewDataUrl?: string | null;
+  /** Client-only: last preview error from measure server. */
+  axisPreviewError?: string | null;
+  /** Client-only: `axesPreviewVisualKey` when the preview PNG was produced. */
+  axisPreviewHash?: string | null;
+  /** Client-only: ink bounds in Manim units for placing the preview image. */
+  axisPreviewBounds?: AxisPreviewBounds | null;
 }
 
 /** Update `scale` when editing per-axis scales (geometric mean, clamped). */
@@ -544,6 +676,13 @@ export function functionSeriesHasErrors(
   return false;
 }
 
+/**
+ * Default arrow-shaft / slope-tick stroke width in pixels. Shared between the
+ * Konva preview and the emitted `ArrowVectorField.set_stroke(width=...)` so
+ * existing projects migrated forward keep a consistent look.
+ */
+export const DEFAULT_FIELD_ARROW_STROKE_WIDTH = 4;
+
 /** Vector or slope field (+ optional streamlines) on an existing axes. */
 export interface GraphFieldItem extends SceneItemBase {
   kind: 'graphField';
@@ -560,6 +699,13 @@ export interface GraphFieldItem extends SceneItemBase {
   fieldColormap: GraphFieldColormap;
   colorSchemeMin: number;
   colorSchemeMax: number;
+  /**
+   * Stroke width of each arrow shaft / slope tick, in pixels. Fed directly
+   * into Konva preview (`strokeWidth`) and emitted as `set_stroke(width=...)`
+   * on the ArrowVectorField after `fit_to_coordinate_system` so the video
+   * and preview agree. Defaults via factory/migration to {@link DEFAULT_FIELD_ARROW_STROKE_WIDTH}.
+   */
+  arrowStrokeWidth: number;
   streamPoints: GraphStreamPoint[];
   streamPlacementActive?: boolean;
   streamDt: number;
@@ -576,7 +722,16 @@ export type SceneItem =
   | GraphAreaItem
   | ShapeItem
   | ExitAnimationItem
+  | BlinkAnimationItem
   | SurroundingRectItem;
+
+/** True for visual items present from scene start via `visibleAtSceneStart` (not exit clips). */
+export function isVisibleAtSceneStartItem(item: SceneItem): boolean {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+    return false;
+  }
+  return item.visibleAtSceneStart === true;
+}
 
 // ── Project file ──
 

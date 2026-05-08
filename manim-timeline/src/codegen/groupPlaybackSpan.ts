@@ -1,5 +1,6 @@
 import type {
   AudioTrackItem,
+  BlinkAnimationItem,
   ExitAnimationItem,
   ItemId,
   SceneItem,
@@ -7,6 +8,7 @@ import type {
 } from '@/types/scene';
 import type { ExportLeaf } from './flattenExport';
 import { effectiveDuration } from '@/lib/time';
+import { isVisibleAtSceneStartItem } from '@/types/scene';
 import {
   type BoundAudioTailOpts,
   sceneClockSecForLeafBoundPlayback,
@@ -41,6 +43,7 @@ export function sequentialAnimSecondsForLeaf(
   audioItems: AudioTrackItem[] | undefined,
   tailOpts?: BoundAudioTailOpts,
 ): number {
+  if (isVisibleAtSceneStartItem(leaf)) return 0;
   switch (leaf.kind) {
     case 'textLine':
       return textLinePlaySeconds(leaf, itemsMap, audioItems, tailOpts);
@@ -125,8 +128,13 @@ export function sequentialAnimSecondsForExit(ex: ExitAnimationItem): number {
   return Math.max(0.01, ex.duration);
 }
 
+export function sequentialAnimSecondsForBlink(bl: BlinkAnimationItem): number {
+  return Math.max(0.01, bl.duration);
+}
+
 export function sequentialAnimSecondsForSurroundingRect(
   sr: SurroundingRectItem,
 ): number {
+  if (sr.visibleAtSceneStart) return 0;
   return Math.max(0.05, sr.runTime);
 }

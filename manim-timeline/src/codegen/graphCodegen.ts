@@ -11,6 +11,10 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
+import {
+  DEFAULT_FIELD_ARROW_STROKE_WIDTH,
+  functionSeriesIndices,
+} from '@/types/scene';
 import { canBeExitTarget } from '@/lib/time';
 import { pythonStringLiteral } from './texUtils';
 import {
@@ -38,32 +42,124 @@ export function pythonOverlaySuffix(id: ItemId): string {
 export function generateAxesDef(item: AxesItem, axVar: string, indent: number): string {
   const pad = ' '.repeat(indent);
   const inner = ' '.repeat(indent + 4);
-  let s = '';
 
   const [xMin, xMax, xStep] = item.xRange;
   const [yMin, yMax, yStep] = item.yRange;
 
+  const axisConfigPairs: string[] = [];
+  if (item.includeNumbers) {
+    axisConfigPairs.push('"include_numbers": True');
+  }
+  const decimalNumberConfigPairs: string[] = [];
+  const numberColorTrim =
+    typeof item.numberColor === 'string' ? item.numberColor.trim() : '';
+  if (numberColorTrim) {
+    decimalNumberConfigPairs.push(`"color": ${manimColor(numberColorTrim)}`);
+  }
+  if (
+    typeof item.numberFontSize === 'number' &&
+    Number.isFinite(item.numberFontSize)
+  ) {
+    decimalNumberConfigPairs.push(`"font_size": ${item.numberFontSize}`);
+  }
+  if (decimalNumberConfigPairs.length > 0) {
+    axisConfigPairs.push(
+      `"decimal_number_config": {${decimalNumberConfigPairs.join(', ')}}`,
+    );
+  }
+  const colorTrim =
+    typeof item.axisColor === 'string' ? item.axisColor.trim() : '';
+  if (colorTrim) {
+    axisConfigPairs.push(`"stroke_color": ${manimColor(colorTrim)}`);
+  }
+  if (
+    typeof item.axisStrokeWidth === 'number' &&
+    Number.isFinite(item.axisStrokeWidth)
+  ) {
+    axisConfigPairs.push(`"stroke_width": ${item.axisStrokeWidth}`);
+  }
+  if (typeof item.tickLength === 'number' && Number.isFinite(item.tickLength)) {
+    axisConfigPairs.push(`"tick_size": ${item.tickLength}`);
+  }
+  if (item.includeTip) {
+    const shape = item.tipShape;
+    if (shape && shape !== 'default') {
+      axisConfigPairs.push(`"tip_shape": ${shape}`);
+    }
+    if (typeof item.tipHeight === 'number' && Number.isFinite(item.tipHeight)) {
+      axisConfigPairs.push(`"tip_height": ${item.tipHeight}`);
+    }
+    if (typeof item.tipWidth === 'number' && Number.isFinite(item.tipWidth)) {
+      axisConfigPairs.push(`"tip_width": ${item.tipWidth}`);
+    }
+  }
+
+  let s = '';
   s += `${pad}${axVar} = Axes(\n`;
   s += `${inner}x_range=[${xMin}, ${xMax}, ${xStep}],\n`;
   s += `${inner}y_range=[${yMin}, ${yMax}, ${yStep}],\n`;
   s += `${inner}x_length=${((xMax - xMin) * item.scaleX).toFixed(2)},\n`;
   s += `${inner}y_length=${((yMax - yMin) * item.scaleY).toFixed(2)},\n`;
 
-  if (item.includeNumbers) {
-    s += `${inner}axis_config={"include_numbers": True}`;
-    if (!item.includeTip) s += `, tips=False`;
-    s += `,\n`;
-  } else if (!item.includeTip) {
+  if (!item.includeTip) {
     s += `${inner}tips=False,\n`;
   }
 
+  if (axisConfigPairs.length > 0) {
+    s += `${inner}axis_config={${axisConfigPairs.join(', ')}},\n`;
+  }
+
   s += `${pad})\n`;
+
+  const tickStylePairs: string[] = [];
+  const tickColorTrim =
+    typeof item.tickColor === 'string' ? item.tickColor.trim() : '';
+  if (tickColorTrim) {
+    tickStylePairs.push(`color=${manimColor(tickColorTrim)}`);
+  }
+  if (
+    typeof item.tickStrokeWidth === 'number' &&
+    Number.isFinite(item.tickStrokeWidth)
+  ) {
+    tickStylePairs.push(`width=${item.tickStrokeWidth}`);
+  }
+  if (tickStylePairs.length > 0) {
+    s += `${pad}for _axis in [${axVar}.x_axis, ${axVar}.y_axis]:\n`;
+    s += `${inner}if hasattr(_axis, "ticks"):\n`;
+    s += `${inner}    _axis.ticks.set_stroke(${tickStylePairs.join(', ')})\n`;
+  }
 
   if (item.xLabel) {
     s += `${pad}${axVar}_xlabel = ${axVar}.get_x_axis_label(${pythonStringLiteral(item.xLabel)})\n`;
   }
   if (item.yLabel) {
     s += `${pad}${axVar}_ylabel = ${axVar}.get_y_axis_label(${pythonStringLiteral(item.yLabel)})\n`;
+  }
+
+  if (item.includeTip) {
+    const tipStrokePairs: string[] = [];
+    if (
+      typeof item.tipStrokeWidth === 'number' &&
+      Number.isFinite(item.tipStrokeWidth) &&
+      item.tipStrokeWidth >= 0
+    ) {
+      tipStrokePairs.push(`width=${item.tipStrokeWidth}`);
+    }
+    const fillOp =
+      typeof item.tipFillOpacity === 'number' &&
+      Number.isFinite(item.tipFillOpacity)
+        ? Math.max(0, Math.min(1, item.tipFillOpacity))
+        : null;
+    if (tipStrokePairs.length > 0 || fillOp != null) {
+      s += `${pad}for _tip in [${axVar}.x_axis.tip, ${axVar}.y_axis.tip]:\n`;
+      s += `${inner}if _tip is not None:\n`;
+      if (tipStrokePairs.length > 0) {
+        s += `${inner}    _tip.set_stroke(${tipStrokePairs.join(', ')})\n`;
+      }
+      if (fillOp != null) {
+        s += `${inner}    _tip.set_fill(opacity=${fillOp.toFixed(4)})\n`;
+      }
+    }
   }
 
   return s;
@@ -108,7 +204,9 @@ export function generateAxesPos(
         break;
       }
       case 'to_edge':
-        lines.push(`${pad}${axVar}.to_edge(${step.edge}, buff=${step.buff})`);
+        lines.push(
+          `${pad}${axVar}.to_edge(${step.edge}, buff=${Number.isFinite(step.buff) ? step.buff : 0.3})`,
+        );
         break;
       case 'shift':
         lines.push(
@@ -180,10 +278,26 @@ export function formatExitGroupPlayLine(
 
 /**
  * Python target expression(s) for an exit_animation clip, or null if vars are missing.
+ *
+ * `purpose` controls the function-series special case. In `'exit'` mode, a
+ * replacement-mode series resolves to **only the first curve's VMobject**
+ * (`n_1`). The replacement-mode playback (see `functionSeriesCodegen.ts`)
+ * keeps a single on-screen mobject throughout the series: `n_1` is created
+ * first, then morphed in place via `_FSRevealTransform(n_1, n_k)` to every
+ * subsequent shape. At exit time `n_1` is the only curve visible (it has
+ * `n_last`'s shape), so the exit animation must target `n_1` alone.
+ * Feeding the parent VGroup to `FadeOut`/`Uncreate`/`ShrinkToCenter` would
+ * re-render every other curve (`n_2`..`n_last`) — which are Python objects
+ * that exist only as transform targets — for the duration of the play,
+ * flashing them onto the screen right before the exit.
+ *
+ * Surround-rect sizing keeps the legacy VGroup target so a highlight around
+ * the full series still spans all curves.
  */
 export function resolveExitTargetsForExport(
   target: SceneItem,
   idToVarName: Map<ItemId, string>,
+  purpose: 'exit' | 'surround' = 'surround',
 ): string | null {
   if (!canBeExitTarget(target)) return null;
 
@@ -228,6 +342,20 @@ export function resolveExitTargetsForExport(
     const axVar = idToVarName.get(target.axesId);
     if (!axVar) return null;
     const suf = pythonOverlaySuffix(target.id);
+    if (purpose === 'exit' && target.mode === 'replacement') {
+      const list = functionSeriesIndices(target);
+      const firstN = list.length > 0 ? list[0]! : null;
+      if (firstN != null) {
+        // The first curve (`n_1`) is the only on-scene mobject throughout
+        // the series — every subsequent shape is morphed into it in place
+        // via `_FSRevealTransform`. Must stay in sync with
+        // `functionSeriesCurveVar` in `functionSeriesCodegen.ts` (circular
+        // import avoided by inlining).
+        const ns = firstN < 0 ? `m${Math.abs(firstN)}` : String(firstN);
+        return `${axVar}_fs_${suf}_n${ns}`;
+      }
+      return null;
+    }
     return `${axVar}_fs_${suf}`;
   }
   if (target.kind === 'graphArea') {
@@ -250,6 +378,7 @@ export function generateAxesPlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
   let s = '';
 
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
@@ -367,6 +496,7 @@ export function generateGraphPlotPlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
   const pVar = overlayPlotVar(axVar, item.id);
   let s = '';
 
@@ -446,6 +576,7 @@ export function generateGraphDotPlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
   const dVar = overlayDotVar(axVar, item.id);
   const dot = item.dot;
   let s = '';
@@ -530,6 +661,18 @@ export function generateGraphFieldDef(
   s += `${inner}colors=${colorsPy},\n`;
   s += `${pad})\n`;
   s += `${pad}${vfVar}.fit_to_coordinate_system(${axVar})\n`;
+  const arrowSw = Math.max(
+    0,
+    item.arrowStrokeWidth ?? DEFAULT_FIELD_ARROW_STROKE_WIDTH,
+  );
+  // Override Manim's per-arrow adaptive stroke scaling so each shaft lands at
+  // the user-chosen thickness and matches the Konva preview. Also pin
+  // `initial_stroke_width` on each child Arrow so subsequent scale calls do
+  // not reset it back to Manim's default.
+  s += `${pad}for _a in ${vfVar}.submobjects:\n`;
+  s += `${inner}_a.set_stroke(width=${arrowSw})\n`;
+  s += `${inner}if hasattr(_a, "initial_stroke_width"):\n`;
+  s += `${innerDef}_a.initial_stroke_width = ${arrowSw}\n`;
 
   const seeds = item.streamPoints ?? [];
   if (seeds.length > 0) {
@@ -574,6 +717,7 @@ export function generateGraphFieldPlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   if (item.fieldMode === 'none') return '';
+  if (item.visibleAtSceneStart) return '';
 
   const pad = ' '.repeat(indent);
   const suf = pythonOverlaySuffix(item.id);
@@ -661,7 +805,7 @@ function resolveGraphAreaCurve(
   return { prelude, varName: v };
 }
 
-function graphAreaBoundaryPlotVars(item: GraphAreaItem, axVar: string): string[] {
+export function graphAreaBoundaryPlotVars(item: GraphAreaItem, axVar: string): string[] {
   const suf = pythonOverlaySuffix(item.id);
   const base = `${axVar}_areaplot_${suf}_`;
   const m = item.mode;
@@ -771,6 +915,7 @@ export function generateGraphAreaPlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
   const areaVar = overlayAreaVar(axVar, item.id);
   const boundaries = graphAreaBoundaryPlotVars(item, axVar);
   const bRt = Math.max(0.05, Math.min(0.75, item.duration * 0.35)).toFixed(4);

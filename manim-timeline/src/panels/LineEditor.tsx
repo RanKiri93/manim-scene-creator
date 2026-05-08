@@ -10,6 +10,10 @@ import NumberInput from '@/components/NumberInput';
 import SegmentEditor from './SegmentEditor';
 import SegmentMapperModal from './SegmentMapperModal';
 import PositionStepsEditor from './PositionStepsEditor';
+import AudioBindingSelect from './AudioBindingSelect';
+import PropertyTabs from './PropertyTabs';
+import { appendCenterXStep, inkEdgeSteps, updateAxisStep, type ToEdgeCardinal } from '@/lib/quickLayout';
+import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
   return {
@@ -26,6 +30,7 @@ interface LineEditorProps {
 
 export default function LineEditor({ item }: LineEditorProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
+  const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const setLineTransformConfig = useSceneStore((s) => s.setLineTransformConfig);
   const items = useSceneStore((s) => s.items);
   const defaults = useSceneStore((s) => s.defaults);
@@ -55,6 +60,17 @@ export default function LineEditor({ item }: LineEditorProps) {
     [item.id, updateItem],
   );
 
+  const setInkEdge = useCallback(
+    (edge: ToEdgeCardinal, buff: number) => {
+      set({ posSteps: inkEdgeSteps(edge, buff) });
+    },
+    [set],
+  );
+
+  const centerX = useCallback(() => {
+    set({ posSteps: appendCenterXStep(item.posSteps) });
+  }, [item.posSteps, set]);
+
   const onRawChange = (raw: string) => {
     const parsed = parseSegments(raw);
     const segs: SegmentStyle[] = parsed.map((p, i) => {
@@ -79,6 +95,7 @@ export default function LineEditor({ item }: LineEditorProps) {
           : firstId;
       set({
         animStyle: 'transform',
+        visibleAtSceneStart: undefined,
         transformConfig: {
           segmentPairs: prev?.segmentPairs ?? {},
           unmappedSourceBehavior: prev?.unmappedSourceBehavior ?? 'fade_out',
@@ -98,7 +115,7 @@ export default function LineEditor({ item }: LineEditorProps) {
     return it?.kind === 'textLine' ? it : undefined;
   }, [item.transformConfig?.sourceLineId, items]);
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Text Line</h3>
 
@@ -113,7 +130,6 @@ export default function LineEditor({ item }: LineEditorProps) {
         />
       </label>
 
-      {/* LaTeX source */}
       <div>
         <label className="text-xs text-slate-400 mb-1 block">LaTeX source</label>
         <textarea
@@ -126,7 +142,6 @@ export default function LineEditor({ item }: LineEditorProps) {
         />
       </div>
 
-      {/* Font + size row */}
       <div className="flex items-end gap-3 flex-wrap">
         <label className="text-xs text-slate-400">
           Font
@@ -147,7 +162,22 @@ export default function LineEditor({ item }: LineEditorProps) {
         />
       </div>
 
-      {/* Animation style */}
+      {item.measureError && (
+        <p className="text-[10px] text-red-400 bg-red-900/20 rounded px-2 py-1">
+          Measure error: {item.measureError}
+        </p>
+      )}
+      {item.measure && (
+        <p className="text-[10px] text-slate-500">
+          Measured: {item.measure.width.toFixed(2)} x {item.measure.height.toFixed(2)} Manim units
+          {item.measure.pngWidth && ` | raster ${item.measure.pngWidth}x${item.measure.pngHeight}px`}
+        </p>
+      )}
+    </div>
+  );
+
+  const animationContent = (
+    <div className="flex flex-col gap-3">
       <div>
         <label className="text-xs text-slate-400 mb-1 block">Anim style</label>
         <select
@@ -214,7 +244,20 @@ export default function LineEditor({ item }: LineEditorProps) {
         </div>
       )}
 
-      {/* Timeline properties */}
+      <VisibleAtSceneStartRow
+        checked={item.visibleAtSceneStart === true}
+        disabled={animStyle === 'transform'}
+        disabledReason="Not available for transform lines."
+        note="Intro audio is not synchronized (no intro animation)."
+        onChange={(next) =>
+          set(
+            next
+              ? { visibleAtSceneStart: true, startTime: 0 }
+              : { visibleAtSceneStart: undefined },
+          )
+        }
+      />
+
       <div className="flex items-end gap-3 flex-wrap">
         <NumberInput
           label="Start (s)"
@@ -222,6 +265,7 @@ export default function LineEditor({ item }: LineEditorProps) {
           onChange={(v) => set({ startTime: v })}
           min={0}
           step={0.1}
+          disabled={item.visibleAtSceneStart === true}
         />
         <NumberInput
           label="Duration"
@@ -249,53 +293,115 @@ export default function LineEditor({ item }: LineEditorProps) {
         />
       </div>
 
-      {/* Position: absolute coords + scale */}
+      <AudioBindingSelect
+        value={item.audioTrackId}
+        currentItemId={item.id}
+        onChange={(audioTrackId) => setItemAudioBinding(item.id, audioTrackId)}
+      />
+    </div>
+  );
+
+  const positionContent = (
+    <div className="flex flex-col gap-3">
       <div className="flex items-end gap-3 flex-wrap">
-        <NumberInput label="X" value={item.x} onChange={(v) => set({ x: v })} step={0.1} />
-        <NumberInput label="Y" value={item.y} onChange={(v) => set({ y: v })} step={0.1} />
+        <NumberInput
+          label="X"
+          value={item.x}
+          onChange={(v) => {
+            const nextSteps = updateAxisStep(item.posSteps, 'x', v);
+            set(nextSteps ? { x: v, posSteps: nextSteps } : { x: v });
+          }}
+          step={0.1}
+        />
+        <NumberInput
+          label="Y"
+          value={item.y}
+          onChange={(v) => {
+            const nextSteps = updateAxisStep(item.posSteps, 'y', v);
+            set(nextSteps ? { y: v, posSteps: nextSteps } : { y: v });
+          }}
+          step={0.1}
+        />
         <NumberInput label="Scale" value={item.scale} onChange={(v) => set({ scale: v })} min={0.01} step={0.05} />
       </div>
 
-      {/* Positioning steps (relative positioning chain) */}
-      <details>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">
-          Positioning steps ({item.posSteps.length})
-        </summary>
-        <div className="mt-2">
-          <PositionStepsEditor
-            steps={item.posSteps}
-            onChange={(s) => set({ posSteps: s })}
-            currentItemId={item.id}
-          />
+      <div className="rounded border border-slate-600 bg-slate-800/40 p-2">
+        <div className="text-xs font-medium text-slate-300 mb-1.5">Quick layout</div>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setInkEdge('RIGHT', 0.3)}
+            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            Ink right
+          </button>
+          <button
+            type="button"
+            onClick={() => setInkEdge('LEFT', 0.3)}
+            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            Ink left
+          </button>
+          <button
+            type="button"
+            onClick={() => setInkEdge('UP', 0.5)}
+            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            Ink top
+          </button>
+          <button
+            type="button"
+            onClick={() => setInkEdge('DOWN', 0.5)}
+            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            Ink bottom
+          </button>
+          <button
+            type="button"
+            onClick={centerX}
+            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            Center X
+          </button>
         </div>
-      </details>
+        {!item.measure && (
+          <p className="mt-1.5 text-[10px] text-slate-500">
+            Ink alignment is most accurate after measurement completes.
+          </p>
+        )}
+      </div>
 
-      {/* Measurement status */}
-      {item.measureError && (
-        <p className="text-[10px] text-red-400 bg-red-900/20 rounded px-2 py-1">
-          Measure error: {item.measureError}
-        </p>
-      )}
-      {item.measure && (
-        <p className="text-[10px] text-slate-500">
-          Measured: {item.measure.width.toFixed(2)} x {item.measure.height.toFixed(2)} Manim units
-          {item.measure.pngWidth && ` | raster ${item.measure.pngWidth}x${item.measure.pngHeight}px`}
-        </p>
-      )}
-
-      {/* Segments */}
-      <details open={item.segments.length > 0}>
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">
-          Segments ({item.segments.length})
-        </summary>
-        <div className="mt-2">
-          <SegmentEditor
-            segments={item.segments}
-            animDuration={item.duration}
-            onChange={(s) => set({ segments: s })}
-          />
-        </div>
-      </details>
+      <div>
+        <div className="text-xs text-slate-400 mb-1">Positioning steps ({item.posSteps.length})</div>
+        <PositionStepsEditor
+          steps={item.posSteps}
+          onChange={(s) => set({ posSteps: s })}
+          currentItemId={item.id}
+        />
+      </div>
     </div>
+  );
+
+  const segmentsContent = (
+    <div className="flex flex-col gap-3">
+      <SegmentEditor
+        segments={item.segments}
+        animDuration={item.duration}
+        onChange={(s) => set({ segments: s })}
+      />
+    </div>
+  );
+
+  return (
+    <PropertyTabs
+      key={item.id}
+      defaultTabId="base"
+      tabs={[
+        { id: 'base', label: 'Base', content: baseContent },
+        { id: 'animation', label: 'Animation / Audio', content: animationContent },
+        { id: 'position', label: 'Positioning', content: positionContent },
+        { id: 'segments', label: 'Segments', content: segmentsContent },
+      ]}
+    />
   );
 }

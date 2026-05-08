@@ -16,6 +16,8 @@ import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
+import AgentPanel from '@/agent/AgentPanel';
+import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
 
 function promptFragmentTimeMode(): FragmentTimeMode | null {
   const v = window.prompt(
@@ -31,10 +33,14 @@ function promptFragmentTimeMode(): FragmentTimeMode | null {
 
 export default function App() {
   const [timelineHeight, setTimelineHeight] = useState(220);
+  const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
+  useAxesPreviewSync();
   const exportOpen = useSceneStore((s) => s.exportOpen);
   const setExportOpen = useSceneStore((s) => s.setExportOpen);
   const audioMode = useSceneStore((s) => s.audioMode);
   const setAudioMode = useSceneStore((s) => s.setAudioMode);
+  const agentOpen = useSceneStore((s) => s.agentOpen);
+  const setAgentOpen = useSceneStore((s) => s.setAgentOpen);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -139,6 +145,18 @@ export default function App() {
         </button>
         <button
           type="button"
+          onClick={() => setAgentOpen(!agentOpen)}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            agentOpen
+              ? 'bg-fuchsia-600 hover:bg-fuchsia-500'
+              : 'bg-slate-700 hover:bg-slate-600'
+          }`}
+          title="AI Copilot"
+        >
+          AI
+        </button>
+        <button
+          type="button"
           onClick={() => useSceneStore.getState().setExportOpen(true)}
           className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
         >
@@ -155,10 +173,10 @@ export default function App() {
 
         {/* Center: Canvas */}
         <main className="flex-1 min-h-0 relative overflow-hidden flex flex-col min-w-0 p-3">
-          <SceneCanvas />
+          <SceneCanvas onFrameRectChange={setCanvasRect} />
         </main>
 
-        <PropertyPanel />
+        <PropertyPanel anchorRect={canvasRect} />
 
         {exportOpen && (
           <FloatingPanel title="Export" onClose={() => setExportOpen(false)} defaultSize={{ w: 400, h: 520 }}>
@@ -178,6 +196,15 @@ export default function App() {
             defaultSize={{ w: 360, h: 440 }}
           >
             <AudioPanel mode={audioMode} />
+          </FloatingPanel>
+        )}
+        {agentOpen && (
+          <FloatingPanel
+            title="AI Copilot"
+            onClose={() => setAgentOpen(false)}
+            defaultSize={{ w: 400, h: 560 }}
+          >
+            <AgentPanel />
           </FloatingPanel>
         )}
       </div>

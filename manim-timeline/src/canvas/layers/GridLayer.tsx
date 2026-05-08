@@ -36,6 +36,7 @@ export default function GridLayer({
           stroke="#94a3b8"
           strokeWidth={0.75}
           opacity={0.45}
+          listening={false}
         />,
       );
     }
@@ -48,6 +49,7 @@ export default function GridLayer({
           stroke="#94a3b8"
           strokeWidth={0.75}
           opacity={0.45}
+          listening={false}
         />,
       );
     }
@@ -61,6 +63,7 @@ export default function GridLayer({
         stroke="#cbd5e1"
         strokeWidth={1}
         opacity={0.85}
+        listening={false}
       />,
       <Line
         key="axis-v"
@@ -68,6 +71,7 @@ export default function GridLayer({
         stroke="#cbd5e1"
         strokeWidth={1}
         opacity={0.85}
+        listening={false}
       />,
     );
 
@@ -82,6 +86,7 @@ export default function GridLayer({
           stroke="#94a3b8"
           strokeWidth={1}
           opacity={0.75}
+          listening={false}
         />,
       );
     }
@@ -95,6 +100,7 @@ export default function GridLayer({
           stroke="#94a3b8"
           strokeWidth={1}
           opacity={0.75}
+          listening={false}
         />,
       );
     }

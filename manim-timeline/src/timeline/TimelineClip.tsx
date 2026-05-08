@@ -1,5 +1,9 @@
 import { useRef, useCallback, type ReactNode } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import {
+  type PreviewOp,
+  usePreviewMergedItems,
+} from '@/agent/previewSelectors';
 import type {
   GraphFunctionSeriesItem,
   SceneItem,
@@ -19,6 +23,10 @@ import {
   textLineAnimOnlyDuration,
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import {
+  audioTrackLabel,
+  isAudioBindingNone,
+} from '@/lib/audioBinding';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
 import {
@@ -34,6 +42,8 @@ interface TimelineClipProps {
   pxPerSecond: number;
   viewStart: number;
   isSelected: boolean;
+  /** When set, the clip is part of an unapproved agent preview and styled accordingly. */
+  previewOp?: PreviewOp;
 }
 
 const KIND_COLORS: Record<string, string> = {
@@ -45,6 +55,7 @@ const KIND_COLORS: Record<string, string> = {
   graphFunctionSeries: 'bg-fuchsia-700/80 border-fuchsia-400',
   graphArea: 'bg-violet-700/80 border-violet-400',
   exit_animation: 'bg-rose-700/85 border-rose-400',
+  blink_animation: 'bg-amber-700/85 border-amber-300',
   surroundingRect: 'bg-orange-700/85 border-orange-300',
   shape: 'bg-pink-700/85 border-pink-300',
 };
@@ -55,6 +66,7 @@ export default function TimelineClip({
   pxPerSecond,
   viewStart,
   isSelected,
+  previewOp,
 }: TimelineClipProps) {
   const select = useSceneStore((s) => s.select);
   const moveItem = useSceneStore((s) => s.moveItem);
@@ -63,7 +75,7 @@ export default function TimelineClip({
   const updateItem = useSceneStore((s) => s.updateItem);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
   const audioItems = useSceneStore((s) => s.audioItems);
-  const itemsMap = useSceneStore((s) => s.items);
+  const itemsMap = usePreviewMergedItems();
 
   const dragRef = useRef<{
     startX: number;
@@ -101,10 +113,47 @@ export default function TimelineClip({
 
   const label = (() => {
     const s = itemClipDisplayName(item);
-    if (item.kind === 'exit_animation') {
+    if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
       return s.length > 22 ? `${s.slice(0, 22)}…` : s;
     }
     return s.length > 28 ? `${s.slice(0, 28)}…` : s;
+  })();
+
+  const hasAudioBindingField = 'audioTrackId' in item;
+  const rawAudioTrackId = hasAudioBindingField
+    ? item.audioTrackId
+    : undefined;
+  const audioDisabled = isAudioBindingNone(rawAudioTrackId);
+  const explicitAudioId =
+    rawAudioTrackId && !audioDisabled ? rawAudioTrackId : undefined;
+  const explicitAudioTrack = explicitAudioId
+    ? audioItems.find((a) => a.id === explicitAudioId)
+    : undefined;
+
+  const explicitAudioBadgeTitle =
+    explicitAudioTrack != null
+      ? [
+          `Bound audio clip: ${audioTrackLabel(explicitAudioTrack)}`,
+          `Audio timeline starts at ${explicitAudioTrack.startTime.toFixed(2)}s and moves with this item.`,
+        ].join('\n')
+      : '';
+
+  const clipTitle = (() => {
+    const parts = [itemClipDisplayName(item)];
+    if (hasAudioBindingField) {
+      if (explicitAudioTrack) {
+        parts.push(`Bound audio clip: ${audioTrackLabel(explicitAudioTrack)}`);
+        parts.push(
+          `Audio timeline start: ${explicitAudioTrack.startTime.toFixed(2)}s (follows this item)`,
+        );
+      } else if (explicitAudioId) {
+        parts.push(
+          `Audio: track missing from timeline (${explicitAudioId.slice(0, 12)})`,
+        );
+      }
+      if (audioDisabled) parts.push('Audio: disabled');
+    }
+    return parts.join('\n');
   })();
 
   const colors = KIND_COLORS[item.kind] ?? 'bg-slate-600/80 border-slate-400';
@@ -499,6 +548,14 @@ export default function TimelineClip({
     ? 'ring-2 ring-blue-300 ring-offset-1 ring-offset-slate-900'
     : '';
 
+  const previewClass = previewOp
+    ? previewOp === 'delete'
+      ? 'opacity-40 !border-red-400 border-dashed ring-1 ring-red-400/70'
+      : previewOp === 'create'
+        ? 'opacity-70 border-dashed !border-fuchsia-300 ring-1 ring-fuchsia-300/60'
+        : 'opacity-75 border-dashed !border-amber-300 ring-1 ring-amber-300/60'
+    : '';
+
   const segmentWaitStripes =
     item.kind === 'textLine' && segmentWaitTotal(item.segments) > 0 ? (
       (() => {
@@ -570,15 +627,42 @@ export default function TimelineClip({
 
   return (
     <div
-      className={`absolute top-1 bottom-1 flex cursor-grab select-none items-center overflow-hidden rounded-md border text-[10px] text-white truncate ${colors} ${borderRing}`}
+      className={`absolute top-1 bottom-1 flex cursor-grab select-none items-center overflow-hidden rounded-md border text-[10px] text-white truncate ${colors} ${borderRing} ${previewClass}`}
       style={{ left: `${left}px`, width: `${width}px`, zIndex }}
+      title={clipTitle}
       onMouseDown={onMouseDownMove}
     >
       {segmentWaitStripes}
       {functionSeriesStripes}
-      <span className="px-1.5 truncate pointer-events-none relative z-[1] drop-shadow-sm">
-        {label}
-      </span>
+      <div className="pointer-events-none relative z-[6] flex min-h-5 min-w-0 flex-1 items-center gap-1 px-1.5">
+        <span className="min-w-0 flex-1 truncate drop-shadow-sm">{label}</span>
+        {explicitAudioTrack !== undefined ? (
+          <span
+            title={
+              explicitAudioBadgeTitle ||
+              `Bound audio clip: ${audioTrackLabel(explicitAudioTrack)}`
+            }
+            className="pointer-events-none shrink-0 rounded border border-emerald-400/55 bg-emerald-500/25 px-1 text-[8px] font-semibold tracking-tight text-emerald-50"
+          >
+            audio
+          </span>
+        ) : explicitAudioId ? (
+          <span
+            title="Timeline has no clip with this audio id."
+            className="pointer-events-none shrink-0 rounded border border-amber-400/35 bg-amber-500/15 px-0.5 text-[8px] font-medium uppercase tracking-tight text-amber-100"
+          >
+            audio
+          </span>
+        ) : null}
+        {audioDisabled && hasAudioBindingField ? (
+          <span
+            title="Audio binding disabled for this item"
+            className="pointer-events-none shrink-0 rounded border border-slate-500/50 bg-slate-800/80 px-0.5 text-[8px] font-medium uppercase tracking-tight text-slate-400"
+          >
+            mute
+          </span>
+        ) : null}
+      </div>
 
       {item.kind !== 'graphFunctionSeries' && (
         <div

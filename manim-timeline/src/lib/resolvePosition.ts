@@ -1,6 +1,7 @@
 import { FRAME_W, FRAME_H } from '@/lib/constants';
-import type { SceneItem, ItemId, ManimDirection, PosStep } from '@/types/scene';
+import type { SceneItem, ItemId, ManimDirection, PosStep, PosStepToEdge } from '@/types/scene';
 import { computeNextToMobCenter } from '@/lib/nextToGeometry';
+import { polylinePointExtents } from '@/lib/polylineExtents';
 
 export interface ItemBBox {
   x: number;
@@ -51,7 +52,7 @@ export function getItemSurroundBBox(
 }
 
 export function getItemBBox(item: SceneItem): ItemBBox {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   const x = item.x;
@@ -82,6 +83,12 @@ export function getItemBBox(item: SceneItem): ItemBBox {
         w = Math.max(0.15, Math.abs(item.endX));
         h = Math.max(0.15, Math.abs(item.endY));
         break;
+      case 'polyline': {
+        const d = polylinePointExtents(item.points);
+        w = d.w;
+        h = d.h;
+        break;
+      }
       default:
         w = 0.5;
         h = 0.5;
@@ -115,12 +122,61 @@ function directionVector(dir: ManimDirection): { dx: number; dy: number } {
   }
 }
 
+function resolveTextLineToEdgeCoordinate(
+  item: SceneItem,
+  step: PosStepToEdge,
+  dir: { dx: number; dy: number },
+  fallbackBBox: ItemBBox,
+): { x?: number; y?: number } {
+  const buff = Number.isFinite(step.buff) ? step.buff : 0.3;
+  const bounds = step.bounds ?? null;
+  if (item.kind !== 'textLine' || bounds === null) {
+    return {
+      x: dir.dx !== 0 ? dir.dx * (FRAME_W / 2 - fallbackBBox.w / 2 - buff) : undefined,
+      y: dir.dy !== 0 ? dir.dy * (FRAME_H / 2 - fallbackBBox.h / 2 - buff) : undefined,
+    };
+  }
+
+  const scale = Number.isFinite(item.scale) ? item.scale : 1;
+  const m = item.measure;
+  if (bounds === 'mobject') {
+    const w = m ? m.width * scale : fallbackBBox.w;
+    const h = m ? m.height * scale : fallbackBBox.h;
+    return {
+      x: dir.dx !== 0 ? dir.dx * (FRAME_W / 2 - w / 2 - buff) : undefined,
+      y: dir.dy !== 0 ? dir.dy * (FRAME_H / 2 - h / 2 - buff) : undefined,
+    };
+  }
+
+  if (!m) {
+    return {
+      x: dir.dx !== 0 ? dir.dx * (FRAME_W / 2 - fallbackBBox.w / 2 - buff) : undefined,
+      y: dir.dy !== 0 ? dir.dy * (FRAME_H / 2 - fallbackBBox.h / 2 - buff) : undefined,
+    };
+  }
+
+  return {
+    x:
+      dir.dx > 0
+        ? FRAME_W / 2 - buff - m.inkRightX * scale
+        : dir.dx < 0
+          ? -FRAME_W / 2 + buff - m.inkLeftX * scale
+          : undefined,
+    y:
+      dir.dy > 0
+        ? FRAME_H / 2 - buff - m.inkTopY * scale
+        : dir.dy < 0
+          ? -FRAME_H / 2 + buff - m.inkBottomY * scale
+          : undefined,
+  };
+}
+
 function applyPosSteps(
   item: SceneItem,
   allItems: Map<ItemId, SceneItem>,
   steps: readonly PosStep[],
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
     return { x: 0, y: 0 };
   }
 
@@ -128,12 +184,12 @@ function applyPosSteps(
   let y = item.y;
 
   const selfBBox = getItemBBox(item);
-  const selfW = selfBBox.w;
-  const selfH = selfBBox.h;
 
   for (const step of steps) {
     switch (step.kind) {
       case 'absolute':
+        x = item.x;
+        y = item.y;
         break;
 
       case 'next_to': {
@@ -158,12 +214,9 @@ function applyPosSteps(
 
       case 'to_edge': {
         const dir = directionVector(step.edge);
-        if (dir.dx !== 0) {
-          x = dir.dx * (FRAME_W / 2 - selfW / 2 - step.buff);
-        }
-        if (dir.dy !== 0) {
-          y = dir.dy * (FRAME_H / 2 - selfH / 2 - step.buff);
-        }
+        const next = resolveTextLineToEdgeCoordinate(item, step, dir, selfBBox);
+        if (next.x !== undefined) x = next.x;
+        if (next.y !== undefined) y = next.y;
         break;
       }
 
@@ -192,7 +245,7 @@ export function resolvePosition(
   item: SceneItem,
   allItems: Map<ItemId, SceneItem>,
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
     return { x: 0, y: 0 };
   }
   return applyPosSteps(item, allItems, item.posSteps);
@@ -206,7 +259,7 @@ export function resolvePositionBeforeStep(
   allItems: Map<ItemId, SceneItem>,
   endExclusive: number,
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
     return { x: 0, y: 0 };
   }
   const slice = item.posSteps.slice(0, Math.max(0, endExclusive));

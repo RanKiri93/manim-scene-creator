@@ -1,4 +1,5 @@
-import type { ItemId, ShapeItem, SceneItem } from '@/types/scene';
+import type { ItemId, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
+import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
 import { manimColor } from './graphCodegen';
 import {
@@ -10,10 +11,45 @@ import {
 import type { AudioTrackItem } from '@/types/scene';
 
 function fillKwArgs(item: ShapeItem): string {
+  if (item.shapeType === 'polyline') {
+    return ', fill_opacity=0';
+  }
   if (item.fillColor?.trim()) {
     return `, fill_color=${manimColor(item.fillColor.trim())}, fill_opacity=${Math.max(0, Math.min(1, item.fillOpacity)).toFixed(4)}`;
   }
   return ', fill_opacity=0';
+}
+
+function effectivePolylinePoints(item: ShapeItem): ShapePoint[] {
+  const p = item.points ?? [];
+  if (p.length >= 2) return p;
+  return [
+    { x: 0, y: 0 },
+    { x: 0.001, y: 0 },
+  ];
+}
+
+/** Short segment near `to` along (from→to), for standalone Arrow tips without redrawing long edges. */
+function tipSegmentForExport(
+  from: ShapePoint,
+  to: ShapePoint,
+  len = 0.25,
+): { start: ShapePoint; end: ShapePoint } | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 1e-9) return null;
+  const ux = dx / d;
+  const uy = dy / d;
+  const t = Math.min(len, d);
+  return {
+    start: { x: to.x - ux * t, y: to.y - uy * t },
+    end: to,
+  };
+}
+
+function pyCommentValue(value: unknown): string {
+  return JSON.stringify(value).replace(/\r?\n/g, ' ');
 }
 
 export function generateShapeDef(
@@ -46,6 +82,56 @@ export function generateShapeDef(
         `${pad}${varName} = Line(start=[0, 0, 0], end=[${ex}, ${ey}, 0], color=${stroke}, stroke_width=${sw})\n`
       );
     }
+    case 'polyline': {
+      const pathVar = `_${varName}_path`;
+      const pts = effectivePolylinePoints(item);
+      const cornerLines = pts
+        .map((p) => `    [${p.x.toFixed(4)}, ${p.y.toFixed(4)}, 0]`)
+        .join(',\n');
+      const strokeFill = fillKwArgs(item);
+      let block = `${pad}${pathVar} = VMobject(color=${stroke}, stroke_width=${sw}${strokeFill})\n`;
+      block += `${pad}${pathVar}.set_points_as_corners([\n${cornerLines}\n${pad}])\n`;
+
+      const rawPts = item.points ?? [];
+      const groupParts: string[] = [pathVar];
+
+      if (item.headArrow && rawPts.length >= 2) {
+        const seg = tipSegmentForExport(
+          rawPts[rawPts.length - 2]!,
+          rawPts[rawPts.length - 1]!,
+        );
+        if (seg) {
+          const hv = `_${varName}_head`;
+          const sx = seg.start.x.toFixed(4);
+          const sy = seg.start.y.toFixed(4);
+          const ex = seg.end.x.toFixed(4);
+          const ey = seg.end.y.toFixed(4);
+          block += `${pad}${hv} = Arrow(start=[${sx}, ${sy}, 0], end=[${ex}, ${ey}, 0], buff=0, color=${stroke}, stroke_width=${sw}, max_tip_length_to_length_ratio=1)\n`;
+          block += `${pad}${hv}.set_stroke(opacity=0)\n`;
+          groupParts.push(hv);
+        }
+      }
+      if (item.tailArrow && rawPts.length >= 2) {
+        const seg = tipSegmentForExport(rawPts[1]!, rawPts[0]!);
+        if (seg) {
+          const tv = `_${varName}_tail`;
+          const sx = seg.start.x.toFixed(4);
+          const sy = seg.start.y.toFixed(4);
+          const ex = seg.end.x.toFixed(4);
+          const ey = seg.end.y.toFixed(4);
+          block += `${pad}${tv} = Arrow(start=[${sx}, ${sy}, 0], end=[${ex}, ${ey}, 0], buff=0, color=${stroke}, stroke_width=${sw}, max_tip_length_to_length_ratio=1)\n`;
+          block += `${pad}${tv}.set_stroke(opacity=0)\n`;
+          groupParts.push(tv);
+        }
+      }
+
+      if (groupParts.length === 1) {
+        block += `${pad}${varName} = ${pathVar}\n`;
+      } else {
+        block += `${pad}${varName} = VGroup(${groupParts.join(', ')})\n`;
+      }
+      return block;
+    }
     default:
       return `${pad}${varName} = Circle(radius=0.25, color=${stroke}, stroke_width=${sw}${fill})\n`;
   }
@@ -59,16 +145,34 @@ export function generateShapePos(
   itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
-  const lines: string[] = [];
+  const lines: string[] = [
+    `${pad}# timeline shape ${pyCommentValue({
+      id: item.id,
+      label: item.label,
+      shapeType: item.shapeType,
+      x: item.x,
+      y: item.y,
+      scale: item.scale,
+      rotationDeg: item.rotationDeg,
+      strokeWidth: item.strokeWidth,
+      posSteps: item.posSteps,
+    })}`,
+  ];
   let emittedPlacement = false;
 
   for (let si = 0; si < item.posSteps.length; si++) {
     const step = item.posSteps[si]!;
     switch (step.kind) {
       case 'absolute':
-        lines.push(
-          `${pad}${varName}.move_to([${item.x.toFixed(6)}, ${item.y.toFixed(6)}, 0])`,
-        );
+        if (item.shapeType === 'polyline') {
+          lines.push(
+            `${pad}${varName}.shift(${item.x.toFixed(6)}*RIGHT + ${item.y.toFixed(6)}*UP)`,
+          );
+        } else {
+          lines.push(
+            `${pad}${varName}.move_to([${item.x.toFixed(6)}, ${item.y.toFixed(6)}, 0])`,
+          );
+        }
         emittedPlacement = true;
         break;
       case 'next_to': {
@@ -94,7 +198,7 @@ export function generateShapePos(
       }
       case 'to_edge':
         lines.push(
-          `${pad}${varName}.to_edge(${step.edge}, buff=${step.buff})`,
+          `${pad}${varName}.to_edge(${step.edge}, buff=${Number.isFinite(step.buff) ? step.buff : 0.3})`,
         );
         emittedPlacement = true;
         break;
@@ -115,12 +219,17 @@ export function generateShapePos(
     }
   }
 
-  // Match canvas `resolvePosition`: it always starts from item.x / item.y. If no placement
-  // ran (empty posSteps, skipped next_to, etc.), the mobject must still move_to the store coords.
+  // Match canvas `resolvePosition`: if no placement ran, still apply store coords.
   if (!emittedPlacement) {
-    lines.push(
-      `${pad}${varName}.move_to([${item.x.toFixed(6)}, ${item.y.toFixed(6)}, 0])`,
-    );
+    if (item.shapeType === 'polyline') {
+      lines.push(
+        `${pad}${varName}.shift(${item.x.toFixed(6)}*RIGHT + ${item.y.toFixed(6)}*UP)`,
+      );
+    } else {
+      lines.push(
+        `${pad}${varName}.move_to([${item.x.toFixed(6)}, ${item.y.toFixed(6)}, 0])`,
+      );
+    }
   }
 
   // Canvas anchors the arrow at the shaft midpoint (start+end)/2. Manim's Arrow includes the
@@ -144,6 +253,11 @@ export function generateShapePos(
         `${pad}${rp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
         `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES, about_point=${rp})`,
       );
+    } else if (item.shapeType === 'polyline') {
+      const ap = resolvePosition(item, itemsMap);
+      lines.push(
+        `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES, about_point=[${ap.x.toFixed(6)}, ${ap.y.toFixed(6)}, 0])`,
+      );
     } else {
       lines.push(
         `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES)`,
@@ -156,6 +270,11 @@ export function generateShapePos(
       lines.push(
         `${pad}${sp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
         `${pad}${varName}.scale(${item.scale.toFixed(6)}, about_point=${sp})`,
+      );
+    } else if (item.shapeType === 'polyline') {
+      const ap = resolvePosition(item, itemsMap);
+      lines.push(
+        `${pad}${varName}.scale(${item.scale.toFixed(6)}, about_point=[${ap.x.toFixed(6)}, ${ap.y.toFixed(6)}, 0])`,
       );
     } else {
       lines.push(`${pad}${varName}.scale(${item.scale.toFixed(6)})`);
@@ -174,6 +293,7 @@ export function generateShapePlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
   const intro =
     item.introStyle === 'fade_in' ? `FadeIn(${varName})` : `Create(${varName})`;
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);

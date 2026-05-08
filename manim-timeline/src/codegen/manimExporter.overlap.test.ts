@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { exportManimCode } from './manimExporter';
 import {
   createAxes,
+  createExitAnimation,
   createGraphPlot,
   createShape,
   createSurroundingRect,
@@ -466,5 +467,43 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
 
     expect(code).toMatch(/Write\([^)]+\[0\][^)]+run_time=2\.0/);
     expect(code).toMatch(/Write\([^)]+\[1\][^)]+run_time=1\.0/);
+  });
+});
+
+describe('exportManimCode visibleAtSceneStart (static self.add)', () => {
+  it('prepends self.add for axes and skips Create(axes) when flag is set', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    ax.visibleAtSceneStart = true;
+    ax.startTime = 0;
+
+    const code = exportManimCode([ax], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    const addIdx = code.indexOf('self.add(');
+    expect(addIdx).toBeGreaterThan(-1);
+    // No leaf play events when the only visual is scene-start — only waits after static add.
+    expect(code).toContain('self.wait(');
+    expect(code).not.toContain('Create(');
+  });
+
+  it('still runs exit animation on a scene-start object', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    ax.visibleAtSceneStart = true;
+    ax.startTime = 0;
+    const ex = createExitAnimation([ax.id], 3, 1);
+
+    const code = exportManimCode([ax, ex], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('self.add(');
+    expect(code).toMatch(/FadeOut|Uncreate|ShrinkToCenter/);
   });
 });

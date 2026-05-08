@@ -8,6 +8,8 @@ import {
 } from '@/lib/time';
 import { exitTargetSelectLabel, itemClipDisplayName } from '@/lib/itemDisplayName';
 import NumberInput from '@/components/NumberInput';
+import PropertyTabs from './PropertyTabs';
+
 interface ExitAnimationEditorProps {
   item: ExitAnimationItem;
 }
@@ -73,7 +75,7 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
 
   const allNone = targetsList.every((r) => r.animStyle === 'none');
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Exit animation</h3>
       <p className="text-[11px] text-slate-500 leading-snug">
@@ -92,6 +94,18 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
         />
       </label>
 
+      <button
+        type="button"
+        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        onClick={() => removeItem(item.id)}
+      >
+        Delete exit clip
+      </button>
+    </div>
+  );
+
+  const targetsContent = (
+    <div className="flex flex-col gap-3">
       <div>
         <div className="text-xs text-slate-400 mb-1">Targets</div>
         <div className="flex flex-col gap-2">
@@ -182,7 +196,11 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
           All styles are &quot;None&quot; — export will skip this clip.
         </p>
       ) : null}
+    </div>
+  );
 
+  const animationContent = (
+    <div className="flex flex-col gap-3">
       <div className="flex items-end gap-3 flex-wrap">
         <NumberInput
           label="Start (s)"
@@ -204,14 +222,18 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
           step={1}
         />
       </div>
-
-      <button
-        type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
-        onClick={() => removeItem(item.id)}
-      >
-        Delete exit clip
-      </button>
     </div>
+  );
+
+  return (
+    <PropertyTabs
+      key={item.id}
+      defaultTabId="base"
+      tabs={[
+        { id: 'base', label: 'Base', content: baseContent },
+        { id: 'targets', label: 'Targets', content: targetsContent },
+        { id: 'animation', label: 'Animation', content: animationContent },
+      ]}
+    />
   );
 }

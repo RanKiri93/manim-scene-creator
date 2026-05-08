@@ -8,23 +8,38 @@ import GraphFieldEditor from './GraphFieldEditor';
 import FunctionSeriesEditor from './FunctionSeriesEditor';
 import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
+import BlinkAnimationEditor from './BlinkAnimationEditor';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 
-function defaultPanelPosition(): { x: number; y: number } {
+type PropertyPanelProps = {
+  anchorRect?: DOMRect | null;
+};
+
+function defaultPanelPosition(anchorRect?: DOMRect | null): { x: number; y: number } {
+  if (anchorRect) return { x: anchorRect.left + 8, y: anchorRect.top + 8 };
   if (typeof window === 'undefined') return { x: 400, y: 16 };
   return { x: Math.max(16, window.innerWidth - MIN_WIDTH - 16), y: 16 };
 }
 
-export default function PropertyPanel() {
+export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
   const inspectedId = useSceneStore((s) => s.inspectedId);
   const itemsMap = useSceneStore((s) => s.items);
   const clearSelection = useSceneStore((s) => s.clearSelection);
 
-  const [pos, setPos] = useState(defaultPanelPosition);
+  const [pos, setPos] = useState(() => defaultPanelPosition(anchorRect));
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    const isOpen = !!inspectedId;
+    if (isOpen && !wasOpenRef.current) {
+      setPos(defaultPanelPosition(anchorRect));
+    }
+    wasOpenRef.current = isOpen;
+  }, [inspectedId, anchorRect]);
   const posRef = useRef(pos);
   posRef.current = pos;
 
@@ -124,6 +139,9 @@ export default function PropertyPanel() {
       break;
     case 'exit_animation':
       body = <ExitAnimationEditor item={item} />;
+      break;
+    case 'blink_animation':
+      body = <BlinkAnimationEditor item={item} />;
       break;
     case 'surroundingRect':
       body = <SurroundingRectEditor item={item} />;

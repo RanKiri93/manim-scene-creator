@@ -1,8 +1,6 @@
 import type { ProjectFile, ProjectFragmentFile } from '@/types/scene';
 import { isProjectFragmentFile } from '@/types/scene';
 import { MtprojUnpackError } from '@/lib/mtprojErrors';
-import { MEASURE_SERVER_DEFAULT_URL } from '@/lib/constants';
-import { defaultSceneDefaults } from '@/store/factories';
 
 export { MtprojPackError, MtprojUnpackError } from '@/lib/mtprojErrors';
 
@@ -21,36 +19,6 @@ export function downloadProjectFile(project: ProjectFile) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadProjectFragmentFile(fragment: ProjectFragmentFile) {
-  const json = JSON.stringify(fragment, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `manim-fragment-${new Date().toISOString().slice(0, 10)}.json`;
-  a.rel = 'noopener';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** Minimal `ProjectFile` wrapper so `.mtproj` packing can embed fragment audio. */
-export function syntheticProjectFileFromFragment(
-  fragment: ProjectFragmentFile,
-): ProjectFile {
-  return {
-    version: fragment.version,
-    savedAt: fragment.savedAt,
-    defaults: defaultSceneDefaults(),
-    measureConfig: {
-      url: MEASURE_SERVER_DEFAULT_URL,
-      enabled: true,
-      includePreview: true,
-    },
-    items: fragment.items,
-    audioItems: fragment.audioItems,
-  };
-}
-
 export async function downloadMtprojBundle(project: ProjectFile): Promise<void> {
   const { packMtprojToBlob } = await import('@/lib/mtprojBundle');
   const blob = await packMtprojToBlob(project);
@@ -58,20 +26,6 @@ export async function downloadMtprojBundle(project: ProjectFile): Promise<void> 
   const a = document.createElement('a');
   a.href = url;
   a.download = `manim-project-${new Date().toISOString().slice(0, 10)}.mtproj`;
-  a.rel = 'noopener';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export async function downloadMtprojFragmentBundle(
-  fragment: ProjectFragmentFile,
-): Promise<void> {
-  const { packMtprojToBlob } = await import('@/lib/mtprojBundle');
-  const blob = await packMtprojToBlob(syntheticProjectFileFromFragment(fragment));
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `manim-fragment-${new Date().toISOString().slice(0, 10)}.mtproj`;
   a.rel = 'noopener';
   a.click();
   URL.revokeObjectURL(url);

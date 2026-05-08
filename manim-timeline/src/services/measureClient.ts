@@ -3,7 +3,13 @@ import type {
   MeasureResult,
   SegmentStyle,
   SegmentLocalBox,
+  AxesItem,
+  AxisPreviewBounds,
 } from '@/types/scene';
+import {
+  type AxesPreviewRequestBody,
+  buildAxesPreviewRequestBody,
+} from '@/lib/axesPreviewRequest';
 
 interface MeasureRequestBody {
   tex: string;
@@ -24,6 +30,7 @@ interface SegmentBoxBody {
   cy: number;
   w: number;
   h: number;
+  is_math?: boolean | null;
 }
 
 interface MeasureResponseBody {
@@ -109,6 +116,7 @@ export async function measureLine(
         cy: b.cy,
         w: b.w,
         h: b.h,
+        isMath: b.is_math ?? null,
       }))
     : null;
 
@@ -134,6 +142,93 @@ export async function measureLine(
   };
 
   return { result, error: null };
+}
+
+export interface AxesPreviewApiResult {
+  dataUrl: string | null;
+  pngWidth: number | null;
+  pngHeight: number | null;
+  bounds: AxisPreviewBounds | null;
+  error: string | null;
+}
+
+interface AxesPreviewResponseBody {
+  ok: boolean;
+  png_base64?: string;
+  png_width?: number;
+  png_height?: number;
+  left?: number;
+  right?: number;
+  top?: number;
+  bottom?: number;
+  offset_ink_x?: number;
+  offset_ink_y?: number;
+  error?: string;
+}
+
+/**
+ * Rasterize axes via measure server (same Manim toolchain as `/measure`).
+ */
+export async function previewAxes(
+  baseUrl: string,
+  item: AxesItem,
+): Promise<AxesPreviewApiResult> {
+  const body: AxesPreviewRequestBody = buildAxesPreviewRequestBody(item);
+  const resp = await measureFetch(
+    `${baseUrl.replace(/\/$/, '')}/api/preview_axes`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  let j: AxesPreviewResponseBody;
+  try {
+    j = (await resp.json()) as AxesPreviewResponseBody;
+  } catch {
+    return {
+      dataUrl: null,
+      pngWidth: null,
+      pngHeight: null,
+      bounds: null,
+      error: `preview_axes: HTTP ${resp.status}`,
+    };
+  }
+  if (!resp.ok || !j.ok) {
+    return {
+      dataUrl: null,
+      pngWidth: null,
+      pngHeight: null,
+      bounds: null,
+      error: j.error ?? `preview_axes: HTTP ${resp.status}`,
+    };
+  }
+  const b64 = j.png_base64?.trim();
+  const dataUrl = b64 ? `data:image/png;base64,${b64}` : null;
+  const bounds =
+    dataUrl &&
+    j.left != null &&
+    j.right != null &&
+    j.top != null &&
+    j.bottom != null &&
+    j.offset_ink_x != null &&
+    j.offset_ink_y != null
+      ? {
+          left: j.left,
+          right: j.right,
+          top: j.top,
+          bottom: j.bottom,
+          offsetInkX: j.offset_ink_x,
+          offsetInkY: j.offset_ink_y,
+        }
+      : null;
+  return {
+    dataUrl,
+    pngWidth: j.png_width ?? null,
+    pngHeight: j.png_height ?? null,
+    bounds,
+    error: null,
+  };
 }
 
 export async function checkHealth(baseUrl: string): Promise<boolean> {

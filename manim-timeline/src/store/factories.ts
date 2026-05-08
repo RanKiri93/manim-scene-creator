@@ -14,6 +14,7 @@ import type {
   GraphAreaItem,
   ShapeItem,
   ExitAnimationItem,
+  BlinkAnimationItem,
   SurroundingRectItem,
   SegmentStyle,
   GraphFunction,
@@ -22,7 +23,11 @@ import type {
   SceneDefaults,
   ItemId,
 } from '@/types/scene';
-import { functionSeriesTotalDuration } from '@/types/scene';
+import {
+  DEFAULT_FIELD_ARROW_STROKE_WIDTH,
+  functionSeriesTotalDuration,
+  DEFAULT_SHAPE_POLYLINE_POINTS,
+} from '@/types/scene';
 
 export function createTextLine(
   defaults: SceneDefaults,
@@ -74,6 +79,32 @@ export function createExitAnimation(
   };
 }
 
+export function createBlinkAnimation(
+  targetIds: ItemId[],
+  startTime: number,
+  duration = 0.6,
+): BlinkAnimationItem {
+  const ids = targetIds.length > 0 ? targetIds : [];
+  if (ids.length === 0) {
+    throw new Error('createBlinkAnimation requires at least one target id');
+  }
+  return {
+    kind: 'blink_animation',
+    id: newId(),
+    label: '',
+    layer: 0,
+    startTime,
+    duration: Math.max(0.05, duration),
+    repetitions: 1,
+    targets: ids.map((targetId) => ({
+      targetId,
+      mode: 'scale_color' as const,
+      scaleFactor: 1.15,
+      blinkColor: '#fbbf24',
+    })),
+  };
+}
+
 export function createSurroundingRect(
   targetIds: ItemId[],
   startTime = 0,
@@ -118,6 +149,9 @@ export function createShape(startTime = 0): ShapeItem {
     height: 1,
     endX: 2,
     endY: 0,
+    points: [...DEFAULT_SHAPE_POLYLINE_POINTS],
+    tailArrow: false,
+    headArrow: false,
     strokeColor: '#60a5fa',
     strokeWidth: 3,
     fillColor: null,
@@ -150,6 +184,23 @@ export function createAxes(
     yLabel: 'y',
     includeNumbers: false,
     includeTip: true,
+    axisColor: undefined,
+    axisStrokeWidth: undefined,
+    tickLength: undefined,
+    tickColor: undefined,
+    tickStrokeWidth: undefined,
+    numberColor: undefined,
+    numberFontSize: undefined,
+    tipShape: undefined,
+    tipHeight: undefined,
+    tipWidth: undefined,
+    tipStrokeWidth: undefined,
+    tipFillOpacity: undefined,
+    tipLength: undefined,
+    axisPreviewDataUrl: null,
+    axisPreviewError: null,
+    axisPreviewHash: null,
+    axisPreviewBounds: null,
   };
 }
 
@@ -265,6 +316,7 @@ export function createGraphFieldItem(
     fieldColormap: 'viridis',
     colorSchemeMin: 0,
     colorSchemeMax: 2,
+    arrowStrokeWidth: DEFAULT_FIELD_ARROW_STROKE_WIDTH,
     streamPoints: [],
     streamPlacementActive: false,
     streamDt: 0.05,

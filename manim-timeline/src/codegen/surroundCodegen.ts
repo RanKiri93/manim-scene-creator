@@ -163,6 +163,7 @@ export function generateSurroundingRectPlay(
 ): string {
   const pad = ' '.repeat(indent);
   const rt = Math.max(0.05, item.runTime).toFixed(4);
+  if (item.visibleAtSceneStart) return '';
   const intro =
     item.introStyle === 'fade_in' ? `FadeIn(${srVar})` : `Create(${srVar})`;
   if (item.labelText.trim()) {

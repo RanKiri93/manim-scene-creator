@@ -8,6 +8,7 @@ interface NumberInputProps {
   max?: number;
   step?: number;
   className?: string;
+  disabled?: boolean;
 }
 
 export default function NumberInput({
@@ -18,6 +19,7 @@ export default function NumberInput({
   max,
   step = 0.1,
   className = '',
+  disabled = false,
 }: NumberInputProps) {
   const [draft, setDraft] = useState(String(value));
   const [isFocused, setIsFocused] = useState(false);
@@ -45,11 +47,12 @@ export default function NumberInput({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => setIsFocused(true)}
         onBlur={() => { setIsFocused(false); commit(); }}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
-        className="w-20 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+        className={`w-20 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       />
     </label>
   );

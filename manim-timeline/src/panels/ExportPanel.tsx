@@ -1,7 +1,10 @@
 import { useState, useMemo, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { exportManimCode } from '@/codegen/manimExporter';
-import { exportScriptToMarkdown } from '@/codegen/scriptExport';
+import {
+  exportAudioScriptToMarkdown,
+  exportScriptToMarkdown,
+} from '@/codegen/scriptExport';
 import { concatMp4Files, renderSceneMp4 } from '@/services/measureClient';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
@@ -103,6 +106,14 @@ export default function ExportPanel() {
     exportScriptToMarkdown({ items: useSceneStore.getState().items });
   };
 
+  const handleDownloadAudioScript = () => {
+    const s = useSceneStore.getState();
+    exportAudioScriptToMarkdown({
+      items: s.items,
+      audioItems: s.audioItems,
+    });
+  };
+
   const onMergeFilesChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     setMergeFiles(Array.from(e.target.files ?? []));
     setMergeError(null);
@@ -149,6 +160,13 @@ export default function ExportPanel() {
           className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
         >
           Download Script (.md)
+        </button>
+        <button
+          type="button"
+          onClick={handleDownloadAudioScript}
+          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
+        >
+          Download Audio Script (.md)
         </button>
         <button
           type="button"

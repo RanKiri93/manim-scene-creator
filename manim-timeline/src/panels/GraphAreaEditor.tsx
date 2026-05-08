@@ -11,6 +11,8 @@ import type {
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
+import PropertyTabs from './PropertyTabs';
+import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 
 interface GraphAreaEditorProps {
   item: GraphAreaItem;
@@ -161,7 +163,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
 
   const m = item.mode;
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Graph area</h3>
       <label className="text-xs text-slate-400 block">
@@ -189,7 +191,11 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           <option value="disk">Disk (ellipse in preview)</option>
         </select>
       </label>
+    </div>
+  );
 
+  const graphContent = (
+    <div className="flex flex-col gap-3">
       {m.areaKind === 'underCurve' && (
         <>
           <div className="flex flex-wrap gap-2">
@@ -279,7 +285,11 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           <NumberInput label="Radius (x-units)" value={m.radius} onChange={(v) => setMode({ ...m, radius: v })} min={0.01} />
         </div>
       )}
+    </div>
+  );
 
+  const styleAnimationContent = (
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <ColorPicker value={item.fillColor} onChange={(c) => set({ fillColor: c })} />
         <NumberInput
@@ -296,9 +306,27 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
         <NumberInput label="Stroke width" value={item.strokeWidth} onChange={(v) => set({ strokeWidth: Math.max(0, v) })} min={0} step={0.5} />
       </div>
 
+      <VisibleAtSceneStartRow
+        checked={item.visibleAtSceneStart === true}
+        note="Intro audio is not synchronized (no intro animation)."
+        onChange={(next) =>
+          set(
+            next
+              ? { visibleAtSceneStart: true, startTime: 0 }
+              : { visibleAtSceneStart: undefined },
+          )
+        }
+      />
+
       <div className="flex flex-col gap-1">
         <div className="flex items-end gap-3 flex-wrap">
-          <NumberInput label="Start (s)" value={item.startTime} onChange={(v) => set({ startTime: v })} min={0} />
+          <NumberInput
+            label="Start (s)"
+            value={item.startTime}
+            onChange={(v) => set({ startTime: v })}
+            min={0}
+            disabled={item.visibleAtSceneStart === true}
+          />
           <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
           <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
         </div>
@@ -307,5 +335,17 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
         </p>
       </div>
     </div>
+  );
+
+  return (
+    <PropertyTabs
+      key={item.id}
+      defaultTabId="base"
+      tabs={[
+        { id: 'base', label: 'Base', content: baseContent },
+        { id: 'graph', label: 'Graph', content: graphContent },
+        { id: 'styleAnimation', label: 'Style / Animation', content: styleAnimationContent },
+      ]}
+    />
   );
 }

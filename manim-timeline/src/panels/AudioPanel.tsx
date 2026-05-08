@@ -14,6 +14,18 @@ function recordingFilenameFromMime(mime: string): string {
   return 'recording.webm';
 }
 
+function recordingAudioConstraints(noiseCancellationEnabled: boolean): MediaStreamConstraints {
+  if (!noiseCancellationEnabled) return { audio: true };
+
+  return {
+    audio: {
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl: true,
+    },
+  };
+}
+
 function LangToggle(props: {
   lang: 'iw' | 'en';
   setLang: (l: 'iw' | 'en') => void;
@@ -63,6 +75,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [noiseCancellationEnabled, setNoiseCancellationEnabled] = useState(true);
   const chunksRef = useRef<BlobPart[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -164,7 +177,9 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
     }
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia(
+        recordingAudioConstraints(noiseCancellationEnabled),
+      );
       streamRef.current = stream;
       chunksRef.current = [];
       const rec = new MediaRecorder(stream);
@@ -322,6 +337,21 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         disabled={loading && !isRecording}
         label="Transcription"
       />
+      <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+        <input
+          type="checkbox"
+          checked={noiseCancellationEnabled}
+          disabled={isRecording || loading}
+          onChange={(e) => setNoiseCancellationEnabled(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-slate-300">Noise cancellation</span>
+          <span className="text-[10px] leading-snug text-slate-500">
+            Uses browser mic noise suppression, echo cancellation, and auto gain when supported.
+          </span>
+        </span>
+      </label>
       {!previewActive ? (
         <button
           type="button"

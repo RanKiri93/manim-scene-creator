@@ -4,6 +4,7 @@ import type {
   SegmentStyle,
   TextLineItem,
   ExitAnimationItem,
+  BlinkAnimationItem,
 } from '@/types/scene';
 
 /** Items shown on the main timeline. */
@@ -28,6 +29,11 @@ export function canBeSurroundTarget(item: SceneItem): boolean {
 /** Objects that can be the target of an exit_animation clip (includes surroundingRect). */
 export function canBeExitTarget(item: SceneItem): boolean {
   return canBeSurroundTarget(item) || item.kind === 'surroundingRect';
+}
+
+/** Objects that can be targeted by a blink_animation clip (same as exit / surround eligibility). */
+export function canBeBlinkTarget(item: SceneItem): boolean {
+  return canBeExitTarget(item);
 }
 
 function exitClipsForTarget(
@@ -118,6 +124,12 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
   ) {
     return item.duration;
   }
+  if (item.kind === 'exit_animation') {
+    return Math.max(0.05, item.duration);
+  }
+  if (item.kind === 'blink_animation') {
+    return Math.max(0.05, item.duration);
+  }
   return 0;
 }
 
@@ -133,7 +145,7 @@ export function holdEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number 
  * Use `timelineSpanEnd` for finite scene-length / layout.
  */
 export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'exit_animation') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
     return 0;
   }
   const exEnd = exitVisualEndExclusive(item.id, items);
@@ -144,7 +156,7 @@ export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): nu
 
 /** Finite end for scene length / layout when the object has no exit (hold only). */
 export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'exit_animation') {
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
     return item.startTime + item.duration;
   }
   const exEnd = exitVisualEndExclusive(item.id, items);
@@ -162,7 +174,7 @@ export function isActiveAtTime(
   time: number,
   items: Map<ItemId, SceneItem>,
 ): boolean {
-  if (item.kind === 'exit_animation') return false;
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') return false;
   const start = effectiveStart(item, items);
   if (time < start) return false;
   const end = effectiveEnd(item, items);
@@ -214,6 +226,30 @@ export function minExitStartTimeForClip(
   for (const t of exit.targets) {
     if (t.animStyle === 'none') continue;
     const m = minExitStartTime(t.targetId, items);
+    if (m != null) mins.push(m);
+  }
+  if (mins.length === 0) return null;
+  return Math.max(...mins);
+}
+
+/** Minimum legal `startTime` so targets exist on the timeline (`effectiveStart`). */
+export function minBlinkStartTime(
+  targetId: ItemId,
+  items: Map<ItemId, SceneItem>,
+): number | null {
+  const t = items.get(targetId);
+  if (!t || !canBeBlinkTarget(t)) return null;
+  return effectiveStart(t, items);
+}
+
+/** Latest required start among blink targets (null if no valid rows). */
+export function minBlinkStartTimeForClip(
+  blink: BlinkAnimationItem,
+  items: Map<ItemId, SceneItem>,
+): number | null {
+  const mins: number[] = [];
+  for (const row of blink.targets) {
+    const m = minBlinkStartTime(row.targetId, items);
     if (m != null) mins.push(m);
   }
   if (mins.length === 0) return null;

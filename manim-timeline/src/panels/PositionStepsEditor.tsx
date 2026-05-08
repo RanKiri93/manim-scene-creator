@@ -39,7 +39,7 @@ function makeDefaultStep(kind: string): PosStep {
         selfSegmentIndex: null,
         bounds: null,
       };
-    case 'to_edge': return { kind: 'to_edge', edge: 'UP', buff: 0.3 };
+    case 'to_edge': return { kind: 'to_edge', edge: 'UP', buff: 0.3, bounds: null };
     case 'shift':   return { kind: 'shift', dx: 0, dy: 0 };
     case 'set_x':   return { kind: 'set_x', x: 0 };
     case 'set_y':   return { kind: 'set_y', y: 0 };
@@ -153,7 +153,11 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId }: 
           )}
 
           {step.kind === 'to_edge' && (
-            <ToEdgeFields step={step} onChange={(s) => update(i, s)} />
+            <ToEdgeFields
+              step={step}
+              currentItemId={currentItemId}
+              onChange={(s) => update(i, s)}
+            />
           )}
 
           {step.kind === 'shift' && (
@@ -361,7 +365,7 @@ function NextToFields({
 
       <NumberInput
         label="Buff"
-        value={step.buff}
+        value={Number.isFinite(step.buff) ? step.buff : 0.3}
         onChange={(v) => onChange({ ...step, buff: v })}
         min={0}
         step={0.05}
@@ -372,24 +376,57 @@ function NextToFields({
 
 function ToEdgeFields({
   step,
+  currentItemId,
   onChange,
 }: {
   step: PosStepToEdge;
+  currentItemId: ItemId;
   onChange: (s: PosStepToEdge) => void;
 }) {
+  const item = useSceneStore((s) => s.items.get(currentItemId));
+
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <label className="text-[10px] text-slate-400">
-        Edge
-        <select
-          value={step.edge}
-          onChange={(e) => onChange({ ...step, edge: e.target.value as ManimDirection })}
-          className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
-        >
-          {EDGE_DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-      </label>
-      <NumberInput label="Buff" value={step.buff} onChange={(v) => onChange({ ...step, buff: v })} min={0} step={0.05} />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="text-[10px] text-slate-400">
+          Edge
+          <select
+            value={step.edge}
+            onChange={(e) => onChange({ ...step, edge: e.target.value as ManimDirection })}
+            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+          >
+            {EDGE_DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <NumberInput
+          label="Buff"
+          value={Number.isFinite(step.buff) ? step.buff : 0.3}
+          onChange={(v) => onChange({ ...step, buff: v })}
+          min={0}
+          step={0.05}
+        />
+      </div>
+
+      {item?.kind === 'textLine' && (
+        <label className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap">
+          Bounds
+          <select
+            value={step.bounds ?? ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange({
+                ...step,
+                bounds: v === '' ? null : (v as NextToBoundsMode),
+              });
+            }}
+            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+          >
+            <option value="">Legacy (preview hybrid)</option>
+            <option value="mobject">VGroup bbox (matches Manim)</option>
+            <option value="ink">Tight ink + corrective shift</option>
+          </select>
+        </label>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { Group, Rect, Line, Circle, Text, Ellipse } from 'react-konva';
+import { Group, Rect, Line, Circle, Text, Ellipse, Arrow } from 'react-konva';
 import type {
   AxesItem,
   GraphAreaCurveSource,
@@ -9,6 +9,7 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
+import { DEFAULT_FIELD_ARROW_STROKE_WIDTH } from '@/types/scene';
 import type { GraphAxesDrawSlot } from '@/lib/graphPreview';
 import {
   buildFunctionSeriesDrawSpec,
@@ -22,8 +23,20 @@ import {
   evalGraphField,
   colorForMagnitude,
   rk4Step2d,
+  manimArrowLengthScene,
 } from '@/canvas/layers/graphFieldPreview';
+import { FIELD_COLORMAP_HEX } from '@/codegen/fieldColormap';
 import { createGraphStreamPoint } from '@/store/factories';
+import {
+  buildAxesCreatePreviewSpec,
+  buildGraphDotPreviewSpec,
+  buildPlotCreatePreviewSpec,
+  clampedAxesZeroOffsets,
+} from '@/lib/graphCreatePreview';
+import {
+  exitPreviewForTarget,
+  type ExitPreviewState,
+} from '@/lib/visualPlaybackPreview';
 
 function evalGraphY(jsExpr: string, x: number): number | null {
   try {
@@ -133,10 +146,14 @@ interface GraphNodeProps {
   /** When set, clicks add streamline seeds to this field item. */
   streamPlacementFieldId: ItemId | null;
   isSelected: boolean;
+  /** Hide editor chrome (bbox stroke, drag handle) and rely on parent to hide grid. */
+  renderLikePreview?: boolean;
   canvasWidth: number;
   canvasHeight: number;
   resolvedX: number;
   resolvedY: number;
+  currentTime: number;
+  itemsMap: Map<ItemId, SceneItem>;
 }
 
 export default function GraphNode({
@@ -145,14 +162,15 @@ export default function GraphNode({
   field,
   streamPlacementFieldId,
   isSelected,
+  renderLikePreview = false,
   canvasWidth,
   canvasHeight,
   resolvedX,
   resolvedY,
+  currentTime,
+  itemsMap,
 }: GraphNodeProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
-  const currentTime = useSceneStore((s) => s.currentTime);
-  const itemsMap = useSceneStore((s) => s.items);
 
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -181,8 +199,47 @@ export default function GraphNode({
   const axW = (xMax - xMin) * axes.scaleX * pxPerUnitX;
   const axH = (yMax - yMin) * axes.scaleY * pxPerUnitY;
 
-  const ox = (-xMin / (xMax - xMin)) * axW;
-  const oy = (yMax / (yMax - yMin)) * axH;
+  const { ox, oy } = clampedAxesZeroOffsets({
+    xRange: axes.xRange,
+    yRange: axes.yRange,
+    axW,
+    axH,
+  });
+
+  const axesPreviewSpec = useMemo(
+    () =>
+      buildAxesCreatePreviewSpec({
+        axes,
+        time: currentTime,
+        itemsMap,
+        axW,
+        axH,
+        ox,
+        oy,
+        xMin,
+        xMax,
+        yMin,
+        yMax,
+        scenePxPerUnit: (pxPerUnitX + pxPerUnitY) / 2,
+        pxPerUnitX: pxPerUnitX,
+        pxPerUnitY: pxPerUnitY,
+      }),
+    [
+      axes,
+      currentTime,
+      itemsMap,
+      axW,
+      axH,
+      ox,
+      oy,
+      xMin,
+      xMax,
+      yMin,
+      yMax,
+      pxPerUnitX,
+      pxPerUnitY,
+    ],
+  );
 
   const plotPolyline = (jsExpr: string, xLo: number, xHi: number): number[] => {
     const points: number[] = [];
@@ -221,37 +278,72 @@ export default function GraphNode({
   const cmap = field?.fieldColormap;
 
   const fieldArrows = useMemo(() => {
-    if (!field || fieldMode === 'none') return [] as { key: string; points: number[]; color: string }[];
+    // TODO(animation): fade in / stagger these arrows over the field's
+    // effective run_time (currentTime - effectiveStart(field)) so the preview
+    // mirrors the Create(vf) animation emitted by graphCodegen. Kept static
+    // here for now — see plan "Align field preview with render".
+    if (!field || fieldMode === 'none')
+      return [] as { key: string; points: number[]; color: string }[];
+
+    const xSpan = xMax - xMin;
+    const ySpan = yMax - yMin;
     const step = Math.max(0.05, field.fieldGridStep ?? 0.5);
-    let nx = Math.ceil((xMax - xMin) / step);
-    let ny = Math.ceil((yMax - yMin) / step);
-    const maxCells = 22;
-    while (nx * ny > 400) {
-      nx = Math.max(4, Math.floor(nx * 0.9));
-      ny = Math.max(4, Math.floor(ny * 0.9));
+
+    // Match Manim's `x_range=[xMin,xMax,step]`/`y_range=[...]` sampling:
+    // inclusive sample count on each axis.
+    let nx = Math.max(1, Math.round(xSpan / step));
+    let ny = Math.max(1, Math.round(ySpan / step));
+    // Performance safety cap: coarsen proportionally while preserving the
+    // step ratio so the grid stays visually regular.
+    const maxCells = 2000;
+    if ((nx + 1) * (ny + 1) > maxCells) {
+      const scale = Math.sqrt(maxCells / ((nx + 1) * (ny + 1)));
+      nx = Math.max(4, Math.floor(nx * scale));
+      ny = Math.max(4, Math.floor(ny * scale));
     }
-    while (nx > maxCells || ny > maxCells) {
-      nx = Math.max(4, Math.floor(nx * 0.85));
-      ny = Math.max(4, Math.floor(ny * 0.85));
-    }
+
+    const dx = xSpan / nx;
+    const dy = ySpan / ny;
+    const pxPerX = axW / xSpan;
+    const pxPerY = axH / ySpan;
+
     const out: { key: string; points: number[]; color: string }[] = [];
     let ki = 0;
     for (let i = 0; i <= nx; i++) {
       for (let j = 0; j <= ny; j++) {
-        const x = xMin + (i / Math.max(1, nx)) * (xMax - xMin);
-        const y = yMin + (j / Math.max(1, ny)) * (yMax - yMin);
+        const x = xMin + i * dx;
+        const y = yMin + j * dy;
         const v = evalGraphField(field, x, y);
         if (!v) continue;
         const [vx, vy] = v;
         const { lx, ly } = toLocal(x, y);
-        const dcx = (vx / (xMax - xMin)) * axW;
-        const dcy = -(vy / (yMax - yMin)) * axH;
-        const clen = Math.hypot(dcx, dcy);
-        const cap = 12;
-        const s = clen > 1e-9 ? cap / clen : 0;
-        const ex = lx + dcx * s;
-        const ey = ly + dcy * s;
+
+        // Compute arrow delta in axes-local pixels.
+        // - slope mode: `evalGraphField` already returns a vector of target
+        //   data-length `slopeArrowLength`, so just map data->pixels.
+        // - vector mode: mirror Manim's
+        //     length_func(norm) = 0.45 * sigmoid(norm)
+        //   applied to the unit direction in scene units, then
+        //   `fit_to_coordinate_system` multiplies by the axes unit sizes.
+        let dpx: number;
+        let dpy: number;
         const mag = Math.hypot(vx, vy);
+        if (fieldMode === 'slope') {
+          dpx = vx * pxPerX;
+          dpy = -vy * pxPerY;
+        } else if (mag > 1e-9) {
+          const Lscene = manimArrowLengthScene(mag);
+          const ux = vx / mag;
+          const uy = vy / mag;
+          dpx = Lscene * ux * pxPerX;
+          dpy = -Lscene * uy * pxPerY;
+        } else {
+          dpx = 0;
+          dpy = 0;
+        }
+
+        const ex = lx + dpx;
+        const ey = ly + dpy;
         const color = colorForMagnitude(mag, cmap, cmin, cmax);
         out.push({
           key: `fa-${ki++}`,
@@ -264,6 +356,9 @@ export default function GraphNode({
   }, [field, fieldMode, xMin, xMax, yMin, yMax, axW, axH, toLocal, cmap, cmin, cmax]);
 
   const streamPreviewLines = useMemo(() => {
+    // TODO(animation): in a future pass, reveal each streamline progressively
+    // (trim endpoints by `currentTime - effectiveStart(field)` over the stream
+    // run_time) to match the Create(streams) animation in graphCodegen.
     if (!field || fieldMode === 'none') return [] as { key: string; points: number[] }[];
     const seeds = field.streamPoints ?? [];
     if (seeds.length === 0) return [];
@@ -333,6 +428,8 @@ export default function GraphNode({
     ],
   );
 
+  const hideEditorChrome = renderLikePreview && !placement;
+
   return (
     <Group
       x={posX}
@@ -348,32 +445,164 @@ export default function GraphNode({
         width={axW}
         height={axH}
         fill="rgba(0,0,0,0.001)"
-        stroke={isSelected ? '#3b82f6' : !draggable ? '#d97706' : '#475569'}
-        strokeWidth={isSelected ? 2 : 1}
-        dash={!draggable ? [6, 3] : undefined}
+        stroke={
+          hideEditorChrome
+            ? 'transparent'
+            : isSelected
+              ? '#3b82f6'
+              : !draggable
+                ? '#d97706'
+                : '#475569'
+        }
+        strokeWidth={hideEditorChrome ? 0 : isSelected ? 2 : 1}
+        dash={hideEditorChrome ? undefined : !draggable ? [6, 3] : undefined}
         cornerRadius={2}
         listening={bboxListening}
         onClick={placement ? onAxesClick : undefined}
       />
 
-      <Line
-        points={[-axW / 2, -axH / 2 + oy, axW / 2, -axH / 2 + oy]}
-        stroke="#94a3b8"
-        strokeWidth={1}
-        listening={false}
-      />
-      <Line
-        points={[-axW / 2 + ox, -axH / 2, -axW / 2 + ox, axH / 2]}
-        stroke="#94a3b8"
-        strokeWidth={1}
-        listening={false}
-      />
+      {axesPreviewSpec.xAxisPoints.length >= 4 ? (
+        axes.includeTip ? (
+          <Arrow
+            points={axesPreviewSpec.xAxisPoints}
+            stroke={axesPreviewSpec.axisStrokeColor}
+            fill={axesPreviewSpec.axisStrokeColor}
+            strokeWidth={axesPreviewSpec.axisStrokeWidth}
+            pointerLength={axesPreviewSpec.xPointerLength}
+            pointerWidth={axesPreviewSpec.xPointerWidth}
+            lineCap="round"
+            lineJoin="round"
+            listening={false}
+          />
+        ) : (
+        <Line
+          points={axesPreviewSpec.xAxisPoints}
+          stroke={axesPreviewSpec.axisStrokeColor}
+          strokeWidth={axesPreviewSpec.axisStrokeWidth}
+          lineCap="round"
+          listening={false}
+        />
+        )
+      ) : null}
+      {axesPreviewSpec.yAxisPoints.length >= 4 ? (
+        axes.includeTip ? (
+          <Arrow
+            points={axesPreviewSpec.yAxisPoints}
+            stroke={axesPreviewSpec.axisStrokeColor}
+            fill={axesPreviewSpec.axisStrokeColor}
+            strokeWidth={axesPreviewSpec.axisStrokeWidth}
+            pointerLength={axesPreviewSpec.yPointerLength}
+            pointerWidth={axesPreviewSpec.yPointerWidth}
+            lineCap="round"
+            lineJoin="round"
+            listening={false}
+          />
+        ) : (
+        <Line
+          points={axesPreviewSpec.yAxisPoints}
+          stroke={axesPreviewSpec.axisStrokeColor}
+          strokeWidth={axesPreviewSpec.axisStrokeWidth}
+          lineCap="round"
+          listening={false}
+        />
+        )
+      ) : null}
+
+      <Group listening={false}>
+        {axesPreviewSpec.tickOpacity > 0
+          ? axesPreviewSpec.xTickSegments.map((seg, i) => (
+              <Line
+                key={`xt-${i}`}
+                points={seg}
+                stroke={axesPreviewSpec.tickStrokeColor}
+                strokeWidth={axesPreviewSpec.tickStrokeWidth}
+                opacity={axesPreviewSpec.tickOpacity}
+                lineCap="round"
+                listening={false}
+              />
+            ))
+          : null}
+        {axesPreviewSpec.tickOpacity > 0
+          ? axesPreviewSpec.yTickSegments.map((seg, i) => (
+              <Line
+                key={`yt-${i}`}
+                points={seg}
+                stroke={axesPreviewSpec.tickStrokeColor}
+                strokeWidth={axesPreviewSpec.tickStrokeWidth}
+                opacity={axesPreviewSpec.tickOpacity}
+                lineCap="round"
+                listening={false}
+              />
+            ))
+          : null}
+        {axesPreviewSpec.xNumberLabels.map((lbl) => (
+          <Text
+            key={lbl.key}
+            x={lbl.x - lbl.text.length * axesPreviewSpec.numberFontSize * 0.25}
+            y={lbl.y}
+            text={lbl.text}
+            fontSize={axesPreviewSpec.numberFontSize}
+            fill={axesPreviewSpec.numberColor}
+            opacity={axesPreviewSpec.tickOpacity}
+            listening={false}
+          />
+        ))}
+        {axesPreviewSpec.yNumberLabels.map((lbl) => (
+          <Text
+            key={lbl.key}
+            x={lbl.x - lbl.text.length * axesPreviewSpec.numberFontSize * 0.25}
+            y={lbl.y}
+            text={lbl.text}
+            fontSize={axesPreviewSpec.numberFontSize}
+            fill={axesPreviewSpec.numberColor}
+            opacity={axesPreviewSpec.tickOpacity}
+            listening={false}
+          />
+        ))}
+        {axesPreviewSpec.xAxisLabel && axesPreviewSpec.xLabelOpacity > 0 ? (
+          <Text
+            x={axesPreviewSpec.xAxisLabel.x}
+            y={axesPreviewSpec.xAxisLabel.y}
+            text={axesPreviewSpec.xAxisLabel.text}
+            fontSize={axesPreviewSpec.axisLabelFontSize}
+            fill={axesPreviewSpec.axisLabelColor}
+            opacity={axesPreviewSpec.xLabelOpacity}
+            align="right"
+            listening={false}
+          />
+        ) : null}
+        {axesPreviewSpec.yAxisLabel && axesPreviewSpec.yLabelOpacity > 0 ? (
+          <Text
+            x={axesPreviewSpec.yAxisLabel.x}
+            y={axesPreviewSpec.yAxisLabel.y}
+            text={axesPreviewSpec.yAxisLabel.text}
+            fontSize={axesPreviewSpec.axisLabelFontSize}
+            fill={axesPreviewSpec.axisLabelColor}
+            opacity={axesPreviewSpec.yLabelOpacity}
+            align="left"
+            listening={false}
+          />
+        ) : null}
+      </Group>
+
+      {axesPreviewSpec.revealHead ? (
+        <Circle
+          x={axesPreviewSpec.revealHead.x}
+          y={axesPreviewSpec.revealHead.y}
+          radius={4}
+          stroke="#ffffff"
+          strokeWidth={1.5}
+          fill="#fbbf24"
+          listening={false}
+        />
+      ) : null}
 
       {drawOrder.map((slot) => {
         const key = `${slot.kind}-${slot.id}`;
         if (slot.kind === 'area') {
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphArea') return null;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
           const fill = it.fillColor;
           const fo = Math.max(0, Math.min(1, it.fillOpacity));
           const sw = Math.max(0, it.strokeWidth);
@@ -387,8 +616,8 @@ export default function GraphNode({
             const ry = Math.hypot(pu.lx - c.lx, pu.ly - c.ly);
             if (!(rx > 0.5 && ry > 0.5)) return null;
             return (
+              <GraphPlaybackWrap key={key} exit={exit}>
               <Ellipse
-                key={key}
                 x={c.lx}
                 y={c.ly}
                 radiusX={rx}
@@ -399,13 +628,14 @@ export default function GraphNode({
                 strokeWidth={sw}
                 listening={false}
               />
+              </GraphPlaybackWrap>
             );
           }
           const poly = graphAreaPreviewPoints(it, itemsMap, xMin, xMax, yMin, yMax, toLocal);
           if (!poly || poly.length < 6) return null;
           return (
+            <GraphPlaybackWrap key={key} exit={exit}>
             <Line
-              key={key}
               points={poly}
               closed
               fill={fill}
@@ -414,46 +644,105 @@ export default function GraphNode({
               strokeWidth={sw}
               listening={false}
             />
+            </GraphPlaybackWrap>
           );
         }
         if (slot.kind === 'plot') {
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphPlot') return null;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
           const xd = it.xDomain;
           const xLo = xd == null ? xMin : Math.min(xd[0], xd[1]);
           const xHi = xd == null ? xMax : Math.max(xd[0], xd[1]);
           const pts = plotPolyline(it.fn.jsExpr, xLo, xHi);
           if (pts.length < 4) return null;
+          const plotPreview = buildPlotCreatePreviewSpec({
+            plot: it,
+            time: currentTime,
+            itemsMap,
+            fullPoints: pts,
+          });
+          if (plotPreview.points.length < 4) return null;
           return (
-            <Line
-              key={key}
-              points={pts}
-              stroke={it.fn.color}
-              strokeWidth={Math.max(0, it.strokeWidth)}
-              lineCap="round"
-              lineJoin="round"
-              listening={false}
-            />
+            <GraphPlaybackWrap key={key} exit={exit}>
+            <Group listening={false}>
+              <Line
+                points={plotPreview.points}
+                stroke={it.fn.color}
+                strokeWidth={Math.max(0, it.strokeWidth)}
+                lineCap="round"
+                lineJoin="round"
+                listening={false}
+              />
+              {plotPreview.revealHead ? (
+                <Circle
+                  x={plotPreview.revealHead.x}
+                  y={plotPreview.revealHead.y}
+                  radius={4}
+                  stroke="#ffffff"
+                  strokeWidth={1.5}
+                  fill={it.fn.color}
+                  listening={false}
+                />
+              ) : null}
+            </Group>
+            </GraphPlaybackWrap>
           );
         }
         if (slot.kind === 'field' && field && field.id === slot.id) {
+          const exit = exitPreviewForTarget(field.id, currentTime, itemsMap);
+          const streamStroke =
+            FIELD_COLORMAP_HEX[field.fieldColormap ?? 'viridis']?.[2] ??
+            '#22a884';
+          const arrowSw = Math.max(
+            0,
+            field.arrowStrokeWidth ?? DEFAULT_FIELD_ARROW_STROKE_WIDTH,
+          );
+          // Head scales with shaft width so thicker arrows get proportional
+          // pointers instead of stubby caps. Clamped so it never exceeds
+          // half the arrow length on small arrows.
+          const headBase = Math.max(3, arrowSw * 1.6);
           return (
-            <Group key={key} listening={false}>
-              {fieldArrows.map((a) => (
-                <Line
-                  key={a.key}
-                  points={a.points}
-                  stroke={a.color}
-                  strokeWidth={1.5}
-                  lineCap="round"
-                  listening={false}
-                />
-              ))}
+            <GraphPlaybackWrap key={key} exit={exit}>
+            <Group listening={false}>
+              {fieldArrows.map((a) => {
+                const [sx, sy, ex, ey] = a.points;
+                const plen = Math.hypot(ex - sx, ey - sy);
+                // Below ~3px the arrowhead would dwarf the shaft and look
+                // like noise; fall back to a plain segment.
+                if (plen < 3) {
+                  return (
+                    <Line
+                      key={a.key}
+                      points={a.points}
+                      stroke={a.color}
+                      strokeWidth={arrowSw}
+                      lineCap="round"
+                      listening={false}
+                    />
+                  );
+                }
+                const pointerLen = Math.min(headBase, plen * 0.5);
+                return (
+                  <Arrow
+                    key={a.key}
+                    points={a.points}
+                    fill={a.color}
+                    stroke={a.color}
+                    strokeWidth={arrowSw}
+                    pointerLength={pointerLen}
+                    pointerWidth={pointerLen}
+                    lineCap="round"
+                    lineJoin="round"
+                    listening={false}
+                  />
+                );
+              })}
               {streamPreviewLines.map((sl) => (
                 <Line
                   key={sl.key}
                   points={sl.points}
-                  stroke="#38bdf8"
+                  stroke={streamStroke}
                   strokeWidth={2}
                   lineCap="round"
                   lineJoin="round"
@@ -462,16 +751,19 @@ export default function GraphNode({
                 />
               ))}
             </Group>
+            </GraphPlaybackWrap>
           );
         }
         if (slot.kind === 'functionSeries') {
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphFunctionSeries') return null;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
           if (functionSeriesIsDisabled(it)) {
             // Origin marker so disabled series is visible but playback-blocked.
             const o = toLocal(0, 0);
             return (
-              <Group key={key} listening={false}>
+              <GraphPlaybackWrap key={key} exit={exit}>
+              <Group listening={false}>
                 <Text
                   x={o.lx - 8}
                   y={o.ly - 10}
@@ -481,6 +773,7 @@ export default function GraphNode({
                   listening={false}
                 />
               </Group>
+              </GraphPlaybackWrap>
             );
           }
           const spec = buildFunctionSeriesDrawSpec(
@@ -491,8 +784,14 @@ export default function GraphNode({
             toLocal,
           );
           if (!spec) return null;
+          // Replacement-mode series: `buildFunctionSeriesDrawSpec` only returns
+          // the currently-active curve — predecessors are NOT emitted as layers.
+          // `visible={layer.opacity > 0}` is a belt-and-suspenders safeguard: any
+          // future exit-animation fade that multiplies opacity on a parent Group
+          // can never resurrect a curve that this spec considers hidden.
           return (
-            <Group key={key} listening={false}>
+            <GraphPlaybackWrap key={key} exit={exit}>
+            <Group listening={false}>
               {spec.layers.map((layer) =>
                 layer.points.length >= 4 ? (
                   <Line
@@ -503,6 +802,7 @@ export default function GraphNode({
                     lineCap="round"
                     lineJoin="round"
                     opacity={layer.opacity}
+                    visible={layer.opacity > 0}
                     dash={functionSeriesDashArray(
                       layer.lineStyle,
                       layer.strokeWidth,
@@ -512,28 +812,45 @@ export default function GraphNode({
                 ) : null,
               )}
             </Group>
+            </GraphPlaybackWrap>
           );
         }
         if (slot.kind === 'dot') {
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphDot') return null;
-          const dot = it.dot;
-          const dx = -axW / 2 + ((dot.dx - xMin) / (xMax - xMin)) * axW;
-          const dy = -axH / 2 + (1 - (dot.dy - yMin) / (yMax - yMin)) * axH;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          const dotPreview = buildGraphDotPreviewSpec({
+            dot: it.dot,
+            axW,
+            axH,
+            xMin,
+            xMax,
+            yMin,
+            yMax,
+            scenePxPerUnit: (pxPerUnitX + pxPerUnitY) / 2,
+          });
           return (
-            <Group key={key}>
-              <Circle x={dx} y={dy} radius={4} fill={dot.color} listening={false} />
-              {dot.label && (
+            <GraphPlaybackWrap key={key} exit={exit}>
+            <Group>
+              <Circle
+                x={dotPreview.x}
+                y={dotPreview.y}
+                radius={dotPreview.radius}
+                fill={it.dot.color}
+                listening={false}
+              />
+              {dotPreview.label && (
                 <Text
-                  x={dx + 6}
-                  y={dy - 8}
-                  text={dot.label}
-                  fontSize={10}
-                  fill="#e2e8f0"
+                  x={dotPreview.label.x}
+                  y={dotPreview.label.y}
+                  text={dotPreview.label.text}
+                  fontSize={dotPreview.label.fontSize}
+                  fill={dotPreview.label.fill}
                   listening={false}
                 />
               )}
             </Group>
+            </GraphPlaybackWrap>
           );
         }
         return null;
@@ -550,7 +867,7 @@ export default function GraphNode({
         />
       )}
 
-      {draggable && (
+      {draggable && !hideEditorChrome && (
         <Group x={axW / 2 - 14} y={-axH / 2 + 14}>
           <Rect
             x={-18}
@@ -593,6 +910,21 @@ export default function GraphNode({
           />
         </Group>
       )}
+    </Group>
+  );
+}
+
+function GraphPlaybackWrap({
+  exit,
+  children,
+}: {
+  exit: ExitPreviewState | null;
+  children: React.ReactNode;
+}) {
+  if (!exit) return <>{children}</>;
+  return (
+    <Group opacity={exit.opacity} scaleX={exit.scale} scaleY={exit.scale}>
+      {children}
     </Group>
   );
 }

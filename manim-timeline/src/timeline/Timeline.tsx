@@ -8,6 +8,10 @@ import {
   type RefObject,
 } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import {
+  usePreviewMergedItems,
+  usePreviewOps,
+} from '@/agent/previewSelectors';
 import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
@@ -18,7 +22,8 @@ import { usePlaybackEngine } from './hooks/usePlaybackEngine';
 import { useTimelineAudioSync } from './hooks/useTimelineAudioSync';
 
 export default function Timeline() {
-  const itemsMap = useSceneStore((s) => s.items);
+  const itemsMap = usePreviewMergedItems();
+  const previewOps = usePreviewOps();
   const items = useMemo(
     () =>
       Array.from(itemsMap.values())
@@ -350,6 +355,7 @@ export default function Timeline() {
                 items={layerMap.get(layer) ?? []}
                 pxPerSecond={pxPerSecond}
                 viewStart={0}
+                previewOps={previewOps}
               />
             ))}
 

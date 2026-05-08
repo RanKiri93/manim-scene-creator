@@ -8,7 +8,7 @@ import {
   Transformer,
 } from 'react-konva';
 import type Konva from 'konva';
-import type { ShapeItem } from '@/types/scene';
+import type { ShapeItem, ShapePoint } from '@/types/scene';
 import { isFreelyDraggable } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
@@ -25,6 +25,44 @@ const TRANSFORMER_ANCHORS = [
   'bottom-right',
 ] as const;
 
+function polyArrowSegment(
+  points: ShapePoint[],
+  at: 'head' | 'tail',
+): [ShapePoint, ShapePoint] | null {
+  if (points.length < 2) return null;
+  if (at === 'head') {
+    const a = points[points.length - 2]!;
+    const b = points[points.length - 1]!;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) return null;
+    return [a, b];
+  }
+  const a = points[1]!;
+  const b = points[0]!;
+  if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-9) return null;
+  return [a, b];
+}
+
+function polylineSelectionOutlineProps(
+  points: ShapePoint[],
+  pxPerUnitX: number,
+  pxPerUnitY: number,
+): { x: number; y: number; width: number; height: number } | null {
+  if (points.length === 0) return null;
+  const xs = points.map((p) => p.x * pxPerUnitX);
+  const ys = points.map((p) => -p.y * pxPerUnitY);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const pad = 6;
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: maxX - minX + pad * 2,
+    height: maxY - minY + pad * 2,
+  };
+}
+
 interface ShapeNodeProps {
   item: ShapeItem;
   canvasWidth: number;
@@ -32,6 +70,10 @@ interface ShapeNodeProps {
   isSelected: boolean;
   resolvedX: number;
   resolvedY: number;
+  /** Playback preview: overrides item stroke when set. */
+  previewStrokeColor?: string;
+  /** Playback preview: overrides item fill when set (use transparent to clear). */
+  previewFillColor?: string | null;
 }
 
 export default function ShapeNode({
@@ -41,6 +83,8 @@ export default function ShapeNode({
   isSelected,
   resolvedX,
   resolvedY,
+  previewStrokeColor,
+  previewFillColor,
 }: ShapeNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -61,7 +105,11 @@ export default function ShapeNode({
 
   const draggable = isFreelyDraggable(item.posSteps);
   const showTransformer =
-    isSelected && draggable && selectedIds.size === 1 && selectedIds.has(item.id);
+    item.shapeType !== 'polyline' &&
+    isSelected &&
+    draggable &&
+    selectedIds.size === 1 &&
+    selectedIds.has(item.id);
 
   const posX = (resolvedX / FRAME_W + 0.5) * canvasWidth;
   const posY = (0.5 - resolvedY / FRAME_H) * canvasHeight;
@@ -98,6 +146,7 @@ export default function ShapeNode({
     item.endX,
     item.endY,
     item.shapeType,
+    item.points,
     item.id,
   ]);
 
@@ -119,6 +168,14 @@ export default function ShapeNode({
         const y2 = Math.abs(item.endY) * pxPerUnitY * s;
         const half = Math.hypot(x2, y2) / 2;
         return Math.max(24, half + 8);
+      }
+      case 'polyline': {
+        if (item.points.length === 0) return 24;
+        const xs = item.points.map((p) => p.x * pxPerUnitX * s);
+        const ys = item.points.map((p) => p.y * pxPerUnitY * s);
+        const w = Math.max(...xs) - Math.min(...xs);
+        const h = Math.max(...ys) - Math.min(...ys);
+        return Math.max(24, Math.hypot(w, h) / 2 + 8);
       }
       default:
         return 24;
@@ -189,6 +246,9 @@ export default function ShapeNode({
         patch.endX = base.endX * sx;
         patch.endY = base.endY * sy;
         break;
+      case 'polyline':
+        patch.points = base.points.map((p) => ({ x: p.x * sx, y: p.y * sy }));
+        break;
       default:
         break;
     }
@@ -202,8 +262,11 @@ export default function ShapeNode({
     n.getLayer()?.batchDraw();
   }, [item.id, item, updateItem, canvasWidth, canvasHeight]);
 
-  const stroke = item.strokeColor || '#60a5fa';
-  const fill = item.fillColor?.trim() ? item.fillColor : undefined;
+  const stroke = previewStrokeColor ?? (item.strokeColor || '#60a5fa');
+  const fillSource = previewFillColor !== undefined ? previewFillColor : item.fillColor;
+  const fill = fillSource?.trim() ? fillSource : undefined;
+  const previewStrokeWidth = Math.max(1, item.strokeWidth);
+  const arrowPointerSize = Math.max(10, previewStrokeWidth * 2.5);
 
   const inner = (() => {
     switch (item.shapeType) {
@@ -213,7 +276,7 @@ export default function ShapeNode({
           <Circle
             radius={r}
             stroke={stroke}
-            strokeWidth={Math.max(1, item.strokeWidth * 0.35)}
+            strokeWidth={previewStrokeWidth}
             fill={fill ?? 'transparent'}
             opacity={fill ? Math.max(0.15, item.fillOpacity) : 1}
           />
@@ -229,7 +292,7 @@ export default function ShapeNode({
             width={w}
             height={h}
             stroke={stroke}
-            strokeWidth={Math.max(1, item.strokeWidth * 0.35)}
+            strokeWidth={previewStrokeWidth}
             fill={fill ?? 'transparent'}
             opacity={fill ? Math.max(0.15, item.fillOpacity) : 1}
           />
@@ -244,9 +307,9 @@ export default function ShapeNode({
               points={[0, 0, x2, y2]}
               stroke={stroke}
               fill={stroke}
-              strokeWidth={Math.max(1, item.strokeWidth * 0.35)}
-              pointerLength={10}
-              pointerWidth={10}
+              strokeWidth={previewStrokeWidth}
+              pointerLength={arrowPointerSize}
+              pointerWidth={arrowPointerSize}
             />
           </Group>
         );
@@ -259,8 +322,69 @@ export default function ShapeNode({
             <KonvaLine
               points={[0, 0, x2, y2]}
               stroke={stroke}
-              strokeWidth={Math.max(1, item.strokeWidth * 0.35)}
+              strokeWidth={previewStrokeWidth}
             />
+          </Group>
+        );
+      }
+      case 'polyline': {
+        const pts = item.points;
+        if (pts.length === 0) {
+          return (
+            <KonvaLine
+              points={[0, 0, 0.5, 0]}
+              stroke={stroke}
+              strokeWidth={1}
+              opacity={0.35}
+              dash={[4, 4]}
+            />
+          );
+        }
+        const flat = pts.flatMap((p) => [p.x * pxPerUnitX, -p.y * pxPerUnitY]);
+        const headSeg =
+          item.headArrow && polyArrowSegment(pts, 'head');
+        const tailSeg =
+          item.tailArrow && polyArrowSegment(pts, 'tail');
+        const sw = previewStrokeWidth;
+        return (
+          <Group>
+            <KonvaLine
+              points={flat}
+              stroke={stroke}
+              strokeWidth={sw}
+              lineCap="round"
+              lineJoin="round"
+            />
+            {headSeg ? (
+              <KonvaArrow
+                points={[
+                  headSeg[0]!.x * pxPerUnitX,
+                  -headSeg[0]!.y * pxPerUnitY,
+                  headSeg[1]!.x * pxPerUnitX,
+                  -headSeg[1]!.y * pxPerUnitY,
+                ]}
+                stroke={stroke}
+                fill={stroke}
+                strokeWidth={sw}
+                pointerLength={arrowPointerSize}
+                pointerWidth={arrowPointerSize}
+              />
+            ) : null}
+            {tailSeg ? (
+              <KonvaArrow
+                points={[
+                  tailSeg[0]!.x * pxPerUnitX,
+                  -tailSeg[0]!.y * pxPerUnitY,
+                  tailSeg[1]!.x * pxPerUnitX,
+                  -tailSeg[1]!.y * pxPerUnitY,
+                ]}
+                stroke={stroke}
+                fill={stroke}
+                strokeWidth={sw}
+                pointerLength={arrowPointerSize}
+                pointerWidth={arrowPointerSize}
+              />
+            ) : null}
           </Group>
         );
       }
@@ -286,15 +410,35 @@ export default function ShapeNode({
         }}
       >
         {inner}
-        <Rect
-          x={-rh}
-          y={-rh}
-          width={rh * 2}
-          height={rh * 2}
-          stroke={isSelected ? '#3b82f6' : 'transparent'}
-          strokeWidth={isSelected ? 2 : 0}
-          listening={false}
-        />
+        {item.shapeType === 'polyline' ? (
+          (() => {
+            const box = polylineSelectionOutlineProps(
+              item.points,
+              pxPerUnitX,
+              pxPerUnitY,
+            );
+            if (!box) return null;
+            return (
+              <Rect
+                {...box}
+                stroke={isSelected ? '#3b82f6' : 'transparent'}
+                strokeWidth={isSelected ? 2 : 0}
+                dash={[4, 4]}
+                listening={false}
+              />
+            );
+          })()
+        ) : (
+          <Rect
+            x={-rh}
+            y={-rh}
+            width={rh * 2}
+            height={rh * 2}
+            stroke={isSelected ? '#3b82f6' : 'transparent'}
+            strokeWidth={isSelected ? 2 : 0}
+            listening={false}
+          />
+        )}
       </Group>
       {showTransformer && (
         <Transformer

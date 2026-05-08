@@ -1,161 +1,12 @@
 import { newId } from '@/lib/ids';
-import { PROJECT_VERSION } from '@/lib/constants';
 import {
-  PROJECT_FRAGMENT_KIND,
   type AudioTrackItem,
   type GraphAreaItem,
   type ItemId,
   type PosStep,
-  type ProjectFragmentFile,
   type SceneItem,
 } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
-
-function collectGraphAreaPlotDeps(mode: GraphAreaItem['mode']): ItemId[] {
-  const out: ItemId[] = [];
-  if (mode.areaKind === 'underCurve') {
-    if (mode.curve.sourceKind === 'plot') out.push(mode.curve.plotId);
-  } else if (mode.areaKind === 'betweenCurves') {
-    if (mode.lower.sourceKind === 'plot') out.push(mode.lower.plotId);
-    if (mode.upper.sourceKind === 'plot') out.push(mode.upper.plotId);
-  }
-  return out;
-}
-
-/** Direct scene-item dependencies (other item ids) required for this item to be valid. */
-export function getDirectItemDeps(item: SceneItem): ItemId[] {
-  const deps: ItemId[] = [];
-  switch (item.kind) {
-    case 'graphPlot':
-    case 'graphDot':
-    case 'graphField':
-    case 'graphFunctionSeries':
-    case 'graphArea':
-      deps.push(item.axesId);
-      if (item.kind === 'graphArea') {
-        deps.push(...collectGraphAreaPlotDeps(item.mode));
-      }
-      break;
-    case 'exit_animation':
-      for (const t of item.targets) deps.push(t.targetId);
-      break;
-    case 'surroundingRect':
-      deps.push(...item.targetIds);
-      break;
-    case 'textLine':
-      if (item.transformConfig?.sourceLineId) {
-        deps.push(item.transformConfig.sourceLineId);
-      }
-      break;
-    default:
-      break;
-  }
-
-  if ('posSteps' in item) {
-    for (const step of item.posSteps) {
-      if (step.kind === 'next_to' && step.refId) {
-        deps.push(step.refId);
-      }
-    }
-  }
-  return deps;
-}
-
-export type ExpandFragmentResult =
-  | {
-      ok: true;
-      itemIds: ItemId[];
-      items: SceneItem[];
-      audioItems: AudioTrackItem[];
-    }
-  | { ok: false; message: string };
-
-/**
- * Expand selected ids to a closed set (dependencies), ordered for export like the timeline list.
- */
-export function expandFragmentSelection(
-  items: Map<ItemId, SceneItem>,
-  audioItems: AudioTrackItem[],
-  selectedIds: Set<ItemId>,
-): ExpandFragmentResult {
-  const seeds = [...selectedIds].filter((id) => items.has(id));
-  if (selectedIds.size > 0 && seeds.length === 0) {
-    return {
-      ok: false,
-      message: 'Selection does not match any scene objects.',
-    };
-  }
-  if (seeds.length === 0) {
-    return { ok: false, message: 'Select one or more objects to export.' };
-  }
-
-  const closed = new Set<ItemId>();
-  const queue: ItemId[] = [];
-
-  for (const id of seeds) {
-    if (!closed.has(id)) {
-      closed.add(id);
-      queue.push(id);
-    }
-  }
-
-  while (queue.length > 0) {
-    const id = queue.pop()!;
-    const item = items.get(id);
-    if (!item) {
-      return { ok: false, message: `Missing item "${id}" in scene.` };
-    }
-    for (const dep of getDirectItemDeps(item)) {
-      if (!items.has(dep)) {
-        return {
-          ok: false,
-          message: `"${item.label || item.id}" references missing object "${dep}".`,
-        };
-      }
-      if (!closed.has(dep)) {
-        closed.add(dep);
-        queue.push(dep);
-      }
-    }
-  }
-
-  const audioNeeded = new Set<string>();
-  for (const id of closed) {
-    const it = items.get(id)!;
-    if ('audioTrackId' in it && it.audioTrackId) {
-      audioNeeded.add(it.audioTrackId);
-    }
-  }
-
-  const audioById = new Map(audioItems.map((a) => [a.id, a] as const));
-  for (const aid of audioNeeded) {
-    if (!audioById.has(aid)) {
-      return {
-        ok: false,
-        message: `A clip references audio track "${aid}" which is not in this project.`,
-      };
-    }
-  }
-
-  const orderedIds = [...closed].sort((a, b) => {
-    const ia = items.get(a)!;
-    const ib = items.get(b)!;
-    return ia.startTime - ib.startTime || ia.layer - ib.layer;
-  });
-
-  const outItems = orderedIds.map((id) =>
-    structuredClone(items.get(id)!) as SceneItem,
-  );
-  const outAudio = [...audioNeeded]
-    .sort((a, b) => {
-      const ta = audioById.get(a)!;
-      const tb = audioById.get(b)!;
-      return ta.startTime - tb.startTime;
-    })
-    .map((id) => structuredClone(audioById.get(id)!) as AudioTrackItem);
-
-  return { ok: true, itemIds: orderedIds, items: outItems, audioItems: outAudio };
-}
 
 /** Ids used in codegen / cross-refs for collision checks and remapping. */
 export function collectCodegenIdsFromItems(items: SceneItem[]): Set<string> {
@@ -321,6 +172,12 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
         targetId: m.get(t.targetId) ?? t.targetId,
       }));
       break;
+    case 'blink_animation':
+      it.targets = it.targets.map((t) => ({
+        ...t,
+        targetId: m.get(t.targetId) ?? t.targetId,
+      }));
+      break;
     case 'surroundingRect':
       it.targetIds = it.targetIds.map((tid) => m.get(tid) ?? tid);
       break;
@@ -341,27 +198,6 @@ export function remapFragmentItemsInPlace(
     if (nid) a.id = nid;
   }
   return m;
-}
-
-export function stripHeavyTextLinePayload(items: SceneItem[]): void {
-  for (const it of items) {
-    if (it.kind === 'textLine') {
-      it.measure = null;
-      it.previewDataUrl = null;
-      it.segmentMeasures = null;
-    }
-  }
-}
-
-/** Remove per-segment timing overrides so pasted lines use default pacing (equal anim share, no waits). */
-export function stripTextLineSegmentTiming(items: SceneItem[]): void {
-  for (const it of items) {
-    if (it.kind !== 'textLine') continue;
-    for (const seg of it.segments) {
-      delete seg.waitAfterSec;
-      delete seg.animSec;
-    }
-  }
 }
 
 export type FragmentTimeMode = 'preserve' | 'playhead' | 'appendEnd';
@@ -408,28 +244,6 @@ export function applyTimeShiftToFragment(
   for (const a of audio) {
     a.startTime = Math.max(0, a.startTime + delta);
   }
-}
-
-export function buildProjectFragmentFile(
-  items: SceneItem[],
-  audioItems: AudioTrackItem[],
-  compact: boolean,
-  stripSegmentTiming = false,
-): ProjectFragmentFile {
-  const clonedItems = structuredClone(items) as SceneItem[];
-  const clonedAudio =
-    audioItems.length > 0
-      ? (structuredClone(audioItems) as AudioTrackItem[])
-      : undefined;
-  if (compact) stripHeavyTextLinePayload(clonedItems);
-  if (stripSegmentTiming) stripTextLineSegmentTiming(clonedItems);
-  return {
-    kind: PROJECT_FRAGMENT_KIND,
-    version: PROJECT_VERSION,
-    savedAt: new Date().toISOString(),
-    items: clonedItems,
-    audioItems: clonedAudio,
-  };
 }
 
 /** Reserved = codegen ids already used in the destination project. */

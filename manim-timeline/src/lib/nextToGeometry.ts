@@ -11,6 +11,7 @@ import type {
   SegmentLocalBox,
   NextToBoundsMode,
 } from '@/types/scene';
+import { polylinePointExtents } from '@/lib/polylineExtents';
 
 export function rawDirectionComponents(dir: ManimDirection): { dx: number; dy: number } {
   switch (dir) {
@@ -110,7 +111,7 @@ export function alignBoxForItemAt(
   segmentIndex: number | null,
   segmentMeasures: SegmentLocalBox[] | null | undefined,
 ): AlignBox | null {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') return null;
+  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') return null;
 
   if (item.kind === 'textLine') {
     const line = item as TextLineItem;
@@ -160,6 +161,12 @@ export function alignBoxForItemAt(
         w = Math.max(0.15, Math.abs(item.endX));
         h = Math.max(0.15, Math.abs(item.endY));
         break;
+      case 'polyline': {
+        const d = polylinePointExtents(item.points);
+        w = d.w;
+        h = d.h;
+        break;
+      }
       default:
         w = 0.5;
         h = 0.5;
@@ -198,6 +205,7 @@ export function computeNextToMobCenter(params: {
     refTextBounds,
     selfTextBounds,
   } = params;
+  const buff = Number.isFinite(step.buff) ? step.buff : 0.3;
   const d = normalizedDirection(step.dir);
   const ae = step.alignedEdge
     ? alignedEdgeComponents(step.alignedEdge)
@@ -255,8 +263,8 @@ export function computeNextToMobCenter(params: {
   );
 
   return {
-    x: selfMobX + (target.x - point.x + step.buff * d.dx),
-    y: selfMobY + (target.y - point.y + step.buff * d.dy),
+    x: selfMobX + (target.x - point.x + buff * d.dx),
+    y: selfMobY + (target.y - point.y + buff * d.dy),
   };
 }
 

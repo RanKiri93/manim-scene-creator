@@ -23,7 +23,8 @@ export function emitNextToPython(params: {
     target = `${refVar}[${step.refSegmentIndex}]`;
   }
 
-  const kwParts: string[] = [`buff=${step.buff}`];
+  const buff = Number.isFinite(step.buff) ? step.buff : 0.3;
+  const kwParts: string[] = [`buff=${buff}`];
   if (step.alignedEdge) {
     kwParts.push(`aligned_edge=${step.alignedEdge}`);
   }

@@ -75,24 +75,40 @@ export function cumulativeAxesDrawOrder(
 ): GraphAxesDrawSlot[] {
   const slots: GraphAxesDrawSlot[] = [];
   for (const it of items.values()) {
-    if (it.kind === 'graphArea' && it.axesId === axesId && time >= effectiveStart(it, items)) {
+    if (
+      it.kind === 'graphArea' &&
+      it.axesId === axesId &&
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
+    ) {
       slots.push({ kind: 'area', layer: it.layer, id: it.id });
     }
-    if (it.kind === 'graphPlot' && it.axesId === axesId && time >= effectiveStart(it, items)) {
+    if (
+      it.kind === 'graphPlot' &&
+      it.axesId === axesId &&
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
+    ) {
       slots.push({ kind: 'plot', layer: it.layer, id: it.id });
     }
     if (
       it.kind === 'graphFunctionSeries' &&
       it.axesId === axesId &&
-      time >= effectiveStart(it, items)
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
     ) {
       slots.push({ kind: 'functionSeries', layer: it.layer, id: it.id });
     }
-    if (it.kind === 'graphDot' && it.axesId === axesId && time >= effectiveStart(it, items)) {
+    if (
+      it.kind === 'graphDot' &&
+      it.axesId === axesId &&
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
+    ) {
       slots.push({ kind: 'dot', layer: it.layer, id: it.id });
     }
   }
-  if (field && field.fieldMode !== 'none') {
+  if (field && field.fieldMode !== 'none' && time < effectiveEnd(field, items)) {
     slots.push({ kind: 'field', layer: field.layer, id: field.id });
   }
   slots.sort((a, b) => {
@@ -127,7 +143,8 @@ export function graphGroupShouldRender(
         it.kind === 'graphFunctionSeries' ||
         it.kind === 'graphArea') &&
       it.axesId === axes.id &&
-      time >= effectiveStart(it, items)
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
     ) {
       return true;
     }
@@ -146,7 +163,7 @@ export function cumulativeField(
   for (const it of items.values()) {
     if (it.kind !== 'graphField' || it.axesId !== axesId || it.fieldMode === 'none') continue;
     const t0 = effectiveStart(it, items);
-    if (t0 <= time && t0 >= bestT) {
+    if (t0 <= time && time < effectiveEnd(it, items) && t0 >= bestT) {
       best = it;
       bestT = t0;
     }

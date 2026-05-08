@@ -14,6 +14,8 @@ import {
 } from '@/lib/time';
 import { exitTargetSelectLabel } from '@/lib/itemDisplayName';
 import NumberInput from '@/components/NumberInput';
+import PropertyTabs from './PropertyTabs';
+import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 
 function formatSegmentIndices(idxs: number[] | null | undefined): string {
   if (!idxs?.length) return '';
@@ -83,7 +85,10 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     [itemsMap],
   );
 
-  const targetIdsList = item.targetIds?.length ? item.targetIds : [];
+  const targetIdsList = useMemo(
+    () => (item.targetIds?.length ? item.targetIds : []),
+    [item.targetIds],
+  );
 
   const setTargetIds = useCallback(
     (nextIds: ItemId[]) => {
@@ -157,7 +162,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
   const lineTarget =
     soleTarget?.kind === 'textLine' ? (soleTarget as TextLineItem) : null;
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Surrounding rectangle</h3>
       <p className="text-[11px] text-slate-500 leading-snug">
@@ -178,6 +183,18 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
         />
       </label>
 
+      <button
+        type="button"
+        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        onClick={() => removeItem(item.id)}
+      >
+        Delete surrounding rectangle
+      </button>
+    </div>
+  );
+
+  const targetsContent = (
+    <div className="flex flex-col gap-3">
       <div>
         <div className="text-xs text-slate-400 mb-1">Targets</div>
         <div className="flex flex-col gap-2">
@@ -275,33 +292,11 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           Start time should fall within the overlap when every target is on screen.
         </p>
       ) : null}
+    </div>
+  );
 
-      <div className="flex items-end gap-3 flex-wrap">
-        <NumberInput
-          label="Start (s)"
-          value={item.startTime}
-          onChange={(v) => set({ startTime: Math.max(0, v) })}
-          min={0}
-        />
-        <NumberInput
-          label="Runtime (s)"
-          value={item.runTime}
-          onChange={(v) => set({ runTime: Math.max(0.05, v) })}
-          min={0.05}
-        />
-        <NumberInput
-          label="Layer"
-          value={item.layer}
-          onChange={(v) => set({ layer: Math.round(v) })}
-          min={0}
-          step={1}
-        />
-      </div>
-      <p className="text-[10px] text-slate-500 -mt-1">
-        Width of the clip on the timeline matches this runtime (Manim{' '}
-        <code className="text-slate-400">self.play(…, run_time=…)</code>).
-      </p>
-
+  const styleContent = (
+    <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2 max-w-md">
         <NumberInput
           label="Buff"
@@ -333,22 +328,6 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           min={0.5}
           step={0.5}
         />
-      </div>
-
-      <div>
-        <div className="text-xs text-slate-400 mb-1">Intro style</div>
-        <select
-          value={item.introStyle}
-          onChange={(e) =>
-            set({
-              introStyle: e.target.value as SurroundingRectItem['introStyle'],
-            })
-          }
-          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
-        >
-          <option value="create">Create</option>
-          <option value="fade_in">FadeIn</option>
-        </select>
       </div>
 
       <div className="border-t border-slate-700 pt-3">
@@ -389,14 +368,78 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           />
         </div>
       </div>
-
-      <button
-        type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
-        onClick={() => removeItem(item.id)}
-      >
-        Delete surrounding rectangle
-      </button>
     </div>
+  );
+
+  const animationContent = (
+    <div className="flex flex-col gap-3">
+      <div>
+        <div className="text-xs text-slate-400 mb-1">Intro style</div>
+        <select
+          value={item.introStyle}
+          onChange={(e) =>
+            set({
+              introStyle: e.target.value as SurroundingRectItem['introStyle'],
+            })
+          }
+          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+        >
+          <option value="create">Create</option>
+          <option value="fade_in">FadeIn</option>
+        </select>
+      </div>
+
+      <VisibleAtSceneStartRow
+        checked={item.visibleAtSceneStart === true}
+        note="Intro style and runtime below are ignored for the opening frame (no intro play)."
+        onChange={(next) =>
+          set(
+            next
+              ? { visibleAtSceneStart: true, startTime: 0 }
+              : { visibleAtSceneStart: undefined },
+          )
+        }
+      />
+
+      <div className="flex items-end gap-3 flex-wrap">
+        <NumberInput
+          label="Start (s)"
+          value={item.startTime}
+          onChange={(v) => set({ startTime: Math.max(0, v) })}
+          min={0}
+          disabled={item.visibleAtSceneStart === true}
+        />
+        <NumberInput
+          label="Runtime (s)"
+          value={item.runTime}
+          onChange={(v) => set({ runTime: Math.max(0.05, v) })}
+          min={0.05}
+        />
+        <NumberInput
+          label="Layer"
+          value={item.layer}
+          onChange={(v) => set({ layer: Math.round(v) })}
+          min={0}
+          step={1}
+        />
+      </div>
+      <p className="text-[10px] text-slate-500 -mt-1">
+        Width of the clip on the timeline matches this runtime (Manim{' '}
+        <code className="text-slate-400">self.play(…, run_time=…)</code>).
+      </p>
+    </div>
+  );
+
+  return (
+    <PropertyTabs
+      key={item.id}
+      defaultTabId="base"
+      tabs={[
+        { id: 'base', label: 'Base', content: baseContent },
+        { id: 'targets', label: 'Targets', content: targetsContent },
+        { id: 'style', label: 'Style', content: styleContent },
+        { id: 'animation', label: 'Animation', content: animationContent },
+      ]}
+    />
   );
 }

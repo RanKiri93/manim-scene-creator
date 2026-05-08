@@ -1,8 +1,11 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { boundaryTimeToSeconds, type AudioTrackItem } from '@/types/scene';
 import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
+import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
 
 interface AudioClipProps {
   item: AudioTrackItem;
@@ -24,6 +27,28 @@ export default function AudioClip({
   const setAudioItemStartTimes = useSceneStore((s) => s.setAudioItemStartTimes);
   const removeAudioItem = useSceneStore((s) => s.removeAudioItem);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const itemsMap = usePreviewMergedItems();
+
+  const owner = useMemo(
+    () => explicitVisualOwnerForAudioTrack(itemsMap, item.id),
+    [itemsMap, item.id],
+  );
+
+  const clipTitle = useMemo(() => {
+    const primary = item.text.trim()
+      ? item.text
+      : `Audio (${item.id.slice(0, 8)}...)`;
+    const parts = [primary];
+    if (owner) {
+      parts.push(
+        [
+          `Linked to: ${itemClipDisplayName(owner)}`,
+          `This audio clip’s timeline start follows “${itemClipDisplayName(owner)}”. Move that clip or unbind to reposition audio.`,
+        ].join('\n'),
+      );
+    }
+    return parts.join('\n');
+  }, [item.text, item.id, owner]);
 
   const dragRef = useRef<{
     startX: number;
@@ -45,6 +70,7 @@ export default function AudioClip({
     (e: React.MouseEvent) => {
       e.preventDefault();
       select(item.id, isMultiSelectModifier(e));
+      if (owner) return;
       const state = useSceneStore.getState();
       const baselines: Record<string, number> = {};
       for (const id of state.selectedIds) {
@@ -115,12 +141,12 @@ export default function AudioClip({
     [
       item.id,
       item.startTime,
+      owner,
       pxPerSecond,
       moveAudioItem,
       setAudioItemStartTimes,
       select,
       audioItems,
-      removeAudioItem,
     ],
   );
 
@@ -129,11 +155,13 @@ export default function AudioClip({
 
   return (
     <div
-      className={`absolute top-0 bottom-0 cursor-grab select-none overflow-visible rounded-sm border border-slate-500/60 bg-slate-700/50 active:cursor-grabbing ${
+      className={`absolute top-0 bottom-0 ${owner ? 'cursor-not-allowed' : 'cursor-grab'} select-none overflow-visible rounded-sm border border-slate-500/60 bg-slate-700/50 ${
+        owner ? '' : 'active:cursor-grabbing'
+      } ${
         isSelected ? 'ring-2 ring-blue-300 ring-offset-1 ring-offset-slate-800' : ''
       }`}
       style={{ left: `${left}px`, width: `${width}px`, zIndex }}
-      title={item.text}
+      title={clipTitle}
       onMouseDown={onMouseDownMove}
     >
       <button
@@ -155,8 +183,18 @@ export default function AudioClip({
           ×
         </span>
       </button>
-      <span className="pointer-events-none absolute left-0.5 top-0 z-30 max-w-[min(180px,calc(100%-20px))] truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
-        {item.text}
+      <span className="pointer-events-none absolute left-0.5 top-0 z-30 flex max-w-[min(200px,calc(100%-20px))] min-w-0 items-center gap-0.5">
+        <span className="min-w-0 truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
+          {item.text.trim() ? item.text : '·'}
+        </span>
+        {owner ? (
+          <span
+            title={clipTitle}
+            className="shrink-0 rounded border border-amber-400/55 bg-amber-500/20 px-1 text-[9px] font-medium leading-none text-amber-100"
+          >
+            Linked
+          </span>
+        ) : null}
       </span>
       {boundaries.map((boundary, i) => {
         const raw = rawList[i];

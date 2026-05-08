@@ -3,6 +3,8 @@ import type {
   GraphFunctionSeriesItem,
   FunctionLineStyle,
   FunctionSeriesDisplayMode,
+  ItemId,
+  SceneItem,
 } from '@/types/scene';
 import {
   functionSeriesChildStartOffset,
@@ -10,8 +12,9 @@ import {
   resolveFunctionSeriesDisplayMode,
   resolveFunctionSeriesN,
 } from '@/types/scene';
+import { isVisibleAtSceneStartItem } from '@/types/scene';
+import { clipPolylineByProgress } from '@/lib/createPlaybackPreview';
 import { effectiveStart } from '@/lib/time';
-import type { ItemId, SceneItem } from '@/types/scene';
 
 const SAMPLE_COUNT = 200;
 
@@ -125,17 +128,6 @@ function buildPolylines(
   return out;
 }
 
-/** Clip a polyline to the first `progress` fraction of its vertices (for Create animation). */
-function clipPolylineByProgress(pts: number[], progress: number): number[] {
-  if (progress >= 1) return pts;
-  if (progress <= 0) return [];
-  const totalVerts = pts.length / 2;
-  if (totalVerts < 2) return pts;
-  const keepVerts = Math.max(2, Math.floor(totalVerts * progress) + 1);
-  if (keepVerts >= totalVerts) return pts;
-  return pts.slice(0, keepVerts * 2);
-}
-
 /** Interpolate two equal-length polylines. Falls back to `b` when lengths differ. */
 function lerpPolyline(a: number[], b: number[], t: number): number[] {
   if (a.length !== b.length || a.length === 0) return b;
@@ -153,6 +145,14 @@ function lerpPolyline(a: number[], b: number[], t: number): number[] {
  *   is a partial polyline (first N·progress vertices).
  * Replacement: only the latest curve is visible; during the transform window we linearly
  *   interpolate the polyline between the previous curve and the new one.
+ *
+ * Replacement-mode invariant (exit-animation correctness):
+ *   Predecessors of `latestN` MUST NEVER appear in `layers` — not even as
+ *   `opacity: 0` placeholders. If a parent Konva Group is ever faded for an
+ *   exit-animation clip, children present in the tree would compound with the
+ *   group's opacity and flash back briefly. Mirrors the Python-side fix in
+ *   `resolveExitTargetsForExport` which targets only the last-curve VMobject
+ *   (not the parent VGroup) to avoid Manim re-adding removed children.
  */
 export function buildFunctionSeriesDrawSpec(
   item: GraphFunctionSeriesItem,
@@ -167,6 +167,9 @@ export function buildFunctionSeriesDrawSpec(
 
   const indices = functionSeriesIndices(item);
   if (indices.length === 0) return null;
+
+  const forceFullStatic =
+    isVisibleAtSceneStartItem(item) && item.mode === 'accumulation';
 
   const fn = compileFn(item.jsExpr);
   if (!fn) return null;
@@ -191,6 +194,10 @@ export function buildFunctionSeriesDrawSpec(
 
   const phases = new Map<number, Phase>();
   for (const n of indices) {
+    if (forceFullStatic) {
+      phases.set(n, { kind: 'drawn' });
+      continue;
+    }
     const start = functionSeriesChildStartOffset(item, n);
     const anim = Math.max(0.01, resolveFunctionSeriesN(item, n).animDuration);
     if (localT < start) {

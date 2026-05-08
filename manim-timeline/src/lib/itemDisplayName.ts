@@ -15,6 +15,9 @@ export function itemClipDisplayName(item: SceneItem): string {
   if (item.kind === 'exit_animation') {
     return item.label.trim() || 'Exit';
   }
+  if (item.kind === 'blink_animation') {
+    return item.label.trim() || 'Blink';
+  }
   if ('label' in item && item.label?.trim()) {
     return item.label.trim();
   }

@@ -11,6 +11,7 @@ import type {
   PosStep,
   SceneItem,
 } from '@/types/scene';
+import { DEFAULT_FIELD_ARROW_STROKE_WIDTH } from '@/types/scene';
 import { normalizeNextToPosStep } from '@/lib/migrateProjectToV20';
 
 /** Legacy monolithic graph from project version < 8. */
@@ -53,6 +54,7 @@ interface LegacyGraph {
   fieldColormap?: GraphFieldItem['fieldColormap'];
   colorSchemeMin?: number;
   colorSchemeMax?: number;
+  arrowStrokeWidth?: number;
   streamPoints?: GraphFieldItem['streamPoints'];
   streamPlacementActive?: boolean;
   streamDt?: number;
@@ -70,7 +72,11 @@ function normalizePosSteps(steps: PosStep[]): PosStep[] {
 }
 
 function normalizeItem(item: SceneItem): SceneItem {
-  if (item.kind === 'exit_animation' || item.kind === 'surroundingRect') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return item;
   }
   return { ...item, posSteps: normalizePosSteps(item.posSteps) } as SceneItem;
@@ -198,6 +204,8 @@ export function migrateSceneItems(items: SceneItem[]): SceneItem[] {
           fieldColormap: g.fieldColormap ?? 'viridis',
           colorSchemeMin: g.colorSchemeMin ?? 0,
           colorSchemeMax: g.colorSchemeMax ?? 2,
+          arrowStrokeWidth:
+            g.arrowStrokeWidth ?? DEFAULT_FIELD_ARROW_STROKE_WIDTH,
           streamPoints: g.streamPoints?.map((sp) => ({ ...sp })) ?? [],
           streamPlacementActive: g.streamPlacementActive ?? false,
           streamDt: g.streamDt ?? 0.05,

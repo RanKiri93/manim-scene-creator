@@ -22,6 +22,13 @@ function shape(id: string, x: number, y: number, w: number, h: number): ShapeIte
     height: h,
     endX: 1,
     endY: 0,
+    points: [
+      { x: -1, y: 0 },
+      { x: 0, y: 0.75 },
+      { x: 1, y: 0 },
+    ],
+    tailArrow: false,
+    headArrow: false,
     strokeColor: '#fff',
     strokeWidth: 2,
     fillColor: null,
@@ -89,5 +96,29 @@ describe('computeNextToMobCenter', () => {
       step: { ...baseNext, buff: 0.5 },
     });
     expect(p.y).toBeCloseTo(-2.5);
+  });
+
+  it('uses polyline point extents for alignment box', () => {
+    const ref = shape('r', 0, 0, 2, 2);
+    const self: ShapeItem = {
+      ...shape('s', 0, 0, 2, 2),
+      shapeType: 'polyline',
+      points: [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 2, y: 2 },
+      ],
+    };
+    const p = computeNextToMobCenter({
+      selfMobX: 0,
+      selfMobY: 0,
+      selfItem: self,
+      refMobX: 0,
+      refMobY: 0,
+      refItem: ref,
+      step: baseNext,
+    });
+    expect(p.x).toBeCloseTo(0);
+    expect(p.y).toBeCloseTo(-2);
   });
 });

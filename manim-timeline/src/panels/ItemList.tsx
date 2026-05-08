@@ -9,12 +9,14 @@ import {
   createGraphFunctionSeries,
   createGraphArea,
   createExitAnimation,
+  createBlinkAnimation,
   createSurroundingRect,
   createShape,
 } from '@/store/factories';
 import type { ItemId, SceneItem } from '@/types/scene';
 import {
   canBeExitTarget,
+  canBeBlinkTarget,
   canBeSurroundTarget,
   holdEnd,
   isTopLevelItem,
@@ -22,15 +24,6 @@ import {
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
-import {
-  expandFragmentSelection,
-  buildProjectFragmentFile,
-} from '@/lib/projectFragment';
-import {
-  downloadProjectFragmentFile,
-  downloadMtprojFragmentBundle,
-  MtprojPackError,
-} from '@/lib/projectIO';
 
 function pickDefaultAxesId(
   itemsMap: Map<ItemId, SceneItem>,
@@ -58,61 +51,11 @@ export default function ItemList() {
 
   const [objectMenuOpen, setObjectMenuOpen] = useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
-  const [fragmentCompact, setFragmentCompact] = useState(false);
-  const [fragmentStripSegmentTiming, setFragmentStripSegmentTiming] =
-    useState(false);
 
   const closeMenus = useCallback(() => {
     setObjectMenuOpen(false);
     setAudioMenuOpen(false);
   }, []);
-
-  const buildFragmentOrAlert = useCallback(() => {
-    const { items: im, audioItems, selectedIds } = useSceneStore.getState();
-    const exp = expandFragmentSelection(im, audioItems, selectedIds);
-    if (!exp.ok) {
-      window.alert(exp.message);
-      return null;
-    }
-    return buildProjectFragmentFile(
-      exp.items,
-      exp.audioItems,
-      fragmentCompact,
-      fragmentStripSegmentTiming,
-    );
-  }, [fragmentCompact, fragmentStripSegmentTiming]);
-
-  const handleExportFragmentJson = useCallback(() => {
-    const frag = buildFragmentOrAlert();
-    if (frag) downloadProjectFragmentFile(frag);
-  }, [buildFragmentOrAlert]);
-
-  const handleExportFragmentMtproj = useCallback(async () => {
-    const frag = buildFragmentOrAlert();
-    if (!frag) return;
-    try {
-      await downloadMtprojFragmentBundle(frag);
-    } catch (e) {
-      if (e instanceof MtprojPackError) {
-        const lines = e.failed
-          .map((f) => `• ${f.text.slice(0, 40)}${f.text.length > 40 ? '…' : ''} — ${f.reason}`)
-          .join('\n');
-        window.alert(`${e.message}\n\n${lines}`);
-      } else {
-        window.alert(e instanceof Error ? e.message : String(e));
-      }
-    }
-  }, [buildFragmentOrAlert]);
-
-  const handleCopyFragmentJson = useCallback(async () => {
-    const frag = buildFragmentOrAlert();
-    if (!frag) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(frag, null, 2));
-    } catch {
-      window.alert('Could not copy to clipboard.');
-    }
-  }, [buildFragmentOrAlert]);
 
   const items = useMemo(
     () =>
@@ -223,6 +166,34 @@ export default function ItemList() {
     select(ex.id);
   };
 
+  const addBlinkAnimationClip = () => {
+    const map = useSceneStore.getState().items;
+    const selectedTargets = [...selectedIds]
+      .map((id) => map.get(id))
+      .filter((it): it is SceneItem => !!it && canBeBlinkTarget(it));
+    const seen = new Set<ItemId>();
+    const targetIds: ItemId[] = [];
+    for (const it of selectedTargets) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      targetIds.push(it.id);
+    }
+    if (targetIds.length === 0) {
+      const candidates = [...map.values()].filter(canBeBlinkTarget);
+      if (candidates.length === 0) return;
+      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
+      targetIds.push(candidates[0]!.id);
+    }
+    const starts = targetIds.map((id) => {
+      const t = map.get(id);
+      return t && canBeBlinkTarget(t) ? effectiveStart(t, map) : 0;
+    });
+    const start = Math.max(currentTime, ...starts);
+    const blink = createBlinkAnimation(targetIds, start, 0.6);
+    addItem(blink);
+    select(blink.id);
+  };
+
   const addSurroundingRectClip = () => {
     const map = useSceneStore.getState().items;
     const selectedTargets = [...selectedIds]
@@ -259,6 +230,12 @@ export default function ItemList() {
             .map((row) => itemsMap.get(row.targetId))
             .filter((x): x is SceneItem => !!x)
         : [];
+    const blinkTargets =
+      item.kind === 'blink_animation'
+        ? item.targets
+            .map((row) => itemsMap.get(row.targetId))
+            .filter((x): x is SceneItem => !!x)
+        : [];
     const surroundTargets =
       item.kind === 'surroundingRect'
         ? item.targetIds
@@ -276,7 +253,17 @@ export default function ItemList() {
                 : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
             return `Exit → ${joined}`;
           })()
-        : item.kind === 'surroundingRect'
+        : item.kind === 'blink_animation'
+          ? (() => {
+              if (blinkTargets.length === 0) return 'Blink (no targets)';
+              const names = blinkTargets.map((t) => itemClipDisplayName(t));
+              const joined =
+                names.length <= 2
+                  ? names.join(', ')
+                  : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+              return `Blink → ${joined}`;
+            })()
+          : item.kind === 'surroundingRect'
           ? (() => {
               if (surroundTargets.length === 0) return 'Rect (no targets)';
               const names = surroundTargets.map((t) => itemClipDisplayName(t));
@@ -313,6 +300,9 @@ export default function ItemList() {
     } else if (item.kind === 'exit_animation') {
       kindBadge = 'bg-rose-600/30 text-rose-300';
       kindLetter = 'X';
+    } else if (item.kind === 'blink_animation') {
+      kindBadge = 'bg-amber-600/30 text-amber-200';
+      kindLetter = 'B';
     } else if (item.kind === 'surroundingRect') {
       kindBadge = 'bg-orange-600/30 text-orange-200';
       kindLetter = 'R';
@@ -508,6 +498,18 @@ export default function ItemList() {
                 type="button"
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Pulse scale/color on one or more objects (does not remove them). Shift/Ctrl/Cmd+click to multi-select targets."
+                onClick={() => {
+                  addBlinkAnimationClip();
+                  closeMenus();
+                }}
+              >
+                Blink animation
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
                 title="SurroundingRectangle highlight; remove with Exit targeting this clip"
                 onClick={() => {
                   addSurroundingRectClip();
@@ -573,58 +575,6 @@ export default function ItemList() {
           )}
         </div>
       </div>
-
-      {selectedIds.size > 0 && (
-        <div className="px-3 pb-2 flex flex-col gap-1.5 border-b border-slate-700/80 shrink-0">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
-            Selection fragment
-          </div>
-          <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={fragmentCompact}
-              onChange={(e) => setFragmentCompact(e.target.checked)}
-              className="rounded border-slate-600 bg-slate-800"
-            />
-            Compact (omit measure previews)
-          </label>
-          <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={fragmentStripSegmentTiming}
-              onChange={(e) => setFragmentStripSegmentTiming(e.target.checked)}
-              className="rounded border-slate-600 bg-slate-800"
-            />
-            Strip segment wait/anim (waitAfterSec, animSec)
-          </label>
-          <div className="flex flex-wrap gap-1">
-            <button
-              type="button"
-              onClick={handleExportFragmentJson}
-              className="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
-              title="Export selection + dependencies as .json"
-            >
-              Export JSON
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleExportFragmentMtproj()}
-              className="px-2 py-1 text-[11px] bg-emerald-800/80 hover:bg-emerald-700/80 rounded text-slate-100"
-              title="Portable ZIP with embedded audio for this selection"
-            >
-              Export .mtproj
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCopyFragmentJson()}
-              className="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
-              title="Copy fragment JSON to clipboard"
-            >
-              Copy JSON
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {items.length === 0 && (

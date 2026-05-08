@@ -15,7 +15,10 @@ import {
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
+import AudioBindingSelect from './AudioBindingSelect';
 import FunctionSeriesIndividualPanel from './FunctionSeriesIndividualPanel';
+import PropertyTabs from './PropertyTabs';
+import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 
 interface FunctionSeriesEditorProps {
   item: GraphFunctionSeriesItem;
@@ -27,6 +30,7 @@ export default function FunctionSeriesEditor({
   item,
 }: FunctionSeriesEditorProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
+  const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const axesForSeries = useSceneStore((s) => s.items.get(item.axesId));
 
   const [individualOpen, setIndividualOpen] = useState(false);
@@ -59,16 +63,14 @@ export default function FunctionSeriesEditor({
   const hasErrors = functionSeriesHasErrors(item);
   const displayMode = resolveFunctionSeriesDisplayMode(item);
 
-  // Switching to partialSum defaults the playback mode to 'replacement' (Transform /
-  // Morph) — this is the natural visualization for Taylor / Fourier convergence —
-  // but only when the user hasn't already picked a mode (still on the factory
-  // default 'accumulation'). We can only approximate "user hasn't touched mode"
-  // by checking the current value here, which keeps explicit choices intact on
-  // subsequent toggles.
   const setDisplayMode = (next: FunctionSeriesDisplayMode) => {
     if (next === displayMode) return;
     if (next === 'partialSum' && item.mode === 'accumulation') {
-      set({ displayMode: next, mode: 'replacement' });
+      set({
+        displayMode: next,
+        mode: 'replacement',
+        visibleAtSceneStart: undefined,
+      });
     } else {
       set({ displayMode: next });
     }
@@ -82,7 +84,7 @@ export default function FunctionSeriesEditor({
     setIndividualOpen(true);
   };
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Function series</h3>
 
@@ -99,13 +101,29 @@ export default function FunctionSeriesEditor({
 
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
 
-      <details
-        open
-        className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2"
-      >
-        <summary className="text-xs text-slate-400 cursor-pointer select-none">
-          Formula (variables: n, x)
-        </summary>
+      {hasErrors && (
+        <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
+          <div className="font-semibold">
+            Playback of this object is disabled until errors are resolved.
+          </div>
+          {item.topLevelError && (
+            <div className="text-red-300">• {item.topLevelError}</div>
+          )}
+          {perNErrorEntries.length > 0 && (
+            <div className="text-red-400">
+              {perNErrorEntries.length} per-n issue
+              {perNErrorEntries.length === 1 ? '' : 's'} — open the Graph tab to review and fix.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const graphContent = (
+    <div className="flex flex-col gap-3">
+      <div className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
+        <div className="text-xs text-slate-400 mb-1">Formula (variables: n, x)</div>
         <p className="mt-2 text-[11px] leading-snug text-slate-500">
           JavaScript drives canvas preview; Python (NumPy) drives export. One
           curve per integer <code className="text-slate-400">n</code> in
@@ -127,7 +145,7 @@ export default function FunctionSeriesEditor({
           placeholder="Python: np.sin(n * x)"
           className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
         />
-      </details>
+      </div>
 
       <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
         <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
@@ -211,13 +229,17 @@ export default function FunctionSeriesEditor({
           <input
             type="checkbox"
             checked={item.mode === 'accumulation'}
-            onChange={(e) =>
+            onChange={(e) => {
+              const mode = (e.target.checked
+                ? 'accumulation'
+                : 'replacement') as FunctionSeriesMode;
               set({
-                mode: (e.target.checked
-                  ? 'accumulation'
-                  : 'replacement') as FunctionSeriesMode,
-              })
-            }
+                mode,
+                ...(mode === 'replacement'
+                  ? { visibleAtSceneStart: undefined }
+                  : {}),
+              });
+            }}
             className="rounded border-slate-500"
           />
           Accumulation (each f_n is drawn and stays on screen)
@@ -321,30 +343,6 @@ export default function FunctionSeriesEditor({
         )}
       </div>
 
-      <div className="flex items-end gap-3 flex-wrap">
-        <NumberInput
-          label="Start (s)"
-          value={item.startTime}
-          onChange={(v) => set({ startTime: v })}
-          min={0}
-        />
-        <div className="flex flex-col text-[11px] text-slate-400">
-          <span className="text-[10px] uppercase tracking-wide text-slate-500">
-            Duration (computed)
-          </span>
-          <span className="font-mono text-slate-300">
-            {item.duration.toFixed(2)}s
-          </span>
-        </div>
-        <NumberInput
-          label="Layer"
-          value={item.layer}
-          onChange={(v) => set({ layer: Math.round(v) })}
-          min={0}
-          step={1}
-        />
-      </div>
-
       {hasErrors && (
         <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
           <div className="font-semibold">
@@ -375,7 +373,68 @@ export default function FunctionSeriesEditor({
           )}
         </div>
       )}
+    </div>
+  );
 
+  const animationContent = (
+    <div className="flex flex-col gap-3">
+      <VisibleAtSceneStartRow
+        checked={item.visibleAtSceneStart === true}
+        disabled={item.mode !== 'accumulation'}
+        disabledReason="Only accumulation mode supports scene-start visibility (replacement uses animated morphs)."
+        note="Shows every curve from t=0. Intro audio is not synchronized."
+        onChange={(next) =>
+          set(
+            next
+              ? { visibleAtSceneStart: true, startTime: 0 }
+              : { visibleAtSceneStart: undefined },
+          )
+        }
+      />
+      <div className="flex items-end gap-3 flex-wrap">
+        <NumberInput
+          label="Start (s)"
+          value={item.startTime}
+          onChange={(v) => set({ startTime: v })}
+          min={0}
+          disabled={item.visibleAtSceneStart === true}
+        />
+        <div className="flex flex-col text-[11px] text-slate-400">
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+            Duration (computed)
+          </span>
+          <span className="font-mono text-slate-300">
+            {item.duration.toFixed(2)}s
+          </span>
+        </div>
+        <NumberInput
+          label="Layer"
+          value={item.layer}
+          onChange={(v) => set({ layer: Math.round(v) })}
+          min={0}
+          step={1}
+        />
+      </div>
+
+      <AudioBindingSelect
+        value={item.audioTrackId}
+        currentItemId={item.id}
+        onChange={(audioTrackId) => setItemAudioBinding(item.id, audioTrackId)}
+      />
+    </div>
+  );
+
+  return (
+    <>
+      <PropertyTabs
+        key={item.id}
+        defaultTabId="base"
+        tabs={[
+          { id: 'base', label: 'Base', content: baseContent },
+          { id: 'graph', label: 'Graph', content: graphContent },
+          { id: 'animation', label: 'Animation / Audio', content: animationContent },
+        ]}
+      />
       {individualOpen && (
         <FunctionSeriesIndividualPanel
           item={item}
@@ -383,6 +442,6 @@ export default function FunctionSeriesEditor({
           onClose={() => setIndividualOpen(false)}
         />
       )}
-    </div>
+    </>
   );
 }

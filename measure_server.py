@@ -27,8 +27,14 @@ Response::
 
 Requires the same toolchain as Manim + HebrewMathLine (XeLaTeX, dvisvgm, fonts).
 
+**Future / spike:** per-segment boxes are returned today; exposing stable **math glyph**
+sub-boxes (nested under each ``HebrewMathLine`` segment) would require enumerating
+submobjects in a deterministic order and versioning that contract with the UI/preview.
+
 **Merge videos:** ``POST /api/concat_mp4`` accepts multiple uploads (multipart field ``files``)
 and concatenates them with ``ffmpeg`` (must be on ``PATH``). See endpoint docstring in code.
+
+**Axes preview:** ``POST /api/preview_axes`` returns a transparent PNG of ``Axes`` (same config as timeline export).
 
 **Security:** Do not expose this on the public internet without a sandbox: TeX can
 execute shell commands if templates are attacker-controlled.
@@ -45,17 +51,20 @@ from __future__ import annotations
 import os
 import sys
 import traceback
+import json
 
 # Project root on sys.path when launched from elsewhere
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+_RENDER_DEBUG_DIR = os.path.join(_ROOT, "render_debug")
 
 import base64
 import shutil
 import subprocess
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 
 import numpy as np
@@ -111,6 +120,7 @@ class SegmentBoxOut(BaseModel):
     cy: float
     w: float
     h: float
+    is_math: bool | None = None
 
 
 class MeasureResponse(BaseModel):
@@ -139,6 +149,45 @@ class MeasureResponse(BaseModel):
     ink_top_y: float | None = None
     ink_bottom_y: float | None = None
     segment_boxes: list[SegmentBoxOut] | None = None
+    error: str | None = None
+
+
+class AxesPreviewRequest(BaseModel):
+    """JSON body for raster preview of coordinate axes (matches timeline export fields)."""
+
+    x_range: tuple[float, float, float] = Field(..., description="x_min, x_max, x_step")
+    y_range: tuple[float, float, float] = Field(..., description="y_min, y_max, y_step")
+    scale_x: float = Field(1.0, ge=0.01)
+    scale_y: float = Field(1.0, ge=0.01)
+    x_label: str = ""
+    y_label: str = ""
+    include_numbers: bool = False
+    include_tip: bool = True
+    axis_color: str | None = None
+    axis_stroke_width: float | None = Field(None, ge=0.5)
+    tick_length: float | None = Field(None, ge=0.01)
+    tick_color: str | None = None
+    tick_stroke_width: float | None = Field(None, ge=0.5)
+    number_color: str | None = None
+    number_font_size: float | None = Field(None, ge=1.0)
+    tip_shape: str | None = Field(None, description="Manim tip class name, e.g. StealthTip")
+    tip_height: float | None = Field(None, ge=0.05)
+    tip_width: float | None = Field(None, ge=0.05)
+    tip_stroke_width: float | None = Field(None, ge=0.0)
+    tip_fill_opacity: float | None = Field(None, ge=0.0, le=1.0)
+
+
+class AxesPreviewResponse(BaseModel):
+    ok: bool
+    png_base64: str | None = None
+    png_width: int | None = None
+    png_height: int | None = None
+    left: float | None = None
+    right: float | None = None
+    top: float | None = None
+    bottom: float | None = None
+    offset_ink_x: float | None = None
+    offset_ink_y: float | None = None
     error: str | None = None
 
 
@@ -393,14 +442,16 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             iby = float(line.get_bottom()[1])
 
         seg_boxes: list[SegmentBoxOut] = []
-        for sub in line:
+        for i, sub in enumerate(line):
             c = sub.get_center()
+            seg = line.segments[i] if i < len(line.segments) else None
             seg_boxes.append(
                 SegmentBoxOut(
                     cx=float(c[0]),
                     cy=float(c[1]),
                     w=float(sub.get_width()),
                     h=float(sub.get_height()),
+                    is_math=bool(getattr(seg, "is_math", False)) if seg is not None else None,
                 )
             )
 
@@ -427,6 +478,148 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
         )
     except Exception as e:
         return MeasureResponse(
+            ok=False,
+            error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+        )
+
+
+def _manim_color_maybe(hex_str: str) -> object:
+    s = hex_str.strip()
+    if not s:
+        return s
+    if ManimColor is not None:
+        try:
+            return ManimColor(s)
+        except Exception:
+            return s
+    return s
+
+
+def _resolve_tip_shape_class(name: str | None) -> type | None:
+    if not name:
+        return None
+    n = name.strip()
+    if not n or n.lower() == "default":
+        return None
+    try:
+        import manim as m
+
+        cls = getattr(m, n, None)
+        return cls if isinstance(cls, type) else None
+    except Exception:
+        return None
+
+
+def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
+    """Build ``Axes`` like the timeline exporter and return a transparent cropped PNG."""
+    try:
+        from manim import Axes, ORIGIN, VGroup
+
+        x_min, x_max, x_step = req.x_range
+        y_min, y_max, y_step = req.y_range
+        x_length = float((x_max - x_min) * req.scale_x)
+        y_length = float((y_max - y_min) * req.scale_y)
+
+        axis_config: dict = {}
+        if req.include_numbers:
+            axis_config["include_numbers"] = True
+
+        dec_cfg: dict = {}
+        if req.number_color and req.number_color.strip():
+            dec_cfg["color"] = _manim_color_maybe(req.number_color)
+        if req.number_font_size is not None:
+            dec_cfg["font_size"] = float(req.number_font_size)
+        if dec_cfg:
+            axis_config["decimal_number_config"] = dec_cfg
+
+        if req.axis_color and req.axis_color.strip():
+            axis_config["stroke_color"] = _manim_color_maybe(req.axis_color)
+        if req.axis_stroke_width is not None:
+            axis_config["stroke_width"] = float(req.axis_stroke_width)
+        if req.tick_length is not None:
+            axis_config["tick_size"] = float(req.tick_length)
+
+        if req.include_tip:
+            tip_cls = _resolve_tip_shape_class(req.tip_shape)
+            if tip_cls is not None:
+                axis_config["tip_shape"] = tip_cls
+            if req.tip_height is not None:
+                axis_config["tip_height"] = float(req.tip_height)
+            if req.tip_width is not None:
+                axis_config["tip_width"] = float(req.tip_width)
+
+        kwargs: dict = {
+            "x_range": [x_min, x_max, x_step],
+            "y_range": [y_min, y_max, y_step],
+            "x_length": x_length,
+            "y_length": y_length,
+        }
+        if not req.include_tip:
+            kwargs["tips"] = False
+        if axis_config:
+            kwargs["axis_config"] = axis_config
+
+        ax = Axes(**kwargs)
+
+        tick_kw: dict = {}
+        if req.tick_color and req.tick_color.strip():
+            tick_kw["color"] = _manim_color_maybe(req.tick_color)
+        if req.tick_stroke_width is not None:
+            tick_kw["width"] = float(req.tick_stroke_width)
+        if tick_kw:
+            for axis in (ax.x_axis, ax.y_axis):
+                if hasattr(axis, "ticks"):
+                    axis.ticks.set_stroke(**tick_kw)
+
+        if req.include_tip and (
+            req.tip_stroke_width is not None or req.tip_fill_opacity is not None
+        ):
+            for _tip in (ax.x_axis.tip, ax.y_axis.tip):
+                if _tip is None:
+                    continue
+                if req.tip_stroke_width is not None:
+                    _tip.set_stroke(width=float(req.tip_stroke_width))
+                if req.tip_fill_opacity is not None:
+                    _tip.set_fill(opacity=float(req.tip_fill_opacity))
+
+        parts: list = [ax]
+        xl = req.x_label.strip() if req.x_label else ""
+        yl = req.y_label.strip() if req.y_label else ""
+        if xl:
+            parts.append(ax.get_x_axis_label(xl))
+        if yl:
+            parts.append(ax.get_y_axis_label(yl))
+        grp = VGroup(*parts)
+        grp.move_to(ORIGIN)
+
+        (
+            png_b64,
+            pw,
+            ph,
+            _w_ink,
+            _h_ink,
+            ox_ink,
+            oy_ink,
+            ilx,
+            irx,
+            ity,
+            iby,
+        ) = mobject_to_cropped_png_base64(grp)
+
+        return AxesPreviewResponse(
+            ok=True,
+            png_base64=png_b64,
+            png_width=pw,
+            png_height=ph,
+            left=float(ilx),
+            right=float(irx),
+            top=float(ity),
+            bottom=float(iby),
+            offset_ink_x=float(ox_ink),
+            offset_ink_y=float(oy_ink),
+        )
+    except Exception as e:
+        return AxesPreviewResponse(
             ok=False,
             error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
         )
@@ -482,6 +675,10 @@ try:
     @app.post("/measure", response_model=MeasureResponse)
     def measure(req: MeasureRequest) -> MeasureResponse:
         return measure_line(req)
+
+    @app.post("/api/preview_axes", response_model=AxesPreviewResponse)
+    def preview_axes(req: AxesPreviewRequest) -> AxesPreviewResponse:
+        return preview_axes_raster(req)
 
     @app.post("/api/generate_audio", response_model=GenerateAudioResponse)
     def generate_audio(req: GenerateAudioRequest) -> GenerateAudioResponse:
@@ -786,6 +983,23 @@ try:
     def _cleanup_render_workdir(path: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
+    def _write_render_debug_snapshot(req: RenderRequest) -> None:
+        """Persist the last render request so UI/export mismatches can be inspected."""
+        os.makedirs(_RENDER_DEBUG_DIR, exist_ok=True)
+        source_path = os.path.join(_RENDER_DEBUG_DIR, "last_render.py")
+        meta_path = os.path.join(_RENDER_DEBUG_DIR, "last_render_meta.json")
+        with open(source_path, "w", encoding="utf-8") as f:
+            f.write(req.python_code)
+        meta = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scene_name": req.scene_name,
+            "quality": req.quality,
+            "source_path": source_path,
+            "source_chars": len(req.python_code),
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
     def _stage_project_assets_for_render(work_dir: str) -> None:
         """Copy ``assets/audio`` from the repo into *work_dir*.
 
@@ -820,6 +1034,7 @@ try:
         script_path = os.path.join(work_dir, script_name)
 
         try:
+            _write_render_debug_snapshot(req)
             _stage_project_assets_for_render(work_dir)
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(req.python_code)

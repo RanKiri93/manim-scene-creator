@@ -39,6 +39,27 @@ function clamp01(t: number): number {
   return Math.max(0, Math.min(1, t));
 }
 
+/**
+ * Manim's default `ArrowVectorField` length function:
+ *   length_func(norm) = 0.45 * sigmoid(norm)
+ * Used to dampen arrow length in scene units before
+ * `fit_to_coordinate_system` maps scene->axes data units.
+ */
+export function sigmoid(x: number): number {
+  if (x >= 0) {
+    const e = Math.exp(-x);
+    return 1 / (1 + e);
+  }
+  const e = Math.exp(x);
+  return e / (1 + e);
+}
+
+export const MANIM_ARROW_LENGTH_SCALE = 0.45;
+
+export function manimArrowLengthScene(norm: number): number {
+  return MANIM_ARROW_LENGTH_SCALE * sigmoid(norm);
+}
+
 /** Map scalar to hex color along named colormap stops. */
 export function colorForMagnitude(
   mag: number,

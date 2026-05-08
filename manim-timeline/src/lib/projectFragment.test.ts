@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  expandFragmentSelection,
-  getDirectItemDeps,
   remapFragmentItemsInPlace,
   collectCodegenIdsFromItems,
   fragmentEarliestStart,
   applyTimeShiftToFragment,
-  stripTextLineSegmentTiming,
-  buildProjectFragmentFile,
 } from '@/lib/projectFragment';
 import type { AudioTrackItem, SceneItem } from '@/types/scene';
 
@@ -58,112 +54,6 @@ function plot(axesId: string, id: string, fnId: string): SceneItem {
     strokeWidth: 2,
   };
 }
-
-describe('getDirectItemDeps', () => {
-  it('includes axes for graph plot', () => {
-    const p = plot('ax1', 'plot1', 'fn1') as Extract<SceneItem, { kind: 'graphPlot' }>;
-    expect(getDirectItemDeps(p)).toContain('ax1');
-  });
-});
-
-describe('expandFragmentSelection', () => {
-  it('pulls axes when only plot is selected', () => {
-    const ax = axes('ax1');
-    const p = plot('ax1', 'plot1', 'fn1');
-    const m = new Map<string, SceneItem>([
-      ['ax1', ax],
-      ['plot1', p],
-    ]);
-    const r = expandFragmentSelection(m, [], new Set(['plot1']));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(new Set(r.itemIds)).toEqual(new Set(['ax1', 'plot1']));
-  });
-
-  it('errors when reference is missing', () => {
-    const p = plot('missing', 'plot1', 'fn1');
-    const m = new Map<string, SceneItem>([['plot1', p]]);
-    const r = expandFragmentSelection(m, [], new Set(['plot1']));
-    expect(r.ok).toBe(false);
-  });
-
-  it('includes transform source line', () => {
-    const lineA: SceneItem = {
-      kind: 'textLine',
-      id: 'a',
-      label: '',
-      layer: 0,
-      startTime: 0,
-      duration: 2,
-      x: 0,
-      y: 0,
-      scale: 1,
-      posSteps: [{ kind: 'absolute' }],
-      raw: '',
-      font: 'Alef',
-      fontSize: 36,
-      segments: [],
-      measure: null,
-      measureError: null,
-      previewDataUrl: null,
-      segmentMeasures: null,
-    };
-    const lineB: SceneItem = {
-      ...lineA,
-      id: 'b',
-      transformConfig: {
-        sourceLineId: 'a',
-        segmentPairs: {},
-        unmappedSourceBehavior: 'fade_out',
-        unmappedTargetBehavior: 'fade_in',
-      },
-    };
-    const m = new Map<string, SceneItem>([
-      ['a', lineA],
-      ['b', lineB],
-    ]);
-    const r = expandFragmentSelection(m, [], new Set(['b']));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(new Set(r.itemIds)).toEqual(new Set(['a', 'b']));
-  });
-
-  it('includes linked audio tracks', () => {
-    const line: SceneItem = {
-      kind: 'textLine',
-      id: 'L',
-      label: '',
-      layer: 0,
-      startTime: 0,
-      duration: 2,
-      x: 0,
-      y: 0,
-      scale: 1,
-      posSteps: [{ kind: 'absolute' }],
-      audioTrackId: 'aud1',
-      raw: '',
-      font: 'Alef',
-      fontSize: 36,
-      segments: [],
-      measure: null,
-      measureError: null,
-      previewDataUrl: null,
-      segmentMeasures: null,
-    };
-    const audio: AudioTrackItem = {
-      id: 'aud1',
-      text: 'hi',
-      audioUrl: 'http://example.com/a.wav',
-      startTime: 0,
-      duration: 1,
-    };
-    const m = new Map<string, SceneItem>([['L', line]]);
-    const r = expandFragmentSelection(m, [audio], new Set(['L']));
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.audioItems.map((a) => a.id)).toEqual(['aud1']);
-  });
-});
 
 describe('remapFragmentItemsInPlace', () => {
   it('remaps nested graph fn id and axes reference', () => {
@@ -222,84 +112,6 @@ describe('collectCodegenIdsFromItems', () => {
     const s = collectCodegenIdsFromItems(items);
     expect(s.has('plot1')).toBe(true);
     expect(s.has('fn1')).toBe(true);
-  });
-});
-
-describe('stripTextLineSegmentTiming', () => {
-  it('removes waitAfterSec and animSec from text line segments', () => {
-    const tl: SceneItem = {
-      kind: 'textLine',
-      id: 'L',
-      label: '',
-      layer: 0,
-      startTime: 0,
-      duration: 2,
-      x: 0,
-      y: 0,
-      scale: 1,
-      posSteps: [{ kind: 'absolute' }],
-      raw: '',
-      font: 'Alef',
-      fontSize: 36,
-      segments: [
-        {
-          text: 'a',
-          isMath: true,
-          color: '#fff',
-          bold: false,
-          italic: false,
-          waitAfterSec: 0.5,
-          animSec: 0.3,
-        },
-      ],
-      measure: null,
-      measureError: null,
-      previewDataUrl: null,
-      segmentMeasures: null,
-    };
-    const items = [tl];
-    stripTextLineSegmentTiming(items);
-    const seg = (items[0] as Extract<SceneItem, { kind: 'textLine' }>).segments[0]!;
-    expect(seg.waitAfterSec).toBeUndefined();
-    expect(seg.animSec).toBeUndefined();
-  });
-
-  it('is applied when buildProjectFragmentFile stripSegmentTiming is true', () => {
-    const tl: SceneItem = {
-      kind: 'textLine',
-      id: 'L',
-      label: '',
-      layer: 0,
-      startTime: 1,
-      duration: 3,
-      x: 0,
-      y: 0,
-      scale: 1,
-      posSteps: [{ kind: 'absolute' }],
-      raw: '',
-      font: 'Alef',
-      fontSize: 36,
-      segments: [
-        {
-          text: 'x',
-          isMath: true,
-          color: '#fff',
-          bold: false,
-          italic: false,
-          waitAfterSec: 2,
-          animSec: 1,
-        },
-      ],
-      measure: null,
-      measureError: null,
-      previewDataUrl: null,
-      segmentMeasures: null,
-    };
-    const frag = buildProjectFragmentFile([tl], [], false, true);
-    const seg = frag.items[0]!.kind === 'textLine' ? frag.items[0].segments[0]! : null;
-    expect(seg).toBeTruthy();
-    expect(seg!.waitAfterSec).toBeUndefined();
-    expect(seg!.animSec).toBeUndefined();
   });
 });
 

@@ -4,7 +4,10 @@ import type { GraphPlotItem } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
+import AudioBindingSelect from './AudioBindingSelect';
+import PropertyTabs from './PropertyTabs';
 import { GraphFieldHelpIcon } from './GraphFieldExpressionHelp';
+import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import {
   GRAPH_PLOT_JS_HELP,
   GRAPH_PLOT_PY_HELP,
@@ -18,6 +21,7 @@ interface GraphPlotEditorProps {
 
 export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
+  const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const axesForPlot = useSceneStore((s) => s.items.get(item.axesId));
 
   const set = useCallback(
@@ -50,7 +54,7 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
     }
   };
 
-  return (
+  const baseContent = (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-slate-200">Graph plot</h3>
       <label className="text-xs text-slate-400 block">
@@ -75,11 +79,16 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           step={0.25}
         />
       </div>
-      <details open className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
-        <summary className="text-xs text-slate-400 cursor-pointer select-none flex items-center gap-1.5">
+    </div>
+  );
+
+  const graphContent = (
+    <div className="flex flex-col gap-3">
+      <div className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
+        <div className="text-xs text-slate-400 mb-1 flex items-center gap-1.5">
           <span>Function formulae</span>
           <GraphFieldHelpIcon title={GRAPH_PLOT_SECTION_HELP} label="Help: function formulae" />
-        </summary>
+        </div>
         <p className="mt-2 text-[11px] leading-snug text-slate-500">
           JavaScript drives the canvas preview; Python (NumPy) drives export. Variable is{' '}
           <code className="text-slate-400">x</code>.
@@ -122,7 +131,7 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           pyInputRef={pyExprRef}
           lastFocusRef={lastFormulaFocusRef}
         />
-      </details>
+      </div>
 
       <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
         <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -148,10 +157,31 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           <code className="text-slate-400">plot(..., x_range=[x_min, x_max])</code>.
         </p>
       </div>
+    </div>
+  );
 
+  const animationContent = (
+    <div className="flex flex-col gap-3">
+      <VisibleAtSceneStartRow
+        checked={item.visibleAtSceneStart === true}
+        note="Intro audio is not synchronized (no intro animation)."
+        onChange={(next) =>
+          set(
+            next
+              ? { visibleAtSceneStart: true, startTime: 0 }
+              : { visibleAtSceneStart: undefined },
+          )
+        }
+      />
       <div className="flex flex-col gap-1">
         <div className="flex items-end gap-3 flex-wrap">
-          <NumberInput label="Start (s)" value={item.startTime} onChange={(v) => set({ startTime: v })} min={0} />
+          <NumberInput
+            label="Start (s)"
+            value={item.startTime}
+            onChange={(v) => set({ startTime: v })}
+            min={0}
+            disabled={item.visibleAtSceneStart === true}
+          />
           <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
           <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
         </div>
@@ -161,6 +191,23 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
         </p>
       </div>
 
+      <AudioBindingSelect
+        value={item.audioTrackId}
+        currentItemId={item.id}
+        onChange={(audioTrackId) => setItemAudioBinding(item.id, audioTrackId)}
+      />
     </div>
+  );
+
+  return (
+    <PropertyTabs
+      key={item.id}
+      defaultTabId="base"
+      tabs={[
+        { id: 'base', label: 'Base', content: baseContent },
+        { id: 'graph', label: 'Graph', content: graphContent },
+        { id: 'animation', label: 'Animation / Audio', content: animationContent },
+      ]}
+    />
   );
 }

@@ -9,12 +9,149 @@ import type {
   GraphAreaItem,
   ShapeItem,
   ItemId,
+  AudioTrackItem,
 } from '@/types/scene';
-import { isTopLevelItem, effectiveStart } from '@/lib/time';
+import { isTopLevelItem, effectiveStart, runDuration } from '@/lib/time';
+import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
 
 export type SceneState = {
   items: Map<ItemId, SceneItem>;
 };
+
+const GENERIC_AUDIO_LABELS = new Set([
+  'uploaded audio',
+  'mic recording',
+  '',
+]);
+
+function needsScriptReview(text: string): boolean {
+  const t = text.trim();
+  return GENERIC_AUDIO_LABELS.has(t.toLowerCase());
+}
+
+type AudioScriptSortRow =
+  | {
+      kind: 'audio';
+      start: number;
+      id: string;
+      track: AudioTrackItem;
+    }
+  | {
+      kind: 'textLine';
+      start: number;
+      id: string;
+      line: TextLineItem;
+    };
+
+/** Pure Markdown body for narration / recording prep (tests + preview). */
+export function buildAudioScriptMarkdown(
+  items: Map<ItemId, SceneItem>,
+  audioItems: readonly AudioTrackItem[],
+): string {
+  const rows: AudioScriptSortRow[] = [];
+
+  for (const t of audioItems) {
+    rows.push({
+      kind: 'audio',
+      start: t.startTime,
+      id: t.id,
+      track: t,
+    });
+  }
+
+  for (const it of items.values()) {
+    if (!isTopLevelItem(it)) continue;
+    if (it.kind !== 'textLine') continue;
+    rows.push({
+      kind: 'textLine',
+      start: effectiveStart(it, items),
+      id: it.id,
+      line: it,
+    });
+  }
+
+  rows.sort((a, b) => {
+    const d = a.start - b.start;
+    if (Math.abs(d) > 1e-9) return d;
+    const kindOrder = a.kind === 'audio' ? 0 : 1;
+    const kindOrderB = b.kind === 'audio' ? 0 : 1;
+    if (kindOrder !== kindOrderB) return kindOrder - kindOrderB;
+    return a.id.localeCompare(b.id);
+  });
+
+  let audioN = 0;
+  let lineN = 0;
+  const parts: string[] = [
+    '# Audio Script',
+    '',
+    'Timeline order; use this for external recording/editing.',
+    '',
+  ];
+
+  for (const row of rows) {
+    if (row.kind === 'audio') {
+      audioN += 1;
+      const track = row.track;
+      parts.push(`## Audio ${audioN}`);
+      parts.push('');
+      parts.push(`- **Start:** ${row.start.toFixed(2)}s`);
+      parts.push(`- **Duration:** ${track.duration.toFixed(2)}s`);
+      parts.push(`- **Track id:** \`${track.id}\``);
+      const owner = explicitVisualOwnerForAudioTrack(items, track.id);
+      if (owner) {
+        parts.push(`- **Bound clip:** ${itemClipDisplayName(owner)}`);
+      }
+      parts.push('');
+      const raw = track.text ?? '';
+      if (needsScriptReview(raw)) {
+        parts.push(
+          '_Review: replace generic or empty script text with your narration._',
+        );
+        parts.push('');
+      }
+      parts.push(raw.trim() || '_(no script text on this track)_');
+      parts.push('');
+    } else {
+      lineN += 1;
+      const line = row.line;
+      const dur = runDuration(line, items);
+      parts.push(`## Text line ${lineN}`);
+      parts.push('');
+      parts.push(`- **Start:** ${row.start.toFixed(2)}s`);
+      parts.push(
+        `- **Duration:** ${dur.toFixed(2)}s (timeline run segment — anim + segment waits)`,
+      );
+      parts.push(`- **Clip:** ${itemClipDisplayName(line)}`);
+      parts.push(`- **Item id:** \`${line.id}\``);
+      parts.push('');
+      parts.push(line.raw?.trim() || '_(empty raw)_');
+      parts.push('');
+    }
+  }
+
+  if (rows.length === 0) {
+    parts.push('_No audio tracks and no text lines in this scene._');
+    parts.push('');
+  }
+
+  return parts.join('\n').replace(/\n+$/, '') + '\n';
+}
+
+export function exportAudioScriptToMarkdown(state: {
+  items: Map<ItemId, SceneItem>;
+  audioItems: AudioTrackItem[];
+}): void {
+  const md = buildAudioScriptMarkdown(state.items, state.audioItems);
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'audio_script.md';
+  a.rel = 'noopener';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function lineHeading(raw: string): string {
   const flat = raw.replace(/\s+/g, ' ');
@@ -71,6 +208,14 @@ function appendGraphFunctionSeries(
 function appendShape(lines: string[], item: ShapeItem): void {
   lines.push('');
   lines.push(`## Shape (${item.shapeType})`);
+  if (item.shapeType === 'polyline') {
+    lines.push(
+      `points: ${item.points.map((p) => `(${p.x}, ${p.y})`).join(' -> ')}`,
+    );
+    lines.push(
+      `arrowheads: ${item.tailArrow && item.headArrow ? 'both' : item.tailArrow ? 'tail' : item.headArrow ? 'head' : 'none'}`,
+    );
+  }
 }
 
 function appendGraphArea(lines: string[], item: GraphAreaItem): void {
@@ -91,6 +236,9 @@ function appendGraphField(lines: string[], item: GraphFieldItem): void {
   } else {
     lines.push(`P (Py): ${(item.pyExprP ?? '').trim() || '(empty)'}`);
     lines.push(`Q (Py): ${(item.pyExprQ ?? '').trim() || '(empty)'}`);
+  }
+  if (typeof item.arrowStrokeWidth === 'number') {
+    lines.push(`Arrow stroke width (px): ${item.arrowStrokeWidth}`);
   }
   const seeds = item.streamPoints ?? [];
   if (seeds.length > 0) {

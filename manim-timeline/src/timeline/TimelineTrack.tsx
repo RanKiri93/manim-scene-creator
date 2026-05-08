@@ -1,5 +1,6 @@
 import type { SceneItem } from '@/types/scene';
 import { useSceneStore } from '@/store/useSceneStore';
+import type { PreviewOp } from '@/agent/previewSelectors';
 import TimelineClip from './TimelineClip';
 
 interface TimelineTrackProps {
@@ -7,6 +8,7 @@ interface TimelineTrackProps {
   items: SceneItem[];
   pxPerSecond: number;
   viewStart: number;
+  previewOps?: Map<string, PreviewOp>;
 }
 
 export default function TimelineTrack({
@@ -14,6 +16,7 @@ export default function TimelineTrack({
   items,
   pxPerSecond,
   viewStart,
+  previewOps,
 }: TimelineTrackProps) {
   const selectedIds = useSceneStore((s) => s.selectedIds);
 
@@ -32,6 +35,7 @@ export default function TimelineTrack({
           pxPerSecond={pxPerSecond}
           viewStart={viewStart}
           isSelected={selectedIds.has(item.id)}
+          previewOp={previewOps?.get(item.id)}
         />
       ))}
     </div>

@@ -8,6 +8,7 @@ export interface SurroundingRectNodeProps {
   canvasWidth: number;
   canvasHeight: number;
   isSelected: boolean;
+  previewStrokeColor?: string;
 }
 
 function manimAabbToCanvasRect(
@@ -36,6 +37,7 @@ export default function SurroundingRectNode({
   canvasWidth,
   canvasHeight,
   isSelected,
+  previewStrokeColor,
 }: SurroundingRectNodeProps) {
   const { x, y, width, height } = manimAabbToCanvasRect(
     bboxManim.left,
@@ -67,7 +69,7 @@ export default function SurroundingRectNode({
       y={y}
       width={width}
       height={height}
-      stroke={item.color}
+      stroke={previewStrokeColor ?? item.color}
       strokeWidth={strokeW}
       cornerRadius={cornerR}
       fillEnabled={false}

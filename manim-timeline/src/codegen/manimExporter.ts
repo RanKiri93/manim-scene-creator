@@ -5,6 +5,7 @@ import type {
   AudioTrackItem,
   AxesItem,
   ExitAnimationItem,
+  BlinkAnimationItem,
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
@@ -13,7 +14,7 @@ import type {
   SurroundingRectItem,
   ExitAnimStyle,
 } from '@/types/scene';
-import { functionSeriesHasErrors } from '@/types/scene';
+import { functionSeriesHasErrors, isVisibleAtSceneStartItem } from '@/types/scene';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import { compareGraphStackOverlays } from '@/lib/graphPreview';
 import {
@@ -56,6 +57,7 @@ import {
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
+  sequentialAnimSecondsForBlink,
   sequentialAnimSecondsForLeaf,
   sequentialAnimSecondsForSurroundingRect,
 } from './groupPlaybackSpan';
@@ -65,9 +67,14 @@ import {
   visualClusterWallSeconds,
 } from './leafConcurrentCodegen';
 import {
+  anyReplacementFunctionSeries,
+  functionSeriesRevealTransformSource,
   generateGraphFunctionSeriesDef,
   generateGraphFunctionSeriesPlay,
 } from './functionSeriesCodegen';
+import { formatBlinkClipPlay } from './blinkCodegen';
+import { generateSceneStartStaticAdds } from './staticAddCodegen';
+import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
 
 type PlaybackEvent =
   | { t: number; kind: 'audio'; track: AudioTrackItem }
@@ -78,11 +85,11 @@ type PlaybackEvent =
       leaves: ExportLeaf[];
       surroundingRects: SurroundingRectItem[];
       exitClips: ExitAnimationItem[];
+      blinkClips: BlinkAnimationItem[];
     }
   | { t: number; kind: 'surrounding_rect'; sr: SurroundingRectItem }
-  | { t: number; kind: 'exit'; exit: ExitAnimationItem };
-
-import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
+  | { t: number; kind: 'exit'; exit: ExitAnimationItem }
+  | { t: number; kind: 'blink'; blink: BlinkAnimationItem };
 
 const TIMELINE_GAP_EPS = 0.001;
 
@@ -105,6 +112,7 @@ function concurrentClusterWallTimelineEnd(
     leaves: ExportLeaf[];
     surroundingRects: SurroundingRectItem[];
     exitClips: ExitAnimationItem[];
+    blinkClips: BlinkAnimationItem[];
   },
   itemsMap: Map<ItemId, SceneItem>,
 ): number {
@@ -117,6 +125,9 @@ function concurrentClusterWallTimelineEnd(
   }
   for (const ex of vc.exitClips) {
     m = Math.max(m, ex.startTime + ex.duration);
+  }
+  for (const bl of vc.blinkClips) {
+    m = Math.max(m, bl.startTime + bl.duration);
   }
   return m;
 }
@@ -542,11 +553,13 @@ function exportManimCodeInner(
   const playPad = ' '.repeat(base);
   let timelineCursor = 0;
 
+  const flatPlayback = flat.filter((l) => !isVisibleAtSceneStartItem(l));
+
   const audioList = options.audioItems ?? [];
   const unboundAudio = listUnboundAudioTracksForExport(audioList, flat, itemsMap);
 
   const visualClusters = clusterConcurrentVisualPlayback(
-    flat,
+    flatPlayback,
     items,
     itemsMap,
     options.audioItems,
@@ -554,22 +567,29 @@ function exportManimCodeInner(
   const inVisualCluster = new Set<ItemId>();
   for (const c of visualClusters) {
     const n =
-      c.leaves.length + c.surroundingRects.length + c.exitClips.length;
+      c.leaves.length +
+      c.surroundingRects.length +
+      c.exitClips.length +
+      c.blinkClips.length;
     if (n >= 2) {
       for (const L of c.leaves) inVisualCluster.add(L.id);
       for (const sr of c.surroundingRects) inVisualCluster.add(sr.id);
       for (const ex of c.exitClips) inVisualCluster.add(ex.id);
+      for (const bl of c.blinkClips) inVisualCluster.add(bl.id);
     }
   }
 
   const playEvents: PlaybackEvent[] = [];
-  for (const it of flat) {
+  for (const it of flatPlayback) {
     if (inVisualCluster.has(it.id)) continue;
     playEvents.push({ t: effectiveStart(it, itemsMap), kind: 'leaf', leaf: it });
   }
   for (const c of visualClusters) {
     if (
-      c.leaves.length + c.surroundingRects.length + c.exitClips.length <
+      c.leaves.length +
+        c.surroundingRects.length +
+        c.exitClips.length +
+        c.blinkClips.length <
       2
     ) {
       continue;
@@ -578,6 +598,7 @@ function exportManimCodeInner(
       ...c.leaves.map((L) => effectiveStart(L, itemsMap)),
       ...c.surroundingRects.map((sr) => effectiveStart(sr, itemsMap)),
       ...c.exitClips.map((ex) => ex.startTime),
+      ...c.blinkClips.map((bl) => bl.startTime),
     ];
     const t = Math.min(...clusterTimes);
     const sortedLeaves = [...c.leaves].sort(
@@ -593,12 +614,16 @@ function exportManimCodeInner(
     const sortedExits = [...c.exitClips].sort(
       (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
     );
+    const sortedBlinks = [...c.blinkClips].sort(
+      (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
+    );
     playEvents.push({
       t,
       kind: 'visual_cluster',
       leaves: sortedLeaves,
       surroundingRects: sortedSrs,
       exitClips: sortedExits,
+      blinkClips: sortedBlinks,
     });
   }
   for (const tr of unboundAudio) {
@@ -606,6 +631,7 @@ function exportManimCodeInner(
   }
   for (const it of items) {
     if (it.kind === 'surroundingRect' && !inVisualCluster.has(it.id)) {
+      if (isVisibleAtSceneStartItem(it)) continue;
       playEvents.push({
         t: effectiveStart(it, itemsMap),
         kind: 'surrounding_rect',
@@ -622,6 +648,15 @@ function exportManimCodeInner(
       playEvents.push({ t: it.startTime, kind: 'exit', exit: it });
     }
   }
+  for (const it of items) {
+    if (
+      it.kind === 'blink_animation' &&
+      it.targets.length > 0 &&
+      !inVisualCluster.has(it.id)
+    ) {
+      playEvents.push({ t: it.startTime, kind: 'blink', blink: it });
+    }
+  }
   const eventKindOrder = (k: PlaybackEvent['kind']) => {
     if (k === 'audio') return 0;
     if (k === 'leaf' || k === 'visual_cluster') return 1;
@@ -635,6 +670,7 @@ function exportManimCodeInner(
         ...e.leaves.map((L) => L.id),
         ...e.surroundingRects.map((s) => s.id),
         ...e.exitClips.map((x) => x.id),
+        ...e.blinkClips.map((x) => x.id),
       ]
         .sort()
         .join(',');
@@ -661,8 +697,13 @@ function exportManimCodeInner(
     if (a.kind === 'exit' && b.kind === 'exit') {
       return a.exit.id.localeCompare(b.exit.id);
     }
+    if (a.kind === 'blink' && b.kind === 'blink') {
+      return a.blink.id.localeCompare(b.blink.id);
+    }
     return 0;
   });
+
+  playStr += generateSceneStartStaticAdds(flat, items, idToVarName, base);
 
   const emitLeafPlay = (
     it: ExportLeaf,
@@ -792,6 +833,7 @@ function exportManimCodeInner(
         e.kind === 'surrounding_rect',
     );
     const exits = group.filter((e): e is Extract<PlaybackEvent, { kind: 'exit' }> => e.kind === 'exit');
+    const blinks = group.filter((e): e is Extract<PlaybackEvent, { kind: 'blink' }> => e.kind === 'blink');
 
     if (audios.length && t0 + TIMELINE_GAP_EPS < timelineCursor) {
       playStr += `${playPad}# Note: audio below overlaps earlier playback in export order (Manim runs sequentially).\n`;
@@ -807,6 +849,7 @@ function exportManimCodeInner(
         vc.leaves,
         vc.surroundingRects,
         vc.exitClips,
+        vc.blinkClips,
         playPad,
         base,
         idToVarName,
@@ -840,11 +883,14 @@ function exportManimCodeInner(
         if (spec.animStyle === 'none') continue;
         const tgt = itemsMap.get(spec.targetId);
         if (!tgt) continue;
-        const targetsStr = resolveExitTargetsForExport(tgt, idToVarName);
+        const targetsStr = resolveExitTargetsForExport(tgt, idToVarName, 'exit');
         if (!targetsStr) continue;
         parts.push({ targetsStr, animStyle: spec.animStyle });
       }
       playStr += formatExitGroupPlayLine(parts, ex.exit.duration, playPad);
+    }
+    for (const bl of blinks) {
+      playStr += formatBlinkClipPlay(bl.blink, playPad, idToVarName, itemsMap);
     }
 
     let groupEnd = t0;
@@ -861,6 +907,9 @@ function exportManimCodeInner(
       for (const ex of vc.exitClips) {
         groupEnd = Math.max(groupEnd, ex.startTime + ex.duration);
       }
+      for (const bl of vc.blinkClips) {
+        groupEnd = Math.max(groupEnd, bl.startTime + bl.duration);
+      }
     }
     for (const e of leaves) {
       groupEnd = Math.max(groupEnd, holdEnd(e.leaf, itemsMap));
@@ -870,6 +919,9 @@ function exportManimCodeInner(
     }
     for (const ex of exits) {
       groupEnd = Math.max(groupEnd, ex.exit.startTime + ex.exit.duration);
+    }
+    for (const bl of blinks) {
+      groupEnd = Math.max(groupEnd, bl.blink.startTime + bl.blink.duration);
     }
 
     // Manim's `add_sound` does not advance scene time. Pad with wait() so the scene clock
@@ -886,6 +938,7 @@ function exportManimCodeInner(
         vc.leaves,
         vc.surroundingRects,
         vc.exitClips,
+        vc.blinkClips,
         itemsMap,
       );
     }
@@ -904,6 +957,9 @@ function exportManimCodeInner(
     }
     for (const ex of exits) {
       animSec += sequentialAnimSecondsForExit(ex.exit);
+    }
+    for (const bl of blinks) {
+      animSec += sequentialAnimSecondsForBlink(bl.blink);
     }
     const padAfter = Math.max(0, groupSpanCapped - animSec);
     if (padAfter > TIMELINE_GAP_EPS) {
@@ -932,6 +988,9 @@ function exportManimCodeInner(
     ) {
       fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
     }
+    if (it.kind === 'blink_animation' && it.targets.length > 0) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
     if (it.kind === 'surroundingRect') {
       fullSceneEnd = Math.max(fullSceneEnd, holdEnd(it, itemsMap));
     }
@@ -956,6 +1015,13 @@ function exportManimCodeInner(
     header += 'import numpy as np\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
+
+  // Emit the `_FSRevealTransform` helper (used only by replacement-mode
+  // graphFunctionSeries) at module scope so both concurrent-cluster
+  // Successions and standalone `self.play(...)` calls can reference it.
+  if (anyReplacementFunctionSeries(items)) {
+    header += '\n\n' + functionSeriesRevealTransformSource(0);
+  }
 
   const className = safeSceneClassName(options.defaults.sceneName ?? '');
   let body = `\nclass ${className}(Scene):\n`;

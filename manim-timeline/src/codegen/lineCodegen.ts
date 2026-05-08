@@ -14,19 +14,24 @@ import {
   type ShapeItem,
 } from '@/types/scene';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
+import { isAudioBindingNone } from '@/lib/audioBinding';
 import {
   effectiveDuration,
   effectiveStart,
   segmentWaitTotal,
   textLineAnimOnlyDuration,
 } from '@/lib/time';
+import { resolvePosition } from '@/lib/resolvePosition';
 import { getSegmentAnimSec } from '@/lib/segmentAnimDurations';
 import type { ExportLeaf } from './flattenExport';
 import { buildExportParts, pythonStringLiteral } from './texUtils';
-import { emitNextToPython } from './nextToCodegen';
 
 const BOUNDARY_SNAP_SEC = 0.15;
 const OVERLAP_EPS = 1e-6;
+
+function pyCommentValue(value: unknown): string {
+  return JSON.stringify(value).replace(/\r?\n/g, ' ');
+}
 
 function audioAssetRelPath(track: AudioTrackItem): string {
   return deriveAudioAssetRelPath(track);
@@ -35,6 +40,7 @@ function audioAssetRelPath(track: AudioTrackItem): string {
 /**
  * Pick a timeline audio track for a clip: explicit `audioTrackId`, or any track whose
  * time range overlaps the clip window (no “closest” fallback when there is no overlap).
+ * `audioTrackId` null/undefined = auto overlap; sentinel `AUDIO_BINDING_NONE` = no binding.
  */
 export function pickAudioTrackForClip(
   audioTrackId: string | null | undefined,
@@ -42,6 +48,9 @@ export function pickAudioTrackForClip(
   absEnd: number,
   audioItems: AudioTrackItem[],
 ): AudioTrackItem | undefined {
+  if (isAudioBindingNone(audioTrackId)) {
+    return undefined;
+  }
   if (audioTrackId) {
     return audioItems.find((a) => a.id === audioTrackId);
   }
@@ -359,56 +368,42 @@ export function generateLinePos(
   item: TextLineItem,
   varName: string,
   indent: number,
-  idToVarName: Map<ItemId, string>,
+  _idToVarName: Map<ItemId, string>,
   itemsMap?: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
-  const lines: string[] = [];
+  const lines: string[] = [
+    `${pad}# timeline textLine ${pyCommentValue({
+      id: item.id,
+      label: item.label,
+      raw: item.raw,
+      x: item.x,
+      y: item.y,
+      scale: item.scale,
+      posSteps: item.posSteps,
+      measure: item.measure
+        ? {
+            width: item.measure.width,
+            height: item.measure.height,
+            widthInk: item.measure.widthInk,
+            heightInk: item.measure.heightInk,
+            offsetInkX: item.measure.offsetInkX,
+            offsetInkY: item.measure.offsetInkY,
+          }
+        : null,
+    })}`,
+  ];
 
   const imap = itemsMap ?? new Map<ItemId, SceneItem>();
 
-  for (let si = 0; si < item.posSteps.length; si++) {
-    const step = item.posSteps[si]!;
-    switch (step.kind) {
-      case 'absolute':
-        lines.push(
-          `${pad}${varName}.move_to([${item.x.toFixed(6)}, ${item.y.toFixed(6)}, 0])`,
-        );
-        break;
-      case 'next_to': {
-        if (!step.refId) break;
-        const refVar = idToVarName.get(step.refId);
-        if (!refVar) break;
-        const refItem = imap.get(step.refId);
-        if (!refItem) break;
-        lines.push(
-          emitNextToPython({
-            varName,
-            step,
-            refVar,
-            item,
-            refItem,
-            itemsMap: imap,
-            stepIndex: si,
-            indent: pad,
-          }),
-        );
-        break;
-      }
-      case 'to_edge':
-        lines.push(`${pad}${varName}.to_edge(${step.edge}, buff=${step.buff})`);
-        break;
-      case 'shift':
-        lines.push(`${pad}${varName}.shift(${step.dx}*RIGHT + ${step.dy}*UP)`);
-        break;
-      case 'set_x':
-        lines.push(`${pad}${varName}.set_x(${step.x.toFixed(6)})`);
-        break;
-      case 'set_y':
-        lines.push(`${pad}${varName}.set_y(${step.y.toFixed(6)})`);
-        break;
-    }
+  const scale = Number.isFinite(item.scale) ? item.scale : 1;
+  if (Math.abs(scale - 1) > 1e-6) {
+    lines.push(`${pad}${varName}.scale(${scale.toFixed(6)})`);
   }
+  const resolved = resolvePosition(item, imap);
+  lines.push(
+    `${pad}${varName}.move_to([${resolved.x.toFixed(6)}, ${resolved.y.toFixed(6)}, 0])`,
+  );
 
   // Segment colors
   item.segments.forEach((seg, i) => {
@@ -588,10 +583,12 @@ export function generateLinePlay(
   tailOpts?: BoundAudioTailOpts,
 ): string {
   const pad = ' '.repeat(indent);
-  const runDur = item.duration;
   let s = '';
 
+  if (item.visibleAtSceneStart) return '';
+
   const tc = item.transformConfig;
+  const runDur = item.duration;
   const sourceVar =
     item.animStyle === 'transform' && tc
       ? idToVarName.get(tc.sourceLineId)

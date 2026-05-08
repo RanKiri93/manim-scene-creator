@@ -6,6 +6,7 @@ import type {
   ItemId,
   SceneItem,
   TextLineItem,
+  AxesItem,
   SceneDefaults,
   MeasureConfig,
   MeasureResult,
@@ -25,8 +26,11 @@ import {
   segmentWaitTotal,
   timelineSpanEnd,
   minExitStartTimeForClip,
+  effectiveStart,
+  minBlinkStartTimeForClip,
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
+import { isAudioBindingNone, explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 
 function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
   for (const it of items.values()) {
@@ -34,6 +38,19 @@ function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
     const minT = minExitStartTimeForClip(it, items);
     if (minT != null && it.startTime < minT) it.startTime = minT;
   }
+}
+
+function clampAllBlinkStarts(items: Map<ItemId, SceneItem>): void {
+  for (const it of items.values()) {
+    if (it.kind !== 'blink_animation') continue;
+    const minT = minBlinkStartTimeForClip(it, items);
+    if (minT != null && it.startTime < minT) it.startTime = minT;
+  }
+}
+
+function clampEffectClipStarts(items: Map<ItemId, SceneItem>): void {
+  clampAllExitStarts(items);
+  clampAllBlinkStarts(items);
 }
 
 /**
@@ -64,6 +81,42 @@ import {
 } from '@/lib/projectFragment';
 
 enableMapSet();
+
+function dedupeExclusiveAudioOwner(
+  items: Map<ItemId, SceneItem>,
+  ownerId: ItemId,
+  audioTrackId: string | null | undefined,
+): void {
+  if (!audioTrackId || isAudioBindingNone(audioTrackId)) return;
+  for (const other of items.values()) {
+    if (other.id === ownerId) continue;
+    if (!('audioTrackId' in other)) continue;
+    if (other.audioTrackId === audioTrackId) {
+      other.audioTrackId = null;
+    }
+  }
+}
+
+function syncAllExplicitAudioBindingsInDraft(
+  items: Map<ItemId, SceneItem>,
+  audioItems: AudioTrackItem[],
+): void {
+  for (const item of items.values()) {
+    if (!('audioTrackId' in item)) continue;
+    const aid = item.audioTrackId;
+    if (!aid || isAudioBindingNone(aid)) continue;
+    const track = audioItems.find((a) => a.id === aid);
+    if (!track) continue;
+    track.startTime = Math.max(0, effectiveStart(item, items));
+  }
+}
+
+/** Duplicated scene items drop audio linkage so explicit binding stays exclusive. */
+function stripExclusiveAudioClone(c: SceneItem): void {
+  if ('audioTrackId' in c) {
+    (c as { audioTrackId?: string | null }).audioTrackId = null;
+  }
+}
 
 function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
   for (const a of tracks) {
@@ -100,8 +153,13 @@ export type AudioPanelMode = 'tts' | 'record' | 'upload';
 interface UiSlice {
   exportOpen: boolean;
   audioMode: AudioPanelMode | null;
+  agentOpen: boolean;
+  /** When set, the next plain-canvas clicks append local points to that polyline shape. */
+  polylinePointCaptureId: ItemId | null;
   setExportOpen: (open: boolean) => void;
   setAudioMode: (mode: AudioPanelMode | null) => void;
+  setAgentOpen: (open: boolean) => void;
+  setPolylinePointCaptureId: (id: ItemId | null) => void;
 }
 
 // ── Scene data slice ──
@@ -133,6 +191,7 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
     id: ItemId,
     patch: Partial<Extract<SceneItem, { kind: K }>>,
   ) => void;
+  setItemAudioBinding: (itemId: ItemId, audioTrackId: string | null) => void;
   removeItem: (id: ItemId) => void;
   duplicateItem: (id: ItemId) => void;
   // Timeline mutations
@@ -224,8 +283,15 @@ export const useSceneStore = create<SceneStore>()(
       inspectedId: null,
       exportOpen: false,
       audioMode: null,
+      agentOpen: false,
+      polylinePointCaptureId: null,
       setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
       setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
+      setAgentOpen: (open) => set((s) => { s.agentOpen = open; }),
+      setPolylinePointCaptureId: (id) =>
+        set((s) => {
+          s.polylinePointCaptureId = id;
+        }),
 
       // ── Playhead ──
       setCurrentTime: (time) => set((s) => { s.currentTime = Math.max(0, time); }),
@@ -236,7 +302,15 @@ export const useSceneStore = create<SceneStore>()(
 
       // ── Selection ──
       select: (id, additive = false) => set((s) => {
-        if (!additive) s.selectedIds = new Set();
+        if (!additive) {
+          if (
+            s.polylinePointCaptureId != null &&
+            s.polylinePointCaptureId !== id
+          ) {
+            s.polylinePointCaptureId = null;
+          }
+          s.selectedIds = new Set();
+        }
         s.selectedIds.add(id);
         s.inspectedId = id;
       }),
@@ -247,6 +321,7 @@ export const useSceneStore = create<SceneStore>()(
       clearSelection: () => set((s) => {
         s.selectedIds = new Set();
         s.inspectedId = null;
+        s.polylinePointCaptureId = null;
       }),
       inspect: (id) => set((s) => { s.inspectedId = id; }),
 
@@ -257,16 +332,45 @@ export const useSceneStore = create<SceneStore>()(
           const fs = s.items.get(item.id) as GraphFunctionSeriesItem;
           syncFunctionSeriesDerived(fs, s.items);
         }
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
       updateItem: (id, patch) => set((s) => {
         const item = s.items.get(id);
-        if (item) {
-          Object.assign(item, patch);
-          if (item.kind === 'graphFunctionSeries') {
-            syncFunctionSeriesDerived(item, s.items);
-          }
+        if (!item) return;
+        if (
+          item.kind === 'shape' &&
+          patch &&
+          typeof patch === 'object' &&
+          'shapeType' in patch &&
+          patch.shapeType !== 'polyline' &&
+          s.polylinePointCaptureId === id
+        ) {
+          s.polylinePointCaptureId = null;
         }
+        const audioPatch =
+          patch &&
+          typeof patch === 'object' &&
+          'audioTrackId' in patch;
+        Object.assign(item, patch);
+        if (audioPatch && 'audioTrackId' in item) {
+          dedupeExclusiveAudioOwner(s.items, id, item.audioTrackId);
+        }
+        if (item.kind === 'graphFunctionSeries') {
+          syncFunctionSeriesDerived(item as GraphFunctionSeriesItem, s.items);
+        }
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+      }),
+
+      setItemAudioBinding: (itemId, audioTrackId) => set((s) => {
+        const item = s.items.get(itemId);
+        if (!item || !('audioTrackId' in item)) return;
+        if (audioTrackId && !isAudioBindingNone(audioTrackId)) {
+          dedupeExclusiveAudioOwner(s.items, itemId, audioTrackId);
+        }
+        (item as { audioTrackId?: string | null }).audioTrackId =
+          audioTrackId;
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
       removeItem: (id) => set((s) => {
@@ -278,6 +382,16 @@ export const useSceneStore = create<SceneStore>()(
             s.items.delete(eid);
             s.selectedIds.delete(eid);
             if (s.inspectedId === eid) s.inspectedId = null;
+          }
+        }
+        for (const [bid, bl] of [...s.items.entries()]) {
+          if (
+            bl.kind === 'blink_animation' &&
+            bl.targets.some((t) => t.targetId === id)
+          ) {
+            s.items.delete(bid);
+            s.selectedIds.delete(bid);
+            if (s.inspectedId === bid) s.inspectedId = null;
           }
         }
         for (const [rid, sr] of [...s.items.entries()]) {
@@ -300,6 +414,7 @@ export const useSceneStore = create<SceneStore>()(
         s.items.delete(id);
         s.selectedIds.delete(id);
         if (s.inspectedId === id) s.inspectedId = null;
+        if (s.polylinePointCaptureId === id) s.polylinePointCaptureId = null;
       }),
 
       duplicateItem: (id) => {
@@ -317,6 +432,7 @@ export const useSceneStore = create<SceneStore>()(
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || '') + ' (copy)';
           clone.startTime = src.startTime + src.duration;
+          stripExclusiveAudioClone(clone);
           set((s) => {
             s.items.set(clone.id, clone);
             if (clone.kind === 'graphFunctionSeries') {
@@ -330,6 +446,16 @@ export const useSceneStore = create<SceneStore>()(
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || '') + ' (copy)';
           clone.startTime = src.startTime + src.duration;
+          stripExclusiveAudioClone(clone);
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
+        if (src.kind === 'blink_animation') {
+          const clone = structuredClone(src) as typeof src;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
+          stripExclusiveAudioClone(clone);
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
@@ -338,6 +464,7 @@ export const useSceneStore = create<SceneStore>()(
           clone.id = crypto.randomUUID().slice(0, 12);
           clone.label = (src.label || '') + ' (copy)';
           clone.startTime = src.startTime + src.runTime;
+          stripExclusiveAudioClone(clone);
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
@@ -347,6 +474,14 @@ export const useSceneStore = create<SceneStore>()(
         if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape') {
           clone.startTime = src.startTime + src.duration;
         }
+        if (clone.kind === 'axes') {
+          const ax = clone as AxesItem;
+          ax.axisPreviewDataUrl = null;
+          ax.axisPreviewError = null;
+          ax.axisPreviewHash = null;
+          ax.axisPreviewBounds = null;
+        }
+        stripExclusiveAudioClone(clone);
         set((s) => { s.items.set(clone.id, clone); });
       },
 
@@ -355,13 +490,18 @@ export const useSceneStore = create<SceneStore>()(
         const item = s.items.get(id);
         if (!item) return;
         let t = Math.max(0, newStartTime);
-        if (item.kind === 'exit_animation') {
-          const minT = minExitStartTimeForClip(item, s.items);
+        if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+          const minT =
+            item.kind === 'exit_animation'
+              ? minExitStartTimeForClip(item, s.items)
+              : minBlinkStartTimeForClip(item, s.items);
           if (minT != null) t = Math.max(t, minT);
         }
         item.startTime = t;
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
       moveAudioItem: (id, newStartTime) => set((s) => {
+        if (explicitVisualOwnerForAudioTrack(s.items, id)) return;
         const track = s.audioItems.find((a) => a.id === id);
         if (track) track.startTime = Math.max(0, newStartTime);
       }),
@@ -407,7 +547,8 @@ export const useSceneStore = create<SceneStore>()(
             a.startTime = Math.max(0, a.startTime - delta);
           }
         }
-        clampAllExitStarts(s.items);
+        clampEffectClipStarts(s.items);
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
       setSceneItemStartTimes: (updates) => set((s) => {
@@ -416,14 +557,17 @@ export const useSceneStore = create<SceneStore>()(
           if (!item || !isTopLevelItem(item)) continue;
           item.startTime = Math.max(0, startTime);
         }
-        clampAllExitStarts(s.items);
+        clampEffectClipStarts(s.items);
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
       setAudioItemStartTimes: (updates) => set((s) => {
         for (const { id, startTime } of updates) {
+          if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
           const track = s.audioItems.find((a) => a.id === id);
           if (track) track.startTime = Math.max(0, startTime);
         }
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
       resizeItem: (id, newDuration) => set((s) => {
@@ -449,6 +593,10 @@ export const useSceneStore = create<SceneStore>()(
           // Function series duration is derived from per-n anim+wait; ignore direct resize.
           return;
         }
+        if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+          item.duration = Math.max(0.05, newDuration);
+          return;
+        }
         item.duration = Math.max(0.01, newDuration);
       }),
       setItemLayer: (id, layer) => set((s) => {
@@ -459,14 +607,22 @@ export const useSceneStore = create<SceneStore>()(
       // ── Spatial mutations ──
       setItemPosition: (id, x, y) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'exit_animation' || item?.kind === 'surroundingRect') {
+        if (
+          item?.kind === 'exit_animation' ||
+          item?.kind === 'blink_animation' ||
+          item?.kind === 'surroundingRect'
+        ) {
           return;
         }
         if (item) { item.x = x; item.y = y; }
       }),
       setItemScale: (id, scale) => set((s) => {
         const item = s.items.get(id);
-        if (item?.kind === 'exit_animation' || item?.kind === 'surroundingRect') {
+        if (
+          item?.kind === 'exit_animation' ||
+          item?.kind === 'blink_animation' ||
+          item?.kind === 'surroundingRect'
+        ) {
           return;
         }
         if (!item) return;
@@ -586,6 +742,9 @@ export const useSceneStore = create<SceneStore>()(
         s.isPlaying = false;
         s.selectedIds = new Set();
         s.inspectedId = null;
+        s.polylinePointCaptureId = null;
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        clampEffectClipStarts(s.items);
       }),
 
       importFragment: (fragment, opts) =>
@@ -631,10 +790,12 @@ export const useSceneStore = create<SceneStore>()(
               syncFunctionSeriesDerived(it, s.items);
             }
           }
-          clampAllExitStarts(s.items);
+          clampEffectClipStarts(s.items);
 
           s.selectedIds = new Set(migrated.map((it) => it.id));
           s.inspectedId = migrated[0]?.id ?? null;
+          s.polylinePointCaptureId = null;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
         }),
 
       addAudioItem: async (text, lang) => {

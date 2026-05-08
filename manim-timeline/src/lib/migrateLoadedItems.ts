@@ -17,6 +17,12 @@ import { migrateItemsToV23 } from '@/lib/migrateProjectToV23';
 import { migrateItemsToV24 } from '@/lib/migrateProjectToV24';
 import { migrateItemsToV25 } from '@/lib/migrateProjectToV25';
 import { migrateItemsToV26 } from '@/lib/migrateProjectToV26';
+import { migrateItemsToV27 } from '@/lib/migrateProjectToV27';
+import { migrateItemsToV28 } from '@/lib/migrateProjectToV28';
+import { migrateItemsToV29 } from '@/lib/migrateProjectToV29';
+import { migrateItemsToV30 } from '@/lib/migrateProjectToV30';
+import { migrateItemsToV31 } from '@/lib/migrateProjectToV31';
+import { migrateItemsToV32 } from '@/lib/migrateProjectToV32';
 import type { SceneItem } from '@/types/scene';
 
 /** Run the same item migrations as full project load, up to current schema. */
@@ -69,6 +75,24 @@ export function migrateItemsToCurrentVersion(
   }
   if (fileVersion < 26) {
     migrated = migrateItemsToV26(migrated);
+  }
+  if (fileVersion < 27) {
+    migrated = migrateItemsToV27(migrated);
+  }
+  if (fileVersion < 28) {
+    migrated = migrateItemsToV28(migrated);
+  }
+  if (fileVersion < 29) {
+    migrated = migrateItemsToV29(migrated);
+  }
+  if (fileVersion < 30) {
+    migrated = migrateItemsToV30(migrated);
+  }
+  if (fileVersion < 31) {
+    migrated = migrateItemsToV31(migrated);
+  }
+  if (fileVersion < 32) {
+    migrated = migrateItemsToV32(migrated);
   }
   return migrated;
 }
