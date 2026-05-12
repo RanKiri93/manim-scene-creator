@@ -16,6 +16,7 @@ import { exitTargetSelectLabel } from '@/lib/itemDisplayName';
 import NumberInput from '@/components/NumberInput';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 
 function formatSegmentIndices(idxs: number[] | null | undefined): string {
   if (!idxs?.length) return '';
@@ -182,6 +183,8 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
         />
       </label>
+
+      <TargetAnimationEffectsNote targetId={item.id} />
 
       <button
         type="button"

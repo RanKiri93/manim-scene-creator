@@ -274,6 +274,55 @@ export interface BlinkAnimationItem {
   targets: BlinkTargetSpec[];
 }
 
+/** Permanent transform played at `startTime` for `duration`; state lives on clips, not mutated target fields. */
+export type TargetAnimationMode = 'scale' | 'color' | 'move' | 'path' | 'rotate';
+export type TargetAnimationPathKind = 'polyline' | 'parametric';
+
+export interface TargetAnimationParametricPath {
+  jsXExpr: string;
+  jsYExpr: string;
+  pyXExpr: string;
+  pyYExpr: string;
+  tMin: number;
+  tMax: number;
+  samples?: number;
+}
+
+export interface TargetAnimationTargetSpec {
+  targetId: ItemId;
+  /**
+   * Multiplier vs current on-screen scale at clip start (`mode === 'scale'`).
+   */
+  scaleFactor?: number;
+  /** New stroke / line color (`mode === 'color'`); text uses segment refinement like blink. */
+  color?: string;
+  /** Cartesian shift (`mode === 'move'`) — Manim RIGHT / UP convention. */
+  dx?: number;
+  dy?: number;
+  /**
+   * Polyline vertices as offsets from the object's anchor at clip start (`mode === 'path'`).
+   * First vertex is usually (0,0); motion follows corners in order; final vertex is the persistent offset.
+   */
+  pathKind?: TargetAnimationPathKind;
+  pathPoints?: ShapePoint[];
+  parametricPath?: TargetAnimationParametricPath | null;
+  /** Degrees CCW (`mode === 'rotate'`); allowed on shape, text line, surroundingRect. */
+  angleDeg?: number;
+  segmentIndices?: number[] | null;
+  mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
+}
+
+export interface TargetAnimationItem {
+  kind: 'target_animation';
+  id: ItemId;
+  label: string;
+  layer: number;
+  startTime: number;
+  duration: number;
+  mode: TargetAnimationMode;
+  targets: TargetAnimationTargetSpec[];
+}
+
 /** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */
 export interface SurroundingRectItem {
   kind: 'surroundingRect';
@@ -875,11 +924,16 @@ export type SceneItem =
   | ShapeItem
   | ExitAnimationItem
   | BlinkAnimationItem
+  | TargetAnimationItem
   | SurroundingRectItem;
 
 /** True for visual items present from scene start via `visibleAtSceneStart` (not exit clips). */
 export function isVisibleAtSceneStartItem(item: SceneItem): boolean {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation'
+  ) {
     return false;
   }
   return item.visibleAtSceneStart === true;

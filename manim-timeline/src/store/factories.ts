@@ -17,6 +17,8 @@ import type {
   ShapeItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  TargetAnimationItem,
+  TargetAnimationMode,
   SurroundingRectItem,
   SegmentStyle,
   GraphFunction,
@@ -107,6 +109,62 @@ export function createBlinkAnimation(
       scaleFactor: 1.15,
       blinkColor: '#fbbf24',
     })),
+  };
+}
+
+export function defaultTargetAnimationRow(mode: TargetAnimationMode, targetId: ItemId) {
+  switch (mode) {
+    case 'scale':
+      return { targetId, scaleFactor: 1.25 };
+    case 'color':
+      return { targetId, color: '#38bdf8' };
+    case 'move':
+      return { targetId, dx: 0.5, dy: 0.15 };
+    case 'path':
+      return {
+        targetId,
+        pathKind: 'polyline' as const,
+        pathPoints: [
+          { x: 0, y: 0 },
+          { x: 0.6, y: 0 },
+          { x: 0.6, y: 0.4 },
+        ],
+        parametricPath: {
+          jsXExpr: 'Math.cos(t)',
+          jsYExpr: 'Math.sin(t)',
+          pyXExpr: 'np.cos(t)',
+          pyYExpr: 'np.sin(t)',
+          tMin: 0,
+          tMax: Math.PI * 2,
+          samples: 80,
+        },
+      };
+    case 'rotate':
+      return { targetId, angleDeg: 45 };
+    default:
+      return { targetId };
+  }
+}
+
+export function createTargetAnimation(
+  mode: TargetAnimationMode,
+  targetIds: ItemId[],
+  startTime: number,
+  duration = 1,
+): TargetAnimationItem {
+  const ids = targetIds.length > 0 ? targetIds : [];
+  if (ids.length === 0) {
+    throw new Error('createTargetAnimation requires at least one target id');
+  }
+  return {
+    kind: 'target_animation',
+    id: newId(),
+    label: '',
+    layer: 0,
+    startTime,
+    duration: Math.max(0.05, duration),
+    mode,
+    targets: ids.map((id) => defaultTargetAnimationRow(mode, id)),
   };
 }
 

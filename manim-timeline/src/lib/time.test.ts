@@ -6,6 +6,7 @@ import {
   isActiveAtTime,
   runDuration,
   timelineSpanEnd,
+  canBeTargetAnimationTargetKind,
 } from './time';
 
 function mapOf(...items: SceneItem[]): Map<string, SceneItem> {
@@ -132,5 +133,16 @@ describe('timelineSpanEnd', () => {
     const bl = minimalBlink('b1', 'l1', 0, 1);
     const items = mapOf(bl);
     expect(effectiveEnd(bl, items)).toBe(0);
+  });
+});
+
+describe('canBeTargetAnimationTargetKind', () => {
+  it('restricts move/path to independent-position objects', () => {
+    expect(canBeTargetAnimationTargetKind('move', 'graphDot')).toBe(false);
+    expect(canBeTargetAnimationTargetKind('move', 'axes')).toBe(true);
+  });
+
+  it('allows scale on graph overlays like blink targets', () => {
+    expect(canBeTargetAnimationTargetKind('scale', 'graphPlot')).toBe(true);
   });
 });

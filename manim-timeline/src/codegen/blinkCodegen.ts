@@ -331,6 +331,16 @@ export function blinkClipHasActiveTargets(clip: BlinkAnimationItem): boolean {
   return clip.targets.length > 0;
 }
 
+/** Forward-only blink-style scale/color parts (permanent target animations; no reverse half). */
+export function permanentBlinkStyleParts(
+  target: SceneItem,
+  spec: BlinkTargetSpec,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string[] | null {
+  return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true);
+}
+
 function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemId, string>, itemsMap: Map<ItemId, SceneItem>): {
   rowGroupsFwd: string[];
   rowGroupsRev: string[];

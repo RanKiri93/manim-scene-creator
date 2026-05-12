@@ -18,6 +18,16 @@ export function itemClipDisplayName(item: SceneItem): string {
   if (item.kind === 'blink_animation') {
     return item.label.trim() || 'Blink';
   }
+  if (item.kind === 'target_animation') {
+    if (item.label.trim()) return item.label.trim();
+    const m = item.mode;
+    if (m === 'scale') return 'Target · scale';
+    if (m === 'color') return 'Target · color';
+    if (m === 'move') return 'Target · move';
+    if (m === 'path') return 'Target · path';
+    if (m === 'rotate') return 'Target · rotate';
+    return 'Target animation';
+  }
   if ('label' in item && item.label?.trim()) {
     return item.label.trim();
   }

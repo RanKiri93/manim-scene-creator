@@ -2,6 +2,7 @@ import type {
   AudioTrackItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  TargetAnimationItem,
   ExitAnimStyle,
   ItemId,
   SceneItem,
@@ -34,6 +35,10 @@ import {
   blinkClipHasActiveTargets,
   buildBlinkConcurrentSuccessionInner,
 } from './blinkCodegen';
+import {
+  targetAnimationClipHasActiveTargets,
+  buildTargetAnimationConcurrentSuccessionInner,
+} from './targetAnimationCodegen';
 import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
 import { pointSequenceConcurrentBranch } from './pointSequenceCodegen';
 
@@ -78,18 +83,26 @@ function blinkClipInterval(b: BlinkAnimationItem): { start: number; end: number 
   return { start: b.startTime, end: b.startTime + b.duration };
 }
 
+function targetAnimationClipInterval(
+  ta: TargetAnimationItem,
+): { start: number; end: number } {
+  return { start: ta.startTime, end: ta.startTime + ta.duration };
+}
+
 export type VisualPlaybackCluster = {
   leaves: ExportLeaf[];
   surroundingRects: SurroundingRectItem[];
   exitClips: ExitAnimationItem[];
   blinkClips: BlinkAnimationItem[];
+  targetAnimationClips: TargetAnimationItem[];
 };
 
 type VisualNode =
   | { kind: 'leaf'; leaf: ExportLeaf }
   | { kind: 'sr'; sr: SurroundingRectItem }
   | { kind: 'exit'; exit: ExitAnimationItem }
-  | { kind: 'blink'; blink: BlinkAnimationItem };
+  | { kind: 'blink'; blink: BlinkAnimationItem }
+  | { kind: 'ta'; ta: TargetAnimationItem };
 
 function nodePlaybackInterval(
   node: VisualNode,
@@ -98,7 +111,8 @@ function nodePlaybackInterval(
   if (node.kind === 'leaf') return leafInterval(node.leaf, itemsMap);
   if (node.kind === 'sr') return surroundingRectIntroInterval(node.sr, itemsMap);
   if (node.kind === 'exit') return exitClipInterval(node.exit);
-  return blinkClipInterval(node.blink);
+  if (node.kind === 'blink') return blinkClipInterval(node.blink);
+  return targetAnimationClipInterval(node.ta);
 }
 
 class UnionFind {
@@ -145,6 +159,13 @@ export function clusterConcurrentVisualPlayback(
     if (it.kind === 'blink_animation' && blinkClipHasActiveTargets(it)) {
       nodes.push({ kind: 'blink', blink: it });
     }
+    if (
+      it.kind === 'target_animation' &&
+      targetAnimationClipHasActiveTargets(it) &&
+      it.mode !== 'path'
+    ) {
+      nodes.push({ kind: 'ta', ta: it });
+    }
   }
   const n = nodes.length;
   if (n < 2) return [];
@@ -173,13 +194,21 @@ export function clusterConcurrentVisualPlayback(
     const surroundingRects: SurroundingRectItem[] = [];
     const exitClips: ExitAnimationItem[] = [];
     const blinkClips: BlinkAnimationItem[] = [];
+    const targetAnimationClips: TargetAnimationItem[] = [];
     for (const node of bucket) {
       if (node.kind === 'leaf') leaves.push(node.leaf);
       else if (node.kind === 'sr') surroundingRects.push(node.sr);
       else if (node.kind === 'exit') exitClips.push(node.exit);
-      else blinkClips.push(node.blink);
+      else if (node.kind === 'blink') blinkClips.push(node.blink);
+      else targetAnimationClips.push(node.ta);
     }
-    out.push({ leaves, surroundingRects, exitClips, blinkClips });
+    out.push({
+      leaves,
+      surroundingRects,
+      exitClips,
+      blinkClips,
+      targetAnimationClips,
+    });
   }
   return out;
 }
@@ -189,6 +218,7 @@ export function visualClusterWallSeconds(
   surroundingRects: SurroundingRectItem[],
   exitClips: ExitAnimationItem[],
   blinkClips: BlinkAnimationItem[],
+  targetAnimationClips: TargetAnimationItem[],
   itemsMap: Map<ItemId, SceneItem>,
 ): number {
   let tMin = Infinity;
@@ -210,6 +240,11 @@ export function visualClusterWallSeconds(
   }
   for (const bl of blinkClips) {
     const { start, end } = blinkClipInterval(bl);
+    tMin = Math.min(tMin, start);
+    tMax = Math.max(tMax, end);
+  }
+  for (const ta of targetAnimationClips) {
+    const { start, end } = targetAnimationClipInterval(ta);
     tMin = Math.min(tMin, start);
     tMax = Math.max(tMax, end);
   }
@@ -475,17 +510,39 @@ function concurrentBranchForBlinkClip(
   return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
 }
 
+function concurrentBranchForTargetAnimationClip(
+  ta: TargetAnimationItem,
+  relWait: number,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string {
+  const wStr = Math.max(0, relWait).toFixed(4);
+  const inner = buildTargetAnimationConcurrentSuccessionInner(
+    ta,
+    relWait,
+    idToVarName,
+    itemsMap,
+  );
+  const rt = Math.max(0.01, ta.duration).toFixed(4);
+  if (!inner) {
+    return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
+  }
+  return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
+}
+
 type VisualParticipant =
   | { kind: 'leaf'; leaf: ExportLeaf; t: number; key: string }
   | { kind: 'sr'; sr: SurroundingRectItem; t: number; key: string }
   | { kind: 'exit'; exit: ExitAnimationItem; t: number; key: string }
-  | { kind: 'blink'; blink: BlinkAnimationItem; t: number; key: string };
+  | { kind: 'blink'; blink: BlinkAnimationItem; t: number; key: string }
+  | { kind: 'ta'; ta: TargetAnimationItem; t: number; key: string };
 
 function sortedVisualParticipants(
   leaves: ExportLeaf[],
   surroundingRects: SurroundingRectItem[],
   exitClips: ExitAnimationItem[],
   blinkClips: BlinkAnimationItem[],
+  targetAnimationClips: TargetAnimationItem[],
   itemsMap: Map<ItemId, SceneItem>,
 ): VisualParticipant[] {
   const out: VisualParticipant[] = [];
@@ -521,6 +578,14 @@ function sortedVisualParticipants(
       key: bl.id,
     });
   }
+  for (const ta of targetAnimationClips) {
+    out.push({
+      kind: 'ta',
+      ta,
+      t: ta.startTime,
+      key: ta.id,
+    });
+  }
   out.sort((a, b) => a.t - b.t || a.key.localeCompare(b.key));
   return out;
 }
@@ -530,6 +595,7 @@ export function buildConcurrentVisualClusterPlay(
   surroundingRects: SurroundingRectItem[],
   exitClips: ExitAnimationItem[],
   blinkClips: BlinkAnimationItem[],
+  targetAnimationClips: TargetAnimationItem[],
   playPad: string,
   _baseIndent: number,
   idToVarName: Map<ItemId, string>,
@@ -542,6 +608,7 @@ export function buildConcurrentVisualClusterPlay(
     surroundingRects,
     exitClips,
     blinkClips,
+    targetAnimationClips,
     itemsMap,
   );
   if (parts.length === 0) return '';
@@ -593,8 +660,16 @@ export function buildConcurrentVisualClusterPlay(
         itemsMap,
       );
     }
-    return concurrentBranchForBlinkClip(
-      p.blink,
+    if (p.kind === 'blink') {
+      return concurrentBranchForBlinkClip(
+        p.blink,
+        rel,
+        idToVarName,
+        itemsMap,
+      );
+    }
+    return concurrentBranchForTargetAnimationClip(
+      p.ta,
       rel,
       idToVarName,
       itemsMap,
@@ -608,6 +683,7 @@ export function buildConcurrentVisualClusterPlay(
       surroundingRects,
       exitClips,
       blinkClips,
+      targetAnimationClips,
       itemsMap,
     ),
   );

@@ -123,13 +123,16 @@ The store keeps an ordered `messages: AgentChatMessage[]` log. On each turn the 
 
 ### 3.3 v1 kind whitelist
 
-Only these `kind` values may appear in CREATE actions:
+Only these `kind` values may appear in CREATE actions (see `AGENT_ALLOWED_KINDS` in `types.ts`):
 
 ```
-textLine, axes, graphPlot, graphDot, graphFunctionSeries, shape, surroundingRect, exit_animation, blink_animation
+textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPointSequence,
+shape, surroundingRect, exit_animation, blink_animation, target_animation
 ```
 
 `graphArea` and `graphField` remain UI-only creations for now (not agent-emitted).
+
+**`target_animation`** — Permanent timed effects on existing drawable items: `mode` is one of `scale`, `color`, `move`, `path`, `rotate`; each `targets[]` row references `targetId` and mode-specific fields (`scaleFactor`, `color`, `dx`/`dy`, `pathKind` + `pathPoints` or `parametricPath`, `angleDeg`, optional `segmentIndices` / `mathSubtargets` for refined text/math targeting). Cross-reference validation uses `canBeTargetAnimationTargetKind(mode, resolvedKind)` (see `validate.ts`). Normalization fills defaults and coerces path/parametric payloads (`normalizeTargetAnimation`).
 
 For `graphFunctionSeries`, the normalizer in `validate.ts` upholds:
 
@@ -476,7 +479,7 @@ Segment indices are in **parse order** (left to right in `raw`), even though Heb
 
 ## 13. Known limitations (v2 — chat)
 
-- Only `textLine`, `axes`, `graphPlot`, `graphDot`, `shape`, `surroundingRect`, `exit_animation`, `blink_animation` can be CREATEd.
+- Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence`; `graphArea` / `graphField` remain UI-only.
 - Each approved action produces its own `zundo` snapshot rather than one batched undo entry.
 - No token streaming: the UI shows a "Thinking…" indicator and waits for the full response. Reasoning/thinking output is surfaced as a collapsible block only after the turn completes.
 - The full chat history is re-sent on every turn; token usage grows linearly with conversation length. `MAX_PERSISTED_MESSAGES` (100) caps the persisted log but does not summarize older turns — long conversations may need a manual "New chat".

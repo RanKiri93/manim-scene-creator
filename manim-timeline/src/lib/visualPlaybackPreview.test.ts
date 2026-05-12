@@ -1,15 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioTrackItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
-import { createExitAnimation, createTextLine, defaultSceneDefaults } from '@/store/factories';
+import { createBlinkAnimation, createExitAnimation, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
 import {
   activeTextTransformForLine,
   blinkPreviewForTarget,
   exitPreviewForTarget,
   previewRunTime,
+  targetAnimPreviewAccum,
   textIntroSegmentStates,
 } from './visualPlaybackPreview';
-import { createBlinkAnimation } from '@/store/factories';
-
 function mapOf(...items: SceneItem[]): Map<ItemId, SceneItem> {
   return new Map(items.map((it) => [it.id, it]));
 }
@@ -176,5 +175,71 @@ describe('blinkPreviewForTarget', () => {
       { segmentIndex: 0, childIndex: 1 },
     ]);
     expect(st?.applyOuterBlinkScale).toBe(false);
+  });
+});
+
+describe('targetAnimPreviewAccum', () => {
+  it('accumulates completed move deltas and interpolates active clip', () => {
+    const line = createTextLine(defaultSceneDefaults(), 0);
+    line.id = 'L1';
+
+    const a = createTargetAnimation('move', [line.id], 0, 1);
+    a.id = 'ta1';
+    a.targets = [{ targetId: line.id, dx: 1, dy: 0 }];
+
+    const b = createTargetAnimation('move', [line.id], 2, 1);
+    b.id = 'ta2';
+    b.targets = [{ targetId: line.id, dx: 0, dy: -0.5 }];
+
+    const items = mapOf(line, a, b);
+
+    const mid = targetAnimPreviewAccum(line.id, 0.5, items);
+    expect(mid.dx).toBeCloseTo(0.5);
+    expect(mid.dy).toBe(0);
+
+    const afterBoth = targetAnimPreviewAccum(line.id, 10, items);
+    expect(afterBoth.dx).toBeCloseTo(1);
+    expect(afterBoth.dy).toBeCloseTo(-0.5);
+  });
+
+  it('multiplies sequential scale animations', () => {
+    const line = createTextLine(defaultSceneDefaults(), 0);
+    line.id = 'L1';
+    const a = createTargetAnimation('scale', [line.id], 0, 1);
+    a.targets = [{ targetId: line.id, scaleFactor: 2 }];
+    const items = mapOf(line, a);
+    const mid = targetAnimPreviewAccum(line.id, 0.5, items);
+    expect(mid.scaleMul).toBeCloseTo(1.5);
+    const end = targetAnimPreviewAccum(line.id, 2, items);
+    expect(end.scaleMul).toBeCloseTo(2);
+  });
+
+  it('normalizes parametric path offsets from the first sample', () => {
+    const line = createTextLine(defaultSceneDefaults(), 0);
+    line.id = 'L1';
+    const a = createTargetAnimation('path', [line.id], 0, 2);
+    a.targets = [
+      {
+        targetId: line.id,
+        pathKind: 'parametric',
+        parametricPath: {
+          jsXExpr: '1 + t',
+          jsYExpr: 't * t',
+          pyXExpr: '1 + t',
+          pyYExpr: 't ** 2',
+          tMin: 0,
+          tMax: 2,
+        },
+      },
+    ];
+    const items = mapOf(line, a);
+
+    const mid = targetAnimPreviewAccum(line.id, 1, items);
+    expect(mid.dx).toBeCloseTo(1);
+    expect(mid.dy).toBeCloseTo(1);
+
+    const end = targetAnimPreviewAccum(line.id, 3, items);
+    expect(end.dx).toBeCloseTo(2);
+    expect(end.dy).toBeCloseTo(4);
   });
 });

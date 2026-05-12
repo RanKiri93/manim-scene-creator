@@ -5,6 +5,8 @@ import type {
   TextLineItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  TargetAnimationItem,
+  TargetAnimationMode,
 } from '@/types/scene';
 
 /** Items shown on the main timeline. */
@@ -36,6 +38,40 @@ export function canBeExitTarget(item: SceneItem): boolean {
 /** Objects that can be targeted by a blink_animation clip (same as exit / surround eligibility). */
 export function canBeBlinkTarget(item: SceneItem): boolean {
   return canBeExitTarget(item);
+}
+
+/** Kind-only check for TA targets (matches full items via {@link canBeTargetAnimationTarget}). */
+export function canBeTargetAnimationTargetKind(
+  mode: TargetAnimationMode,
+  kind: SceneItem['kind'],
+): boolean {
+  switch (mode) {
+    case 'scale':
+    case 'color':
+      return canBeExitTarget({ kind } as SceneItem);
+    case 'move':
+    case 'path':
+      return (
+        kind === 'textLine' ||
+        kind === 'axes' ||
+        kind === 'shape' ||
+        kind === 'surroundingRect'
+      );
+    case 'rotate':
+      return (
+        kind === 'textLine' || kind === 'shape' || kind === 'surroundingRect'
+      );
+    default:
+      return false;
+  }
+}
+
+/** Targets allowed for `target_animation` by mode — state stays on clips, not rewriting `posSteps`. */
+export function canBeTargetAnimationTarget(
+  item: SceneItem,
+  mode: TargetAnimationMode,
+): boolean {
+  return canBeTargetAnimationTargetKind(mode, item.kind);
 }
 
 function exitClipsForTarget(
@@ -134,6 +170,9 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
   if (item.kind === 'blink_animation') {
     return Math.max(0.05, item.duration);
   }
+  if (item.kind === 'target_animation') {
+    return Math.max(0.05, item.duration);
+  }
   return 0;
 }
 
@@ -149,7 +188,11 @@ export function holdEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number 
  * Use `timelineSpanEnd` for finite scene-length / layout.
  */
 export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation'
+  ) {
     return 0;
   }
   const exEnd = exitVisualEndExclusive(item.id, items);
@@ -160,7 +203,11 @@ export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): nu
 
 /** Finite end for scene length / layout when the object has no exit (hold only). */
 export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>): number {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation'
+  ) {
     return item.startTime + item.duration;
   }
   const exEnd = exitVisualEndExclusive(item.id, items);
@@ -178,7 +225,12 @@ export function isActiveAtTime(
   time: number,
   items: Map<ItemId, SceneItem>,
 ): boolean {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation') return false;
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation'
+  )
+    return false;
   const start = effectiveStart(item, items);
   if (time < start) return false;
   const end = effectiveEnd(item, items);
@@ -254,6 +306,30 @@ export function minBlinkStartTimeForClip(
   const mins: number[] = [];
   for (const row of blink.targets) {
     const m = minBlinkStartTime(row.targetId, items);
+    if (m != null) mins.push(m);
+  }
+  if (mins.length === 0) return null;
+  return Math.max(...mins);
+}
+
+function minTaStartForTarget(
+  targetId: ItemId,
+  mode: TargetAnimationMode,
+  items: Map<ItemId, SceneItem>,
+): number | null {
+  const t = items.get(targetId);
+  if (!t || !canBeTargetAnimationTarget(t, mode)) return null;
+  return effectiveStart(t, items);
+}
+
+/** Latest required `startTime` among target_animation rows vs each target timeline start (null if no valid rows). */
+export function minTargetAnimationStartTimeForClip(
+  clip: TargetAnimationItem,
+  items: Map<ItemId, SceneItem>,
+): number | null {
+  const mins: number[] = [];
+  for (const row of clip.targets) {
+    const m = minTaStartForTarget(row.targetId, clip.mode, items);
     if (m != null) mins.push(m);
   }
   if (mins.length === 0) return null;

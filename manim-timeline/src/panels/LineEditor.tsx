@@ -14,6 +14,7 @@ import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import { appendCenterXStep, inkEdgeSteps, updateAxisStep, type ToEdgeCardinal } from '@/lib/quickLayout';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
   return {
@@ -173,6 +174,7 @@ export default function LineEditor({ item }: LineEditorProps) {
           {item.measure.pngWidth && ` | raster ${item.measure.pngWidth}x${item.measure.pngHeight}px`}
         </p>
       )}
+      <TargetAnimationEffectsNote targetId={item.id} />
     </div>
   );
 

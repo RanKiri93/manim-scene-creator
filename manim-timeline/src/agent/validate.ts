@@ -7,6 +7,9 @@ import {
   type BlinkAnimationItem,
   type BlinkMode,
   type BlinkTargetSpec,
+  type TargetAnimationItem,
+  type TargetAnimationMode,
+  type TargetAnimationTargetSpec,
   type FunctionLineStyle,
   type FunctionSeriesDefaults,
   type FunctionSeriesMode,
@@ -37,6 +40,7 @@ import {
   type AgentChatResponse,
   isAgentAllowedKind,
 } from './types';
+import { canBeTargetAnimationTargetKind } from '@/lib/time';
 
 export type ValidationResult =
   | { ok: true; response: AgentChatResponse }
@@ -312,6 +316,28 @@ export function validateAgentResponse(
           );
         }
       }
+      continue;
+    }
+    if (item.kind === 'target_animation') {
+      const ta = item as TargetAnimationItem;
+      for (let ti = 0; ti < ta.targets.length; ti++) {
+        const { targetId } = ta.targets[ti]!;
+        const existing = currentItems.get(targetId);
+        const plannedKind = plannedCreates.get(targetId);
+        const resolvedKind = existing?.kind ?? plannedKind;
+        if (!resolvedKind) {
+          errors.push(
+            `actions[${i}].item "${item.id}" targets[${ti}] references unknown item "${targetId}".`,
+          );
+          continue;
+        }
+        if (!canBeTargetAnimationTargetKind(ta.mode, resolvedKind)) {
+          errors.push(
+            `actions[${i}].item "${item.id}" targets[${ti}] "${targetId}" is a ${resolvedKind}, which cannot be the target of a target_animation (${ta.mode}).`,
+          );
+        }
+      }
+      continue;
     }
   }
 
@@ -388,6 +414,8 @@ function normalizeCreateItem(
       return normalizeExitAnimation(raw, errors, prefix);
     case 'blink_animation':
       return normalizeBlinkAnimation(raw, errors, prefix);
+    case 'target_animation':
+      return normalizeTargetAnimation(raw, errors, prefix);
     default:
       errors.push(`${prefix}.item.kind "${kind}" is not implemented.`);
       return null;
@@ -1757,6 +1785,140 @@ function normalizeBlinkAnimation(
     startTime: Math.max(0, asNum(raw.startTime, 0)),
     duration: Math.max(0.05, asNum(raw.duration, 0.6)),
     repetitions: Math.max(1, Math.round(asNum(raw.repetitions, 1))),
+    targets,
+  };
+}
+
+const TA_MODES: readonly TargetAnimationMode[] = [
+  'scale',
+  'color',
+  'move',
+  'path',
+  'rotate',
+];
+
+function asTargetAnimationMode(v: unknown): TargetAnimationMode {
+  return typeof v === 'string' && (TA_MODES as readonly string[]).includes(v)
+    ? (v as TargetAnimationMode)
+    : 'scale';
+}
+
+function normalizeTargetAnimation(
+  raw: Record<string, unknown>,
+  errors: string[],
+  prefix: string,
+): TargetAnimationItem | null {
+  const mode = asTargetAnimationMode(raw.mode);
+  const targetsRaw = Array.isArray(raw.targets) ? raw.targets : [];
+  const targets: TargetAnimationTargetSpec[] = targetsRaw
+    .map((t) => t as Record<string, unknown>)
+    .filter((t) => typeof t.targetId === 'string' && t.targetId.trim() !== '')
+    .map((t) => {
+      const segRaw = t.segmentIndices;
+      let segmentIndices: number[] | null | undefined;
+      if (Array.isArray(segRaw)) {
+        const nums = segRaw
+          .map((x) => (typeof x === 'number' ? x : Number(x)))
+          .filter((x) => Number.isInteger(x));
+        segmentIndices = nums.length > 0 ? nums : null;
+      } else {
+        segmentIndices = null;
+      }
+      const row: TargetAnimationTargetSpec = {
+        targetId: String(t.targetId),
+      };
+      if (typeof t.scaleFactor === 'number' && Number.isFinite(t.scaleFactor)) {
+        row.scaleFactor = t.scaleFactor;
+      }
+      if (typeof t.color === 'string' && t.color.trim()) {
+        row.color = t.color.trim();
+      }
+      if (typeof t.dx === 'number' && Number.isFinite(t.dx)) row.dx = t.dx;
+      if (typeof t.dy === 'number' && Number.isFinite(t.dy)) row.dy = t.dy;
+      if (typeof t.angleDeg === 'number' && Number.isFinite(t.angleDeg)) {
+        row.angleDeg = t.angleDeg;
+      }
+      if (t.pathKind === 'parametric') {
+        row.pathKind = 'parametric';
+      } else if (t.pathKind === 'polyline') {
+        row.pathKind = 'polyline';
+      }
+      const ppRaw = t.pathPoints;
+      if (Array.isArray(ppRaw)) {
+        const pts: ShapePoint[] = [];
+        for (const ent of ppRaw) {
+          const rec = ent as Record<string, unknown>;
+          const x = typeof rec.x === 'number' ? rec.x : Number(rec.x);
+          const y = typeof rec.y === 'number' ? rec.y : Number(rec.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          pts.push({ x, y });
+        }
+        if (pts.length >= 2) row.pathPoints = pts;
+      }
+      const paramRaw = t.parametricPath;
+      if (paramRaw && typeof paramRaw === 'object') {
+        const rec = paramRaw as Record<string, unknown>;
+        const tMin = Number(rec.tMin);
+        const tMax = Number(rec.tMax);
+        if (Number.isFinite(tMin) && Number.isFinite(tMax)) {
+          row.parametricPath = {
+            jsXExpr:
+              typeof rec.jsXExpr === 'string' && rec.jsXExpr.trim()
+                ? rec.jsXExpr.trim()
+                : '0',
+            jsYExpr:
+              typeof rec.jsYExpr === 'string' && rec.jsYExpr.trim()
+                ? rec.jsYExpr.trim()
+                : '0',
+            pyXExpr:
+              typeof rec.pyXExpr === 'string' && rec.pyXExpr.trim()
+                ? rec.pyXExpr.trim()
+                : '0',
+            pyYExpr:
+              typeof rec.pyYExpr === 'string' && rec.pyYExpr.trim()
+                ? rec.pyYExpr.trim()
+                : '0',
+            tMin,
+            tMax,
+            samples: Math.max(2, Math.round(asNum(rec.samples, 80))),
+          };
+        }
+      }
+      if (segmentIndices != null) row.segmentIndices = segmentIndices;
+      const subRaw = t.mathSubtargets;
+      if (Array.isArray(subRaw)) {
+        const mrows: { segmentIndex: number; childIndices: number[] }[] = [];
+        for (const ent of subRaw) {
+          const rec = ent as Record<string, unknown>;
+          const si = Number(rec.segmentIndex);
+          if (!Number.isInteger(si) || si < 0) continue;
+          const chRaw = rec.childIndices;
+          if (!Array.isArray(chRaw)) continue;
+          const ch = chRaw
+            .map((x) => (typeof x === 'number' ? x : Number(x)))
+            .filter((x) => Number.isInteger(x) && x >= 0);
+          if (ch.length > 0) {
+            mrows.push({ segmentIndex: si, childIndices: [...new Set(ch)].sort((a, b) => a - b) });
+          }
+        }
+        if (mrows.length > 0) row.mathSubtargets = mrows;
+      }
+      return row;
+    });
+  if (targets.length === 0) {
+    errors.push(
+      `${prefix}.item.targets must include at least one target for target_animation.`,
+    );
+    return null;
+  }
+  return {
+    kind: 'target_animation',
+    id: String(raw.id),
+    label: asStr(raw.label, ''),
+    layer: Math.max(0, asNum(raw.layer, 0)),
+    startTime: Math.max(0, asNum(raw.startTime, 0)),
+    duration: Math.max(0.05, asNum(raw.duration, 1)),
+    mode,
     targets,
   };
 }

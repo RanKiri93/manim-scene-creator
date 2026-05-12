@@ -196,6 +196,12 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
         targetId: m.get(t.targetId) ?? t.targetId,
       }));
       break;
+    case 'target_animation':
+      it.targets = it.targets.map((t) => ({
+        ...t,
+        targetId: m.get(t.targetId) ?? t.targetId,
+      }));
+      break;
     case 'surroundingRect':
       it.targetIds = it.targetIds.map((tid) => m.get(tid) ?? tid);
       break;

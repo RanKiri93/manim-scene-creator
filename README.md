@@ -37,7 +37,8 @@ For **TTS and mic transcription** on the Audio timeline, install optional server
 
 ## Documentation index
 
-- **[manim-timeline/README.md](manim-timeline/README.md)** — Elaborate guide: architecture, audio export alignment, compound clips, project JSON, troubleshooting.
+- **[manim-timeline/README.md](manim-timeline/README.md)** — Elaborate guide: architecture, audio export alignment, compound clips, target animations, project JSON, troubleshooting.
+- **[manim-timeline/src/agent/ARCHITECTURE.md](manim-timeline/src/agent/ARCHITECTURE.md)** — AI Copilot agent integration (payload, validation, preview/approve flow, allowed scene kinds).
 - **`manim-timeline/TAURI.md`** — Desktop build with Tauri (Rust, Windows MSVC).
 - **`manim-timeline/src-tauri/binaries/README.md`** — Optional PyInstaller sidecar for the measure server.
 

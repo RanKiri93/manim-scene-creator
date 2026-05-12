@@ -111,7 +111,13 @@ export function alignBoxForItemAt(
   segmentIndex: number | null,
   segmentMeasures: SegmentLocalBox[] | null | undefined,
 ): AlignBox | null {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') return null;
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'surroundingRect'
+  )
+    return null;
 
   if (item.kind === 'textLine') {
     const line = item as TextLineItem;

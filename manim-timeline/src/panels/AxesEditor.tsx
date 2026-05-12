@@ -8,6 +8,7 @@ import PositionStepsEditor from './PositionStepsEditor';
 import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 
 interface AxesEditorProps {
   item: AxesItem;
@@ -131,6 +132,8 @@ export default function AxesEditor({ item }: AxesEditorProps) {
           step={0.05}
         />
       </div>
+
+      <TargetAnimationEffectsNote targetId={item.id} />
     </div>
   );
 

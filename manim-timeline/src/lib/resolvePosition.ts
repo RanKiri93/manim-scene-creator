@@ -56,7 +56,12 @@ export function getItemSurroundBBox(
 }
 
 export function getItemBBox(item: SceneItem): ItemBBox {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   const x = item.x;
@@ -180,7 +185,12 @@ function applyPosSteps(
   allItems: Map<ItemId, SceneItem>,
   steps: readonly PosStep[],
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0 };
   }
 
@@ -249,7 +259,12 @@ export function resolvePosition(
   item: SceneItem,
   allItems: Map<ItemId, SceneItem>,
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0 };
   }
   return applyPosSteps(item, allItems, item.posSteps);
@@ -263,7 +278,12 @@ export function resolvePositionBeforeStep(
   allItems: Map<ItemId, SceneItem>,
   endExclusive: number,
 ): { x: number; y: number } {
-  if (item.kind === 'exit_animation' || item.kind === 'blink_animation' || item.kind === 'surroundingRect') {
+  if (
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'surroundingRect'
+  ) {
     return { x: 0, y: 0 };
   }
   const slice = item.posSteps.slice(0, Math.max(0, endExclusive));

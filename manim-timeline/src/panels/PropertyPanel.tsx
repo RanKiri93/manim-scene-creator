@@ -11,6 +11,7 @@ import PointSequenceEditor from './PointSequenceEditor';
 import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
 import BlinkAnimationEditor from './BlinkAnimationEditor';
+import TargetAnimationEditor from './TargetAnimationEditor';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
 
@@ -150,6 +151,9 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
       break;
     case 'blink_animation':
       body = <BlinkAnimationEditor item={item} />;
+      break;
+    case 'target_animation':
+      body = <TargetAnimationEditor item={item} />;
       break;
     case 'surroundingRect':
       body = <SurroundingRectEditor item={item} />;

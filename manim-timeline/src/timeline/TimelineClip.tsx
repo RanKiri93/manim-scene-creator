@@ -63,6 +63,7 @@ const KIND_COLORS: Record<string, string> = {
   graphArea: 'bg-violet-700/80 border-violet-400',
   exit_animation: 'bg-rose-700/85 border-rose-400',
   blink_animation: 'bg-amber-700/85 border-amber-300',
+  target_animation: 'bg-yellow-900/80 border-yellow-300',
   surroundingRect: 'bg-orange-700/85 border-orange-300',
   shape: 'bg-pink-700/85 border-pink-300',
 };
@@ -120,7 +121,11 @@ export default function TimelineClip({
 
   const label = (() => {
     const s = itemClipDisplayName(item);
-    if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+    if (
+      item.kind === 'exit_animation' ||
+      item.kind === 'blink_animation' ||
+      item.kind === 'target_animation'
+    ) {
       return s.length > 22 ? `${s.slice(0, 22)}…` : s;
     }
     return s.length > 28 ? `${s.slice(0, 28)}…` : s;

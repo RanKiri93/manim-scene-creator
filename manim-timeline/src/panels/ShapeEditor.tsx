@@ -8,6 +8,7 @@ import PositionStepsEditor from './PositionStepsEditor';
 import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 
 const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'circle', label: 'Circle' },
@@ -271,6 +272,8 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
           </button>
         </div>
       )}
+
+      <TargetAnimationEffectsNote targetId={item.id} />
 
       <button
         type="button"

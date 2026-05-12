@@ -8,6 +8,7 @@ import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import { GraphFieldHelpIcon } from './GraphFieldExpressionHelp';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 import {
   GRAPH_PLOT_JS_HELP,
   GRAPH_PLOT_PY_HELP,
@@ -97,6 +98,8 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           </select>
         </label>
       </div>
+
+      <TargetAnimationEffectsNote targetId={item.id} />
     </div>
   );
 

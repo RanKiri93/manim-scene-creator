@@ -12,12 +12,31 @@ import { safeSceneClassName } from '@/lib/pythonIdent';
 import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
 import ItemList from '@/panels/ItemList';
+import AddObjectToolbar from '@/panels/AddObjectToolbar';
 import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
 import AgentPanel from '@/agent/AgentPanel';
 import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
+
+const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
+const DEFAULT_TOOLBAR_WIDTH = 104;
+const MIN_TOOLBAR_WIDTH = 64;
+const MAX_TOOLBAR_WIDTH = 360;
+
+function readStoredToolbarWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_TOOLBAR_WIDTH;
+  try {
+    const raw = localStorage.getItem(TOOLBAR_WIDTH_STORAGE_KEY);
+    if (raw == null) return DEFAULT_TOOLBAR_WIDTH;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return DEFAULT_TOOLBAR_WIDTH;
+    return Math.max(MIN_TOOLBAR_WIDTH, Math.min(MAX_TOOLBAR_WIDTH, Math.round(n)));
+  } catch {
+    return DEFAULT_TOOLBAR_WIDTH;
+  }
+}
 
 function promptFragmentTimeMode(): FragmentTimeMode | null {
   const v = window.prompt(
@@ -33,6 +52,7 @@ function promptFragmentTimeMode(): FragmentTimeMode | null {
 
 export default function App() {
   const [timelineHeight, setTimelineHeight] = useState(220);
+  const [toolbarWidth, setToolbarWidth] = useState(readStoredToolbarWidth);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
   useAxesPreviewSync();
   const exportOpen = useSceneStore((s) => s.exportOpen);
@@ -57,6 +77,37 @@ export default function App() {
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
   }, []);
+
+  const startToolbarWidthResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = toolbarWidth;
+      let lastW = startW;
+      const onMove = (ev: PointerEvent) => {
+        const delta = ev.clientX - startX;
+        lastW = Math.max(
+          MIN_TOOLBAR_WIDTH,
+          Math.min(MAX_TOOLBAR_WIDTH, startW + delta),
+        );
+        setToolbarWidth(lastW);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        try {
+          localStorage.setItem(TOOLBAR_WIDTH_STORAGE_KEY, String(lastW));
+        } catch {
+          /* ignore */
+        }
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [toolbarWidth],
+  );
   const toProjectFile = useSceneStore((s) => s.toProjectFile);
   const loadProject = useSceneStore((s) => s.loadProjectFile);
   const importFragment = useSceneStore((s) => s.importFragment);
@@ -170,6 +221,25 @@ export default function App() {
         <aside className="w-64 border-r border-slate-700 bg-slate-850 flex flex-col shrink-0 z-10">
           <ItemList />
         </aside>
+
+        <div
+          className="flex shrink-0 min-h-0 relative border-r border-slate-700 bg-slate-850/95"
+          style={{ width: toolbarWidth }}
+        >
+          <div className="min-w-0 flex-1 flex flex-col overflow-hidden">
+            <AddObjectToolbar />
+          </div>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize add-objects toolbar"
+            title="Drag to resize toolbar"
+            onPointerDown={startToolbarWidthResize}
+            className="absolute top-0 right-0 bottom-0 w-3 -mr-1.5 z-20 cursor-col-resize flex justify-center touch-none group/seph"
+          >
+            <span className="w-px h-full bg-slate-600 group-hover/seph:bg-blue-400 group-active/seph:bg-blue-300 transition-colors" />
+          </div>
+        </div>
 
         {/* Center: Canvas */}
         <main className="flex-1 min-h-0 relative overflow-hidden flex flex-col min-w-0 p-3">

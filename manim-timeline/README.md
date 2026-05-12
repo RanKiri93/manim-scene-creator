@@ -13,17 +13,18 @@ This document is the **canonical** reference for the `manim-timeline/` package. 
 3. [Export to Python (Manim)](#export-to-python-manim)
 4. [Export timing and audio synchronization](#export-timing-and-audio-synchronization)
 5. [Compound clips](#compound-clips-chain-calculations)
-6. [Function series](#function-series)
-7. [Project file format](#project-file-format)
+6. [Target animations (permanent effects)](#target-animations-permanent-effects)
+7. [Function series](#function-series)
+8. [Project file format](#project-file-format)
    - [Portable bundle (`.mtproj`)](#portable-bundle-mtproj)
-8. [Tech stack](#tech-stack)
-9. [Source layout (`src/`)](#source-layout-src)
-10. [Architecture notes](#architecture-notes)
-11. [Running locally](#running-locally)
-12. [Tauri desktop (optional)](#tauri-desktop-optional)
-13. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
-14. [Roadmap and known gaps](#roadmap-and-known-gaps)
-15. [Troubleshooting](#troubleshooting)
+9. [Tech stack](#tech-stack)
+10. [Source layout (`src/`)](#source-layout-src)
+11. [Architecture notes](#architecture-notes)
+12. [Running locally](#running-locally)
+13. [Tauri desktop (optional)](#tauri-desktop-optional)
+14. [Relationship to the rest of the repository](#relationship-to-the-rest-of-the-repository)
+15. [Roadmap and known gaps](#roadmap-and-known-gaps)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -40,6 +41,7 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 | **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphFunctionSeries` — timed like other clips, anchored to an axes item. `graphFunctionSeries` renders a family of curves parameterized by integer `n ∈ [nMin, nMax]`; see [Function series](#function-series). |
 | **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
 | **Exit animation** | A **separate timeline clip** (`exit_animation`) that targets another animatable item by `targetId`. It runs `FadeOut` / `Uncreate` / `ShrinkToCenter` (or `none`) at its own `startTime` for `duration` seconds. The exit must start at or after the target’s **hold end** (`effectiveStart + run duration`, including compound-local duration for child lines). Adding an object does not create an exit; add exits from **+ Object → Exit animation** when needed. |
+| **Target animation** | A **timeline clip** (`target_animation`) that applies a **permanent** visual change (after playback) to one or more items via `targets[].targetId`. Modes include `scale`, `color`, `move`, `path`, and `rotate`. State is carried on this clip — **not** by mutating `posSteps` on the target. See [Target animations](#target-animations-permanent-effects). |
 
 **Time** — Each timed item has `startTime`, `duration`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children. Pauses can be **spacing clips on the timeline**, or optional **`waitAfterSec` on each text-line segment** (extends that line’s `runDuration` and shows as amber stripes on the timeline bar; export uses `Succession` / `Wait`).
 
@@ -217,6 +219,21 @@ Use a **compound** when several equations or lines should appear as **one block*
 
 ---
 
+## Target animations (permanent effects)
+
+A **`target_animation`** clip schedules a timed Manim `self.play` that leaves the **target** item(s) in a new steady state (scale, color, offset, path pose, rotation — depending on `mode`). The data model stores this on the **animation clip**; targets keep their own definitions and initial layout.
+
+| Topic | Behavior |
+|--------|----------|
+| **Modes** | `scale`, `color`, `move`, `path`, `rotate`. Each entry in `targets[]` has a `targetId` plus fields for that mode (`scaleFactor`, `color`, `dx`/`dy`, path data, `angleDeg`). Text lines support segment-level targeting (`segmentIndices`, `mathSubtargets`) for color-like effects. |
+| **`path` and path kinds** | **`polyline`** — `pathPoints` are **offsets from the anchor at clip start** (first point is often `(0,0)`). In the editor, you can **click the canvas** to append vertices while the clip is being edited. Export builds a corner polyline and uses **`MoveAlongPath`**. **`parametric`** — `parametricPath` holds **`jsXExpr` / `jsYExpr`** (preview, parameter `t`) and **`pyXExpr` / `pyYExpr`** (Manim export), **`tMin`**, **`tMax`**, optional **`samples`**. Preview evaluates the JS pair; export emits **`ParametricFunction`** (Python lambdas) plus **`MoveAlongPath`**, with the path anchored so motion matches the polyline normalization (offset from the first sample). |
+| **Preview** | `src/lib/visualPlaybackPreview.ts` accumulates preview transforms; path segments interpolate polyline corners or sample the parametric curve. |
+| **Codegen** | `src/codegen/targetAnimationCodegen.ts`; shares helpers with graph export where needed (`src/codegen/graphCodegen.ts`). |
+| **Canvas** | `src/canvas/SceneCanvas.tsx` — polyline point-pick appends points relative to the target anchor; parametric mode does not use click-picking. |
+| **Agent / validation** | `target_animation` is in **`AGENT_ALLOWED_KINDS`** (`src/agent/types.ts`). `validate.ts` enforces **eligible target kinds per mode** via `canBeTargetAnimationTargetKind` and normalizes with `normalizeTargetAnimation`. |
+
+---
+
 ## Function series
 
 A **`graphFunctionSeries`** item renders a family of curves parameterized by an integer `n` on an existing axes. It is the unified successor to the old sequence / partial-sum / series visualizers (legacy `graphSeriesViz` items are silently dropped on load — see `migrateSceneItems.ts`).
@@ -308,6 +325,7 @@ src/
 │   ├── texUtils.ts
 │   ├── lineCodegen.ts        # Line def/pos/play; audio-aligned run_time helper
 │   ├── graphCodegen.ts
+│   ├── targetAnimationCodegen.ts  # Permanent target effects (path / parametric / …)
 │   ├── flattenExport.ts
 │   ├── scriptExport.ts       # Markdown scene outline download
 │   └── manimExporter.ts      # Full / partial Python assembly
@@ -416,4 +434,4 @@ Native shell and optional **PyInstaller** sidecar: see **`TAURI.md`** and **`src
 
 ---
 
-*Last updated: Replacement-mode `graphFunctionSeries` playback rewritten to use a single on-scene mobject — `Create(n_1)` followed by `_FSRevealTransform(n_1, n_k)` `Transform` hops that morph the first curve in place through every subsequent shape. This fixes a cascade of concurrent-cluster bugs where a chain of `ReplacementTransform(n_{k-1}, n_k)` left intermediate sources on the scene until the outer `self.play(AnimationGroup(...))` ended (Manim defers `clean_up_from_scene` between `Succession` children), and where earlier workarounds (opacity toggles, `.animate(...)` reveal steps, `set_opacity` instead of `set_stroke(opacity=...)`) alternately flashed targets, filled the area under the curve, or left stale predecessors behind. The exit-animation target for replacement mode now resolves to `n_1` (single on-screen curve with `n_last`'s shape) rather than `n_last` or the parent `VGroup`. Earlier: Function series (`graphFunctionSeries`) now supports a `displayMode` toggle between individual curves `f_n(x)` and incremental partial sums `S_k(x) = Σ f_n(x)`, with validation-locks-playback semantics and per-`n` styling preserved across range changes; legacy `graphSeriesViz` removed (items in older projects are dropped on load). Earlier: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps; `graphDot` FadeIn now passes `run_time=item.duration` explicitly; `sequentialAnimSecondsForLeaf` no longer double-counts the label/streams extra second when bound audio is present.*
+*Last updated: **Target animations** (`target_animation`) — permanent timed effects on drawable items; **polyline** paths (canvas click-to-add points, anchor-relative offsets) vs **parametric** paths (JS preview expressions, Python `ParametricFunction` export). Earlier: Replacement-mode `graphFunctionSeries` playback rewritten to use a single on-scene mobject — `Create(n_1)` followed by `_FSRevealTransform(n_1, n_k)` `Transform` hops that morph the first curve in place through every subsequent shape. This fixes a cascade of concurrent-cluster bugs where a chain of `ReplacementTransform(n_{k-1}, n_k)` left intermediate sources on the scene until the outer `self.play(AnimationGroup(...))` ended (Manim defers `clean_up_from_scene` between `Succession` children), and where earlier workarounds (opacity toggles, `.animate(...)` reveal steps, `set_opacity` instead of `set_stroke(opacity=...)`) alternately flashed targets, filled the area under the curve, or left stale predecessors behind. The exit-animation target for replacement mode now resolves to `n_1` (single on-screen curve with `n_last`'s shape) rather than `n_last` or the parent `VGroup`. Earlier: Function series (`graphFunctionSeries`) now supports a `displayMode` toggle between individual curves `f_n(x)` and incremental partial sums `S_k(x) = Σ f_n(x)`, with validation-locks-playback semantics and per-`n` styling preserved across range changes; legacy `graphSeriesViz` removed (items in older projects are dropped on load). Earlier: Exit animations as separate `exit_animation` timeline clips targeting other items; removal of `waitAfter` and per-item exit fields (project v10 migration); clip naming helpers (`itemDisplayName.ts`) for lists and target menus; canvas lifespan via `effectiveStart` / `effectiveEnd` in `time.ts`; Manim export interleaves exit `self.play` with leaf playback and `self.wait` gaps; `graphDot` FadeIn now passes `run_time=item.duration` explicitly; `sequentialAnimSecondsForLeaf` no longer double-counts the label/streams extra second when bound audio is present.*

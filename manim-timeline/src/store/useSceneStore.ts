@@ -30,6 +30,7 @@ import {
   minExitStartTimeForClip,
   effectiveStart,
   minBlinkStartTimeForClip,
+  minTargetAnimationStartTimeForClip,
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 import { isAudioBindingNone, explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
@@ -50,9 +51,18 @@ function clampAllBlinkStarts(items: Map<ItemId, SceneItem>): void {
   }
 }
 
+function clampAllTargetAnimationStarts(items: Map<ItemId, SceneItem>): void {
+  for (const it of items.values()) {
+    if (it.kind !== 'target_animation') continue;
+    const minT = minTargetAnimationStartTimeForClip(it, items);
+    if (minT != null && it.startTime < minT) it.startTime = minT;
+  }
+}
+
 function clampEffectClipStarts(items: Map<ItemId, SceneItem>): void {
   clampAllExitStarts(items);
   clampAllBlinkStarts(items);
+  clampAllTargetAnimationStarts(items);
 }
 
 /**
@@ -162,16 +172,24 @@ interface SelectionSlice {
 
 export type AudioPanelMode = 'tts' | 'record' | 'upload';
 
+export interface TargetAnimationPathCapture {
+  clipId: ItemId;
+  rowIndex: number;
+}
+
 interface UiSlice {
   exportOpen: boolean;
   audioMode: AudioPanelMode | null;
   agentOpen: boolean;
   /** When set, the next plain-canvas clicks append local points to that polyline shape. */
   polylinePointCaptureId: ItemId | null;
+  /** When set, plain-canvas clicks append relative offsets to a target_animation path row. */
+  targetAnimationPathCapture: TargetAnimationPathCapture | null;
   setExportOpen: (open: boolean) => void;
   setAudioMode: (mode: AudioPanelMode | null) => void;
   setAgentOpen: (open: boolean) => void;
   setPolylinePointCaptureId: (id: ItemId | null) => void;
+  setTargetAnimationPathCapture: (capture: TargetAnimationPathCapture | null) => void;
 }
 
 // ── Scene data slice ──
@@ -297,12 +315,19 @@ export const useSceneStore = create<SceneStore>()(
       audioMode: null,
       agentOpen: false,
       polylinePointCaptureId: null,
+      targetAnimationPathCapture: null,
       setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
       setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
       setAgentOpen: (open) => set((s) => { s.agentOpen = open; }),
       setPolylinePointCaptureId: (id) =>
         set((s) => {
           s.polylinePointCaptureId = id;
+          if (id != null) s.targetAnimationPathCapture = null;
+        }),
+      setTargetAnimationPathCapture: (capture) =>
+        set((s) => {
+          s.targetAnimationPathCapture = capture;
+          if (capture != null) s.polylinePointCaptureId = null;
         }),
 
       // ── Playhead ──
@@ -321,6 +346,12 @@ export const useSceneStore = create<SceneStore>()(
           ) {
             s.polylinePointCaptureId = null;
           }
+          if (
+            s.targetAnimationPathCapture != null &&
+            s.targetAnimationPathCapture.clipId !== id
+          ) {
+            s.targetAnimationPathCapture = null;
+          }
           s.selectedIds = new Set();
         }
         s.selectedIds.add(id);
@@ -334,6 +365,7 @@ export const useSceneStore = create<SceneStore>()(
         s.selectedIds = new Set();
         s.inspectedId = null;
         s.polylinePointCaptureId = null;
+        s.targetAnimationPathCapture = null;
       }),
       inspect: (id) => set((s) => { s.inspectedId = id; }),
 
@@ -348,6 +380,7 @@ export const useSceneStore = create<SceneStore>()(
           const ps = s.items.get(item.id) as GraphPointSequenceItem;
           syncPointSequenceDerived(ps, s.items);
         }
+        clampEffectClipStarts(s.items);
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
@@ -378,6 +411,7 @@ export const useSceneStore = create<SceneStore>()(
         if (item.kind === 'graphPointSequence') {
           syncPointSequenceDerived(item as GraphPointSequenceItem, s.items);
         }
+        clampEffectClipStarts(s.items);
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
@@ -413,6 +447,16 @@ export const useSceneStore = create<SceneStore>()(
             if (s.inspectedId === bid) s.inspectedId = null;
           }
         }
+        for (const [taid, ta] of [...s.items.entries()]) {
+          if (
+            ta.kind === 'target_animation' &&
+            ta.targets.some((t) => t.targetId === id)
+          ) {
+            s.items.delete(taid);
+            s.selectedIds.delete(taid);
+            if (s.inspectedId === taid) s.inspectedId = null;
+          }
+        }
         for (const [rid, sr] of [...s.items.entries()]) {
           if (sr.kind !== 'surroundingRect') continue;
           const tids = sr.targetIds ?? [];
@@ -434,6 +478,23 @@ export const useSceneStore = create<SceneStore>()(
         s.selectedIds.delete(id);
         if (s.inspectedId === id) s.inspectedId = null;
         if (s.polylinePointCaptureId === id) s.polylinePointCaptureId = null;
+        if (
+          s.targetAnimationPathCapture?.clipId === id ||
+          s.targetAnimationPathCapture != null
+        ) {
+          const cap = s.targetAnimationPathCapture;
+          if (cap?.clipId === id || cap == null) {
+            s.targetAnimationPathCapture = null;
+          } else {
+            const clip = s.items.get(cap.clipId);
+            if (
+              clip?.kind !== 'target_animation' ||
+              clip.targets[cap.rowIndex]?.targetId === id
+            ) {
+              s.targetAnimationPathCapture = null;
+            }
+          }
+        }
       }),
 
       duplicateItem: (id) => {
@@ -483,6 +544,15 @@ export const useSceneStore = create<SceneStore>()(
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
+        if (src.kind === 'target_animation') {
+          const clone = structuredClone(src) as typeof src;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
+          stripExclusiveAudioClone(clone);
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
         if (src.kind === 'surroundingRect') {
           const clone = structuredClone(src) as typeof src;
           clone.id = crypto.randomUUID().slice(0, 12);
@@ -514,11 +584,17 @@ export const useSceneStore = create<SceneStore>()(
         const item = s.items.get(id);
         if (!item) return;
         let t = Math.max(0, newStartTime);
-        if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+        if (
+          item.kind === 'exit_animation' ||
+          item.kind === 'blink_animation' ||
+          item.kind === 'target_animation'
+        ) {
           const minT =
             item.kind === 'exit_animation'
               ? minExitStartTimeForClip(item, s.items)
-              : minBlinkStartTimeForClip(item, s.items);
+              : item.kind === 'blink_animation'
+                ? minBlinkStartTimeForClip(item, s.items)
+                : minTargetAnimationStartTimeForClip(item, s.items);
           if (minT != null) t = Math.max(t, minT);
         }
         item.startTime = t;
@@ -620,7 +696,11 @@ export const useSceneStore = create<SceneStore>()(
         if (item.kind === 'graphPointSequence') {
           return;
         }
-        if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
+        if (
+          item.kind === 'exit_animation' ||
+          item.kind === 'blink_animation' ||
+          item.kind === 'target_animation'
+        ) {
           item.duration = Math.max(0.05, newDuration);
           return;
         }
@@ -637,6 +717,7 @@ export const useSceneStore = create<SceneStore>()(
         if (
           item?.kind === 'exit_animation' ||
           item?.kind === 'blink_animation' ||
+          item?.kind === 'target_animation' ||
           item?.kind === 'surroundingRect'
         ) {
           return;
@@ -648,6 +729,7 @@ export const useSceneStore = create<SceneStore>()(
         if (
           item?.kind === 'exit_animation' ||
           item?.kind === 'blink_animation' ||
+          item?.kind === 'target_animation' ||
           item?.kind === 'surroundingRect'
         ) {
           return;
@@ -774,6 +856,7 @@ export const useSceneStore = create<SceneStore>()(
         s.selectedIds = new Set();
         s.inspectedId = null;
         s.polylinePointCaptureId = null;
+        s.targetAnimationPathCapture = null;
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
         clampEffectClipStarts(s.items);
       }),
@@ -829,6 +912,7 @@ export const useSceneStore = create<SceneStore>()(
           s.selectedIds = new Set(migrated.map((it) => it.id));
           s.inspectedId = migrated[0]?.id ?? null;
           s.polylinePointCaptureId = null;
+          s.targetAnimationPathCapture = null;
           syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
         }),
 

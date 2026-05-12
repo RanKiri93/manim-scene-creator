@@ -74,6 +74,8 @@ interface ShapeNodeProps {
   previewStrokeColor?: string;
   /** Playback preview: overrides item fill when set (use transparent to clear). */
   previewFillColor?: string | null;
+  /** Playback preview: added to Konva CW rotation (`item.rotationDeg`), e.g. -Manim/CCW TA degrees. */
+  previewRotationDeltaDeg?: number;
 }
 
 export default function ShapeNode({
@@ -85,6 +87,7 @@ export default function ShapeNode({
   resolvedY,
   previewStrokeColor,
   previewFillColor,
+  previewRotationDeltaDeg = 0,
 }: ShapeNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -131,7 +134,7 @@ export default function ShapeNode({
     if (!n || interactionRef.current) return;
     n.x(posX);
     n.y(posY);
-    n.rotation(item.rotationDeg);
+    n.rotation(item.rotationDeg + previewRotationDeltaDeg);
     n.scaleX(item.scale);
     n.scaleY(item.scale);
     n.getLayer()?.batchDraw();
@@ -139,6 +142,7 @@ export default function ShapeNode({
     posX,
     posY,
     item.rotationDeg,
+    previewRotationDeltaDeg,
     item.scale,
     item.radius,
     item.width,

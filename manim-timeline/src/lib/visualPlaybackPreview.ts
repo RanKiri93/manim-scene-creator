@@ -7,6 +7,8 @@ import type {
   ItemId,
   SceneItem,
   TextLineItem,
+  TargetAnimationItem,
+  TargetAnimationTargetSpec,
 } from '@/types/scene';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
 import {
@@ -23,6 +25,7 @@ import {
   resolveTextBlinkPieces,
   textBlinkUsesWholeObjectScale,
 } from '@/lib/blinkTextTargets';
+import { canBeTargetAnimationTarget } from '@/lib/time';
 
 export interface TextSegmentPreviewState {
   index: number;
@@ -340,6 +343,185 @@ export function blinkPreviewForTarget(
     };
   }
   return best;
+}
+
+function resolvedTaScale(sf: TargetAnimationTargetSpec): number {
+  const s = sf.scaleFactor;
+  if (typeof s === 'number' && Number.isFinite(s) && s > 1e-9) return s;
+  return 1.15;
+}
+
+function resolvedTaHex(sf: TargetAnimationTargetSpec): string {
+  const h = sf.color?.trim();
+  return h && /^#[0-9a-fA-F]{6}$/.test(h) ? h : '#38bdf8';
+}
+
+function interpolatePathOffset(
+  pts: TargetAnimationTargetSpec['pathPoints'],
+  u: number,
+): { x: number; y: number } | null {
+  if (!pts || pts.length < 2) return null;
+  const t = clamp01(u);
+  let total = 0;
+  const lens: number[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    lens.push(len);
+    total += len;
+  }
+  if (total <= 1e-9) {
+    const last = pts[pts.length - 1]!;
+    const first = pts[0]!;
+    return { x: last.x - first.x, y: last.y - first.y };
+  }
+  let remain = t * total;
+  const first = pts[0]!;
+  for (let i = 1; i < pts.length; i++) {
+    const segLen = lens[i - 1] ?? 0;
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    if (remain <= segLen || i === pts.length - 1) {
+      const local = segLen > 1e-9 ? remain / segLen : 1;
+      return {
+        x: a.x + (b.x - a.x) * local - first.x,
+        y: a.y + (b.y - a.y) * local - first.y,
+      };
+    }
+    remain -= segLen;
+  }
+  const last = pts[pts.length - 1]!;
+  return { x: last.x - first.x, y: last.y - first.y };
+}
+
+function evalParametricPathExpr(expr: string, t: number): number | null {
+  const src = expr.trim() || '0';
+  try {
+    const v = new Function('t', `"use strict"; return (${src});`)(t);
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function parametricPathOffset(
+  row: TargetAnimationTargetSpec,
+  u: number,
+): { x: number; y: number } | null {
+  const p = row.parametricPath;
+  if (!p) return null;
+  const t0 = Number.isFinite(p.tMin) ? p.tMin : 0;
+  const t1 = Number.isFinite(p.tMax) ? p.tMax : 1;
+  const t = t0 + clamp01(u) * (t1 - t0);
+  const x0 = evalParametricPathExpr(p.jsXExpr, t0);
+  const y0 = evalParametricPathExpr(p.jsYExpr, t0);
+  const x = evalParametricPathExpr(p.jsXExpr, t);
+  const y = evalParametricPathExpr(p.jsYExpr, t);
+  if (x0 == null || y0 == null || x == null || y == null) return null;
+  return { x: x - x0, y: y - y0 };
+}
+
+export interface TargetAnimPreviewAccum {
+  dx: number;
+  dy: number;
+  scaleMul: number;
+  rotDeg: number;
+  /** When set, preview uses this stroke/line color (after finished color animations). */
+  strokeReplaceHex?: string;
+  /** In-progress color morph toward this hex (`t` ∈ [0,1]). */
+  colorLerpTo?: string;
+  colorLerpT?: number;
+}
+
+export function targetAnimPreviewAccum(
+  targetId: ItemId,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+): TargetAnimPreviewAccum {
+  const clips = [...items.values()]
+    .filter((it): it is TargetAnimationItem => it.kind === 'target_animation')
+    .filter((c) => c.targets.some((r) => r.targetId === targetId))
+    .sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
+
+  let dx = 0;
+  let dy = 0;
+  let scaleMul = 1;
+  let rotDeg = 0;
+  let strokeReplaceHex: string | undefined;
+  let colorLerpTo: string | undefined;
+  let colorLerpT = 0;
+
+  for (const clip of clips) {
+    const row = clip.targets.find((r) => r.targetId === targetId);
+    if (!row) continue;
+    const tgt = items.get(targetId);
+    if (!tgt || !canBeTargetAnimationTarget(tgt, clip.mode)) continue;
+
+    const dur = positiveDuration(clip.duration);
+    const t0 = clip.startTime;
+    const tEnd = t0 + dur;
+    if (time < t0) continue;
+
+    const u = time >= tEnd ? 1 : clamp01((time - t0) / dur);
+
+    switch (clip.mode) {
+      case 'scale': {
+        const sf = resolvedTaScale(row);
+        scaleMul *= 1 + u * (sf - 1);
+        break;
+      }
+      case 'move': {
+        const mdx = row.dx ?? 0;
+        const mdy = row.dy ?? 0;
+        dx += u * mdx;
+        dy += u * mdy;
+        break;
+      }
+      case 'path': {
+        const off =
+          row.pathKind === 'parametric'
+            ? parametricPathOffset(row, u)
+            : interpolatePathOffset(row.pathPoints, u);
+        if (off) {
+          dx += off.x;
+          dy += off.y;
+        }
+        break;
+      }
+      case 'rotate': {
+        rotDeg += u * (row.angleDeg ?? 0);
+        break;
+      }
+      case 'color': {
+        const h = resolvedTaHex(row);
+        if (time >= tEnd) {
+          strokeReplaceHex = h;
+          colorLerpTo = undefined;
+          colorLerpT = 0;
+        } else {
+          colorLerpTo = h;
+          colorLerpT = u;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  const out: TargetAnimPreviewAccum = {
+    dx,
+    dy,
+    scaleMul,
+    rotDeg,
+  };
+  if (strokeReplaceHex) out.strokeReplaceHex = strokeReplaceHex;
+  if (colorLerpTo != null && colorLerpT > 1e-6) {
+    out.colorLerpTo = colorLerpTo;
+    out.colorLerpT = colorLerpT;
+  }
+  return out;
 }
 
 function parseHexColor(hex: string): { r: number; g: number; b: number } | null {

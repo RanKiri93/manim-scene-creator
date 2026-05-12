@@ -20,6 +20,7 @@ export const AGENT_ALLOWED_KINDS = [
   'surroundingRect',
   'exit_animation',
   'blink_animation',
+  'target_animation',
 ] as const;
 
 export type AgentAllowedKind = (typeof AGENT_ALLOWED_KINDS)[number];

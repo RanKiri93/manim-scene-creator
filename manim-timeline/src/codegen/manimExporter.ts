@@ -6,6 +6,7 @@ import type {
   AxesItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  TargetAnimationItem,
   GraphPlotItem,
   GraphCurveItem,
   GraphDotItem,
@@ -62,6 +63,7 @@ import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
   sequentialAnimSecondsForBlink,
+  sequentialAnimSecondsForTargetAnimation,
   sequentialAnimSecondsForLeaf,
   sequentialAnimSecondsForSurroundingRect,
 } from './groupPlaybackSpan';
@@ -81,6 +83,7 @@ import {
   generateGraphPointSequencePlay,
 } from './pointSequenceCodegen';
 import { formatBlinkClipPlay } from './blinkCodegen';
+import { formatTargetAnimationClipPlay } from './targetAnimationCodegen';
 import { generateSceneStartStaticAdds } from './staticAddCodegen';
 import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
 
@@ -94,10 +97,12 @@ type PlaybackEvent =
       surroundingRects: SurroundingRectItem[];
       exitClips: ExitAnimationItem[];
       blinkClips: BlinkAnimationItem[];
+      targetAnimationClips: TargetAnimationItem[];
     }
   | { t: number; kind: 'surrounding_rect'; sr: SurroundingRectItem }
   | { t: number; kind: 'exit'; exit: ExitAnimationItem }
-  | { t: number; kind: 'blink'; blink: BlinkAnimationItem };
+  | { t: number; kind: 'blink'; blink: BlinkAnimationItem }
+  | { t: number; kind: 'target_animation'; ta: TargetAnimationItem };
 
 const TIMELINE_GAP_EPS = 0.001;
 
@@ -121,6 +126,7 @@ function concurrentClusterWallTimelineEnd(
     surroundingRects: SurroundingRectItem[];
     exitClips: ExitAnimationItem[];
     blinkClips: BlinkAnimationItem[];
+    targetAnimationClips: TargetAnimationItem[];
   },
   itemsMap: Map<ItemId, SceneItem>,
 ): number {
@@ -136,6 +142,9 @@ function concurrentClusterWallTimelineEnd(
   }
   for (const bl of vc.blinkClips) {
     m = Math.max(m, bl.startTime + bl.duration);
+  }
+  for (const ta of vc.targetAnimationClips) {
+    m = Math.max(m, ta.startTime + ta.duration);
   }
   return m;
 }
@@ -623,12 +632,14 @@ function exportManimCodeInner(
       c.leaves.length +
       c.surroundingRects.length +
       c.exitClips.length +
-      c.blinkClips.length;
+      c.blinkClips.length +
+      c.targetAnimationClips.length;
     if (n >= 2) {
       for (const L of c.leaves) inVisualCluster.add(L.id);
       for (const sr of c.surroundingRects) inVisualCluster.add(sr.id);
       for (const ex of c.exitClips) inVisualCluster.add(ex.id);
       for (const bl of c.blinkClips) inVisualCluster.add(bl.id);
+      for (const ta of c.targetAnimationClips) inVisualCluster.add(ta.id);
     }
   }
 
@@ -642,7 +653,8 @@ function exportManimCodeInner(
       c.leaves.length +
         c.surroundingRects.length +
         c.exitClips.length +
-        c.blinkClips.length <
+        c.blinkClips.length +
+        c.targetAnimationClips.length <
       2
     ) {
       continue;
@@ -652,6 +664,7 @@ function exportManimCodeInner(
       ...c.surroundingRects.map((sr) => effectiveStart(sr, itemsMap)),
       ...c.exitClips.map((ex) => ex.startTime),
       ...c.blinkClips.map((bl) => bl.startTime),
+      ...c.targetAnimationClips.map((ta) => ta.startTime),
     ];
     const t = Math.min(...clusterTimes);
     const sortedLeaves = [...c.leaves].sort(
@@ -670,6 +683,9 @@ function exportManimCodeInner(
     const sortedBlinks = [...c.blinkClips].sort(
       (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
     );
+    const sortedTas = [...c.targetAnimationClips].sort(
+      (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
+    );
     playEvents.push({
       t,
       kind: 'visual_cluster',
@@ -677,6 +693,7 @@ function exportManimCodeInner(
       surroundingRects: sortedSrs,
       exitClips: sortedExits,
       blinkClips: sortedBlinks,
+      targetAnimationClips: sortedTas,
     });
   }
   for (const tr of unboundAudio) {
@@ -710,6 +727,15 @@ function exportManimCodeInner(
       playEvents.push({ t: it.startTime, kind: 'blink', blink: it });
     }
   }
+  for (const it of items) {
+    if (
+      it.kind === 'target_animation' &&
+      it.targets.length > 0 &&
+      !inVisualCluster.has(it.id)
+    ) {
+      playEvents.push({ t: it.startTime, kind: 'target_animation', ta: it });
+    }
+  }
   const eventKindOrder = (k: PlaybackEvent['kind']) => {
     if (k === 'audio') return 0;
     if (k === 'leaf' || k === 'visual_cluster') return 1;
@@ -724,6 +750,7 @@ function exportManimCodeInner(
         ...e.surroundingRects.map((s) => s.id),
         ...e.exitClips.map((x) => x.id),
         ...e.blinkClips.map((x) => x.id),
+        ...e.targetAnimationClips.map((x) => x.id),
       ]
         .sort()
         .join(',');
@@ -752,6 +779,9 @@ function exportManimCodeInner(
     }
     if (a.kind === 'blink' && b.kind === 'blink') {
       return a.blink.id.localeCompare(b.blink.id);
+    }
+    if (a.kind === 'target_animation' && b.kind === 'target_animation') {
+      return a.ta.id.localeCompare(b.ta.id);
     }
     return 0;
   });
@@ -911,6 +941,10 @@ function exportManimCodeInner(
     );
     const exits = group.filter((e): e is Extract<PlaybackEvent, { kind: 'exit' }> => e.kind === 'exit');
     const blinks = group.filter((e): e is Extract<PlaybackEvent, { kind: 'blink' }> => e.kind === 'blink');
+    const targetAnims = group.filter(
+      (e): e is Extract<PlaybackEvent, { kind: 'target_animation' }> =>
+        e.kind === 'target_animation',
+    );
 
     if (audios.length && t0 + TIMELINE_GAP_EPS < timelineCursor) {
       playStr += `${playPad}# Note: audio below overlaps earlier playback in export order (Manim runs sequentially).\n`;
@@ -927,6 +961,7 @@ function exportManimCodeInner(
         vc.surroundingRects,
         vc.exitClips,
         vc.blinkClips,
+        vc.targetAnimationClips,
         playPad,
         base,
         idToVarName,
@@ -969,6 +1004,14 @@ function exportManimCodeInner(
     for (const bl of blinks) {
       playStr += formatBlinkClipPlay(bl.blink, playPad, idToVarName, itemsMap);
     }
+    for (const tac of targetAnims) {
+      playStr += formatTargetAnimationClipPlay(
+        tac.ta,
+        playPad,
+        idToVarName,
+        itemsMap,
+      );
+    }
 
     let groupEnd = t0;
     for (const a of audios) {
@@ -987,6 +1030,9 @@ function exportManimCodeInner(
       for (const bl of vc.blinkClips) {
         groupEnd = Math.max(groupEnd, bl.startTime + bl.duration);
       }
+      for (const ta of vc.targetAnimationClips) {
+        groupEnd = Math.max(groupEnd, ta.startTime + ta.duration);
+      }
     }
     for (const e of leaves) {
       groupEnd = Math.max(groupEnd, holdEnd(e.leaf, itemsMap));
@@ -999,6 +1045,9 @@ function exportManimCodeInner(
     }
     for (const bl of blinks) {
       groupEnd = Math.max(groupEnd, bl.blink.startTime + bl.blink.duration);
+    }
+    for (const tac of targetAnims) {
+      groupEnd = Math.max(groupEnd, tac.ta.startTime + tac.ta.duration);
     }
 
     // Manim's `add_sound` does not advance scene time. Pad with wait() so the scene clock
@@ -1016,6 +1065,7 @@ function exportManimCodeInner(
         vc.surroundingRects,
         vc.exitClips,
         vc.blinkClips,
+        vc.targetAnimationClips,
         itemsMap,
       );
     }
@@ -1037,6 +1087,9 @@ function exportManimCodeInner(
     }
     for (const bl of blinks) {
       animSec += sequentialAnimSecondsForBlink(bl.blink);
+    }
+    for (const tac of targetAnims) {
+      animSec += sequentialAnimSecondsForTargetAnimation(tac.ta);
     }
     const padAfter = Math.max(0, groupSpanCapped - animSec);
     if (padAfter > TIMELINE_GAP_EPS) {
@@ -1066,6 +1119,9 @@ function exportManimCodeInner(
       fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
     }
     if (it.kind === 'blink_animation' && it.targets.length > 0) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'target_animation' && it.targets.length > 0) {
       fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
     }
     if (it.kind === 'surroundingRect') {

@@ -21,6 +21,7 @@ import {
   activeTextTransformForLine,
   exitPreviewForTarget,
   blinkPreviewForTarget,
+  targetAnimPreviewAccum,
   lerpHexColor,
   type ExitPreviewState,
   type BlinkPreviewState,
@@ -93,6 +94,44 @@ function selectionTouchesAxes(
   return false;
 }
 
+function shiftBBoxManim(
+  b: { left: number; right: number; bottom: number; top: number },
+  dx: number,
+  dy: number,
+): { left: number; right: number; bottom: number; top: number } {
+  return {
+    left: b.left + dx,
+    right: b.right + dx,
+    bottom: b.bottom + dy,
+    top: b.top + dy,
+  };
+}
+
+function strokeAfterBlinkThenTa(
+  baseStroke: string,
+  blink: BlinkPreviewState | null,
+  ta: ReturnType<typeof targetAnimPreviewAccum>,
+): string | undefined {
+  let s = baseStroke;
+  if (
+    blink != null &&
+    blink.row.mode === 'color' &&
+    blink.colorMix > 0
+  ) {
+    s = lerpHexColor(s, blink.blinkColor, blink.colorMix);
+  }
+  if (ta.strokeReplaceHex) s = ta.strokeReplaceHex;
+  if (ta.colorLerpTo != null && (ta.colorLerpT ?? 0) > 1e-6) {
+    s = lerpHexColor(s, ta.colorLerpTo, ta.colorLerpT!);
+  }
+  const changedByBlink =
+    blink != null && blink.row.mode === 'color' && blink.colorMix > 0;
+  const changedByTa =
+    Boolean(ta.strokeReplaceHex) ||
+    Boolean(ta.colorLerpTo && (ta.colorLerpT ?? 0) > 1e-6);
+  return changedByBlink || changedByTa ? s : undefined;
+}
+
 export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 450 });
@@ -108,6 +147,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const clearSelection = useSceneStore((s) => s.clearSelection);
   const polylinePointCaptureId = useSceneStore((s) => s.polylinePointCaptureId);
+  const targetAnimationPathCapture = useSceneStore(
+    (s) => s.targetAnimationPathCapture,
+  );
   const updateItem = useSceneStore((s) => s.updateItem);
   const select = useSceneStore((s) => s.select);
 
@@ -146,13 +188,15 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     const out: CanvasEntry[] = [];
     for (const it of itemsMap.values()) {
       if (it.kind !== 'surroundingRect') continue;
-      const bboxManim = surroundPreviewBBoxManim(
+      const bboxManimRaw = surroundPreviewBBoxManim(
         it,
         itemsMap,
         currentTime,
         selectedIds,
       );
-      if (!bboxManim) continue;
+      if (!bboxManimRaw) continue;
+      const taSr = targetAnimPreviewAccum(it.id, currentTime, itemsMap);
+      const bboxManim = shiftBBoxManim(bboxManimRaw, taSr.dx, taSr.dy);
       out.push({
         kind: 'surround',
         layer: it.layer,
@@ -189,6 +233,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           }
         }
         const field = cumulativeField(axes.id, currentTime, itemsMap);
+        const taAx = targetAnimPreviewAccum(axes.id, currentTime, itemsMap);
         return {
           axes,
           drawOrder: cumulativeAxesDrawOrder(
@@ -199,8 +244,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           ),
           field,
           streamPlacementFieldId,
-          resolvedX: pos.x,
-          resolvedY: pos.y,
+          resolvedX: pos.x + taAx.dx,
+          resolvedY: pos.y + taAx.dy,
           isSelected: selectionTouchesAxes(axes.id, selectedIds, itemsMap),
         };
       });
@@ -222,8 +267,12 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     return e;
   }, [graphLayers, visibleItems, visibleShapes, surroundCanvasEntries]);
 
-  const resolvedPositions = useResolvedPositions(visibleItems, itemsMap);
-  const resolvedShapePositions = useResolvedPositions(visibleShapes, itemsMap);
+  const resolvedPositions = useResolvedPositions(visibleItems, itemsMap, currentTime);
+  const resolvedShapePositions = useResolvedPositions(
+    visibleShapes,
+    itemsMap,
+    currentTime,
+  );
 
   const updateSize = useCallback(() => {
     if (!containerRef.current) return;
@@ -299,6 +348,45 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           height={size.height}
           onClick={(e) => {
             const stage = e.target.getStage();
+            if (targetAnimationPathCapture && stage) {
+              const pos = stage.getPointerPosition();
+              const clip = itemsMap.get(targetAnimationPathCapture.clipId);
+              if (pos && clip?.kind === 'target_animation' && clip.mode === 'path') {
+                const row = clip.targets[targetAnimationPathCapture.rowIndex];
+                const target = row ? itemsMap.get(row.targetId) : undefined;
+                if (row && target && (row.pathKind ?? 'polyline') === 'polyline') {
+                  const abs = {
+                    x: (pos.x / size.width - 0.5) * FRAME_W,
+                    y: (0.5 - pos.y / size.height) * FRAME_H,
+                  };
+                  const base = resolvePosition(target, itemsMap);
+                  const ta = targetAnimPreviewAccum(
+                    target.id,
+                    clip.startTime,
+                    itemsMap,
+                  );
+                  const anchor = { x: base.x + ta.dx, y: base.y + ta.dy };
+                  const existing =
+                    row.pathPoints && row.pathPoints.length > 0
+                      ? row.pathPoints
+                      : [{ x: 0, y: 0 }];
+                  const nextTargets = clip.targets.map((r, i) =>
+                    i === targetAnimationPathCapture.rowIndex
+                      ? {
+                          ...r,
+                          pathPoints: [
+                            ...existing,
+                            { x: abs.x - anchor.x, y: abs.y - anchor.y },
+                          ],
+                        }
+                      : r,
+                  );
+                  updateItem(clip.id, { targets: nextTargets });
+                  select(clip.id);
+                  return;
+                }
+              }
+            }
             if (polylinePointCaptureId && stage && e.target === stage) {
               const pos = stage.getPointerPosition();
               const raw = itemsMap.get(polylinePointCaptureId);
@@ -313,7 +401,12 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   x: (pos.x / size.width - 0.5) * FRAME_W,
                   y: (0.5 - pos.y / size.height) * FRAME_H,
                 };
-                const anchor = resolvePosition(raw, itemsMap);
+                const anchorBase = resolvePosition(raw, itemsMap);
+                const tad = targetAnimPreviewAccum(raw.id, currentTime, itemsMap);
+                const anchor = {
+                  x: anchorBase.x + tad.dx,
+                  y: anchorBase.y + tad.dy,
+                };
                 updateItem(raw.id, {
                   points: [...raw.points, { x: abs.x - anchor.x, y: abs.y - anchor.y }],
                 });
@@ -337,11 +430,18 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             {canvasEntries.map((entry) => {
               if (entry.kind === 'graph') {
                 const layer = entry.graph;
+                const taAxes = targetAnimPreviewAccum(
+                  layer.axes.id,
+                  currentTime,
+                  itemsMap,
+                );
                 return (
                   <PreviewWrap key={layer.axes.id} op={previewOps.get(layer.axes.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(layer.axes.id, currentTime, itemsMap)}
                       blink={blinkPreviewForTarget(layer.axes.id, currentTime, itemsMap)}
+                      extraTaScale={taAxes.scaleMul}
+                      rotationDeg={-taAxes.rotDeg}
                       scaleAnchor={manimToCanvas(
                         layer.resolvedX,
                         layer.resolvedY,
@@ -395,6 +495,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     }
                   : null;
                 const blinkText = blinkPreviewForTarget(item.id, currentTime, itemsMap);
+                const taTxt = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
                 const playbackBlink =
                   blinkText && !blinkText.applyOuterBlinkScale
                     ? { ...blinkText, scaleMultiplier: 1 }
@@ -406,6 +507,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
                       blink={playbackBlink}
+                      extraTaScale={taTxt.scaleMul}
+                      rotationDeg={-taTxt.rotDeg}
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
                     >
                       <TextLineNode
@@ -430,21 +533,17 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const selected = selectedIds.has(item.id);
                 const pos = resolvedShapePositions.get(item.id);
                 const bShape = blinkPreviewForTarget(item.id, currentTime, itemsMap);
-                const cMix =
-                  bShape && bShape.row.mode === 'color'
-                    ? bShape.colorMix
-                    : 0;
-                const previewStroke =
-                  cMix > 0
-                    ? lerpHexColor(
-                        item.strokeColor || '#60a5fa',
-                        bShape!.blinkColor,
-                        cMix,
-                      )
-                    : undefined;
+                const taShape = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
+                const strokeBase = item.strokeColor || '#60a5fa';
+                const previewStroke = strokeAfterBlinkThenTa(
+                  strokeBase,
+                  bShape,
+                  taShape,
+                );
                 const previewFill =
-                  item.fillColor && cMix > 0
-                    ? lerpHexColor(item.fillColor, bShape!.blinkColor, cMix)
+                  item.fillColor != null &&
+                  item.fillColor !== ''
+                    ? strokeAfterBlinkThenTa(item.fillColor, bShape, taShape)
                     : undefined;
                 const mx = pos?.x ?? item.x;
                 const my = pos?.y ?? item.y;
@@ -453,6 +552,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
                       blink={bShape}
+                      extraTaScale={taShape.scaleMul}
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
                     >
                       <ShapeNode
@@ -464,6 +564,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         resolvedY={pos?.y ?? item.y}
                         previewStrokeColor={previewStroke}
                         previewFillColor={previewFill}
+                        previewRotationDeltaDeg={-taShape.rotDeg}
                       />
                     </PlaybackWrap>
                   </PreviewWrap>
@@ -471,17 +572,15 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               }
               const sr = entry.item;
               const bSr = blinkPreviewForTarget(sr.id, currentTime, itemsMap);
-              const cmSr =
-                bSr && bSr.row.mode === 'color'
-                  ? bSr.colorMix
-                  : 0;
-              const srStroke =
-                cmSr > 0 ? lerpHexColor(sr.color, bSr!.blinkColor, cmSr) : undefined;
+              const srTa = targetAnimPreviewAccum(sr.id, currentTime, itemsMap);
+              const srStroke = strokeAfterBlinkThenTa(sr.color, bSr, srTa);
               return (
                 <PreviewWrap key={sr.id} op={previewOps.get(sr.id)}>
                   <PlaybackWrap
                     exit={exitPreviewForTarget(sr.id, currentTime, itemsMap)}
                     blink={bSr}
+                    extraTaScale={srTa.scaleMul}
+                    rotationDeg={-srTa.rotDeg}
                     scaleAnchor={surroundBBoxCanvasCenter(
                       entry.bboxManim,
                       size.width,
@@ -511,25 +610,51 @@ function PlaybackWrap({
   exit,
   blink,
   scaleAnchor,
+  extraTaScale = 1,
+  rotationDeg = 0,
   children,
 }: {
   exit: ExitPreviewState | null;
   blink: BlinkPreviewState | null;
-  /** Canvas-space pivot for scale (exit × blink). Omit only if scale is always 1. */
+  /** Canvas-space pivot for scale/rotation transforms. */
   scaleAnchor: { x: number; y: number };
+  /** Multiplicative scale from cumulative target_animation preview (modes: scale); default 1. */
+  extraTaScale?: number;
+  /** Clockwise Konva rotation in degrees around `scaleAnchor` (typically `-ta.rotDeg`). */
+  rotationDeg?: number;
   children: React.ReactNode;
 }) {
   const opacity = exit?.opacity ?? 1;
-  const scale = (exit?.scale ?? 1) * (blink?.scaleMultiplier ?? 1);
+  const taSc =
+    typeof extraTaScale === 'number' &&
+    Number.isFinite(extraTaScale) &&
+    extraTaScale > 1e-9
+      ? extraTaScale
+      : 1;
+  const rawScale =
+    (exit?.scale ?? 1) * (blink?.scaleMultiplier ?? 1) * taSc;
+  const scale =
+    Number.isFinite(rawScale) && rawScale > 1e-9 ? rawScale : 1;
+  const rot = Number.isFinite(rotationDeg) ? rotationDeg : 0;
+
   const needsScale = Math.abs(scale - 1) >= 1e-6;
   const needsOpacity = Math.abs(opacity - 1) >= 1e-6;
+  const needsRotate = Math.abs(rot) >= 1e-6;
 
-  if (!needsScale && !needsOpacity) return <>{children}</>;
+  if (!needsScale && !needsOpacity && !needsRotate) return <>{children}</>;
 
-  if (needsScale) {
-    const { x: ax, y: ay } = scaleAnchor;
+  const { x: ax, y: ay } = scaleAnchor;
+
+  if (needsScale || needsRotate) {
     return (
-      <Group opacity={opacity} x={ax} y={ay} scaleX={scale} scaleY={scale}>
+      <Group
+        opacity={opacity}
+        x={ax}
+        y={ay}
+        rotation={rot}
+        scaleX={scale}
+        scaleY={scale}
+      >
         <Group x={-ax} y={-ay}>
           {children}
         </Group>

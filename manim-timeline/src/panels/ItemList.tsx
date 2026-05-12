@@ -1,63 +1,16 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import {
-  createTextLine,
-  createAxes,
-  createGraphPlot,
-  createGraphCurve,
-  createGraphDotItem,
-  createGraphFieldItem,
-  createGraphFunctionSeries,
-  createGraphPointSequence,
-  createGraphArea,
-  createExitAnimation,
-  createBlinkAnimation,
-  createSurroundingRect,
-  createShape,
-} from '@/store/factories';
-import type { ItemId, SceneItem } from '@/types/scene';
-import {
-  canBeExitTarget,
-  canBeBlinkTarget,
-  canBeSurroundTarget,
-  holdEnd,
-  isTopLevelItem,
-  effectiveStart,
-} from '@/lib/time';
+import type { SceneItem } from '@/types/scene';
+import { isTopLevelItem } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 
-function pickDefaultAxesId(
-  itemsMap: Map<ItemId, SceneItem>,
-  selectedIds: Set<ItemId>,
-): string | null {
-  for (const id of selectedIds) {
-    const it = itemsMap.get(id);
-    if (it?.kind === 'axes') return id;
-  }
-  const axes = [...itemsMap.values()].filter((i) => i.kind === 'axes');
-  if (axes.length === 0) return null;
-  if (axes.length === 1) return axes[0]!.id;
-  return [...axes].sort((a, b) => a.startTime - b.startTime)[0]!.id;
-}
-
 export default function ItemList() {
   const itemsMap = useSceneStore((s) => s.items);
-  const currentTime = useSceneStore((s) => s.currentTime);
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const select = useSceneStore((s) => s.select);
   const removeItem = useSceneStore((s) => s.removeItem);
   const duplicateItem = useSceneStore((s) => s.duplicateItem);
-  const addItem = useSceneStore((s) => s.addItem);
-  const defaults = useSceneStore((s) => s.defaults);
-
-  const [objectMenuOpen, setObjectMenuOpen] = useState(false);
-  const [audioMenuOpen, setAudioMenuOpen] = useState(false);
-
-  const closeMenus = useCallback(() => {
-    setObjectMenuOpen(false);
-    setAudioMenuOpen(false);
-  }, []);
 
   const items = useMemo(
     () =>
@@ -66,177 +19,6 @@ export default function ItemList() {
         .sort((a: SceneItem, b: SceneItem) => a.startTime - b.startTime || a.layer - b.layer),
     [itemsMap],
   );
-
-  const addTextLine = () => {
-    const item = createTextLine(defaults, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const ensureAxesId = (): string => {
-    let axId = pickDefaultAxesId(itemsMap, selectedIds);
-    if (!axId) {
-      const ax = createAxes(defaults, currentTime);
-      addItem(ax);
-      axId = ax.id;
-    }
-    return axId;
-  };
-
-  const addAxes = () => {
-    const item = createAxes(defaults, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addShape = () => {
-    const item = createShape(currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphPlot = () => {
-    const axId = ensureAxesId();
-    const item = createGraphPlot(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphCurve = () => {
-    const axId = ensureAxesId();
-    const item = createGraphCurve(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphDot = () => {
-    const axId = ensureAxesId();
-    const item = createGraphDotItem(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphField = () => {
-    const axId = ensureAxesId();
-    const item = createGraphFieldItem(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphFunctionSeries = () => {
-    const axId = ensureAxesId();
-    const item = createGraphFunctionSeries(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphPointSequence = () => {
-    const axId = ensureAxesId();
-    const item = createGraphPointSequence(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addGraphArea = () => {
-    const axId = ensureAxesId();
-    const item = createGraphArea(axId, currentTime);
-    addItem(item);
-    select(item.id);
-  };
-
-  const addExitAnimationClip = () => {
-    const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeExitTarget(it));
-    const seen = new Set<ItemId>();
-    const targetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      targetIds.push(it.id);
-    }
-    if (targetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeExitTarget);
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      targetIds.push(candidates[0]!.id);
-    }
-    const holdEnds = targetIds.map((id) => {
-      const t = map.get(id);
-      return t && canBeExitTarget(t) ? holdEnd(t, map) : 0;
-    });
-    const start = Math.max(currentTime, ...holdEnds);
-    const toRemove = [...map.entries()]
-      .filter(
-        ([, it]) =>
-          it.kind === 'exit_animation' &&
-          it.targets.some((row) => targetIds.includes(row.targetId)),
-      )
-      .map(([id]) => id);
-    for (const id of toRemove) {
-      removeItem(id);
-    }
-    const ex = createExitAnimation(targetIds, start, 1);
-    addItem(ex);
-    select(ex.id);
-  };
-
-  const addBlinkAnimationClip = () => {
-    const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeBlinkTarget(it));
-    const seen = new Set<ItemId>();
-    const targetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      targetIds.push(it.id);
-    }
-    if (targetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeBlinkTarget);
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      targetIds.push(candidates[0]!.id);
-    }
-    const starts = targetIds.map((id) => {
-      const t = map.get(id);
-      return t && canBeBlinkTarget(t) ? effectiveStart(t, map) : 0;
-    });
-    const start = Math.max(currentTime, ...starts);
-    const blink = createBlinkAnimation(targetIds, start, 0.6);
-    addItem(blink);
-    select(blink.id);
-  };
-
-  const addSurroundingRectClip = () => {
-    const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeSurroundTarget(it));
-    const seen = new Set<ItemId>();
-    const surroundTargetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      surroundTargetIds.push(it.id);
-    }
-    if (surroundTargetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeSurroundTarget);
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      surroundTargetIds.push(candidates[0]!.id);
-    }
-    const starts = surroundTargetIds.map((id) => {
-      const t = map.get(id);
-      return t && canBeSurroundTarget(t) ? effectiveStart(t, map) : 0;
-    });
-    const start = Math.max(currentTime, ...starts);
-    const item = createSurroundingRect(surroundTargetIds, start);
-    addItem(item);
-    select(item.id);
-  };
 
   const renderRow = (item: SceneItem) => {
     const isSelected = selectedIds.has(item.id);
@@ -248,6 +30,12 @@ export default function ItemList() {
         : [];
     const blinkTargets =
       item.kind === 'blink_animation'
+        ? item.targets
+            .map((row) => itemsMap.get(row.targetId))
+            .filter((x): x is SceneItem => !!x)
+        : [];
+    const taTargets =
+      item.kind === 'target_animation'
         ? item.targets
             .map((row) => itemsMap.get(row.targetId))
             .filter((x): x is SceneItem => !!x)
@@ -279,17 +67,28 @@ export default function ItemList() {
                   : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
               return `Blink → ${joined}`;
             })()
-          : item.kind === 'surroundingRect'
-          ? (() => {
-              if (surroundTargets.length === 0) return 'Rect (no targets)';
-              const names = surroundTargets.map((t) => itemClipDisplayName(t));
-              const joined =
-                names.length <= 2
-                  ? names.join(', ')
-                  : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
-              return `Rect → ${joined}`;
-            })()
-          : itemClipDisplayName(item);
+          : item.kind === 'target_animation'
+            ? (() => {
+                if (taTargets.length === 0)
+                  return `Target anim (${item.mode}, no targets)`;
+                const names = taTargets.map((t) => itemClipDisplayName(t));
+                const joined =
+                  names.length <= 2
+                    ? names.join(', ')
+                    : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+                return `${item.mode} → ${joined}`;
+              })()
+            : item.kind === 'surroundingRect'
+            ? (() => {
+                if (surroundTargets.length === 0) return 'Rect (no targets)';
+                const names = surroundTargets.map((t) => itemClipDisplayName(t));
+                const joined =
+                  names.length <= 2
+                    ? names.join(', ')
+                    : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+                return `Rect → ${joined}`;
+              })()
+            : itemClipDisplayName(item);
     let kindBadge = 'bg-slate-600/30 text-slate-300';
     let kindLetter = '?';
     if (item.kind === 'textLine') {
@@ -325,6 +124,9 @@ export default function ItemList() {
     } else if (item.kind === 'blink_animation') {
       kindBadge = 'bg-amber-600/30 text-amber-200';
       kindLetter = 'B';
+    } else if (item.kind === 'target_animation') {
+      kindBadge = 'bg-yellow-900/35 text-yellow-200';
+      kindLetter = 'TA';
     } else if (item.kind === 'surroundingRect') {
       kindBadge = 'bg-orange-600/30 text-orange-200';
       kindLetter = 'R';
@@ -386,245 +188,14 @@ export default function ItemList() {
 
   return (
     <div className="flex flex-col h-full">
-      {(objectMenuOpen || audioMenuOpen) && (
-        <div
-          className="fixed inset-0 z-40"
-          aria-hidden
-          onClick={closeMenus}
-        />
-      )}
-
-      <div className="flex items-center gap-1 flex-wrap p-3 shrink-0 relative z-50">
+      <div className="flex items-center gap-1 p-3 shrink-0 border-b border-slate-700/60">
         <h3 className="text-sm font-semibold text-slate-200 flex-1 min-w-[80px]">Items</h3>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setAudioMenuOpen(false);
-              setObjectMenuOpen((o) => !o);
-            }}
-            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition-colors"
-          >
-            + Object
-          </button>
-          {objectMenuOpen && (
-            <div
-              className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg flex flex-col min-w-[140px]"
-              role="menu"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addTextLine();
-                  closeMenus();
-                }}
-              >
-                Text Line
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addAxes();
-                  closeMenus();
-                }}
-              >
-                Axes
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Circle, rectangle, arrow, or line"
-                onClick={() => {
-                  addShape();
-                  closeMenus();
-                }}
-              >
-                Shape
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addGraphPlot();
-                  closeMenus();
-                }}
-              >
-                Graph plot
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addGraphCurve();
-                  closeMenus();
-                }}
-              >
-                Graph curve
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addGraphDot();
-                  closeMenus();
-                }}
-              >
-                Graph dot
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  addGraphField();
-                  closeMenus();
-                }}
-              >
-                Vector / slope field
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Family f(n, x) or partial sums S_k(x) = Σ f(n, x) for integer n; Accumulation or Replacement playback"
-                onClick={() => {
-                  addGraphFunctionSeries();
-                  closeMenus();
-                }}
-              >
-                Function series
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Indexed points (x(n), y(n)); accumulation or fade replacement between points"
-                onClick={() => {
-                  addGraphPointSequence();
-                  closeMenus();
-                }}
-              >
-                Point sequence
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Filled region on axes: under/between curves, parallelogram, or disk"
-                onClick={() => {
-                  addGraphArea();
-                  closeMenus();
-                }}
-              >
-                Graph area
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Exit one or more objects at once (replaces prior exits touching those targets). Shift/Ctrl/Cmd+click clips in the list or timeline to multi-select targets."
-                onClick={() => {
-                  addExitAnimationClip();
-                  closeMenus();
-                }}
-              >
-                Exit animation
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="Pulse scale/color on one or more objects (does not remove them). Shift/Ctrl/Cmd+click to multi-select targets."
-                onClick={() => {
-                  addBlinkAnimationClip();
-                  closeMenus();
-                }}
-              >
-                Blink animation
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                title="SurroundingRectangle highlight; remove with Exit targeting this clip"
-                onClick={() => {
-                  addSurroundingRectClip();
-                  closeMenus();
-                }}
-              >
-                Surrounding rectangle
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => {
-              setObjectMenuOpen(false);
-              setAudioMenuOpen((o) => !o);
-            }}
-            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-100 rounded transition-colors"
-          >
-            + Audio
-          </button>
-          {audioMenuOpen && (
-            <div
-              className="absolute right-0 top-full mt-1 z-50 bg-slate-800 border border-slate-600 rounded shadow-lg flex flex-col min-w-[120px]"
-              role="menu"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  useSceneStore.getState().setAudioMode('record');
-                  closeMenus();
-                }}
-              >
-                Recording
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  useSceneStore.getState().setAudioMode('upload');
-                  closeMenus();
-                }}
-              >
-                Upload recording
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
-                onClick={() => {
-                  useSceneStore.getState().setAudioMode('tts');
-                  closeMenus();
-                }}
-              >
-                Text-to-Speech
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {items.length === 0 && (
           <p className="text-xs text-slate-500 italic py-4 text-center">
-            No items yet. Add text, axes, graph overlays, or shapes.
+            No items yet. Use the toolbar beside the list to add objects or audio.
           </p>
         )}
 

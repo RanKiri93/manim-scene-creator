@@ -37,7 +37,12 @@ export function normalizeNextToPosStep(step: PosStep): PosStep {
  */
 export function migrateItemsToV20(items: readonly SceneItem[]): SceneItem[] {
   return items.map((it) => {
-    if (it.kind === 'exit_animation' || it.kind === 'blink_animation') return it;
+    if (
+      it.kind === 'exit_animation' ||
+      it.kind === 'blink_animation' ||
+      it.kind === 'target_animation'
+    )
+      return it;
     if (it.kind === 'surroundingRect') return it;
     const next = {
       ...it,
