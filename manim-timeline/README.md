@@ -273,7 +273,7 @@ A **`graphFunctionSeries`** item renders a family of curves parameterized by an 
 
 ### Portable bundle (`.mtproj`)
 
-For **cross-machine portability** (especially **timeline audio**), use **Save bundle (.mtproj)** in the header. Plain **Save project** JSON is still supported for quick saves, but **`audioItems`** in JSON usually contain **`blob:`** URLs that **only work in the same browser session**, so JSON alone is not sufficient to move narration to another machine.
+For **cross-machine portability** (especially **timeline audio**), use **Save bundle (.mtproj)** in the header. You can still **open** plain `.json` projects from disk, but **`audioItems`** in JSON usually contain **`blob:`** URLs that **only work in the same browser session**, so only the bundle format is reliable for moving narration to another machine.
 
 A **`.mtproj`** file is a **ZIP** archive with:
 

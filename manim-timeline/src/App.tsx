@@ -1,11 +1,18 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import { useProjectFileStore } from '@/store/useProjectFileStore';
 import {
-  downloadProjectFile,
   downloadMtprojBundle,
-  loadProjectFile,
+  isTauriRuntime,
   MtprojPackError,
   MtprojUnpackError,
+  openProjectFromDisk,
+  pickTauriMtprojSavePath,
+  saveKindFromFilename,
+  saveProjectWithPicker,
+  supportsFileSystemAccess,
+  writeMtprojToTauriPath,
+  writeProjectToHandle,
 } from '@/lib/projectIO';
 import type { FragmentTimeMode } from '@/lib/projectFragment';
 import { safeSceneClassName } from '@/lib/pythonIdent';
@@ -19,6 +26,7 @@ import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
 import AgentPanel from '@/agent/AgentPanel';
 import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
+import { useSceneUndoRedo } from '@/hooks/useSceneUndoRedo';
 
 const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
 const DEFAULT_TOOLBAR_WIDTH = 104;
@@ -48,6 +56,18 @@ function promptFragmentTimeMode(): FragmentTimeMode | null {
   if (t === '1') return 'preserve';
   if (t === '2') return 'playhead';
   return 'appendEnd';
+}
+
+function fileBasename(path: string): string {
+  return path.replace(/^.*[/\\]/, '');
+}
+
+function isEditableTargetFocused(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+  return el.isContentEditable === true;
 }
 
 export default function App() {
@@ -113,26 +133,126 @@ export default function App() {
   const importFragment = useSceneStore((s) => s.importFragment);
   const defaults = useSceneStore((s) => s.defaults);
   const setDefaults = useSceneStore((s) => s.setDefaults);
+  const { canUndo, canRedo, undo, redo } = useSceneUndoRedo();
 
-  const handleSave = () => downloadProjectFile(toProjectFile());
-  const handleSaveBundle = async () => {
-    try {
-      await downloadMtprojBundle(toProjectFile());
-    } catch (e) {
-      if (e instanceof MtprojPackError) {
-        const lines = e.failed
-          .map((f) => `• ${f.text.slice(0, 40)}${f.text.length > 40 ? '…' : ''} — ${f.reason}`)
-          .join('\n');
-        window.alert(`${e.message}\n\n${lines}`);
-      } else {
-        window.alert(e instanceof Error ? e.message : String(e));
-      }
+  const activeFileHandle = useProjectFileStore((s) => s.activeHandle);
+  const activeTauriPath = useProjectFileStore((s) => s.activeTauriPath);
+  const setActiveProjectFile = useProjectFileStore((s) => s.setActiveProjectFile);
+  const setActiveTauriPath = useProjectFileStore((s) => s.setActiveTauriPath);
+  const clearActiveProjectFile = useProjectFileStore((s) => s.clearActiveProjectFile);
+
+  const alertPackError = (e: unknown) => {
+    if (e instanceof MtprojPackError) {
+      const lines = e.failed
+        .map((f) => `• ${f.text.slice(0, 40)}${f.text.length > 40 ? '…' : ''} — ${f.reason}`)
+        .join('\n');
+      window.alert(`${e.message}\n\n${lines}`);
+    } else {
+      window.alert(e instanceof Error ? e.message : String(e));
     }
   };
+
+  /** Save portable bundle (.mtproj) — same as Ctrl+S / Cmd+S. */
+  const saveBundle = useCallback(async () => {
+    const project = toProjectFile();
+    const st = useProjectFileStore.getState();
+    try {
+      if (isTauriRuntime()) {
+        const { activeTauriPath, setActiveTauriPath: setTauri } = st;
+        if (activeTauriPath) {
+          if (saveKindFromFilename(fileBasename(activeTauriPath)) === 'mtproj') {
+            await writeMtprojToTauriPath(activeTauriPath, project);
+            return;
+          }
+          const path = await pickTauriMtprojSavePath();
+          if (!path) return;
+          setTauri(path);
+          await writeMtprojToTauriPath(path, project);
+          return;
+        }
+        const path = await pickTauriMtprojSavePath();
+        if (!path) return;
+        setTauri(path);
+        await writeMtprojToTauriPath(path, project);
+        return;
+      }
+
+      const { activeHandle, activeKind } = st;
+      if (supportsFileSystemAccess() && activeHandle && activeKind === 'mtproj') {
+        await writeProjectToHandle(activeHandle, project, 'mtproj');
+        return;
+      }
+      if (supportsFileSystemAccess() && activeHandle && activeKind === 'json') {
+        const handle = await saveProjectWithPicker(project, 'mtproj');
+        if (handle) st.setActiveProjectFile(handle, 'mtproj');
+        return;
+      }
+      if (supportsFileSystemAccess()) {
+        const handle = await saveProjectWithPicker(project, 'mtproj');
+        if (handle) st.setActiveProjectFile(handle, 'mtproj');
+        return;
+      }
+      await downloadMtprojBundle(project);
+      if (import.meta.env.DEV) {
+        console.info(
+          '[Manim Timeline] Saved via browser download. For saving to one file on disk (no extra downloads), run the desktop app: npm run tauri:dev — or use Chrome/Edge at localhost with File System Access.',
+        );
+      }
+    } catch (e) {
+      alertPackError(e);
+    }
+  }, [toProjectFile]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.isComposing) return;
+
+      const mod = e.ctrlKey || e.metaKey;
+      const saveCombo =
+        e.code === 'KeyS' &&
+        mod &&
+        !e.shiftKey &&
+        !e.altKey;
+      if (saveCombo) {
+        e.preventDefault();
+        void saveBundle();
+        return;
+      }
+
+      if (!mod || e.altKey) return;
+      if (isEditableTargetFocused()) return;
+
+      const t = useSceneStore.temporal.getState();
+
+      if (e.code === 'KeyZ') {
+        if (e.shiftKey) {
+          if (t.futureStates.length === 0) return;
+          e.preventDefault();
+          t.redo();
+          return;
+        }
+        if (t.pastStates.length === 0) return;
+        e.preventDefault();
+        t.undo();
+        return;
+      }
+
+      if (e.code === 'KeyY' && !e.shiftKey) {
+        if (t.futureStates.length === 0) return;
+        e.preventDefault();
+        t.redo();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [saveBundle]);
+
   const handleLoad = async () => {
     try {
-      const loaded = await loadProjectFile();
-      if (!loaded) return;
+      const outcome = await openProjectFromDisk();
+      if (!outcome) return;
+      const { loaded, fileHandle, tauriPath } = outcome;
       if (loaded.kind === 'fragment') {
         const mode = promptFragmentTimeMode();
         if (mode == null) return;
@@ -140,6 +260,13 @@ export default function App() {
         return;
       }
       loadProject(loaded.data);
+      if (tauriPath) {
+        setActiveTauriPath(tauriPath);
+      } else if (fileHandle) {
+        setActiveProjectFile(fileHandle, saveKindFromFilename(fileHandle.name));
+      } else {
+        clearActiveProjectFile();
+      }
     } catch (e) {
       if (e instanceof MtprojUnpackError) {
         window.alert(e.message);
@@ -147,11 +274,26 @@ export default function App() {
     }
   };
 
+  const activeFileLabel =
+    activeFileHandle?.name ??
+    (activeTauriPath ? fileBasename(activeTauriPath) : null);
+
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
       {/* Top bar */}
       <header className="flex items-center gap-3 px-4 py-2 bg-slate-800 border-b border-slate-700 shrink-0">
         <h1 className="text-sm font-bold tracking-tight text-blue-400 shrink-0">Manim Timeline</h1>
+        <span
+          className="text-xs text-slate-500 max-w-[min(200px,28vw)] truncate shrink-0 font-mono"
+          title={
+            activeFileLabel ??
+            (isTauriRuntime()
+              ? 'Ctrl+S saves .mtproj; after choosing a file, saves overwrite that path'
+              : 'Ctrl+S saves a .mtproj; Chrome/Edge can overwrite after you pick once; other browsers may download')
+          }
+        >
+          {activeFileLabel ?? '— unsaved'}
+        </span>
         <label className="flex items-center gap-2 text-xs text-slate-400 shrink-0 max-w-[min(280px,40vw)]">
           <span className="shrink-0">Scene</span>
           <input
@@ -173,6 +315,24 @@ export default function App() {
         <div className="flex-1" />
         <button
           type="button"
+          onClick={undo}
+          disabled={!canUndo}
+          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-700"
+          title="Undo (Ctrl+Z, ⌘+Z)"
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          onClick={redo}
+          disabled={!canRedo}
+          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-700"
+          title="Redo (Ctrl+Y, ⌘+Y, Ctrl+Shift+Z, ⌘+Shift+Z)"
+        >
+          Redo
+        </button>
+        <button
+          type="button"
           onClick={() => void handleLoad()}
           className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
           title="Open full project or import a selection fragment (.json / .mtproj)"
@@ -180,17 +340,10 @@ export default function App() {
           Open / import
         </button>
         <button
-          onClick={handleSave}
-          className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-500 rounded transition-colors"
-          title="JSON only — audio uses blob URLs and will not reopen elsewhere"
-        >
-          Save project
-        </button>
-        <button
           type="button"
-          onClick={() => void handleSaveBundle()}
+          onClick={() => void saveBundle()}
           className="px-3 py-1 text-xs bg-emerald-700 hover:bg-emerald-600 rounded transition-colors"
-          title="Portable ZIP with embedded audio and checksums"
+          title="Portable ZIP with embedded audio and checksums. Ctrl+S / Cmd+S saves to the active file when available (Chrome/Edge)."
         >
           Save bundle (.mtproj)
         </button>
