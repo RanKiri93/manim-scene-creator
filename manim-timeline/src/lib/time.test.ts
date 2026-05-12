@@ -33,6 +33,7 @@ function minimalLine(id: string, startTime: number, duration: number): TextLineI
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 

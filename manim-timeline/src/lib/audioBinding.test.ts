@@ -36,6 +36,7 @@ function minimalLine(
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 

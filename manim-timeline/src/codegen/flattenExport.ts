@@ -3,9 +3,11 @@ import type {
   TextLineItem,
   AxesItem,
   GraphPlotItem,
+  GraphCurveItem,
   GraphDotItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   GraphAreaItem,
   ShapeItem,
   ItemId,
@@ -28,9 +30,11 @@ export type ExportLeaf =
   | TextLineItem
   | AxesItem
   | GraphPlotItem
+  | GraphCurveItem
   | GraphDotItem
   | GraphFieldItem
   | GraphFunctionSeriesItem
+  | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem;
 
@@ -40,9 +44,11 @@ export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
       it.kind === 'textLine' ||
       it.kind === 'axes' ||
       it.kind === 'graphPlot' ||
+      it.kind === 'graphCurve' ||
       it.kind === 'graphDot' ||
       it.kind === 'graphField' ||
       it.kind === 'graphFunctionSeries' ||
+      it.kind === 'graphPointSequence' ||
       it.kind === 'graphArea' ||
       it.kind === 'shape',
   );
@@ -129,9 +135,11 @@ export function reorderExportLeavesForPlacementDeps(
   for (const L of leaves) {
     if (
       L.kind === 'graphPlot' ||
+      L.kind === 'graphCurve' ||
       L.kind === 'graphDot' ||
       L.kind === 'graphField' ||
       L.kind === 'graphFunctionSeries' ||
+      L.kind === 'graphPointSequence' ||
       L.kind === 'graphArea'
     ) {
       if (byId.has(L.axesId)) addEdge(L.axesId, L.id);

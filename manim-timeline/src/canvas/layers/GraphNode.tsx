@@ -9,13 +9,14 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
-import { DEFAULT_FIELD_ARROW_STROKE_WIDTH } from '@/types/scene';
+import { DEFAULT_FIELD_ARROW_STROKE_WIDTH, resolveGraphOverlayLineStyle } from '@/types/scene';
 import type { GraphAxesDrawSlot } from '@/lib/graphPreview';
 import {
   buildFunctionSeriesDrawSpec,
   functionSeriesDashArray,
 } from '@/lib/functionSeriesPreview';
-import { functionSeriesIsDisabled } from '@/lib/graphPreview';
+import { buildPointSequenceDrawSpec } from '@/lib/pointSequencePreview';
+import { functionSeriesIsDisabled, pointSequenceIsDisabled } from '@/lib/graphPreview';
 import { useDragSnap } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
@@ -31,6 +32,7 @@ import {
   buildAxesCreatePreviewSpec,
   buildGraphDotPreviewSpec,
   buildPlotCreatePreviewSpec,
+  buildCurveCreatePreviewSpec,
   clampedAxesZeroOffsets,
 } from '@/lib/graphCreatePreview';
 import {
@@ -271,6 +273,33 @@ export default function GraphNode({
     },
     [axW, axH, xMin, xMax, yMin, yMax],
   );
+
+  const curvePolyline = (
+    jsXExpr: string,
+    jsYExpr: string,
+    tLo: number,
+    tHi: number,
+  ): number[] => {
+    const points: number[] = [];
+    const steps = 200;
+    if (!(tHi > tLo)) return points;
+    for (let s = 0; s <= steps; s++) {
+      const u = s / steps;
+      const tPar = tLo + u * (tHi - tLo);
+      let gx: number;
+      let gy: number;
+      try {
+        gx = new Function('t', `return ${jsXExpr}`)(tPar) as number;
+        gy = new Function('t', `return ${jsYExpr}`)(tPar) as number;
+      } catch {
+        continue;
+      }
+      if (!isFinite(gx) || !isFinite(gy)) continue;
+      const { lx, ly } = toLocal(gx, gy);
+      points.push(lx, ly);
+    }
+    return points;
+  };
 
   const fieldMode = field?.fieldMode ?? 'none';
   const cmin = field?.colorSchemeMin ?? 0;
@@ -672,6 +701,10 @@ export default function GraphNode({
                 strokeWidth={Math.max(0, it.strokeWidth)}
                 lineCap="round"
                 lineJoin="round"
+                dash={functionSeriesDashArray(
+                  resolveGraphOverlayLineStyle(it.lineStyle),
+                  Math.max(0, it.strokeWidth),
+                )}
                 listening={false}
               />
               {plotPreview.revealHead ? (
@@ -686,6 +719,61 @@ export default function GraphNode({
                 />
               ) : null}
             </Group>
+            </GraphPlaybackWrap>
+          );
+        }
+        if (slot.kind === 'curve') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphCurve') return null;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          const td = it.tDomain;
+          const tLo = Math.min(td[0], td[1]);
+          const tHi = Math.max(td[0], td[1]);
+          const pts = curvePolyline(
+            it.curve.jsXExpr,
+            it.curve.jsYExpr,
+            tLo,
+            tHi,
+          );
+          if (pts.length < 4) return null;
+          const curvePreview = buildCurveCreatePreviewSpec({
+            curveItem: it,
+            time: currentTime,
+            itemsMap,
+            fullPoints: pts,
+          });
+          if (curvePreview.points.length < 4) return null;
+          const strokeCol =
+            typeof it.curve.color === 'string' && it.curve.color.trim()
+              ? it.curve.color.trim()
+              : '#3b82f6';
+          return (
+            <GraphPlaybackWrap key={key} exit={exit}>
+              <Group listening={false}>
+                <Line
+                  points={curvePreview.points}
+                  stroke={strokeCol}
+                  strokeWidth={Math.max(0, it.strokeWidth)}
+                  lineCap="round"
+                  lineJoin="round"
+                  dash={functionSeriesDashArray(
+                    resolveGraphOverlayLineStyle(it.lineStyle),
+                    Math.max(0, it.strokeWidth),
+                  )}
+                  listening={false}
+                />
+                {curvePreview.revealHead ? (
+                  <Circle
+                    x={curvePreview.revealHead.x}
+                    y={curvePreview.revealHead.y}
+                    radius={4}
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    fill={strokeCol}
+                    listening={false}
+                  />
+                ) : null}
+              </Group>
             </GraphPlaybackWrap>
           );
         }
@@ -811,6 +899,54 @@ export default function GraphNode({
                   />
                 ) : null,
               )}
+            </Group>
+            </GraphPlaybackWrap>
+          );
+        }
+        if (slot.kind === 'pointSequence') {
+          const it = itemsMap.get(slot.id);
+          if (!it || it.kind !== 'graphPointSequence') return null;
+          const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          if (pointSequenceIsDisabled(it)) {
+            const o = toLocal(0, 0);
+            return (
+              <GraphPlaybackWrap key={key} exit={exit}>
+              <Group listening={false}>
+                <Text
+                  x={o.lx - 8}
+                  y={o.ly - 10}
+                  text="⚠"
+                  fontSize={18}
+                  fill="#fca5a5"
+                  listening={false}
+                />
+              </Group>
+              </GraphPlaybackWrap>
+            );
+          }
+          const scenePxPerUnit = (pxPerUnitX + pxPerUnitY) / 2;
+          const spec = buildPointSequenceDrawSpec(
+            it,
+            currentTime,
+            itemsMap,
+            toLocal,
+            scenePxPerUnit,
+          );
+          if (!spec || spec.dots.length === 0) return null;
+          return (
+            <GraphPlaybackWrap key={key} exit={exit}>
+            <Group listening={false}>
+              {spec.dots.map((d) => (
+                <Circle
+                  key={d.key}
+                  x={d.lx}
+                  y={d.ly}
+                  radius={d.radiusPx}
+                  fill={d.color}
+                  opacity={d.opacity}
+                  listening={false}
+                />
+              ))}
             </Group>
             </GraphPlaybackWrap>
           );

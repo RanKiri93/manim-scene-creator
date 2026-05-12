@@ -15,9 +15,11 @@ import type {
   TransformMapping,
   AudioTrackItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
 } from '@/types/scene';
-import { functionSeriesTotalDuration } from '@/types/scene';
+import { functionSeriesTotalDuration, pointSequenceTotalDuration } from '@/types/scene';
 import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
+import { validatePointSequence } from '@/lib/pointSequenceValidation';
 import { generateAudio, uploadRecordedAudio } from '@/services/measureClient';
 import {
   isTopLevelItem,
@@ -63,6 +65,16 @@ function syncFunctionSeriesDerived(
 ): void {
   item.duration = Math.max(0.01, functionSeriesTotalDuration(item));
   const v = validateFunctionSeries(item, itemsMap);
+  item.topLevelError = v.topLevelError;
+  item.perNErrors = v.perNErrors;
+}
+
+function syncPointSequenceDerived(
+  item: GraphPointSequenceItem,
+  itemsMap: Map<ItemId, SceneItem>,
+): void {
+  item.duration = Math.max(0.01, pointSequenceTotalDuration(item));
+  const v = validatePointSequence(item, itemsMap);
   item.topLevelError = v.topLevelError;
   item.perNErrors = v.perNErrors;
 }
@@ -332,6 +344,10 @@ export const useSceneStore = create<SceneStore>()(
           const fs = s.items.get(item.id) as GraphFunctionSeriesItem;
           syncFunctionSeriesDerived(fs, s.items);
         }
+        if (item.kind === 'graphPointSequence') {
+          const ps = s.items.get(item.id) as GraphPointSequenceItem;
+          syncPointSequenceDerived(ps, s.items);
+        }
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
@@ -358,6 +374,9 @@ export const useSceneStore = create<SceneStore>()(
         }
         if (item.kind === 'graphFunctionSeries') {
           syncFunctionSeriesDerived(item as GraphFunctionSeriesItem, s.items);
+        }
+        if (item.kind === 'graphPointSequence') {
+          syncPointSequenceDerived(item as GraphPointSequenceItem, s.items);
         }
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
@@ -422,9 +441,11 @@ export const useSceneStore = create<SceneStore>()(
         if (!src) return;
         if (
           src.kind === 'graphPlot' ||
+          src.kind === 'graphCurve' ||
           src.kind === 'graphDot' ||
           src.kind === 'graphField' ||
           src.kind === 'graphFunctionSeries' ||
+          src.kind === 'graphPointSequence' ||
           src.kind === 'graphArea' ||
           src.kind === 'shape'
         ) {
@@ -437,6 +458,9 @@ export const useSceneStore = create<SceneStore>()(
             s.items.set(clone.id, clone);
             if (clone.kind === 'graphFunctionSeries') {
               syncFunctionSeriesDerived(clone, s.items);
+            }
+            if (clone.kind === 'graphPointSequence') {
+              syncPointSequenceDerived(clone, s.items);
             }
           });
           return;
@@ -593,6 +617,9 @@ export const useSceneStore = create<SceneStore>()(
           // Function series duration is derived from per-n anim+wait; ignore direct resize.
           return;
         }
+        if (item.kind === 'graphPointSequence') {
+          return;
+        }
         if (item.kind === 'exit_animation' || item.kind === 'blink_animation') {
           item.duration = Math.max(0.05, newDuration);
           return;
@@ -651,6 +678,7 @@ export const useSceneStore = create<SceneStore>()(
             ? `data:image/png;base64,${result.pngBase64}`
             : null;
           tl.segmentMeasures = result?.segmentMeasures ?? null;
+          tl.mathChildMeasures = result?.mathChildMeasures ?? null;
         }
       }),
 
@@ -729,6 +757,9 @@ export const useSceneStore = create<SceneStore>()(
           if (it.kind === 'graphFunctionSeries') {
             syncFunctionSeriesDerived(it, s.items);
           }
+          if (it.kind === 'graphPointSequence') {
+            syncPointSequenceDerived(it, s.items);
+          }
         }
         s.defaults = { ...s.defaults, ...file.defaults };
         if (!s.defaults.sceneName?.trim()) {
@@ -788,6 +819,9 @@ export const useSceneStore = create<SceneStore>()(
           for (const it of migrated) {
             if (it.kind === 'graphFunctionSeries') {
               syncFunctionSeriesDerived(it, s.items);
+            }
+            if (it.kind === 'graphPointSequence') {
+              syncPointSequenceDerived(it, s.items);
             }
           }
           clampEffectClipStarts(s.items);

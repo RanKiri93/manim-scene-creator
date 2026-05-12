@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import NumberInput from '@/components/NumberInput';
 import { isTopLevelItem } from '@/lib/time';
-import { functionSeriesHasErrors } from '@/types/scene';
+import { functionSeriesHasErrors, pointSequenceHasErrors } from '@/types/scene';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -33,21 +33,22 @@ export default function PlaybackControls() {
 
   const duration = useMemo(() => getSceneDuration(), [getSceneDuration, itemsMap]);
 
-  // Global playback is locked while any function series has validation errors —
-  // rendering a broken series at playback time would produce an incorrect scene
-  // and the export is already hard-blocked for the same reason.
+  // Global playback is locked while any function series or point sequence has validation errors
   const fsErrorLabels = useMemo(() => {
     const labels: string[] = [];
     for (const it of itemsMap.values()) {
       if (it.kind === 'graphFunctionSeries' && functionSeriesHasErrors(it)) {
-        labels.push(it.label?.trim() || `#${it.id.slice(0, 4)}`);
+        labels.push(it.label?.trim() || `#${it.id.slice(0, 4)} (series)`);
+      }
+      if (it.kind === 'graphPointSequence' && pointSequenceHasErrors(it)) {
+        labels.push(it.label?.trim() || `#${it.id.slice(0, 4)} (points)`);
       }
     }
     return labels;
   }, [itemsMap]);
   const playbackLocked = fsErrorLabels.length > 0;
   const lockedTitle = playbackLocked
-    ? `ינעל עד לתיקון שגיאה בטור הפונקציות (${fsErrorLabels.join(', ')})`
+    ? `ינעל עד לתיקון שגיאה בטור הפונקציות או רצף נקודות (${fsErrorLabels.join(', ')})`
     : undefined;
 
   // If a validation error is introduced while playback is running (e.g. the user

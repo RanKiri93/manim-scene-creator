@@ -24,6 +24,7 @@ import { segmentWaitTotal } from '@/lib/time';
 import {
   exitAnimationExpr,
   overlayAreaVar,
+  overlayCurveVar,
   overlayDotVar,
   overlayPlotVar,
   pythonOverlaySuffix,
@@ -34,6 +35,7 @@ import {
   buildBlinkConcurrentSuccessionInner,
 } from './blinkCodegen';
 import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
+import { pointSequenceConcurrentBranch } from './pointSequenceCodegen';
 
 const MANIM_DEFAULT_PLAY_SEC = 1;
 
@@ -318,6 +320,14 @@ function concurrentBranchForLeaf(
     return `Succession(Wait(${wStr}), Create(${pVar}, run_time=${fmtRt(rt)})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
 
+  if (leaf.kind === 'graphCurve') {
+    const axVar = idToVarName.get(leaf.axesId)!;
+    const cVar = overlayCurveVar(axVar, leaf.id);
+    const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
+    const rt = recorded ? recorded.runTime : leaf.duration;
+    return `Succession(Wait(${wStr}), Create(${cVar}, run_time=${fmtRt(rt)})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
+  }
+
   if (leaf.kind === 'graphDot') {
     const axVar = idToVarName.get(leaf.axesId)!;
     const dVar = overlayDotVar(axVar, leaf.id);
@@ -348,6 +358,11 @@ function concurrentBranchForLeaf(
   if (leaf.kind === 'graphFunctionSeries') {
     const axVar = idToVarName.get(leaf.axesId)!;
     return functionSeriesConcurrentBranch(leaf, axVar, relWait);
+  }
+
+  if (leaf.kind === 'graphPointSequence') {
+    const axVar = idToVarName.get(leaf.axesId)!;
+    return pointSequenceConcurrentBranch(leaf, axVar, relWait);
   }
 
   if (leaf.kind === 'graphArea') {

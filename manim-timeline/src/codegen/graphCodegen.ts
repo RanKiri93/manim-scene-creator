@@ -2,10 +2,12 @@ import type {
   AudioTrackItem,
   AxesItem,
   ExitAnimStyle,
+  GraphCurveItem,
   GraphPlotItem,
   GraphDotItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   GraphAreaItem,
   GraphAreaCurveSource,
   ItemId,
@@ -14,6 +16,8 @@ import type {
 import {
   DEFAULT_FIELD_ARROW_STROKE_WIDTH,
   functionSeriesIndices,
+  pointSequenceIndices,
+  resolveGraphOverlayLineStyle,
 } from '@/types/scene';
 import { canBeExitTarget } from '@/lib/time';
 import { pythonStringLiteral } from './texUtils';
@@ -318,6 +322,11 @@ export function resolveExitTargetsForExport(
     if (!axVar) return null;
     return overlayPlotVar(axVar, target.id);
   }
+  if (target.kind === 'graphCurve') {
+    const axVar = idToVarName.get(target.axesId);
+    if (!axVar) return null;
+    return overlayCurveVar(axVar, target.id);
+  }
   if (target.kind === 'graphDot') {
     const axVar = idToVarName.get(target.axesId);
     if (!axVar) return null;
@@ -357,6 +366,16 @@ export function resolveExitTargetsForExport(
       return null;
     }
     return `${axVar}_fs_${suf}`;
+  }
+  if (target.kind === 'graphPointSequence') {
+    const axVar = idToVarName.get(target.axesId);
+    if (!axVar) return null;
+    const list = pointSequenceIndices(target);
+    if (target.mode === 'replacement' && list.length > 0) {
+      const lastN = list[list.length - 1]!;
+      return overlayPointSequenceDotVar(axVar, target.id, lastN);
+    }
+    return overlayPointSequenceGroupVar(axVar, target.id);
   }
   if (target.kind === 'graphArea') {
     const axVar = idToVarName.get(target.axesId);
@@ -410,17 +429,40 @@ export function overlayPlotVar(axVar: string, itemId: ItemId): string {
   return `${axVar}_plot_${pythonOverlaySuffix(itemId)}`;
 }
 
+export function overlayCurveVar(axVar: string, itemId: ItemId): string {
+  return `${axVar}_curve_${pythonOverlaySuffix(itemId)}`;
+}
+
 export function overlayAreaVar(axVar: string, itemId: ItemId): string {
   return `${axVar}_area_${pythonOverlaySuffix(itemId)}`;
+}
+
+/** Indexed dot for graphPointSequence (must match pointSequenceCodegen). */
+export function overlayPointSequenceDotVar(
+  axVar: string,
+  itemId: ItemId,
+  n: number,
+): string {
+  const ns = n < 0 ? `m${Math.abs(n)}` : String(n);
+  return `${axVar}_ps_${pythonOverlaySuffix(itemId)}_n${ns}`;
+}
+
+export function overlayPointSequenceGroupVar(
+  axVar: string,
+  itemId: ItemId,
+): string {
+  return `${axVar}_ps_${pythonOverlaySuffix(itemId)}`;
 }
 
 /** After overlay defs + positioning; higher `zIndex` draws on top in Manim. */
 export function generateGraphOverlayZIndexLines(
   ov:
     | GraphPlotItem
+    | GraphCurveItem
     | GraphDotItem
     | GraphFieldItem
     | GraphFunctionSeriesItem
+    | GraphPointSequenceItem
     | GraphAreaItem,
   axVar: string,
   zIndex: number,
@@ -433,6 +475,9 @@ export function generateGraphOverlayZIndexLines(
   }
   if (ov.kind === 'graphPlot') {
     return `${pad}${overlayPlotVar(axVar, ov.id)}.set_z_index(${z})\n`;
+  }
+  if (ov.kind === 'graphCurve') {
+    return `${pad}${overlayCurveVar(axVar, ov.id)}.set_z_index(${z})\n`;
   }
   if (ov.kind === 'graphDot') {
     const dVar = overlayDotVar(axVar, ov.id);
@@ -455,6 +500,9 @@ export function generateGraphOverlayZIndexLines(
   if (ov.kind === 'graphFunctionSeries') {
     const suf = pythonOverlaySuffix(ov.id);
     return `${pad}${axVar}_fs_${suf}.set_z_index(${z})\n`;
+  }
+  if (ov.kind === 'graphPointSequence') {
+    return `${pad}${overlayPointSequenceGroupVar(axVar, ov.id)}.set_z_index(${z})\n`;
   }
   return '';
 }
@@ -479,12 +527,68 @@ export function generateGraphPlotDef(
     xRangeKw = `, x_range=[${lo}, ${hi}]`;
   }
   const sw = Math.max(0, item.strokeWidth);
-  // `stroke_width=` on `Axes.plot` is not always honored (kwargs vs. VMobject init).
-  // Setting width after construction matches Manim docs / common usage.
-  return (
-    `${pad}${pVar} = ${axVar}.plot(lambda x: ${fn.pyExpr || 'x'}, color=${manimColor(fn.color)}${xRangeKw})\n` +
-    `${pad}${pVar}.set_stroke(width=${sw})\n`
-  );
+  const ls = resolveGraphOverlayLineStyle(item.lineStyle);
+  const pRaw = `${pVar}_raw`;
+  let s =
+    `${pad}${pRaw} = ${axVar}.plot(lambda x: ${fn.pyExpr || 'x'}, color=${manimColor(fn.color)}${xRangeKw})\n` +
+    `${pad}${pRaw}.set_stroke(width=${sw})\n`;
+  if (ls === 'solid') {
+    s += `${pad}${pVar} = ${pRaw}\n`;
+  } else if (ls === 'dashed') {
+    s +=
+      `${pad}${pVar} = DashedVMobject(${pRaw}, num_dashes=32, dashed_ratio=0.55)\n` +
+      `${pad}${pVar}.set_stroke(width=${sw})\n`;
+  } else {
+    s +=
+      `${pad}${pVar} = DashedVMobject(${pRaw}, num_dashes=96, dashed_ratio=0.25)\n` +
+      `${pad}${pVar}.set_stroke(width=${sw})\n`;
+  }
+  return s;
+}
+
+/**
+ * Parametric curve in graph coordinates, evaluated after axes positioning (see
+ * {@link generateGraphPlotDef}).
+ */
+export function generateGraphCurveDef(
+  item: GraphCurveItem,
+  axVar: string,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent);
+  const cVar = overlayCurveVar(axVar, item.id);
+  const curve = item.curve;
+  const px = (curve.pyXExpr ?? 't').trim() || 't';
+  const py = (curve.pyYExpr ?? '0').trim() || '0';
+  const [tA, tB] = item.tDomain;
+  const tLo = Math.min(tA, tB);
+  const tHi = Math.max(tA, tB);
+  const hex =
+    typeof curve.color === 'string' && curve.color.trim()
+      ? curve.color.trim()
+      : '#3b82f6';
+  const sw = Math.max(0, item.strokeWidth ?? 2);
+  const ls = resolveGraphOverlayLineStyle(item.lineStyle);
+  const cRaw = `${cVar}_raw`;
+  let s =
+    `${pad}${cRaw} = ParametricFunction(\n` +
+    `${pad}    lambda t: ${axVar}.coords_to_point(${px}, ${py}),\n` +
+    `${pad}    t_range=[${tLo}, ${tHi}],\n` +
+    `${pad}    color=${manimColor(hex)},\n` +
+    `${pad})\n` +
+    `${pad}${cRaw}.set_stroke(width=${sw})\n`;
+  if (ls === 'solid') {
+    s += `${pad}${cVar} = ${cRaw}\n`;
+  } else if (ls === 'dashed') {
+    s +=
+      `${pad}${cVar} = DashedVMobject(${cRaw}, num_dashes=32, dashed_ratio=0.55)\n` +
+      `${pad}${cVar}.set_stroke(width=${sw})\n`;
+  } else {
+    s +=
+      `${pad}${cVar} = DashedVMobject(${cRaw}, num_dashes=96, dashed_ratio=0.25)\n` +
+      `${pad}${cVar}.set_stroke(width=${sw})\n`;
+  }
+  return s;
 }
 
 export function generateGraphPlotPlay(
@@ -520,6 +624,44 @@ export function generateGraphPlotPlay(
     );
   } else {
     s += `${pad}self.play(Create(${pVar}), run_time=${item.duration})\n`;
+  }
+
+  return s;
+}
+
+export function generateGraphCurvePlay(
+  item: GraphCurveItem,
+  axVar: string,
+  indent: number,
+  itemsMap: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+  tailOpts?: BoundAudioTailOpts,
+): string {
+  const pad = ' '.repeat(indent);
+  if (item.visibleAtSceneStart) return '';
+  const cVar = overlayCurveVar(axVar, item.id);
+  let s = '';
+
+  const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
+  if (recorded) {
+    const rt = recorded.runTime.toFixed(6);
+    if (
+      !audioItems?.length ||
+      !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
+    ) {
+      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    }
+    s += `${pad}self.play(Create(${cVar}), run_time=${rt})\n`;
+    s += appendAudioTailAfterLeafPlayback(
+      pad,
+      recorded,
+      item,
+      itemsMap,
+      audioItems,
+      tailOpts,
+    );
+  } else {
+    s += `${pad}self.play(Create(${cVar}), run_time=${item.duration})\n`;
   }
 
   return s;
@@ -764,6 +906,7 @@ export function countOverlaysReferencingAxes(
   for (const it of items) {
     if (
       it.kind === 'graphPlot' ||
+      it.kind === 'graphCurve' ||
       it.kind === 'graphDot' ||
       it.kind === 'graphFunctionSeries' ||
       it.kind === 'graphArea'

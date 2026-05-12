@@ -14,6 +14,7 @@ export function collectCodegenIdsFromItems(items: SceneItem[]): Set<string> {
   for (const it of items) {
     s.add(it.id);
     if (it.kind === 'graphPlot') s.add(it.fn.id);
+    if (it.kind === 'graphCurve') s.add(it.curve.id);
     if (it.kind === 'graphDot') s.add(it.dot.id);
     if (it.kind === 'graphField') {
       for (const p of it.streamPoints) s.add(p.id);
@@ -128,6 +129,15 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
         if (aid) it.audioTrackId = aid;
       }
       break;
+    case 'graphCurve':
+      it.axesId = m.get(it.axesId) ?? it.axesId;
+      it.posSteps = remapPosSteps(it.posSteps, m);
+      it.curve = { ...it.curve, id: m.get(it.curve.id) ?? it.curve.id };
+      if (it.audioTrackId) {
+        const aid = m.get(it.audioTrackId);
+        if (aid) it.audioTrackId = aid;
+      }
+      break;
     case 'graphDot':
       it.axesId = m.get(it.axesId) ?? it.axesId;
       it.posSteps = remapPosSteps(it.posSteps, m);
@@ -150,6 +160,14 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
       }
       break;
     case 'graphFunctionSeries':
+      it.axesId = m.get(it.axesId) ?? it.axesId;
+      it.posSteps = remapPosSteps(it.posSteps, m);
+      if (it.audioTrackId) {
+        const aid = m.get(it.audioTrackId);
+        if (aid) it.audioTrackId = aid;
+      }
+      break;
+    case 'graphPointSequence':
       it.axesId = m.get(it.axesId) ?? it.axesId;
       it.posSteps = remapPosSteps(it.posSteps, m);
       if (it.audioTrackId) {

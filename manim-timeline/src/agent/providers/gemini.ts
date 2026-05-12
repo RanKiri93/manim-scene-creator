@@ -53,8 +53,9 @@ const GEMINI_RESPONSE_SCHEMA = {
             description:
               'Required for CREATE only. Full scene item with `id`, `kind`, and any kind-specific fields.\n' +
               'IMPORTANT:\n' +
-              '• When `kind` is "graphPlot", "graphDot", or "graphFunctionSeries", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
+              '• When `kind` is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
               '• When `kind` is "graphPlot", the function goes under `fn` as `{ jsExpr, pyExpr, color, label }`. `jsExpr` is a JavaScript expression (e.g. "x*x" or "Math.sin(x)"), `pyExpr` is its NumPy equivalent (e.g. "x**2" or "np.sin(x)"). NEVER put the expression under `fn.expr` or as a bare string — always use `jsExpr` and `pyExpr` with the correct dialect. Use "**" (not "^") for power.\n' +
+              '• When `kind` is "graphCurve", coordinates go under `curve` as `{ jsXExpr, pyXExpr, jsYExpr, pyYExpr, color, label }` with parameter `t`. Also set top-level `tDomain: [tMin, tMax]` (two numbers). Use "**" (not "^") for power.\n' +
               '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement"). Vector/slope fields (`graphField`) and filled regions (`graphArea`) are not agent-created — use the editor UI.\n',
             properties: {
               id: { type: 'string' },
@@ -65,7 +66,7 @@ const GEMINI_RESPONSE_SCHEMA = {
               axesId: {
                 type: 'string',
                 description:
-                  'REQUIRED when kind is "graphPlot", "graphDot", or "graphFunctionSeries". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
+                  'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
               },
               fn: {
                 type: 'object',
@@ -85,6 +86,24 @@ const GEMINI_RESPONSE_SCHEMA = {
                   color: { type: 'string' },
                   label: { type: 'string' },
                 },
+              },
+              curve: {
+                type: 'object',
+                description:
+                  'REQUIRED when kind is "graphCurve". Parametric x(t), y(t) in graph coordinates.',
+                properties: {
+                  jsXExpr: { type: 'string' },
+                  pyXExpr: { type: 'string' },
+                  jsYExpr: { type: 'string' },
+                  pyYExpr: { type: 'string' },
+                  color: { type: 'string' },
+                  label: { type: 'string' },
+                },
+              },
+              tDomain: {
+                type: 'array',
+                description: 'Two numbers [tMin, tMax] for kind="graphCurve".',
+                items: { type: 'number' },
               },
               xDomain: {
                 type: 'array',
@@ -248,7 +267,7 @@ const GEMINI_RESPONSE_SCHEMA = {
                     targetId: {
                       type: 'string',
                       description:
-                        'Scene item id (textLine, axes, graphPlot, graphDot, graphField, graphFunctionSeries, graphArea, shape, or surroundingRect) — existing or same-batch CREATE.',
+                        'Scene item id (textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, or surroundingRect) — existing or same-batch CREATE.',
                     },
                     animStyle: {
                       type: 'string',
@@ -258,7 +277,7 @@ const GEMINI_RESPONSE_SCHEMA = {
                     },
                     mode: {
                       type: 'string',
-                      enum: ['scale', 'color', 'scale_color'],
+                      enum: ['scale', 'color'],
                       description: 'blink_animation rows only.',
                     },
                     scaleFactor: {
@@ -273,6 +292,22 @@ const GEMINI_RESPONSE_SCHEMA = {
                       type: 'array',
                       description: 'blink_animation on textLine: segment indices (line[i]); omit for whole line.',
                       items: { type: 'integer' },
+                    },
+                    mathSubtargets: {
+                      type: 'array',
+                      description:
+                        'blink_animation on textLine math segments only: Manim subobject indices (line[i][j]). Do not invent; omit unless indices are known from UI measurement.',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          segmentIndex: { type: 'integer' },
+                          childIndices: {
+                            type: 'array',
+                            items: { type: 'integer' },
+                          },
+                        },
+                        required: ['segmentIndex', 'childIndices'],
+                      },
                     },
                   },
                 },

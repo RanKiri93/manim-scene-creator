@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type {
   BlinkAnimationItem,
@@ -18,6 +18,7 @@ import {
   DEFAULT_BLINK_COLOR_HEX,
   DEFAULT_BLINK_SCALE_FACTOR,
 } from '@/codegen/blinkCodegen';
+import MathSubobjectPicker from './MathSubobjectPicker';
 
 interface BlinkAnimationEditorProps {
   item: BlinkAnimationItem;
@@ -27,6 +28,9 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
   const updateItem = useSceneStore((s) => s.updateItem);
   const removeItem = useSceneStore((s) => s.removeItem);
   const itemsMap = useSceneStore((s) => s.items);
+  const [picker, setPicker] = useState<{ rowIndex: number; segmentIndex: number } | null>(
+    null,
+  );
 
   const set = useCallback(
     (patch: Partial<BlinkAnimationItem>) => updateItem(item.id, patch),
@@ -57,7 +61,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
       ...targetsList,
       {
         targetId: pick.id,
-        mode: 'scale_color',
+        mode: 'scale',
         scaleFactor: DEFAULT_BLINK_SCALE_FACTOR,
         blinkColor: DEFAULT_BLINK_COLOR_HEX,
       },
@@ -77,12 +81,54 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
     const t = itemsMap.get(newTargetId);
     if (!t || !canBeBlinkTarget(t)) return;
     const next = targetsList.map((r, i) =>
-      i === index ? { ...r, targetId: newTargetId, segmentIndices: null } : r,
+      i === index
+        ? { ...r, targetId: newTargetId, segmentIndices: null, mathSubtargets: null }
+        : r,
     );
     const est = effectiveStart(t, itemsMap);
     updateItem(item.id, {
       targets: next,
       startTime: Math.max(item.startTime, est),
+    });
+  };
+
+  const pruneMathSubtargetsForRow = (
+    row: BlinkTargetSpec,
+    line: TextLineItem,
+    segmentIndices: number[] | null,
+  ): { segmentIndex: number; childIndices: number[] }[] | null => {
+    const raw = row.mathSubtargets ?? [];
+    if (raw.length === 0) return null;
+    const n = line.segments.length;
+    const allowed = (() => {
+      if (!segmentIndices || segmentIndices.length === 0) {
+        return new Set(line.segments.map((_, i) => i));
+      }
+      return new Set(segmentIndices.filter((i) => i >= 0 && i < n));
+    })();
+    const next = raw.filter((x) => allowed.has(x.segmentIndex));
+    return next.length > 0 ? next : null;
+  };
+
+  const upsertMathSubtargets = (
+    rowIndex: number,
+    segmentIndex: number,
+    childIndices: number[],
+  ) => {
+    const row = targetsList[rowIndex];
+    if (!row) return;
+    const cur = [...(row.mathSubtargets ?? [])].filter(
+      (x) => x.segmentIndex !== segmentIndex,
+    );
+    if (childIndices.length > 0) {
+      cur.push({
+        segmentIndex,
+        childIndices: [...childIndices].sort((a, b) => a - b),
+      });
+    }
+    cur.sort((a, b) => a.segmentIndex - b.segmentIndex);
+    patchRow(rowIndex, {
+      mathSubtargets: cur.length > 0 ? cur : null,
     });
   };
 
@@ -92,16 +138,12 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
     const cur = row.segmentIndices ?? [];
     const has = cur.includes(segIdx);
     const nextIdx = has ? cur.filter((x) => x !== segIdx) : [...cur, segIdx].sort((a, b) => a - b);
-    patchRowAllSegments(rowIndex, line, nextIdx);
-  };
-
-  const patchRowAllSegments = (rowIndex: number, line: TextLineItem, nextIdx: number[]) => {
     const n = line.segments.length;
     const valid = nextIdx.filter((i) => i >= 0 && i < n);
     const allSelected = n > 0 && valid.length >= n;
-    patchRow(rowIndex, {
-      segmentIndices: !n || allSelected || valid.length === 0 ? null : valid,
-    });
+    const seg = !n || allSelected || valid.length === 0 ? null : valid;
+    const mathSubtargets = pruneMathSubtargetsForRow(row, line, seg);
+    patchRow(rowIndex, { segmentIndices: seg, mathSubtargets });
   };
 
   const baseContent = (
@@ -184,10 +226,9 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                   >
                     <option value="scale">Scale only</option>
                     <option value="color">Color only</option>
-                    <option value="scale_color">Scale + color</option>
                   </select>
                 </label>
-                {(row.mode === 'scale' || row.mode === 'scale_color') && (
+                {row.mode === 'scale' && (
                   <label className="text-[10px] text-slate-500 w-[100px]">
                     Scale
                     <input
@@ -205,7 +246,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                     />
                   </label>
                 )}
-                {(row.mode === 'color' || row.mode === 'scale_color') && (
+                {row.mode === 'color' && (
                   <label className="text-[10px] text-slate-500 w-[100px]">
                     Blink color
                     <input
@@ -236,37 +277,55 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                       match export order <code className="text-slate-400">line[i]</code>.
                     </div>
                     {mathSegments.length > 0 ? (
-                      <p className="text-[10px] text-amber-500/90 mb-1">
-                        Math segments: for stable sub-formula emphasis, split into separate{' '}
-                        <code className="text-slate-400">$…$</code> segments. Glyph-level pick is
-                        not available in the UI yet.
+                      <p className="text-[10px] text-slate-500 mb-1 leading-snug">
+                        Math segments: use <strong className="text-slate-300">Pick parts</strong>{' '}
+                        to target Manim subobjects inside a formula (indices match{' '}
+                        <code className="text-slate-400">line[i][j]</code> after measurement).
                       </p>
                     ) : null}
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
                       {line.segments.map((seg, si) => {
                         const active =
                           !segIdx?.length || (segIdx?.includes(si) ?? false);
                         return (
-                          <button
-                            key={si}
-                            type="button"
-                            title={seg.text.slice(0, 80)}
-                            onClick={() => toggleSegment(index, si, line)}
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                              active
-                                ? 'bg-sky-700/50 border-sky-500 text-sky-100'
-                                : 'bg-slate-900 border-slate-600 text-slate-500 line-through'
-                            }`}
-                          >
-                            #{si}
-                            {seg.isMath ? ' m' : ''}
-                          </button>
+                          <div key={si} className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              title={seg.text.slice(0, 80)}
+                              onClick={() => toggleSegment(index, si, line)}
+                              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                                active
+                                  ? 'bg-sky-700/50 border-sky-500 text-sky-100'
+                                  : 'bg-slate-900 border-slate-600 text-slate-500 line-through'
+                              }`}
+                            >
+                              #{si}
+                              {seg.isMath ? ' m' : ''}
+                            </button>
+                            {seg.isMath ? (
+                              <button
+                                type="button"
+                                className="shrink-0 text-[9px] text-amber-400 hover:text-amber-300 underline"
+                                onClick={() => setPicker({ rowIndex: index, segmentIndex: si })}
+                              >
+                                Pick parts
+                              </button>
+                            ) : null}
+                          </div>
                         );
                       })}
                       <button
                         type="button"
                         className="text-[10px] text-sky-400 underline"
-                        onClick={() => patchRow(index, { segmentIndices: null })}
+                        onClick={() => {
+                          const trow = targetsList[index];
+                          if (!trow || !line) {
+                            patchRow(index, { segmentIndices: null });
+                            return;
+                          }
+                          const mathSubtargets = pruneMathSubtargetsForRow(trow, line, null);
+                          patchRow(index, { segmentIndices: null, mathSubtargets });
+                        }}
                       >
                         All
                       </button>
@@ -337,15 +396,42 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
     </div>
   );
 
+  const pickerLine: TextLineItem | null = (() => {
+    if (!picker) return null;
+    const id = item.targets[picker.rowIndex]?.targetId;
+    const it = id ? itemsMap.get(id) : undefined;
+    return it?.kind === 'textLine' ? it : null;
+  })();
+
   return (
-    <PropertyTabs
-      key={item.id}
-      defaultTabId="base"
-      tabs={[
-        { id: 'base', label: 'Base', content: baseContent },
-        { id: 'targets', label: 'Targets', content: targetsContent },
-        { id: 'animation', label: 'Animation', content: animationContent },
-      ]}
-    />
+    <>
+      <PropertyTabs
+        key={item.id}
+        defaultTabId="base"
+        tabs={[
+          { id: 'base', label: 'Base', content: baseContent },
+          { id: 'targets', label: 'Targets', content: targetsContent },
+          { id: 'animation', label: 'Animation', content: animationContent },
+        ]}
+      />
+      {picker && pickerLine ? (
+        <MathSubobjectPicker
+          open
+          onClose={() => setPicker(null)}
+          measure={pickerLine.measure}
+          previewDataUrl={pickerLine.previewDataUrl}
+          segmentIndex={picker.segmentIndex}
+          mathChildMeasures={pickerLine.mathChildMeasures}
+          initialSelected={
+            item.targets[picker.rowIndex]?.mathSubtargets?.find(
+              (x) => x.segmentIndex === picker.segmentIndex,
+            )?.childIndices ?? []
+          }
+          onApply={(childIndices) =>
+            upsertMathSubtargets(picker.rowIndex, picker.segmentIndex, childIndices)
+          }
+        />
+      ) : null}
+    </>
   );
 }

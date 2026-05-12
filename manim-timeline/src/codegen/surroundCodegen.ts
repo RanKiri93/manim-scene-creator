@@ -28,9 +28,11 @@ export function surroundPosAnchorId(target: SceneItem): ItemId | null {
   if (!canBeSurroundTarget(target)) return null;
   if (
     target.kind === 'graphPlot' ||
+    target.kind === 'graphCurve' ||
     target.kind === 'graphDot' ||
     target.kind === 'graphField' ||
     target.kind === 'graphFunctionSeries' ||
+    target.kind === 'graphPointSequence' ||
     target.kind === 'graphArea'
   ) {
     return target.axesId;

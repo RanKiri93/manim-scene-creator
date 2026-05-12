@@ -4,8 +4,9 @@ import type {
   AxesItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
 } from '@/types/scene';
-import { functionSeriesHasErrors } from '@/types/scene';
+import { functionSeriesHasErrors, pointSequenceHasErrors } from '@/types/scene';
 import { effectiveStart, effectiveEnd } from '@/lib/time';
 
 /** Stacking on a shared axes: lower values draw farther back when layer ties. */
@@ -14,6 +15,7 @@ function graphOverlayKindRank(kind: SceneItem['kind']): number {
     case 'graphArea':
       return -1;
     case 'graphPlot':
+    case 'graphCurve':
       return 0;
     // Function series shares the plot band; draws right after regular plots when layers tie.
     case 'graphFunctionSeries':
@@ -22,6 +24,8 @@ function graphOverlayKindRank(kind: SceneItem['kind']): number {
       return 1;
     case 'graphDot':
       return 3;
+    case 'graphPointSequence':
+      return 2;
     default:
       return 99;
   }
@@ -30,9 +34,11 @@ function graphOverlayKindRank(kind: SceneItem['kind']): number {
 export type GraphAxesDrawKind =
   | 'area'
   | 'plot'
+  | 'curve'
   | 'dot'
   | 'field'
-  | 'functionSeries';
+  | 'functionSeries'
+  | 'pointSequence';
 
 export interface GraphAxesDrawSlot {
   kind: GraphAxesDrawKind;
@@ -46,12 +52,16 @@ function slotKindToSceneKind(k: GraphAxesDrawKind): SceneItem['kind'] {
       return 'graphArea';
     case 'plot':
       return 'graphPlot';
+    case 'curve':
+      return 'graphCurve';
     case 'dot':
       return 'graphDot';
     case 'field':
       return 'graphField';
     case 'functionSeries':
       return 'graphFunctionSeries';
+    case 'pointSequence':
+      return 'graphPointSequence';
   }
 }
 
@@ -92,12 +102,28 @@ export function cumulativeAxesDrawOrder(
       slots.push({ kind: 'plot', layer: it.layer, id: it.id });
     }
     if (
+      it.kind === 'graphCurve' &&
+      it.axesId === axesId &&
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
+    ) {
+      slots.push({ kind: 'curve', layer: it.layer, id: it.id });
+    }
+    if (
       it.kind === 'graphFunctionSeries' &&
       it.axesId === axesId &&
       time >= effectiveStart(it, items) &&
       time < effectiveEnd(it, items)
     ) {
       slots.push({ kind: 'functionSeries', layer: it.layer, id: it.id });
+    }
+    if (
+      it.kind === 'graphPointSequence' &&
+      it.axesId === axesId &&
+      time >= effectiveStart(it, items) &&
+      time < effectiveEnd(it, items)
+    ) {
+      slots.push({ kind: 'pointSequence', layer: it.layer, id: it.id });
     }
     if (
       it.kind === 'graphDot' &&
@@ -129,6 +155,10 @@ export function functionSeriesIsDisabled(
   return functionSeriesHasErrors(item);
 }
 
+export function pointSequenceIsDisabled(item: GraphPointSequenceItem): boolean {
+  return pointSequenceHasErrors(item);
+}
+
 export function graphGroupShouldRender(
   axes: AxesItem,
   time: number,
@@ -138,9 +168,11 @@ export function graphGroupShouldRender(
   for (const it of items.values()) {
     if (
       (it.kind === 'graphPlot' ||
+        it.kind === 'graphCurve' ||
         it.kind === 'graphDot' ||
         it.kind === 'graphField' ||
         it.kind === 'graphFunctionSeries' ||
+        it.kind === 'graphPointSequence' ||
         it.kind === 'graphArea') &&
       it.axesId === axes.id &&
       time >= effectiveStart(it, items) &&

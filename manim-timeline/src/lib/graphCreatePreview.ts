@@ -1,5 +1,6 @@
 import type {
   AxesItem,
+  GraphCurveItem,
   GraphDot,
   GraphPlotItem,
   ItemId,
@@ -547,6 +548,29 @@ export function buildPlotCreatePreviewSpec(args: {
   const { plot, time, itemsMap, fullPoints } = args;
   const progress = createProgress(plot, time, itemsMap);
   const t0 = effectiveStart(plot, itemsMap);
+
+  if (time < t0 || fullPoints.length < 4) {
+    return { progress, points: [], revealHead: null };
+  }
+
+  const points =
+    progress >= 1 ? fullPoints : clipPolylineByProgress(fullPoints, progress);
+
+  const revealHead =
+    progress > 0 && progress < 1 ? polyEndpoint(points) : null;
+
+  return { progress, points, revealHead };
+}
+
+export function buildCurveCreatePreviewSpec(args: {
+  curveItem: GraphCurveItem;
+  time: number;
+  itemsMap: Map<ItemId, SceneItem>;
+  fullPoints: number[];
+}): PlotCreatePreviewSpec {
+  const { curveItem, time, itemsMap, fullPoints } = args;
+  const progress = createProgress(curveItem, time, itemsMap);
+  const t0 = effectiveStart(curveItem, itemsMap);
 
   if (time < t0 || fullPoints.length < 4) {
     return { progress, points: [], revealHead: null };

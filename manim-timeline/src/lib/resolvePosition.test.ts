@@ -81,6 +81,7 @@ const measuredLine: MeasureResult = {
   pngWidth: null,
   pngHeight: null,
   segmentMeasures: null,
+  mathChildMeasures: null,
 };
 
 function textLine(posSteps: TextLineItem['posSteps']): TextLineItem {
@@ -104,6 +105,7 @@ function textLine(posSteps: TextLineItem['posSteps']): TextLineItem {
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 

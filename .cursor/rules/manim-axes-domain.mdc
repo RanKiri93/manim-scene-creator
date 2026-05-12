@@ -1,0 +1,44 @@
+---
+description: Enforce explicit axes domain when creating Manim coordinate axes
+alwaysApply: true
+---
+
+# Manim Axes — Always Set Domain Explicitly
+
+**Never** create `Axes` or `NumberPlane` with default `x_range` / `y_range`.
+Always use the exact values the user specifies for xmin, xmax, ymin, ymax, x_step, y_step.
+
+## Required pattern
+
+```python
+# ✅ CORRECT — all domain parameters explicit
+axes = Axes(
+    x_range=[xmin, xmax, x_step],   # e.g. [0, 10, 1]
+    y_range=[ymin, ymax, y_step],   # e.g. [-2, 5, 1]
+    axis_config={"include_tip": True},
+)
+```
+
+```python
+# ❌ WRONG — omitting range lets Manim silently use its own defaults
+axes = Axes()
+axes = Axes(x_range=[-7, 7])        # y_range still defaulting
+```
+
+## Checklist before generating axes code
+
+1. Did the user specify xmin? → use it. No default substitution.
+2. Did the user specify xmax? → use it. No default substitution.
+3. Did the user specify ymin? → use it. No default substitution.
+4. Did the user specify ymax? → use it. No default substitution.
+5. Did the user specify x_step / y_step? → use them. Default to `1` only if truly unspecified.
+6. If **any** of xmin/xmax/ymin/ymax is missing, **ask the user** before generating code.
+
+## Common Manim defaults to avoid blindly
+
+| Parameter | Manim default | Risk |
+|-----------|--------------|------|
+| x_range   | [-7, 7, 1]   | silently wrong domain |
+| y_range   | [-4, 4, 1]   | silently wrong domain |
+
+Always override both, even when only one was changed by the user.

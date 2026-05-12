@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import type { GraphPlotItem } from '@/types/scene';
+import type { GraphPlotItem, FunctionLineStyle } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
@@ -14,6 +14,8 @@ import {
   GRAPH_PLOT_SECTION_HELP,
   GraphPlotExprAssist,
 } from './GraphPlotExpressionHelp';
+
+const LINE_STYLES: FunctionLineStyle[] = ['solid', 'dashed', 'dotted'];
 
 interface GraphPlotEditorProps {
   item: GraphPlotItem;
@@ -78,6 +80,22 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           min={0}
           step={0.25}
         />
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <span>Line style</span>
+          <select
+            value={item.lineStyle ?? 'solid'}
+            onChange={(e) =>
+              set({ lineStyle: e.target.value as FunctionLineStyle })
+            }
+            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-200"
+          >
+            {LINE_STYLES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );

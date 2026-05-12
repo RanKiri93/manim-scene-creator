@@ -19,6 +19,10 @@ import {
   resolveRecordedPlayback,
   type ExportLeafWithAudio,
 } from '@/codegen/lineCodegen';
+import {
+  resolveTextBlinkPieces,
+  textBlinkUsesWholeObjectScale,
+} from '@/lib/blinkTextTargets';
 
 export interface TextSegmentPreviewState {
   index: number;
@@ -54,9 +58,11 @@ function isExportLeafWithAudio(item: SceneItem): item is ExportLeafWithAudio {
     item.kind === 'textLine' ||
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
+    item.kind === 'graphCurve' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
     item.kind === 'graphFunctionSeries' ||
+    item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
     item.kind === 'shape'
   );
@@ -253,6 +259,13 @@ export interface BlinkPreviewState {
   blinkColor: string;
   /** For text lines: blink tint only these segment indices; `null` = all segments. */
   textSegmentIndices: Set<number> | null;
+  /** Manim math subobjects (`line[seg][child]`) to tint; skips full-segment tint for those segments. */
+  textMathChildHighlights: { segmentIndex: number; childIndex: number }[] | null;
+  /**
+   * When false, canvas should apply blink scale inside the text preview (piecewise) instead of
+   * scaling the whole line node.
+   */
+  applyOuterBlinkScale: boolean;
 }
 
 export function blinkPreviewForTarget(
@@ -276,15 +289,43 @@ export function blinkPreviewForTarget(
     const bc = resolvedBlinkHex(row);
     let scaleMul = 1;
     let colorMix = 0;
-    if (mode === 'scale' || mode === 'scale_color') {
+    if (mode === 'scale') {
       scaleMul = 1 + (sf - 1) * env;
     }
-    if (mode === 'color' || mode === 'scale_color') {
+    if (mode === 'color') {
       colorMix = env;
     }
-    const raw = row.segmentIndices?.filter((i) => Number.isInteger(i) && i >= 0);
-    const textSegmentIndices =
-      raw != null && raw.length > 0 ? new Set(raw) : null;
+
+    const tgt = items.get(targetId);
+    let textSegmentIndices: Set<number> | null = null;
+    let textMathChildHighlights: {
+      segmentIndex: number;
+      childIndex: number;
+    }[] | null = null;
+    let applyOuterBlinkScale = true;
+
+    if (tgt?.kind === 'textLine') {
+      const line = tgt;
+      const rawSeg = row.segmentIndices?.filter(
+        (i) => Number.isInteger(i) && i >= 0 && i < line.segments.length,
+      );
+      textSegmentIndices =
+        rawSeg != null && rawSeg.length > 0 ? new Set(rawSeg) : null;
+
+      const childHits: { segmentIndex: number; childIndex: number }[] = [];
+      for (const p of resolveTextBlinkPieces(line, row)) {
+        if (!p.whole) {
+          for (const c of p.childIndices) {
+            childHits.push({ segmentIndex: p.segmentIndex, childIndex: c });
+          }
+        }
+      }
+      textMathChildHighlights = childHits.length > 0 ? childHits : null;
+
+      const usesSc = mode === 'scale';
+      applyOuterBlinkScale = !usesSc || textBlinkUsesWholeObjectScale(line, row);
+    }
+
     bestStart = it.startTime;
     best = {
       clip: it,
@@ -294,6 +335,8 @@ export function blinkPreviewForTarget(
       colorMix,
       blinkColor: bc,
       textSegmentIndices,
+      textMathChildHighlights,
+      applyOuterBlinkScale,
     };
   }
   return best;

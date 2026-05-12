@@ -3,9 +3,11 @@ import type {
   TextLineItem,
   AxesItem,
   GraphPlotItem,
+  GraphCurveItem,
   GraphDotItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   GraphAreaItem,
   ShapeItem,
   ItemId,
@@ -175,6 +177,19 @@ function appendAxes(lines: string[], item: AxesItem): void {
   lines.push(`Labels: ${item.xLabel}, ${item.yLabel}`);
 }
 
+function appendGraphCurve(lines: string[], item: GraphCurveItem): void {
+  lines.push('');
+  lines.push(`## Graph curve → axes ${item.axesId}`);
+  lines.push('');
+  const c = item.curve;
+  lines.push(`x(t) Py: ${(c.pyXExpr ?? '').trim() || '(empty)'}`);
+  lines.push(`y(t) Py: ${(c.pyYExpr ?? '').trim() || '(empty)'}`);
+  const lo = Math.min(item.tDomain[0], item.tDomain[1]);
+  const hi = Math.max(item.tDomain[0], item.tDomain[1]);
+  lines.push(`t domain: [${lo}, ${hi}]`);
+  lines.push(`stroke width: ${item.strokeWidth}`);
+}
+
 function appendGraphPlot(lines: string[], item: GraphPlotItem): void {
   lines.push('');
   lines.push(`## Graph plot → axes ${item.axesId}`);
@@ -203,6 +218,18 @@ function appendGraphFunctionSeries(
   lines.push('');
   lines.push(`Mode: ${item.mode}, n ∈ [${item.nMin}, ${item.nMax}]`);
   lines.push(`Py: ${(item.pyExpr ?? '').trim() || '(empty)'}`);
+}
+
+function appendGraphPointSequence(
+  lines: string[],
+  item: GraphPointSequenceItem,
+): void {
+  lines.push('');
+  lines.push(`## Point sequence → axes ${item.axesId}`);
+  lines.push('');
+  lines.push(`Mode: ${item.mode}, n ∈ [${item.nMin}, ${item.nMax}]`);
+  lines.push(`x(n) Py: ${(item.pyXExpr ?? '').trim() || '(empty)'}`);
+  lines.push(`y(n) Py: ${(item.pyYExpr ?? '').trim() || '(empty)'}`);
 }
 
 function appendShape(lines: string[], item: ShapeItem): void {
@@ -261,10 +288,13 @@ export function exportScriptToMarkdown(state: SceneState): void {
     if (it.kind === 'textLine') appendTextLine(parts, it);
     else if (it.kind === 'axes') appendAxes(parts, it);
     else if (it.kind === 'graphPlot') appendGraphPlot(parts, it);
+    else if (it.kind === 'graphCurve') appendGraphCurve(parts, it);
     else if (it.kind === 'graphDot') appendGraphDot(parts, it);
     else if (it.kind === 'graphField') appendGraphField(parts, it);
     else if (it.kind === 'graphFunctionSeries')
       appendGraphFunctionSeries(parts, it);
+    else if (it.kind === 'graphPointSequence')
+      appendGraphPointSequence(parts, it);
     else if (it.kind === 'graphArea') appendGraphArea(parts, it);
     else if (it.kind === 'shape') appendShape(parts, it);
   }

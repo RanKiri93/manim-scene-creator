@@ -5,16 +5,21 @@ import type {
   GraphDotItem,
   ItemId,
   SceneItem,
-  TextLineItem,
 } from '@/types/scene';
 import { resolveFunctionSeriesN } from '@/types/scene';
 import { functionSeriesIndices } from '@/types/scene';
+import { pointSequenceIndices, resolvePointSequenceN } from '@/types/scene';
 import {
   manimColor,
   overlayDotVar,
   pythonOverlaySuffix,
   resolveExitTargetsForExport,
 } from './graphCodegen';
+import {
+  resolveTextBlinkPieces,
+  textBlinkMobjectExprs,
+  textBlinkUsesWholeObjectScale,
+} from '@/lib/blinkTextTargets';
 
 export const DEFAULT_BLINK_SCALE_FACTOR = 1.15;
 export const DEFAULT_BLINK_COLOR_HEX = '#fbbf24';
@@ -34,23 +39,11 @@ function resolvedBlinkColorExpr(spec: BlinkTargetSpec): string {
 }
 
 function usesScale(mode: BlinkMode): boolean {
-  return mode === 'scale' || mode === 'scale_color';
+  return mode === 'scale';
 }
 
 function usesColor(mode: BlinkMode): boolean {
-  return mode === 'color' || mode === 'scale_color';
-}
-
-/** Segment indices to tint (export order); `null` = whole line. */
-function textBlinkIndices(
-  line: TextLineItem,
-  spec: BlinkTargetSpec,
-): number[] | 'whole' {
-  const raw = spec.segmentIndices?.filter(
-    (i) => Number.isInteger(i) && i >= 0 && i < line.segments.length,
-  );
-  if (!raw?.length) return 'whole';
-  return [...new Set(raw)].sort((a, b) => a - b);
+  return mode === 'color';
 }
 
 /**
@@ -60,7 +53,7 @@ function blinkRowAnimParts(
   target: SceneItem,
   spec: BlinkTargetSpec,
   idToVarName: Map<ItemId, string>,
-  itemsMap: Map<ItemId, SceneItem>,
+  _itemsMap: Map<ItemId, SceneItem>,
   forward: boolean,
 ): string[] | null {
   const mode = spec.mode;
@@ -71,22 +64,25 @@ function blinkRowAnimParts(
   if (target.kind === 'textLine') {
     const v = idToVarName.get(target.id);
     if (!v) return null;
-    const idx = textBlinkIndices(target, spec);
     const n = target.segments.length;
     const segs = target.segments;
-    const colorIdx: number[] =
-      idx === 'whole' ? segs.map((_, i) => i) : idx;
+    const pieces = resolveTextBlinkPieces(target, spec);
+    const wholeScale = textBlinkUsesWholeObjectScale(target, spec);
 
     const parts: string[] = [];
     if (usesScale(mode)) {
-      if (idx === 'whole' || n === 0) {
+      if (wholeScale || n === 0) {
         parts.push(
           forward
             ? `${v}.animate.scale(${sf.toFixed(6)})`
             : `${v}.animate.scale(${inv.toFixed(6)})`,
         );
       } else {
-        const g = `VGroup(${idx.map((i) => `${v}[${i}]`).join(', ')})`;
+        const exprs = textBlinkMobjectExprs(v, target, spec);
+        const g =
+          exprs.length === 1
+            ? exprs[0]!
+            : `VGroup(${exprs.join(', ')})`;
         parts.push(
           forward
             ? `${g}.animate.scale(${sf.toFixed(6)})`
@@ -102,13 +98,25 @@ function blinkRowAnimParts(
             : `${v}.animate.set_color(${manimColor('#ffffff')})`,
         );
       } else {
-        for (const i of colorIdx) {
-          const orig = manimColor(segs[i]?.color ?? '#ffffff');
-          parts.push(
-            forward
-              ? `${v}[${i}].animate.set_color(${bc})`
-              : `${v}[${i}].animate.set_color(${orig})`,
-          );
+        for (const p of pieces) {
+          const orig = manimColor(segs[p.segmentIndex]?.color ?? '#ffffff');
+          if (p.whole) {
+            const i = p.segmentIndex;
+            parts.push(
+              forward
+                ? `${v}[${i}].animate.set_color(${bc})`
+                : `${v}[${i}].animate.set_color(${orig})`,
+            );
+          } else {
+            for (const c of p.childIndices) {
+              const i = p.segmentIndex;
+              parts.push(
+                forward
+                  ? `${v}[${i}][${c}].animate.set_color(${bc})`
+                  : `${v}[${i}][${c}].animate.set_color(${orig})`,
+              );
+            }
+          }
         }
       }
     }
@@ -126,7 +134,7 @@ function blinkRowAnimParts(
 
   const expr = resolveExitTargetsForExport(target, idToVarName, 'exit');
   if (!expr) return null;
-  const restore = blinkRestoreColorExpr(target, itemsMap);
+  const restore = blinkRestoreColorExpr(target);
   if (usesScale(mode) && usesColor(mode)) {
     return [
       forward
@@ -166,7 +174,6 @@ function blinkGraphDotParts(
   const dVar = overlayDotVar(axVar, item.id);
   const lbl = item.dot.label.trim();
   const dCol = manimColor(item.dot.color);
-  const parts: string[] = [];
 
   const animDot = (() => {
     if (usesScale(mode) && usesColor(mode)) {
@@ -273,10 +280,7 @@ function blinkGraphFieldParts(
   return [`AnimationGroup(${animVf}, ${animSt}, lag_ratio=0)`];
 }
 
-function blinkRestoreColorExpr(
-  target: SceneItem,
-  itemsMap: Map<ItemId, SceneItem>,
-): string {
+function blinkRestoreColorExpr(target: SceneItem): string {
   switch (target.kind) {
     case 'shape':
       return manimColor(target.strokeColor);
@@ -286,6 +290,8 @@ function blinkRestoreColorExpr(
     }
     case 'graphPlot':
       return manimColor(target.fn.color);
+    case 'graphCurve':
+      return manimColor(target.curve.color);
     case 'graphArea': {
       if (target.strokeWidth > 1e-9) {
         return manimColor(target.strokeColor);
@@ -300,6 +306,16 @@ function blinkRestoreColorExpr(
           ? last
           : Math.max(0, Math.trunc(target.nMin));
       const r = resolveFunctionSeriesN(target, n);
+      return manimColor(r.color);
+    }
+    case 'graphPointSequence': {
+      const list = pointSequenceIndices(target);
+      const last = list[list.length - 1];
+      const n =
+        last != null
+          ? last
+          : Math.max(0, Math.trunc(target.nMin));
+      const r = resolvePointSequenceN(target, n);
       return manimColor(r.color);
     }
     case 'graphField':

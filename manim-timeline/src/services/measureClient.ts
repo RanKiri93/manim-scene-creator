@@ -3,6 +3,7 @@ import type {
   MeasureResult,
   SegmentStyle,
   SegmentLocalBox,
+  MathChildLocalBox,
   AxesItem,
   AxisPreviewBounds,
 } from '@/types/scene';
@@ -33,6 +34,19 @@ interface SegmentBoxBody {
   is_math?: boolean | null;
 }
 
+interface MathChildBoxBody {
+  child_index: number;
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
+interface MathSegmentChildrenBody {
+  segment_index: number;
+  children: MathChildBoxBody[];
+}
+
 interface MeasureResponseBody {
   ok: boolean;
   width?: number;
@@ -53,7 +67,32 @@ interface MeasureResponseBody {
   png_width?: number;
   png_height?: number;
   segment_boxes?: SegmentBoxBody[];
+  math_child_boxes?: MathSegmentChildrenBody[];
   error?: string;
+}
+
+function flattenMathChildBoxes(
+  raw: MathSegmentChildrenBody[] | undefined,
+): MathChildLocalBox[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: MathChildLocalBox[] = [];
+  for (const row of raw) {
+    const si = row.segment_index;
+    if (!Number.isInteger(si) || si < 0) continue;
+    for (const ch of row.children ?? []) {
+      const ci = ch.child_index;
+      if (!Number.isInteger(ci) || ci < 0) continue;
+      out.push({
+        segmentIndex: si,
+        childIndex: ci,
+        cx: ch.cx,
+        cy: ch.cy,
+        w: ch.w,
+        h: ch.h,
+      });
+    }
+  }
+  return out.length > 0 ? out : null;
 }
 
 function buildSegmentStyles(segments: SegmentStyle[]) {
@@ -120,6 +159,8 @@ export async function measureLine(
       }))
     : null;
 
+  const mathChildMeasures = flattenMathChildBoxes(j.math_child_boxes);
+
   const result: MeasureResult = {
     width: j.width!,
     height: j.height!,
@@ -139,6 +180,7 @@ export async function measureLine(
     pngWidth: j.png_width ?? null,
     pngHeight: j.png_height ?? null,
     segmentMeasures,
+    mathChildMeasures,
   };
 
   return { result, error: null };

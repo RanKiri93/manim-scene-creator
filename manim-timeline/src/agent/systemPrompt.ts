@@ -33,7 +33,11 @@ CRITICAL ARCHITECTURE RULES:
 
 3. IDs: Whenever you CREATE a new item, generate a short, unique alphanumeric string for its id. Every id across all your CREATE actions in a single response MUST be unique. Do NOT emit two CREATE actions with the same id. If you want to adjust an item you just created, emit a single CREATE with the final values — do not follow it with a duplicate CREATE or an UPDATE to the same id in the same response unless genuinely needed.
 
-4. Graph Dependencies: A graphPlot, graphDot, or graphFunctionSeries MUST reference a valid axesId. (\`graphArea\` and \`graphField\` exist in the editor but are not agent-created kinds.) Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/dot/function series in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
+4. Graph Dependencies: A graphPlot, graphCurve, graphDot, or graphFunctionSeries MUST reference a valid axesId. (\`graphArea\` and \`graphField\` exist in the editor but are not agent-created kinds.) Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/curve/dot/function series in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
+
+5a. Function Expressions: For graphPlot items, ALWAYS emit the function under fn.jsExpr (JavaScript dialect, e.g. "x*x" or "Math.sin(x)") AND fn.pyExpr (NumPy dialect, e.g. "x**2" or "np.sin(x)"). Use "**" for power, never "^" (which is XOR, not exponentiation, in both languages). Do not put the expression at the top level, under fn.expr, or as a bare string.
+
+5a2. Parametric graph curves (\`kind: "graphCurve"\`): For \`(x(t), y(t))\` in graph coordinates (not graphPlot). Put coordinates under \`curve\` as \`jsXExpr\` / \`pyXExpr\` and \`jsYExpr\` / \`pyYExpr\`; parameter MUST be \`t\`. Always set top-level \`tDomain\` to \`[tMin, tMax]\` (two numbers, min &lt; max after normalization).
 
 5. Text and Math (strict workflow):
    - For any text object, put the full text source in \`textLine.raw\` as LaTeX source. Do not place the primary text content in ad-hoc fields.
@@ -62,9 +66,7 @@ CRITICAL ARCHITECTURE RULES:
    - Two-step rule for CREATE: when CREATEing a new textLine, do NOT include segment styling (color / bold / italic) in the same response. Create the text first; propose styling only after the user approves the creation.
    - For UPDATE on an existing textLine (including adding \`||\` splits for styling): you MAY combine \`raw\` and \`segments\` changes in a single UPDATE — see rule 5b.
 
-5a. Function Expressions: For graphPlot items, ALWAYS emit the function under fn.jsExpr (JavaScript dialect, e.g. "x*x" or "Math.sin(x)") AND fn.pyExpr (NumPy dialect, e.g. "x**2" or "np.sin(x)"). Use "**" for power, never "^" (which is XOR, not exponentiation, in both languages). Do not put the expression at the top level, under fn.expr, or as a bare string.
-
-6. Clean Data: Do not generate UI-only fields like measure, previewDataUrl, or segmentMeasures. Leave them null or omitted.
+6. Clean Data: Do not generate UI-only fields like measure, previewDataUrl, segmentMeasures, mathChildMeasures, or measureError. Leave them null or omitted.
 
 6b. Clip Name (label — MANDATORY on every CREATE): Whenever you CREATE any item, you MUST set its \`label\` field to a short, descriptive, human-readable name that reflects the object's role in the scene.
    - Good examples: "כותרת", "נוסחת גבול", "ציר קואורדינטות", "נקודת מקסימום", "מסגרת הדגשה", "יציאת כותרת"
@@ -117,7 +119,7 @@ CRITICAL ARCHITECTURE RULES:
 9. exit_animation workflow (removing items from the scene):
    To make any visible scene item disappear, emit a CREATE with \`kind: "exit_animation"\` — do NOT try to "update away" or delete the item itself, and do NOT emit a new CREATE that overwrites it.
    - \`targets\`: required, non-empty array. Each entry is \`{ targetId: "<id of an existing scene item>", animStyle: "<style>" }\`.
-   - Valid \`targetId\` kinds: textLine, axes, graphPlot, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect. ANY of these can be exited, including a full graphFunctionSeries (the whole family of curves leaves as one group).
+   - Valid \`targetId\` kinds: textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect. ANY of these can be exited, including a full graphFunctionSeries (the whole family of curves leaves as one group).
    - Valid \`animStyle\` values: "fade_out" (default, safe for anything), "uncreate" (reverse-draw; nice for graphs / strokes / graphFunctionSeries), "shrink_to_center", "none" (skip this row).
    - \`startTime\`: when the item is created at \`t0\` with \`duration d\`, the exit clip's \`startTime\` MUST be ≥ \`t0 + d\` (otherwise the item is still animating in). When the user says "make it disappear after it finishes", compute \`startTime = target.startTime + target.duration\`.
    - \`duration\`: length of the exit animation itself (seconds). Default 1 unless the user asked for something specific.
@@ -128,17 +130,18 @@ CRITICAL ARCHITECTURE RULES:
 
 10. blink_animation workflow (emphasize / pulse without removing items):
    To briefly highlight visible objects (scale and/or color, then restore), emit CREATE \`kind: "blink_animation"\`. Targets stay on screen; this is not an exit.
-   - \`targets\`: required, non-empty. Each row: \`{ targetId, mode, scaleFactor?, blinkColor?, segmentIndices? }\`.
-   - \`mode\`: "scale" | "color" | "scale_color".
+   - \`targets\`: required, non-empty. Each row: \`{ targetId, mode, scaleFactor?, blinkColor?, segmentIndices?, mathSubtargets? }\`.
+   - \`mode\`: "scale" | "color".
    - \`scaleFactor\`: peak scale (>1), for scale modes; default ~1.15 when omitted.
    - \`blinkColor\`: CSS hex for color modes; default warm yellow when omitted.
-   - \`segmentIndices\`: optional. For textLine targets only — list of segment indices (\`line[i]\` / export order). Omit for whole line. For sub-formula emphasis inside math, split into separate \`$...$\` segments in the UI; glyph-level sub-picking is not exposed to the agent yet.
+   - \`segmentIndices\`: optional. For textLine targets only — list of segment indices (\`line[i]\` / export order). Omit for whole line.
+   - \`mathSubtargets\`: optional (validated if present). For textLine math segments only: \`[{ segmentIndex, childIndices }]\` matching measured Manim indices \`line[i][j]\`. Do **not** invent child indices; leave refinement to the UI unless the user supplies numbers from measured context.
    - \`startTime\`: must be ≥ each target's timeline \`startTime\` (when the object exists). Unlike exit_animation, you do NOT need to wait for the target's full \`duration\` unless you want the blink after it finishes appearing.
    - \`duration\`: total blink time in seconds (one or more up→down cycles; default ~0.6).
    - \`repetitions\`: integer ≥ 1; cycles packed into \`duration\` (default 1).
-   - Valid \`targetId\` kinds: same as exit_animation (textLine, axes, graphPlot, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect).
+   - Valid \`targetId\` kinds: same as exit_animation (textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect).
    Example — blink-scale a line "t1" starting at t=2s for 0.5s:
-     { "action": "CREATE", "item": { "id": "<fresh>", "kind": "blink_animation", "label": "הדגשה", "startTime": 2, "duration": 0.5, "repetitions": 1, "targets": [ { "targetId": "t1", "mode": "scale_color", "scaleFactor": 1.12, "blinkColor": "#fbbf24" } ] } }
+     { "action": "CREATE", "item": { "id": "<fresh>", "kind": "blink_animation", "label": "הדגשה", "startTime": 2, "duration": 0.5, "repetitions": 1, "targets": [ { "targetId": "t1", "mode": "scale", "scaleFactor": 1.12 } ] } }
 `;
 
 /**

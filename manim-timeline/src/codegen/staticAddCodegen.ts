@@ -2,8 +2,10 @@ import type { ExportLeaf } from './flattenExport';
 import {
   graphAreaBoundaryPlotVars,
   overlayAreaVar,
+  overlayCurveVar,
   overlayDotVar,
   overlayPlotVar,
+  overlayPointSequenceGroupVar,
   pythonOverlaySuffix,
 } from './graphCodegen';
 import type { ItemId, SceneItem } from '@/types/scene';
@@ -27,6 +29,11 @@ function staticAddExprsForLeaf(
       const ax = idToVarName.get(leaf.axesId);
       if (!ax) return [];
       return [overlayPlotVar(ax, leaf.id)];
+    }
+    case 'graphCurve': {
+      const ax = idToVarName.get(leaf.axesId);
+      if (!ax) return [];
+      return [overlayCurveVar(ax, leaf.id)];
     }
     case 'graphDot': {
       const ax = idToVarName.get(leaf.axesId);
@@ -52,6 +59,11 @@ function staticAddExprsForLeaf(
       const ax = idToVarName.get(leaf.axesId);
       if (!ax) return [];
       return [`${ax}_fs_${pythonOverlaySuffix(leaf.id)}`];
+    }
+    case 'graphPointSequence': {
+      const ax = idToVarName.get(leaf.axesId);
+      if (!ax) return [];
+      return [overlayPointSequenceGroupVar(ax, leaf.id)];
     }
     case 'shape':
       return [idToVarName.get(leaf.id)!];

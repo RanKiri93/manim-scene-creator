@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Group, Rect, Image as KonvaImage, Text } from 'react-konva';
 import type {
   AudioTrackItem,
@@ -7,6 +7,7 @@ import type {
   SegmentLocalBox,
   TextLineItem,
 } from '@/types/scene';
+import { resolveTextBlinkPieces } from '@/lib/blinkTextTargets';
 import { useDragSnap } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
@@ -168,6 +169,32 @@ function renderSegmentImage(
   );
 }
 
+function renderCroppedImage(
+  img: HTMLImageElement,
+  rect: SegmentImageRect,
+  key: string,
+  opacity = 1,
+) {
+  return (
+    <KonvaImage
+      key={key}
+      image={img}
+      x={rect.x}
+      y={rect.y}
+      width={rect.width}
+      height={rect.height}
+      crop={{
+        x: rect.cropX,
+        y: rect.cropY,
+        width: rect.cropWidth,
+        height: rect.cropHeight,
+      }}
+      opacity={opacity}
+      listening={false}
+    />
+  );
+}
+
 export default function TextLineNode({
   item,
   canvasWidth,
@@ -229,6 +256,34 @@ export default function TextLineNode({
       el.onload = null;
     };
   }, [item.previewDataUrl]);
+
+  const [tintedImg, setTintedImg] = useState<HTMLImageElement | null>(null);
+  const blinkTintColor = blinkPreview?.blinkColor ?? null;
+
+  useEffect(() => {
+    if (!img || !blinkTintColor) {
+      setTintedImg(null);
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setTintedImg(null);
+      return;
+    }
+    ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = blinkTintColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const el = new window.Image();
+    el.onload = () => setTintedImg(el);
+    el.src = canvas.toDataURL('image/png');
+    return () => {
+      el.onload = null;
+    };
+  }, [img, blinkTintColor]);
 
   const displayLabel = item.label || item.raw.slice(0, 30) || '(empty line)';
 
@@ -419,30 +474,116 @@ export default function TextLineNode({
   const blinkTintOverlay = (() => {
     if (!blinkPreview || blinkPreview.colorMix <= 1e-6) return null;
     if (!canRenderSegments(item, img) || !imageGeometry) return null;
-    const op = blinkPreview.colorMix * 0.45;
+    if (!tintedImg) return null;
+    const op = clamp01(blinkPreview.colorMix);
     const indices =
       blinkPreview.textSegmentIndices ??
       new Set(item.segments.map((_, i) => i));
+    const childSeg = new Set(
+      (blinkPreview.textMathChildHighlights ?? []).map((h) => h.segmentIndex),
+    );
+    const childNodes = (blinkPreview.textMathChildHighlights ?? []).map(
+      (h, hi) => {
+        if (!indices.has(h.segmentIndex)) return null;
+        const m = item.mathChildMeasures?.find(
+          (b) =>
+            b.segmentIndex === h.segmentIndex && b.childIndex === h.childIndex,
+        );
+        if (!m) return null;
+        const rect = segmentRect(
+          { cx: m.cx, cy: m.cy, w: m.w, h: m.h },
+          imageGeometry,
+          img,
+        );
+        return renderCroppedImage(
+          tintedImg,
+          rect,
+          `blink-m-${h.segmentIndex}-${h.childIndex}-${hi}`,
+          op,
+        );
+      },
+    );
     return (
       <Group listening={false}>
         {item.segments.map((_, idx) => {
           if (!indices.has(idx)) return null;
+          if (childSeg.has(idx)) return null;
           const box = segmentBoxForIndex(item, idx);
           if (!box) return null;
           const rect = segmentRect(box, imageGeometry, img);
-          return (
-            <Rect
-              key={`blink-${idx}`}
-              x={rect.x}
-              y={rect.y}
-              width={rect.width}
-              height={rect.height}
-              fill={blinkPreview.blinkColor}
-              opacity={op}
-              globalCompositeOperation="multiply"
-              listening={false}
-            />
-          );
+          return renderCroppedImage(tintedImg, rect, `blink-${idx}`, op);
+        })}
+        {childNodes}
+      </Group>
+    );
+  })();
+
+  const blinkPiecewiseScale = (() => {
+    if (!blinkPreview || blinkPreview.applyOuterBlinkScale) return null;
+    if (blinkPreview.row.mode !== 'scale') {
+      return null;
+    }
+    if (!canRenderSegments(item, img) || !imageGeometry) return null;
+    const sf = blinkPreview.scaleMultiplier;
+    if (sf <= 1 + 1e-6) return null;
+    const pieces = resolveTextBlinkPieces(item, blinkPreview.row);
+    return (
+      <Group listening={false}>
+        {pieces.flatMap((p) => {
+          if (p.whole) {
+            const box = segmentBoxForIndex(item, p.segmentIndex);
+            if (!box) return [];
+            const rect = segmentRect(box, imageGeometry, img);
+            const cx = rect.centerX;
+            const cy = rect.centerY;
+            return [
+              <Group
+                key={`blink-sc-${p.segmentIndex}`}
+                x={cx}
+                y={cy}
+                scaleX={sf}
+                scaleY={sf}
+              >
+                <Group x={-cx} y={-cy}>
+                  {renderCroppedImage(img, rect, `blink-sc-img-${p.segmentIndex}`, 0.92)}
+                </Group>
+              </Group>,
+            ];
+          }
+          return p.childIndices
+            .map((c) => {
+              const m = item.mathChildMeasures?.find(
+                (b) =>
+                  b.segmentIndex === p.segmentIndex && b.childIndex === c,
+              );
+              if (!m) return null;
+              const rect = segmentRect(
+                { cx: m.cx, cy: m.cy, w: m.w, h: m.h },
+                imageGeometry,
+                img,
+              );
+              const cx = rect.centerX;
+              const cy = rect.centerY;
+              return (
+                <Group
+                  key={`blink-sc-${p.segmentIndex}-${c}`}
+                  x={cx}
+                  y={cy}
+                  scaleX={sf}
+                  scaleY={sf}
+                >
+                  <Group x={-cx} y={-cy}>
+                    {renderCroppedImage(
+                      img,
+                      rect,
+                      `blink-sc-img-${p.segmentIndex}-${c}`,
+                      0.92,
+                    )}
+                  </Group>
+                </Group>
+              );
+            })
+            .filter((x): x is ReactElement => x != null);
         })}
       </Group>
     );
@@ -471,6 +612,7 @@ export default function TextLineNode({
 
       {/* Preview raster (if available) */}
       {transformSegmentPreview ?? segmentPreview ?? fullImage}
+      {blinkPiecewiseScale}
       {blinkTintOverlay}
 
       {/* Fallback label when no preview */}

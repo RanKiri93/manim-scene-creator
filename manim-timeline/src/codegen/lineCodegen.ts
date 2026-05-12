@@ -7,9 +7,11 @@ import {
   type AudioTrackItem,
   type AxesItem,
   type GraphPlotItem,
+  type GraphCurveItem,
   type GraphDotItem,
   type GraphFieldItem,
   type GraphFunctionSeriesItem,
+  type GraphPointSequenceItem,
   type GraphAreaItem,
   type ShapeItem,
 } from '@/types/scene';
@@ -126,9 +128,11 @@ export type ExportLeafWithAudio =
   | TextLineItem
   | AxesItem
   | GraphPlotItem
+  | GraphCurveItem
   | GraphDotItem
   | GraphFieldItem
   | GraphFunctionSeriesItem
+  | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem;
 

@@ -127,6 +127,7 @@ describe('blinkPreviewForTarget', () => {
 
     const s0 = blinkPreviewForTarget(item.id, 0, items);
     expect(s0?.scaleMultiplier).toBeCloseTo(1);
+    expect(s0?.applyOuterBlinkScale).toBe(true);
 
     const mid = blinkPreviewForTarget(item.id, 1, items);
     expect(mid?.envelope).toBeCloseTo(1);
@@ -156,5 +157,24 @@ describe('blinkPreviewForTarget', () => {
 
     const st = blinkPreviewForTarget(item.id, 0.5, items);
     expect(st?.textSegmentIndices).toEqual(new Set([0]));
+    expect(st?.textMathChildHighlights).toBeNull();
+    expect(st?.applyOuterBlinkScale).toBe(false);
+  });
+
+  it('sets math child highlights and piecewise scale for mathSubtargets', () => {
+    const item = createTextLine(defaultSceneDefaults(), 0);
+    item.id = 'l1';
+    item.segments = [
+      { text: '$x$', isMath: true, color: '#ffffff', bold: false, italic: false },
+    ];
+    const blink = createBlinkAnimation([item.id], 0, 1);
+    blink.targets[0]!.mathSubtargets = [{ segmentIndex: 0, childIndices: [1] }];
+    const items = mapOf(item, blink);
+
+    const st = blinkPreviewForTarget(item.id, 0.5, items);
+    expect(st?.textMathChildHighlights).toEqual([
+      { segmentIndex: 0, childIndex: 1 },
+    ]);
+    expect(st?.applyOuterBlinkScale).toBe(false);
   });
 });

@@ -18,9 +18,11 @@ export function canBeSurroundTarget(item: SceneItem): boolean {
     item.kind === 'textLine' ||
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
+    item.kind === 'graphCurve' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
     item.kind === 'graphFunctionSeries' ||
+    item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
     item.kind === 'shape'
   );
@@ -116,9 +118,11 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
   if (
     item.kind === 'axes' ||
     item.kind === 'graphPlot' ||
+    item.kind === 'graphCurve' ||
     item.kind === 'graphDot' ||
     item.kind === 'graphField' ||
     item.kind === 'graphFunctionSeries' ||
+    item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
     item.kind === 'shape'
   ) {

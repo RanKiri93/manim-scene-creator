@@ -4,9 +4,11 @@ import {
   createTextLine,
   createAxes,
   createGraphPlot,
+  createGraphCurve,
   createGraphDotItem,
   createGraphFieldItem,
   createGraphFunctionSeries,
+  createGraphPointSequence,
   createGraphArea,
   createExitAnimation,
   createBlinkAnimation,
@@ -100,6 +102,13 @@ export default function ItemList() {
     select(item.id);
   };
 
+  const addGraphCurve = () => {
+    const axId = ensureAxesId();
+    const item = createGraphCurve(axId, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
   const addGraphDot = () => {
     const axId = ensureAxesId();
     const item = createGraphDotItem(axId, currentTime);
@@ -117,6 +126,13 @@ export default function ItemList() {
   const addGraphFunctionSeries = () => {
     const axId = ensureAxesId();
     const item = createGraphFunctionSeries(axId, currentTime);
+    addItem(item);
+    select(item.id);
+  };
+
+  const addGraphPointSequence = () => {
+    const axId = ensureAxesId();
+    const item = createGraphPointSequence(axId, currentTime);
     addItem(item);
     select(item.id);
   };
@@ -285,6 +301,9 @@ export default function ItemList() {
     } else if (item.kind === 'graphPlot') {
       kindBadge = 'bg-teal-600/30 text-teal-300';
       kindLetter = 'P';
+    } else if (item.kind === 'graphCurve') {
+      kindBadge = 'bg-sky-600/30 text-sky-200';
+      kindLetter = 'C';
     } else if (item.kind === 'graphDot') {
       kindBadge = 'bg-cyan-600/30 text-cyan-300';
       kindLetter = 'D';
@@ -294,6 +313,9 @@ export default function ItemList() {
     } else if (item.kind === 'graphFunctionSeries') {
       kindBadge = 'bg-fuchsia-600/30 text-fuchsia-300';
       kindLetter = 'Fn';
+    } else if (item.kind === 'graphPointSequence') {
+      kindBadge = 'bg-indigo-600/30 text-indigo-300';
+      kindLetter = 'Pt';
     } else if (item.kind === 'graphArea') {
       kindBadge = 'bg-violet-600/30 text-violet-200';
       kindLetter = 'G';
@@ -441,6 +463,17 @@ export default function ItemList() {
                 role="menuitem"
                 className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
                 onClick={() => {
+                  addGraphCurve();
+                  closeMenus();
+                }}
+              >
+                Graph curve
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                onClick={() => {
                   addGraphDot();
                   closeMenus();
                 }}
@@ -469,6 +502,18 @@ export default function ItemList() {
                 }}
               >
                 Function series
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="px-3 py-2 text-xs text-left hover:bg-slate-700 text-slate-200 transition-colors"
+                title="Indexed points (x(n), y(n)); accumulation or fade replacement between points"
+                onClick={() => {
+                  addGraphPointSequence();
+                  closeMenus();
+                }}
+              >
+                Point sequence
               </button>
               <button
                 type="button"

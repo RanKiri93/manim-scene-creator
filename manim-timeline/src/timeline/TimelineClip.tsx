@@ -6,6 +6,7 @@ import {
 } from '@/agent/previewSelectors';
 import type {
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   SceneItem,
   TextLineItem,
 } from '@/types/scene';
@@ -13,7 +14,11 @@ import {
   functionSeriesChildStartOffset,
   functionSeriesHasErrors,
   functionSeriesIndices,
+  pointSequenceChildStartOffset,
+  pointSequenceHasErrors,
+  pointSequenceIndices,
   resolveFunctionSeriesN,
+  resolvePointSequenceN,
 } from '@/types/scene';
 import {
   applyWaitBodyShift,
@@ -50,9 +55,11 @@ const KIND_COLORS: Record<string, string> = {
   textLine: 'bg-blue-600/80 border-blue-400',
   axes: 'bg-emerald-600/80 border-emerald-400',
   graphPlot: 'bg-teal-600/80 border-teal-400',
+  graphCurve: 'bg-sky-700/80 border-sky-400',
   graphDot: 'bg-cyan-600/80 border-cyan-400',
   graphField: 'bg-lime-700/80 border-lime-400',
   graphFunctionSeries: 'bg-fuchsia-700/80 border-fuchsia-400',
+  graphPointSequence: 'bg-indigo-700/80 border-indigo-400',
   graphArea: 'bg-violet-700/80 border-violet-400',
   exit_animation: 'bg-rose-700/85 border-rose-400',
   blink_animation: 'bg-amber-700/85 border-amber-300',
@@ -461,6 +468,78 @@ export default function TimelineClip({
     [item, select, setCurrentTime],
   );
 
+  const onMouseDownPsWait = useCallback(
+    (e: React.MouseEvent, n: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (item.kind !== 'graphPointSequence') return;
+      select(item.id, isMultiSelectModifier(e));
+      const ps = item as GraphPointSequenceItem;
+      const startWait = Math.max(0, resolvePointSequenceN(ps, n).waitAfter);
+      const startX = e.clientX;
+      const onMove = (ev: MouseEvent) => {
+        const dt = (ev.clientX - startX) / pxPerSecond;
+        const next = Math.max(0, startWait + dt);
+        const key = String(n);
+        const existing = ps.perN[key] ?? {};
+        updateItem(item.id, {
+          perN: { ...ps.perN, [key]: { ...existing, waitAfter: next } },
+        });
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [item, select, updateItem, pxPerSecond],
+  );
+
+  const onMouseDownPsAnim = useCallback(
+    (e: React.MouseEvent, n: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (item.kind !== 'graphPointSequence') return;
+      select(item.id, isMultiSelectModifier(e));
+      const ps = item as GraphPointSequenceItem;
+      const startAnim = Math.max(
+        0.01,
+        resolvePointSequenceN(ps, n).animDuration,
+      );
+      const startX = e.clientX;
+      const onMove = (ev: MouseEvent) => {
+        const dt = (ev.clientX - startX) / pxPerSecond;
+        const next = Math.max(0.01, startAnim + dt);
+        const key = String(n);
+        const existing = ps.perN[key] ?? {};
+        updateItem(item.id, {
+          perN: { ...ps.perN, [key]: { ...existing, animDuration: next } },
+        });
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [item, select, updateItem, pxPerSecond],
+  );
+
+  const onClickPsBookmark = useCallback(
+    (e: React.MouseEvent, n: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (item.kind !== 'graphPointSequence') return;
+      select(item.id, isMultiSelectModifier(e));
+      const ps = item as GraphPointSequenceItem;
+      const offset = pointSequenceChildStartOffset(ps, n);
+      setCurrentTime(item.startTime + offset);
+    },
+    [item, select, setCurrentTime],
+  );
+
   const functionSeriesStripes =
     item.kind === 'graphFunctionSeries'
       ? (() => {
@@ -527,6 +606,87 @@ export default function TimelineClip({
                           className="relative z-[5] flex-1 cursor-ew-resize hover:bg-white/20"
                           onMouseDown={(ev) => onMouseDownFsWait(ev, n)}
                           title="Drag to resize wait (ripples subsequent curves)"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {hasErr && (
+                <div className="absolute inset-0 bg-red-900/30 border-2 border-red-400/80 pointer-events-none rounded" />
+              )}
+            </div>
+          );
+        })()
+      : null;
+
+  const pointSequenceStripes =
+    item.kind === 'graphPointSequence'
+      ? (() => {
+          const ps = item as GraphPointSequenceItem;
+          const indices = pointSequenceIndices(ps);
+          const totalSec = runDuration(ps, itemsMap);
+          if (indices.length === 0 || totalSec <= 1e-9) return null;
+          const hasErr = pointSequenceHasErrors(ps);
+          const lastN = indices[indices.length - 1]!;
+          return (
+            <div className="absolute inset-0 flex flex-row z-0" aria-hidden>
+              {indices.map((n) => {
+                const res = resolvePointSequenceN(ps, n);
+                const animW = ((res.animDuration ?? 0) / totalSec) * 100;
+                const waitW =
+                  n === lastN ? 0 : ((res.waitAfter ?? 0) / totalSec) * 100;
+                const err = ps.perNErrors?.[String(n)];
+                return (
+                  <div
+                    key={`ps-row-${n}`}
+                    className="flex h-full shrink-0"
+                    style={{ width: `${animW + waitW}%` }}
+                  >
+                    <div
+                      className={`relative flex h-full shrink-0 min-w-[2px] ${
+                        err ? 'bg-red-400/60' : 'bg-white/12'
+                      }`}
+                      style={{
+                        width: `${
+                          animW + waitW > 0
+                            ? (animW / (animW + waitW)) * 100
+                            : 100
+                        }%`,
+                      }}
+                      title={`n=${n} (FadeIn ${res.animDuration.toFixed(2)}s)${
+                        err ? ` — error: ${err}` : ''
+                      }`}
+                    >
+                      <div
+                        className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-200/80 pointer-events-auto cursor-pointer"
+                        onClick={(ev) => onClickPsBookmark(ev, n)}
+                        title={`Jump to n=${n} start`}
+                      />
+                      <div className="flex-1" />
+                      <div
+                        className="relative z-[5] w-2 shrink-0 cursor-ew-resize hover:bg-white/30 rounded-sm pointer-events-auto"
+                        onMouseDown={(ev) => onMouseDownPsAnim(ev, n)}
+                        title={`Drag to resize FadeIn duration for n=${n}`}
+                      />
+                    </div>
+                    {n !== lastN && (
+                      <div
+                        className="relative flex h-full shrink-0 min-w-[6px] pointer-events-auto"
+                        style={{
+                          width: `${
+                            animW + waitW > 0
+                              ? (waitW / (animW + waitW)) * 100
+                              : 0
+                          }%`,
+                        }}
+                        title={`Wait ${res.waitAfter.toFixed(2)}s before n=${n + 1}`}
+                      >
+                        <div className="absolute inset-0 bg-amber-400/40 border-l border-amber-200/30 pointer-events-none" />
+                        <div
+                          className="relative z-[5] flex-1 cursor-ew-resize hover:bg-white/20"
+                          onMouseDown={(ev) => onMouseDownPsWait(ev, n)}
+                          title="Drag to resize wait"
                         />
                       </div>
                     )}
@@ -634,6 +794,7 @@ export default function TimelineClip({
     >
       {segmentWaitStripes}
       {functionSeriesStripes}
+      {pointSequenceStripes}
       <div className="pointer-events-none relative z-[6] flex min-h-5 min-w-0 flex-1 items-center gap-1 px-1.5">
         <span className="min-w-0 flex-1 truncate drop-shadow-sm">{label}</span>
         {explicitAudioTrack !== undefined ? (
@@ -664,7 +825,7 @@ export default function TimelineClip({
         ) : null}
       </div>
 
-      {item.kind !== 'graphFunctionSeries' && (
+      {item.kind !== 'graphFunctionSeries' && item.kind !== 'graphPointSequence' && (
         <div
           className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 rounded-r-md z-[2]"
           onMouseDown={onMouseDownResize}

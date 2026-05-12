@@ -53,10 +53,12 @@ function textLine(): TextLineItem {
       pngWidth: 10,
       pngHeight: 10,
       segmentMeasures: null,
+      mathChildMeasures: null,
     },
     measureError: null,
     previewDataUrl: 'data:image/png;base64,AAA',
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 
@@ -96,11 +98,12 @@ function axes(): AxesItem {
 }
 
 describe('stripUiFields', () => {
-  it('removes measure, previewDataUrl, segmentMeasures, measureError on textLine', () => {
+  it('removes measure, previewDataUrl, segmentMeasures, mathChildMeasures, measureError on textLine', () => {
     const slim = stripUiFields(textLine()) as Record<string, unknown>;
     expect(slim.measure).toBeUndefined();
     expect(slim.previewDataUrl).toBeUndefined();
     expect(slim.segmentMeasures).toBeUndefined();
+    expect(slim.mathChildMeasures).toBeUndefined();
     expect(slim.measureError).toBeUndefined();
     expect(slim.raw).toBe('hello');
     expect(slim.id).toBe('tl1');

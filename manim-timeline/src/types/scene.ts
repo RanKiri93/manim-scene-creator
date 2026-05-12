@@ -31,6 +31,16 @@ export interface SegmentLocalBox {
   isMath?: boolean | null;
 }
 
+/** Nested Manim submobject inside a math segment; `childIndex` matches export `line[segmentIndex][childIndex]`. */
+export interface MathChildLocalBox {
+  segmentIndex: number;
+  childIndex: number;
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
 /** `null` on `bounds` = legacy preview (tight ink size, mobject center — matches older projects). */
 export type NextToBoundsMode = 'mobject' | 'ink';
 
@@ -168,6 +178,8 @@ export interface MeasureResult {
   pngHeight: number | null;
   /** Per `HebrewMathLine` submobject (same index as export `line[i]`). */
   segmentMeasures: SegmentLocalBox[] | null;
+  /** Nested boxes for math segments only (UI / preview); from measure server `math_child_boxes`. */
+  mathChildMeasures: MathChildLocalBox[] | null;
 }
 
 // ── Scene items ──
@@ -216,19 +228,19 @@ export interface ExitAnimationItem {
   targets: ExitTargetSpec[];
 }
 
-/** Visual pulse / emphasis: scale and/or color, then restore. Does not remove targets. */
-export type BlinkMode = 'scale' | 'color' | 'scale_color';
+/** Visual pulse / emphasis: scale or color, then restore. Does not remove targets. */
+export type BlinkMode = 'scale' | 'color';
 
 export interface BlinkTargetSpec {
   targetId: ItemId;
   mode: BlinkMode;
   /**
-   * Peak scale factor (1 = none). Used when `mode` is `scale` or `scale_color`.
+   * Peak scale factor (1 = none). Used when `mode` is `scale`.
    * Default in UI / export when omitted: 1.15.
    */
   scaleFactor?: number;
   /**
-   * Highlight color (CSS hex). Used when `mode` is `color` or `scale_color`.
+   * Highlight color (CSS hex). Used when `mode` is `color`.
    * Default when omitted: `#fbbf24`.
    */
   blinkColor?: string;
@@ -237,6 +249,11 @@ export interface BlinkTargetSpec {
    * Omit or empty = whole line.
    */
   segmentIndices?: number[] | null;
+  /**
+   * Optional refinement: Manim subobjects inside math segments (`line[segmentIndex][childIndex]`).
+   * When present for a math segment, that segment blinks those children instead of the whole segment.
+   */
+  mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
 }
 
 /**
@@ -343,6 +360,8 @@ export interface TextLineItem extends SceneItemBase {
   previewDataUrl: string | null;
   /** Per-submobject boxes from measure server (same index as exported `line[i]`). */
   segmentMeasures: SegmentLocalBox[] | null;
+  /** Nested math-segment boxes from measure server (same indices as export `line[s][c]`). */
+  mathChildMeasures: MathChildLocalBox[] | null;
 }
 
 export interface GraphFunction {
@@ -464,6 +483,30 @@ export interface GraphPlotItem extends SceneItemBase {
   xDomain: [number, number] | null;
   /** Curve stroke width (exported as `plot_var.set_stroke(width=…)` after `Axes.plot`). */
   strokeWidth: number;
+  /** Solid, dashed, or dotted; omit in legacy projects → solid. */
+  lineStyle?: FunctionLineStyle;
+}
+
+/** Parametric curve γ(t) = (x(t), y(t)) on an existing axes (graph coordinates). */
+export interface GraphParametricCurve {
+  id: ItemId;
+  jsXExpr: string;
+  jsYExpr: string;
+  pyXExpr: string;
+  pyYExpr: string;
+  color: string;
+  label: string;
+}
+
+/** Parametric `(x(t), y(t))` curve on axes; sampled over `tDomain`. */
+export interface GraphCurveItem extends SceneItemBase {
+  kind: 'graphCurve';
+  axesId: ItemId;
+  curve: GraphParametricCurve;
+  tDomain: [number, number];
+  strokeWidth: number;
+  /** Solid, dashed, or dotted; omit in legacy projects → solid. */
+  lineStyle?: FunctionLineStyle;
 }
 
 /** One labeled dot on an existing axes. */
@@ -600,6 +643,113 @@ export interface GraphFunctionSeriesItem extends SceneItemBase {
   topLevelError?: string | null;
 }
 
+// ── Point sequence (indexed points (x(n), y(n)) on axes) ──
+
+/** Per-n style / timing overrides for a point sequence. */
+export interface PointSequencePerN {
+  color?: string;
+  pointRadius?: number;
+  animDuration?: number;
+  waitAfter?: number;
+}
+
+/** Defaults for every index in a point sequence. */
+export interface PointSequenceDefaults {
+  color: string;
+  /** Dot radius in scene units (Manim `Dot` radius). */
+  pointRadius: number;
+  animDuration: number;
+  waitAfter: number;
+}
+
+/**
+ * Sequence of points (x(n), y(n)) in graph coordinates for integer n in [nMin, nMax].
+ * Accumulation keeps all dots; replacement fades out the previous dot then fades in the next.
+ */
+export interface GraphPointSequenceItem extends SceneItemBase {
+  kind: 'graphPointSequence';
+  axesId: ItemId;
+  jsXExpr: string;
+  jsYExpr: string;
+  pyXExpr: string;
+  pyYExpr: string;
+  nMin: number;
+  nMax: number;
+  mode: FunctionSeriesMode;
+  defaults: PointSequenceDefaults;
+  perN: Record<string, PointSequencePerN>;
+  perNErrors?: Record<string, string>;
+  topLevelError?: string | null;
+}
+
+/** Resolve per-n fields with defaults for a point sequence. */
+export function resolvePointSequenceN(
+  item: GraphPointSequenceItem,
+  n: number,
+): PointSequenceDefaults {
+  const override = item.perN[String(n)] ?? {};
+  const d = item.defaults;
+  return {
+    color: override.color ?? d.color,
+    pointRadius: override.pointRadius ?? d.pointRadius,
+    animDuration: override.animDuration ?? d.animDuration,
+    waitAfter: override.waitAfter ?? d.waitAfter,
+  };
+}
+
+/** Same index rules as function series: nMin..nMax inclusive; empty if invalid. */
+export function pointSequenceIndices(item: GraphPointSequenceItem): number[] {
+  if (!Number.isFinite(item.nMin) || !Number.isFinite(item.nMax)) return [];
+  const lo = Math.trunc(item.nMin);
+  const hi = Math.trunc(item.nMax);
+  if (lo >= hi) return [];
+  const out: number[] = [];
+  for (let n = lo; n <= hi; n++) out.push(n);
+  return out;
+}
+
+export function pointSequenceChildStartOffset(
+  item: GraphPointSequenceItem,
+  n: number,
+): number {
+  const list = pointSequenceIndices(item);
+  let t = 0;
+  for (const k of list) {
+    if (k === n) return t;
+    const r = resolvePointSequenceN(item, k);
+    t += Math.max(0, r.animDuration) + Math.max(0, r.waitAfter);
+  }
+  return t;
+}
+
+export function pointSequenceTotalDuration(item: GraphPointSequenceItem): number {
+  const list = pointSequenceIndices(item);
+  let dur = 0;
+  const last = list[list.length - 1];
+  for (const k of list) {
+    const r = resolvePointSequenceN(item, k);
+    dur += Math.max(0, r.animDuration);
+    if (k !== last) dur += Math.max(0, r.waitAfter);
+  }
+  return dur;
+}
+
+export function pointSequenceHasErrors(item: GraphPointSequenceItem): boolean {
+  if (item.topLevelError) return true;
+  if (!item.perNErrors) return false;
+  for (const v of Object.values(item.perNErrors)) {
+    if (v) return true;
+  }
+  return false;
+}
+
+/** Plot/curve line style; legacy omit → solid. */
+export function resolveGraphOverlayLineStyle(
+  lineStyle: FunctionLineStyle | undefined,
+): FunctionLineStyle {
+  return lineStyle ?? 'solid';
+}
+
 /** Effective display mode; legacy items with no `displayMode` render as 'individual'. */
 export function resolveFunctionSeriesDisplayMode(
   item: GraphFunctionSeriesItem,
@@ -716,9 +866,11 @@ export type SceneItem =
   | TextLineItem
   | AxesItem
   | GraphPlotItem
+  | GraphCurveItem
   | GraphDotItem
   | GraphFieldItem
   | GraphFunctionSeriesItem
+  | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem
   | ExitAnimationItem

@@ -32,6 +32,12 @@ export function itemClipDisplayName(item: SceneItem): string {
       const bit = item.fn.label?.trim() || trunc(item.fn.pyExpr, 22);
       return bit ? `Plot: ${bit}` : 'Plot';
     }
+    case 'graphCurve': {
+      const bit =
+        item.curve.label?.trim() ||
+        trunc(`(${item.curve.pyXExpr}, ${item.curve.pyYExpr})`, 22);
+      return bit ? `Curve: ${bit}` : 'Curve';
+    }
     case 'graphDot': {
       const bit = item.dot.label?.trim();
       return bit ? `Dot: ${trunc(bit, 22)}` : 'Dot';
@@ -46,6 +52,12 @@ export function itemClipDisplayName(item: SceneItem): string {
       const bit = trunc(item.jsExpr, 22);
       const range = `n=${item.nMin}..${item.nMax}`;
       return bit ? `f(n,x)=${bit} [${range}]` : `Function series [${range}]`;
+    }
+    case 'graphPointSequence': {
+      const xr = trunc(item.pyXExpr, 12);
+      const yr = trunc(item.pyYExpr, 12);
+      const range = `n=${item.nMin}..${item.nMax}`;
+      return `(${xr}, ${yr}) [${range}]`;
     }
     case 'graphArea':
       return 'Graph area';

@@ -53,6 +53,7 @@ function textLine(id = 'tl1'): TextLineItem {
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 
@@ -362,6 +363,114 @@ describe('validateAgentResponse', () => {
       expect(jsonly.item.fn.jsExpr).toBe('Math.cos(x)');
       expect(jsonly.item.fn.pyExpr).toBe('np.cos(x)');
     }
+  });
+
+  it('rejects graphCurve CREATE without axesId', () => {
+    const map = new Map<string, SceneItem>();
+    const resp = {
+      reply: 'curve',
+      actions: [
+        {
+          action: 'CREATE',
+          item: {
+            id: 'gc1',
+            kind: 'graphCurve',
+            curve: {
+              jsXExpr: 'Math.cos(t)',
+              jsYExpr: 'Math.sin(t)',
+              pyXExpr: 'np.cos(t)',
+              pyYExpr: 'np.sin(t)',
+            },
+            tDomain: [0, 6.28],
+          },
+        },
+      ],
+    };
+    expect(validateAgentResponse(resp, map).ok).toBe(false);
+  });
+
+  it('accepts graphCurve CREATE with valid axes and coordinates', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    const resp = {
+      reply: 'curve',
+      actions: [
+        {
+          action: 'CREATE',
+          item: {
+            id: 'gc1',
+            kind: 'graphCurve',
+            axesId: 'ax1',
+            curve: {
+              jsXExpr: 'Math.cos(t)',
+              jsYExpr: 'Math.sin(t)',
+              pyXExpr: 'np.cos(t)',
+              pyYExpr: 'np.sin(t)',
+            },
+            tDomain: [0, 6.28],
+          },
+        },
+      ],
+    };
+    const result = validateAgentResponse(resp, map);
+    expect(result.ok).toBe(true);
+  });
+
+  it('auto-links missing axesId on graphCurve when exactly one axes is created', () => {
+    const map = new Map<string, SceneItem>();
+    const resp = {
+      reply: 'curve',
+      actions: [
+        { action: 'CREATE', item: { id: 'ax_new', kind: 'axes' } },
+        {
+          action: 'CREATE',
+          item: {
+            id: 'gc1',
+            kind: 'graphCurve',
+            curve: {
+              jsXExpr: 't',
+              jsYExpr: 't',
+              pyXExpr: 't',
+              pyYExpr: 't',
+            },
+            tDomain: [0, 1],
+          },
+        },
+      ],
+    };
+    const result = validateAgentResponse(resp, map);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const c = result.response.actions[1]!;
+      expect(c.action).toBe('CREATE');
+      if (c.action === 'CREATE' && c.item.kind === 'graphCurve') {
+        expect(c.item.axesId).toBe('ax_new');
+      }
+    }
+  });
+
+  it('rejects graphCurve when a coordinate expression is missing', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    const resp = {
+      reply: 'bad',
+      actions: [
+        {
+          action: 'CREATE',
+          item: {
+            id: 'gc1',
+            kind: 'graphCurve',
+            axesId: 'ax1',
+            curve: {
+              jsXExpr: 't',
+              pyXExpr: 't',
+            },
+            tDomain: [0, 1],
+          },
+        },
+      ],
+    };
+    expect(validateAgentResponse(resp, map).ok).toBe(false);
   });
 
   it('accepts a pure-chat reply with empty actions array', () => {

@@ -24,6 +24,7 @@ function minimalLine(id: string, startTime: number): TextLineItem {
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 

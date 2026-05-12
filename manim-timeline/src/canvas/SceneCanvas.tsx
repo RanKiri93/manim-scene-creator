@@ -79,9 +79,11 @@ function selectionTouchesAxes(
     if (!it) continue;
     if (
       (it.kind === 'graphPlot' ||
+        it.kind === 'graphCurve' ||
         it.kind === 'graphDot' ||
         it.kind === 'graphField' ||
         it.kind === 'graphFunctionSeries' ||
+        it.kind === 'graphPointSequence' ||
         it.kind === 'graphArea') &&
       it.axesId === axesId
     ) {
@@ -393,13 +395,17 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     }
                   : null;
                 const blinkText = blinkPreviewForTarget(item.id, currentTime, itemsMap);
+                const playbackBlink =
+                  blinkText && !blinkText.applyOuterBlinkScale
+                    ? { ...blinkText, scaleMultiplier: 1 }
+                    : blinkText;
                 const mx = pos?.x ?? item.x;
                 const my = pos?.y ?? item.y;
                 return (
                   <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
-                      blink={blinkText}
+                      blink={playbackBlink}
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
                     >
                       <TextLineNode
@@ -425,8 +431,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const pos = resolvedShapePositions.get(item.id);
                 const bShape = blinkPreviewForTarget(item.id, currentTime, itemsMap);
                 const cMix =
-                  bShape &&
-                  (bShape.row.mode === 'color' || bShape.row.mode === 'scale_color')
+                  bShape && bShape.row.mode === 'color'
                     ? bShape.colorMix
                     : 0;
                 const previewStroke =
@@ -467,7 +472,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               const sr = entry.item;
               const bSr = blinkPreviewForTarget(sr.id, currentTime, itemsMap);
               const cmSr =
-                bSr && (bSr.row.mode === 'color' || bSr.row.mode === 'scale_color')
+                bSr && bSr.row.mode === 'color'
                   ? bSr.colorMix
                   : 0;
               const srStroke =

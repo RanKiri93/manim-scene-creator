@@ -123,6 +123,21 @@ class SegmentBoxOut(BaseModel):
     is_math: bool | None = None
 
 
+class MathChildBoxOut(BaseModel):
+    """Nested submobject inside one math segment; index matches ``line[seg][child]`` after BIDI sort."""
+
+    child_index: int
+    cx: float
+    cy: float
+    w: float
+    h: float
+
+
+class MathSegmentChildrenOut(BaseModel):
+    segment_index: int
+    children: list[MathChildBoxOut]
+
+
 class MeasureResponse(BaseModel):
     ok: bool
     width: float | None = None
@@ -149,6 +164,7 @@ class MeasureResponse(BaseModel):
     ink_top_y: float | None = None
     ink_bottom_y: float | None = None
     segment_boxes: list[SegmentBoxOut] | None = None
+    math_child_boxes: list[MathSegmentChildrenOut] | None = None
     error: str | None = None
 
 
@@ -455,6 +471,34 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
                 )
             )
 
+        _MIN_BOX = 1e-3
+        math_child_boxes: list[MathSegmentChildrenOut] = []
+        for i, sub in enumerate(line):
+            seg = line.segments[i] if i < len(line.segments) else None
+            is_math = bool(getattr(seg, "is_math", False)) if seg is not None else False
+            if not is_math:
+                continue
+            kids: list[MathChildBoxOut] = []
+            for j, ch in enumerate(sub.submobjects):
+                cw = float(ch.get_width())
+                chh = float(ch.get_height())
+                if cw < _MIN_BOX and chh < _MIN_BOX:
+                    continue
+                cc = ch.get_center()
+                kids.append(
+                    MathChildBoxOut(
+                        child_index=j,
+                        cx=float(cc[0]),
+                        cy=float(cc[1]),
+                        w=cw,
+                        h=chh,
+                    )
+                )
+            if kids:
+                math_child_boxes.append(
+                    MathSegmentChildrenOut(segment_index=i, children=kids)
+                )
+
         return MeasureResponse(
             ok=True,
             width=w,
@@ -475,6 +519,7 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             png_width=pw,
             png_height=ph,
             segment_boxes=seg_boxes or None,
+            math_child_boxes=math_child_boxes or None,
         )
     except Exception as e:
         return MeasureResponse(

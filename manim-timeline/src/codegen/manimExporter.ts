@@ -7,14 +7,16 @@ import type {
   ExitAnimationItem,
   BlinkAnimationItem,
   GraphPlotItem,
+  GraphCurveItem,
   GraphDotItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   GraphAreaItem,
   SurroundingRectItem,
   ExitAnimStyle,
 } from '@/types/scene';
-import { functionSeriesHasErrors, isVisibleAtSceneStartItem } from '@/types/scene';
+import { functionSeriesHasErrors, isVisibleAtSceneStartItem, pointSequenceHasErrors } from '@/types/scene';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import { compareGraphStackOverlays } from '@/lib/graphPreview';
 import {
@@ -29,6 +31,8 @@ import {
   generateAxesDef,
   generateAxesPos,
   generateAxesPlay,
+  generateGraphCurveDef,
+  generateGraphCurvePlay,
   generateGraphPlotDef,
   generateGraphPlotPlay,
   generateGraphDotDef,
@@ -72,6 +76,10 @@ import {
   generateGraphFunctionSeriesDef,
   generateGraphFunctionSeriesPlay,
 } from './functionSeriesCodegen';
+import {
+  generateGraphPointSequenceDef,
+  generateGraphPointSequencePlay,
+} from './pointSequenceCodegen';
 import { formatBlinkClipPlay } from './blinkCodegen';
 import { generateSceneStartStaticAdds } from './staticAddCodegen';
 import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
@@ -146,8 +154,10 @@ function leafNeedsNumpy(it: ExportLeaf): boolean {
   return (
     it.kind === 'axes' ||
     it.kind === 'graphPlot' ||
+    it.kind === 'graphCurve' ||
     it.kind === 'graphField' ||
     it.kind === 'graphFunctionSeries' ||
+    it.kind === 'graphPointSequence' ||
     it.kind === 'graphArea'
   );
 }
@@ -155,9 +165,11 @@ function leafNeedsNumpy(it: ExportLeaf): boolean {
 function validateOverlayAxes(
   item:
     | GraphPlotItem
+    | GraphCurveItem
     | GraphDotItem
     | GraphFieldItem
     | GraphFunctionSeriesItem
+    | GraphPointSequenceItem
     | GraphAreaItem,
   itemsMap: Map<ItemId, SceneItem>,
 ): string | null {
@@ -166,6 +178,24 @@ function validateOverlayAxes(
     return (
       `Clip "${item.label || item.id}" (${item.kind}) references missing axes id "${item.axesId}".`
     );
+  }
+  return null;
+}
+
+function validateGraphCurveExport(
+  item: GraphCurveItem,
+  itemsMap: Map<ItemId, SceneItem>,
+): string | null {
+  const axErr = validateOverlayAxes(item, itemsMap);
+  if (axErr) return axErr;
+  const dom = item.tDomain;
+  if (!Array.isArray(dom) || dom.length !== 2) {
+    return `Graph curve "${item.label || item.id}": tDomain must be two numbers [t_min, t_max].`;
+  }
+  const lo = Math.min(dom[0]!, dom[1]!);
+  const hi = Math.max(dom[0]!, dom[1]!);
+  if (!(hi > lo)) {
+    return `Graph curve "${item.label || item.id}": t domain must have min < max.`;
   }
   return null;
 }
@@ -318,6 +348,10 @@ function exportManimCodeInner(
       const err = validateGraphPlotExport(it, itemsMap);
       if (err) throw new Error(err);
     }
+    if (it.kind === 'graphCurve') {
+      const err = validateGraphCurveExport(it, itemsMap);
+      if (err) throw new Error(err);
+    }
     if (
       it.kind === 'graphDot' ||
       it.kind === 'graphField'
@@ -331,6 +365,15 @@ function exportManimCodeInner(
       if (functionSeriesHasErrors(it)) {
         throw new Error(
           `Function series "${it.label || it.id}" has validation errors — fix the formula / n range before exporting.`,
+        );
+      }
+    }
+    if (it.kind === 'graphPointSequence') {
+      const err = validateOverlayAxes(it, itemsMap);
+      if (err) throw new Error(err);
+      if (pointSequenceHasErrors(it)) {
+        throw new Error(
+          `Point sequence "${it.label || it.id}" has validation errors — fix expressions / n range before exporting.`,
         );
       }
     }
@@ -427,14 +470,18 @@ function exportManimCodeInner(
       it,
     ): it is
       | GraphPlotItem
+      | GraphCurveItem
       | GraphDotItem
       | GraphFieldItem
       | GraphFunctionSeriesItem
+      | GraphPointSequenceItem
       | GraphAreaItem =>
       it.kind === 'graphPlot' ||
+      it.kind === 'graphCurve' ||
       it.kind === 'graphDot' ||
       it.kind === 'graphField' ||
       it.kind === 'graphFunctionSeries' ||
+      it.kind === 'graphPointSequence' ||
       it.kind === 'graphArea',
   );
   overlays.sort((a, b) => a.id.localeCompare(b.id));
@@ -447,7 +494,7 @@ function exportManimCodeInner(
     if (ov.kind === 'graphDot') {
       defStr += generateGraphDotDef(ov, axVar, base);
     }
-    // graphPlot / graphField / graphFunctionSeries: emitted after generateAxesPos — they sample
+    // graphPlot / graphField / graphFunctionSeries / graphPointSequence: emitted after generateAxesPos — they sample
     // coords_to_point or fit_to the axes while the axes may still be at the default pose.
   }
 
@@ -470,10 +517,14 @@ function exportManimCodeInner(
           posStr += generateGraphDotSnapToAxes(ov, axVar, base);
         } else if (ov.kind === 'graphPlot' && ov.axesId === it.id) {
           posStr += generateGraphPlotDef(ov, axVar, base);
+        } else if (ov.kind === 'graphCurve' && ov.axesId === it.id) {
+          posStr += generateGraphCurveDef(ov, axVar, base);
         } else if (ov.kind === 'graphField' && ov.axesId === it.id) {
           posStr += generateGraphFieldDef(ov, axVar, it, base);
         } else if (ov.kind === 'graphFunctionSeries' && ov.axesId === it.id) {
           posStr += generateGraphFunctionSeriesDef(ov, axVar, base);
+        } else if (ov.kind === 'graphPointSequence' && ov.axesId === it.id) {
+          posStr += generateGraphPointSequenceDef(ov, axVar, base);
         }
       }
       for (const ov of overlays) {
@@ -485,8 +536,10 @@ function exportManimCodeInner(
         (o) =>
           o.axesId === it.id &&
           (o.kind === 'graphPlot' ||
+            o.kind === 'graphCurve' ||
             o.kind === 'graphDot' ||
             o.kind === 'graphFunctionSeries' ||
+            o.kind === 'graphPointSequence' ||
             o.kind === 'graphArea' ||
             (o.kind === 'graphField' && o.fieldMode !== 'none')),
       );
@@ -744,6 +797,18 @@ function exportManimCodeInner(
         tailOpts,
       );
     }
+    if (it.kind === 'graphCurve') {
+      const axVar = idToVarName.get(it.axesId);
+      if (!axVar) return '';
+      return generateGraphCurvePlay(
+        it,
+        axVar,
+        base,
+        itemsMap,
+        options.audioItems,
+        tailOpts,
+      );
+    }
     if (it.kind === 'graphDot') {
       const axVar = idToVarName.get(it.axesId);
       if (!axVar) return '';
@@ -772,6 +837,18 @@ function exportManimCodeInner(
       const axVar = idToVarName.get(it.axesId);
       if (!axVar) return '';
       return generateGraphFunctionSeriesPlay(
+        it,
+        axVar,
+        base,
+        itemsMap,
+        options.audioItems,
+        tailOpts,
+      );
+    }
+    if (it.kind === 'graphPointSequence') {
+      const axVar = idToVarName.get(it.axesId);
+      if (!axVar) return '';
+      return generateGraphPointSequencePlay(
         it,
         axVar,
         base,

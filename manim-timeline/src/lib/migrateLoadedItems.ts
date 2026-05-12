@@ -23,6 +23,9 @@ import { migrateItemsToV29 } from '@/lib/migrateProjectToV29';
 import { migrateItemsToV30 } from '@/lib/migrateProjectToV30';
 import { migrateItemsToV31 } from '@/lib/migrateProjectToV31';
 import { migrateItemsToV32 } from '@/lib/migrateProjectToV32';
+import { migrateItemsToV33 } from '@/lib/migrateProjectToV33';
+import { migrateItemsToV34 } from '@/lib/migrateProjectToV34';
+import { migrateItemsToV35 } from '@/lib/migrateProjectToV35';
 import type { SceneItem } from '@/types/scene';
 
 /** Run the same item migrations as full project load, up to current schema. */
@@ -93,6 +96,15 @@ export function migrateItemsToCurrentVersion(
   }
   if (fileVersion < 32) {
     migrated = migrateItemsToV32(migrated);
+  }
+  if (fileVersion < 33) {
+    migrated = migrateItemsToV33(migrated);
+  }
+  if (fileVersion < 34) {
+    migrated = migrateItemsToV34(migrated);
+  }
+  if (fileVersion < 35) {
+    migrated = migrateItemsToV35(migrated);
   }
   return migrated;
 }

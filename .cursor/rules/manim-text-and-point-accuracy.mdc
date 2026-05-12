@@ -1,0 +1,221 @@
+---
+description: Default Manim text styling and point-stabbing accuracy
+alwaysApply: true
+---
+
+# Manim Text and Point Accuracy Rules
+
+## Primary text class — always use `HebrewMathLine`
+
+**Never** use Manim's `Text`, `Tex`, or `MathTex` for content lines.
+The only text class in this project is `HebrewMathLine` from `hebrew_math_line.py`.
+
+```python
+from hebrew_math_line import HebrewMathLine
+```
+
+### Default constructor values (use when user does not specify otherwise)
+
+| Parameter | Default |
+|-----------|---------|
+| `hebrew_font` | `"Alef"` |
+| `font_size` | `36` |
+| `color` | `WHITE` (this is already `HebrewMathLine`'s default, but be explicit when the context requires it) |
+
+```python
+# Minimal correct example
+line = HebrewMathLine(r"טקסט עברי עם $f(x)$", font_size=36, hebrew_font="Alef")
+```
+
+---
+
+## LaTeX source — always drive content through string arguments
+
+Content **must** be passed as positional string argument(s) to the `HebrewMathLine` constructor.
+This is the only mechanism that creates addressable Segments.
+
+### Single-argument form (auto-split on `$…$`)
+
+```python
+line = HebrewMathLine(
+    r"משפט: אם $f(x)$ רציפה בקטע $[a,b]$",
+    font_size=36, hebrew_font="Alef",
+)
+```
+
+### Multi-argument form (explicit segments — preferred when you need per-segment styling)
+
+Each positional string becomes exactly one Segment.
+Math strings must be wrapped in `$…$`.
+
+```python
+line = HebrewMathLine(
+    r"\textbf{משפט:}",   # segment 0 — bold Hebrew text
+    r" תהא ",            # segment 1 — plain Hebrew text
+    r"$f(x)$",           # segment 2 — math
+    r" רציפה בקטע ",     # segment 3 — plain Hebrew text
+    r"$[a,b]$",          # segment 4 — math
+    font_size=36, hebrew_font="Alef",
+)
+```
+
+### `||` delimiter — splitting a single string into multiple TEXT segments
+
+Within a single text-only string you can use `||` to create independent segments without switching to multi-argument form.
+
+```python
+line = HebrewMathLine(r"חלק א ||חלק ב|| $f(x)$", font_size=36, hebrew_font="Alef")
+```
+
+---
+
+## Segment addressing
+
+After construction, `line[i]` addresses the i-th **submobject**.
+Because Hebrew is RTL and segments are reordered after compilation, segment indices
+in Python correspond to **visual position** (right → left), NOT parse order.
+When you need a specific parse-order segment, use the multi-argument form and count
+from zero in the order you declared the arguments.
+
+```python
+line[0].set_color(YELLOW)        # first (rightmost) segment
+line[1].set_color(ManimColor("#00FFFF"))  # second segment
+```
+
+---
+
+## Bold and italic
+
+Apply bold / italic **inside the LaTeX source string** using standard LaTeX commands.
+Do **not** try to apply them post-hoc with Python attribute calls.
+
+| Effect | Hebrew/text | Math |
+|--------|------------|------|
+| Bold | `\textbf{...}` | `\mathbf{...}` |
+| Italic | `\textit{...}` | `\mathit{...}` |
+| Bold + Italic | `\textbf{\textit{...}}` | `\mathbf{\mathit{...}}` |
+
+```python
+# Bold title
+title = HebrewMathLine(r"\textbf{משפט דיריכלה}", font_size=60, hebrew_font="Alef")
+
+# Italic math inside a mixed line
+line = HebrewMathLine(
+    r"הפונקציה ",
+    r"$\mathit{f}(x)$",
+    r" רציפה",
+    font_size=36, hebrew_font="Alef",
+)
+```
+
+---
+
+## Positioning — rules and anti-patterns
+
+### Default positioning approach
+
+Use **`to_edge` + `next_to`** for layout. Do **not** use `move_to` with hardcoded
+absolute coordinates unless you have a precise measured value from the `/measure` API.
+
+```python
+# Top of the page
+line_1 = HebrewMathLine(r"\textbf{כותרת}", font_size=60, hebrew_font="Alef")
+line_1.to_edge(UP, buff=0.5)          # flush to top edge
+
+# Next line below, right-aligned (Hebrew convention)
+line_2 = HebrewMathLine(r"שורה שנייה", font_size=36, hebrew_font="Alef")
+line_2.next_to(line_1, DOWN, buff=0.3)
+line_2.to_edge(RIGHT, buff=0.3)
+
+# Centered formula
+formula = HebrewMathLine(r"$\displaystyle{\sum_{n=1}^{\infty} a_n}$", font_size=36, hebrew_font="Alef")
+formula.next_to(line_2, DOWN, buff=0.5)
+formula.set_x(0)                       # center horizontally
+```
+
+### Precise RTL-aware positioning (when `/measure` data is available)
+
+RTL Hebrew text has a large LaTeX bounding-box (symmetric around center) but visible
+ink shifted to the right.  `to_edge` uses the bounding box, not the ink edge.
+When the UI provides ink measurements (`ink_right_x`, `ink_left_x`, `ink_top_y`, `ink_bottom_y`),
+use `set_x` / `set_y` instead of `to_edge`:
+
+```python
+# Flush to top using measured ink height (half_height = height_ink / 2)
+line.set_y(config.frame_height / 2 - buff - half_height)
+
+# Flush to right using measured ink half-width
+line.set_x(config.frame_width / 2 - buff - ink_half_width)
+```
+
+### NEVER do this
+
+```python
+# Wrong: absolute move_to without measured values
+line.move_to(ORIGIN)           # places at (0,0,0) — screen center, not top
+line.move_to([0, 0, 0])        # same problem
+```
+
+---
+
+## "Stab a point on a graph" behavior
+
+- Interpret "stab/mark point at x=\<value\>" as: create the point on the displayed graph/function at that `x`.
+- Compute `y` from the function: `y = f(x)` (or read from the plotted data if provided), then place `(x, y)`.
+- Never substitute `(0, 0)` unless `x=0` and `f(0)=0` is actually the requested point.
+- Verify that the final plotted point matches the requested `x` and computed `y` before returning code.
+
+```python
+x_val = 0.5
+y_val = x_val**2
+dot = Dot(axes.c2p(x_val, y_val), color=YELLOW)
+```
+
+---
+
+## Text segment styling rules (Hebrew and math)
+
+- When the user asks to style only part of a sentence (color/bold/italic), split the source text into
+  explicit segments using multi-argument form so the requested fragment can be targeted precisely.
+- In Hebrew text, `||` is a delimiter between Hebrew text segments inside a single string.
+  Preserve and use it to isolate the exact word/phrase to style.
+- Math expressions like `$f(x)$` are naturally separate math segments and can be styled independently.
+- If the user asks to style only part of a math expression, split it into multiple `$...$` math
+  environments so the relevant part is isolated and addressable.
+
+```python
+# Color individual segments after construction
+line[0].set_color(ManimColor("#ffff00"))   # bold label
+line[1].set_color(WHITE)                   # plain text
+line[2].set_color(ManimColor("#00FFFF"))   # math term
+```
+
+---
+
+## Detecting math context in user requests
+
+- When a user message contains mathematical notation/formulas, represent them in math mode using
+  `$...$` inside the LaTeX source string, not as plain text.
+- If a mixed sentence contains both words and formulas, keep words as text and formulas wrapped
+  in `$...$` as separate arguments or delimited by `$...$` in a single string.
+
+---
+
+## UI-only editing behavior
+
+- Apply changes only through operations that are visible/available in the user UI flow.
+- Do not invent hidden/internal transformations that the user cannot see or control.
+- If styling a specific Hebrew word/phrase is requested, ensure segmentation markers (`||` or
+  multi-argument split) are present so the exact UI-targetable segment exists.
+- Do not assign explicit color/style values unless the user asked for them.
+- Keep default styling untouched for all non-targeted segments (including math segments like `$f(x)$`).
+- If a requested style cannot be applied through existing UI operations, ask for clarification.
+
+---
+
+## Text formatting workflow order
+
+- When a request includes both text creation and formatting requirements, first create the base
+  `HebrewMathLine` with the correct LaTeX source and segment split.
+- Only after the object exists, apply per-segment colors or animations.
+- Prefer this two-step flow unless the user explicitly asks for a different order.

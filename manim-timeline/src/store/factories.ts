@@ -8,9 +8,11 @@ import type {
   TextLineItem,
   AxesItem,
   GraphPlotItem,
+  GraphCurveItem,
   GraphDotItem,
   GraphFieldItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
   GraphAreaItem,
   ShapeItem,
   ExitAnimationItem,
@@ -18,6 +20,7 @@ import type {
   SurroundingRectItem,
   SegmentStyle,
   GraphFunction,
+  GraphParametricCurve,
   GraphDot,
   GraphStreamPoint,
   SceneDefaults,
@@ -26,6 +29,7 @@ import type {
 import {
   DEFAULT_FIELD_ARROW_STROKE_WIDTH,
   functionSeriesTotalDuration,
+  pointSequenceTotalDuration,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
 
@@ -53,6 +57,7 @@ export function createTextLine(
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 
@@ -98,7 +103,7 @@ export function createBlinkAnimation(
     repetitions: 1,
     targets: ids.map((targetId) => ({
       targetId,
-      mode: 'scale_color' as const,
+      mode: 'scale' as const,
       scaleFactor: 1.15,
       blinkColor: '#fbbf24',
     })),
@@ -224,6 +229,43 @@ export function createGraphPlot(
     fn: createGraphFunction(),
     xDomain: null,
     strokeWidth: 2,
+    lineStyle: 'solid',
+  };
+}
+
+export function createGraphParametricCurve(): GraphParametricCurve {
+  return {
+    id: newId(),
+    jsXExpr: 'Math.cos(t)',
+    jsYExpr: 'Math.sin(t)',
+    pyXExpr: 'np.cos(t)',
+    pyYExpr: 'np.sin(t)',
+    color: '#3b82f6',
+    label: '',
+  };
+}
+
+export function createGraphCurve(
+  axesId: ItemId,
+  startTime = 0,
+): GraphCurveItem {
+  return {
+    id: newId(),
+    kind: 'graphCurve',
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 1,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    axesId,
+    curve: createGraphParametricCurve(),
+    tDomain: [0, 2 * Math.PI],
+    strokeWidth: 2,
+    lineStyle: 'solid',
   };
 }
 
@@ -284,6 +326,44 @@ export function createGraphFunctionSeries(
     topLevelError: null,
   };
   base.duration = Math.max(0.01, functionSeriesTotalDuration(base));
+  return base;
+}
+
+export function createGraphPointSequence(
+  axesId: ItemId,
+  startTime = 0,
+): GraphPointSequenceItem {
+  const base: GraphPointSequenceItem = {
+    id: newId(),
+    kind: 'graphPointSequence',
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 0,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    axesId,
+    jsXExpr: 'n',
+    jsYExpr: '0',
+    pyXExpr: 'n',
+    pyYExpr: '0',
+    nMin: 1,
+    nMax: 5,
+    mode: 'accumulation',
+    defaults: {
+      color: '#3b82f6',
+      pointRadius: 0.08,
+      animDuration: 0.6,
+      waitAfter: 0.2,
+    },
+    perN: {},
+    perNErrors: {},
+    topLevelError: null,
+  };
+  base.duration = Math.max(0.01, pointSequenceTotalDuration(base));
   return base;
 }
 

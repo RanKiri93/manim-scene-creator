@@ -2,7 +2,11 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type {
   FunctionSeriesDefaults,
   FunctionSeriesPerN,
+  GraphCurveItem,
   GraphFunctionSeriesItem,
+  GraphPointSequenceItem,
+  PointSequenceDefaults,
+  PointSequencePerN,
   SceneItem,
   TextLineItem,
 } from '@/types/scene';
@@ -68,6 +72,24 @@ function applyUpdate(id: string, updates: Partial<SceneItem>): void {
     return;
   }
 
+  if (existing.kind === 'graphPointSequence') {
+    const merged = mergePointSequenceUpdates(
+      existing as GraphPointSequenceItem,
+      updates as Partial<GraphPointSequenceItem>,
+    );
+    s.updateItem(id, merged as never);
+    return;
+  }
+
+  if (existing.kind === 'graphCurve') {
+    const merged = mergeGraphCurveUpdates(
+      existing as GraphCurveItem,
+      updates as Partial<GraphCurveItem>,
+    );
+    s.updateItem(id, merged as never);
+    return;
+  }
+
   s.updateItem(id, updates as never);
 }
 
@@ -111,5 +133,45 @@ function mergeFunctionSeriesUpdates(
     } as FunctionSeriesDefaults;
   }
 
+  return out;
+}
+
+function mergePointSequenceUpdates(
+  existing: GraphPointSequenceItem,
+  patch: Partial<GraphPointSequenceItem>,
+): Partial<GraphPointSequenceItem> {
+  const out: Partial<GraphPointSequenceItem> = { ...patch };
+
+  if (patch.perN && typeof patch.perN === 'object') {
+    const mergedPerN: Record<string, PointSequencePerN> = { ...existing.perN };
+    for (const [key, incoming] of Object.entries(patch.perN)) {
+      if (!incoming || typeof incoming !== 'object') continue;
+      const prev = mergedPerN[key] ?? {};
+      mergedPerN[key] = { ...prev, ...incoming };
+    }
+    out.perN = mergedPerN;
+  }
+
+  if (patch.defaults && typeof patch.defaults === 'object') {
+    out.defaults = {
+      ...existing.defaults,
+      ...patch.defaults,
+    } as PointSequenceDefaults;
+  }
+
+  return out;
+}
+
+function mergeGraphCurveUpdates(
+  existing: GraphCurveItem,
+  patch: Partial<GraphCurveItem>,
+): Partial<GraphCurveItem> {
+  const out: Partial<GraphCurveItem> = { ...patch };
+  if (patch.curve && typeof patch.curve === 'object') {
+    out.curve = {
+      ...existing.curve,
+      ...patch.curve,
+    };
+  }
   return out;
 }

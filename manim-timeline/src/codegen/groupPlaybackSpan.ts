@@ -65,6 +65,15 @@ export function sequentialAnimSecondsForLeaf(
       );
       return clock ?? leaf.duration;
     }
+    case 'graphCurve': {
+      const clock = sceneClockSecForLeafBoundPlayback(
+        leaf,
+        itemsMap,
+        audioItems,
+        tailOpts,
+      );
+      return clock ?? leaf.duration;
+    }
     case 'graphDot': {
       const label = leaf.dot.label.trim();
       const clock = sceneClockSecForLeafBoundPlayback(
@@ -93,6 +102,15 @@ export function sequentialAnimSecondsForLeaf(
       return leaf.duration + extra;
     }
     case 'graphFunctionSeries': {
+      const clock = sceneClockSecForLeafBoundPlayback(
+        leaf,
+        itemsMap,
+        audioItems,
+        tailOpts,
+      );
+      return clock ?? leaf.duration;
+    }
+    case 'graphPointSequence': {
       const clock = sceneClockSecForLeafBoundPlayback(
         leaf,
         itemsMap,

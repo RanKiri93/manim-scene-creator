@@ -1,5 +1,6 @@
 import {
   functionSeriesTotalDuration,
+  pointSequenceTotalDuration,
   type AxesItem,
   type AxesTipShape,
   type ExitAnimationItem,
@@ -10,9 +11,13 @@ import {
   type FunctionSeriesDefaults,
   type FunctionSeriesMode,
   type FunctionSeriesPerN,
+  type PointSequenceDefaults,
+  type PointSequencePerN,
   type GraphDotItem,
+  type GraphCurveItem,
   type GraphFunctionSeriesItem,
   type GraphPlotItem,
+  type GraphPointSequenceItem,
   type ItemId,
   type ManimDirection,
   type PosStep,
@@ -46,9 +51,11 @@ const EXIT_TARGET_KINDS: ReadonlySet<SceneItem['kind']> = new Set<SceneItem['kin
   'textLine',
   'axes',
   'graphPlot',
+  'graphCurve',
   'graphDot',
   'graphField',
   'graphFunctionSeries',
+  'graphPointSequence',
   'graphArea',
   'shape',
   'surroundingRect',
@@ -104,8 +111,8 @@ export function validateAgentResponse(
     };
   }
 
-  // Pre-pass: if the model forgot to set `axesId` on a graphPlot / graphDot
-  // CREATE but included exactly one axes CREATE in the same response, auto-link
+  // Pre-pass: if the model forgot to set `axesId` on a graphPlot / graphCurve /
+  // graphDot CREATE but included exactly one axes CREATE in the same response, auto-link
   // them. This rescues a very common LLM omission without hiding genuine errors
   // (ambiguous cases with 0 or >1 candidate axes still fail validation later).
   autoLinkAxesIds(rawActions);
@@ -234,8 +241,8 @@ export function validateAgentResponse(
     );
   });
 
-  // Second pass: verify axes references on graphPlot / graphDot /
-  // graphFunctionSeries CREATEs, and exit-target references on
+  // Second pass: verify axes references on graphPlot / graphCurve / graphDot /
+  // graphFunctionSeries / graphPointSequence CREATEs, and exit-target references on
   // exit_animation CREATEs.
   for (let i = 0; i < normalizedActions.length; i++) {
     const act = normalizedActions[i]!;
@@ -243,11 +250,18 @@ export function validateAgentResponse(
     const item = act.item;
     if (
       item.kind === 'graphPlot' ||
+      item.kind === 'graphCurve' ||
       item.kind === 'graphDot' ||
-      item.kind === 'graphFunctionSeries'
+      item.kind === 'graphFunctionSeries' ||
+      item.kind === 'graphPointSequence'
     ) {
       const axesId = (
-        item as GraphPlotItem | GraphDotItem | GraphFunctionSeriesItem
+        item as
+          | GraphPlotItem
+          | GraphCurveItem
+          | GraphDotItem
+          | GraphFunctionSeriesItem
+          | GraphPointSequenceItem
       ).axesId;
       const existingIsAxes = currentItems.get(axesId)?.kind === 'axes';
       const plannedKind = plannedCreates.get(axesId);
@@ -358,10 +372,14 @@ function normalizeCreateItem(
       return normalizeAxes(raw);
     case 'graphPlot':
       return normalizeGraphPlot(raw, errors, prefix);
+    case 'graphCurve':
+      return normalizeGraphCurve(raw, errors, prefix);
     case 'graphDot':
       return normalizeGraphDot(raw, errors, prefix);
     case 'graphFunctionSeries':
       return normalizeGraphFunctionSeries(raw, errors, prefix);
+    case 'graphPointSequence':
+      return normalizeGraphPointSequence(raw, errors, prefix);
     case 'shape':
       return normalizeShape(raw);
     case 'surroundingRect':
@@ -377,8 +395,9 @@ function normalizeCreateItem(
 }
 
 /**
- * Mutate `actions` in place: if a `graphPlot` / `graphDot` /
- * `graphFunctionSeries` CREATE is missing `axesId` and exactly one `axes` is
+ * Mutate `actions` in place: if a `graphPlot` / `graphCurve` / `graphDot` /
+ * `graphFunctionSeries` / `graphPointSequence` CREATE is missing `axesId` and
+ * exactly one `axes` is
  * being CREATEd in the same batch, copy that axes' id onto the child. No-op
  * in ambiguous cases — the validator's later axesId-required check will still
  * surface them.
@@ -404,8 +423,10 @@ function autoLinkAxesIds(actions: unknown[]): void {
     if (!item) continue;
     if (
       item.kind !== 'graphPlot' &&
+      item.kind !== 'graphCurve' &&
       item.kind !== 'graphDot' &&
-      item.kind !== 'graphFunctionSeries'
+      item.kind !== 'graphFunctionSeries' &&
+      item.kind !== 'graphPointSequence'
     ) {
       continue;
     }
@@ -508,6 +529,115 @@ function baseDefaults(raw: Record<string, unknown>) {
   };
 }
 
+/** Defaults for agent-normalized graphPointSequence; keep in sync with `createGraphPointSequence`. */
+const POINT_SEQUENCE_DEFAULTS: PointSequenceDefaults = {
+  color: '#3b82f6',
+  pointRadius: 0.08,
+  animDuration: 0.6,
+  waitAfter: 0.2,
+};
+
+function normalizePointSequenceDefaults(raw: unknown): PointSequenceDefaults {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    color: asStr(r.color, POINT_SEQUENCE_DEFAULTS.color),
+    pointRadius: Math.max(
+      0.01,
+      asNum(r.pointRadius, POINT_SEQUENCE_DEFAULTS.pointRadius),
+    ),
+    animDuration: Math.max(
+      0,
+      asNum(r.animDuration, POINT_SEQUENCE_DEFAULTS.animDuration),
+    ),
+    waitAfter: Math.max(
+      0,
+      asNum(r.waitAfter, POINT_SEQUENCE_DEFAULTS.waitAfter),
+    ),
+  };
+}
+
+function normalizePointSequencePerNDict(
+  raw: unknown,
+  _errors: string[],
+  _prefix: string,
+): Record<string, PointSequencePerN> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, PointSequencePerN> = {};
+  for (const [rawKey, rawVal] of Object.entries(
+    raw as Record<string, unknown>,
+  )) {
+    const n = Number(rawKey);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) continue;
+    if (!rawVal || typeof rawVal !== 'object') continue;
+    const entry = rawVal as Record<string, unknown>;
+    const perN: PointSequencePerN = {};
+    if (typeof entry.color === 'string') perN.color = entry.color;
+    if (
+      typeof entry.pointRadius === 'number' &&
+      Number.isFinite(entry.pointRadius)
+    ) {
+      perN.pointRadius = Math.max(0.01, entry.pointRadius);
+    }
+    if (
+      typeof entry.animDuration === 'number' &&
+      Number.isFinite(entry.animDuration)
+    ) {
+      perN.animDuration = Math.max(0, entry.animDuration);
+    }
+    const waitRaw =
+      typeof entry.waitAfter === 'number'
+        ? entry.waitAfter
+        : typeof entry.waitAfterSec === 'number'
+          ? entry.waitAfterSec
+          : undefined;
+    if (typeof waitRaw === 'number' && Number.isFinite(waitRaw)) {
+      perN.waitAfter = Math.max(0, waitRaw);
+    }
+    out[String(Math.trunc(n))] = perN;
+  }
+  return out;
+}
+
+/**
+ * Coerce per-axis x(n)/y(n) expressions from an UPDATE patch. Returns null
+ * when the patch does not touch that axis.
+ */
+function resolvePointSequenceAxisFromPatch(
+  patch: Record<string, unknown>,
+  axis: 'x' | 'y',
+  errors: string[],
+  axisPrefix: string,
+): { jsExpr: string; pyExpr: string } | null {
+  const jsKey = axis === 'x' ? 'jsXExpr' : 'jsYExpr';
+  const pyKey = axis === 'x' ? 'pyXExpr' : 'pyYExpr';
+  const aliasKeys =
+    axis === 'x' ? ['exprX', 'xExpr'] : ['exprY', 'yExpr'];
+  const hasAxis =
+    jsKey in patch ||
+    pyKey in patch ||
+    aliasKeys.some((k) => k in patch);
+  if (!hasAxis) return null;
+
+  let js =
+    pickStr(patch, jsKey) || pickStrAny(patch, aliasKeys);
+  let py = pickStr(patch, pyKey);
+  if (js && !py) py = toPyExpr(js);
+  if (py && !js) js = toJsExpr(py);
+  if (!js || !py) {
+    errors.push(
+      `${axisPrefix}: ${axis}(n) needs ${jsKey} / ${pyKey} (or aliases ${aliasKeys.join(', ')}) — provide at least one dialect per coordinate.`,
+    );
+    return null;
+  }
+  return {
+    jsExpr: js.replace(/\^/g, '**'),
+    pyExpr: py.replace(/\^/g, '**'),
+  };
+}
+
 function normalizeUpdates(
   updates: Partial<SceneItem>,
   targetKind: string,
@@ -557,6 +687,57 @@ function normalizeUpdates(
       const { jsExpr, pyExpr } = resolveFnExprs(patch);
       next.jsExpr = jsExpr;
       next.pyExpr = pyExpr;
+    }
+  }
+  if (targetKind === 'graphPointSequence') {
+    if ('perN' in patch) {
+      next.perN = normalizePointSequencePerNDict(
+        patch.perN,
+        errors,
+        prefix + '.updates',
+      );
+    }
+    if ('defaults' in patch) {
+      next.defaults = normalizePointSequenceDefaults(patch.defaults);
+    }
+    if ('nMin' in patch || 'nMax' in patch) {
+      const hasMin = 'nMin' in patch;
+      const hasMax = 'nMax' in patch;
+      let nMin = hasMin
+        ? Math.trunc(asNum(patch.nMin, 1))
+        : (undefined as number | undefined);
+      let nMax = hasMax
+        ? Math.trunc(asNum(patch.nMax, 5))
+        : (undefined as number | undefined);
+      if (hasMin && hasMax && nMin! > nMax!) {
+        [nMin, nMax] = [nMax, nMin];
+      }
+      if (hasMin) next.nMin = nMin;
+      if (hasMax) next.nMax = nMax;
+    }
+    if ('mode' in patch) {
+      next.mode = asFunctionSeriesMode(patch.mode, 'accumulation');
+    }
+    const upPrefix = `${prefix}.updates`;
+    const xPair = resolvePointSequenceAxisFromPatch(
+      patch,
+      'x',
+      errors,
+      upPrefix,
+    );
+    if (xPair) {
+      next.jsXExpr = xPair.jsExpr;
+      next.pyXExpr = xPair.pyExpr;
+    }
+    const yPair = resolvePointSequenceAxisFromPatch(
+      patch,
+      'y',
+      errors,
+      upPrefix,
+    );
+    if (yPair) {
+      next.jsYExpr = yPair.jsExpr;
+      next.pyYExpr = yPair.pyExpr;
     }
   }
   if ('visibleAtSceneStart' in patch) {
@@ -709,6 +890,7 @@ function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
     measureError: null,
     previewDataUrl: null,
     segmentMeasures: null,
+    mathChildMeasures: null,
   };
 }
 
@@ -845,6 +1027,110 @@ function normalizeGraphPlot(
         ? (raw.xDomain as [number, number])
         : null,
     strokeWidth: asNum(raw.strokeWidth, 2),
+    lineStyle: asLineStyle(raw.lineStyle, 'solid'),
+  };
+}
+
+/**
+ * Resolve x(t) / y(t) expressions for graphCurve — at least one dialect per
+ * coordinate must be present (the other may be derived), matching
+ * graphFunctionSeries strictness (no silent defaults).
+ */
+function resolveParametricCoordinateExprs(
+  itemRaw: Record<string, unknown>,
+  curveRaw: Record<string, unknown>,
+  axis: 'x' | 'y',
+  errors: string[],
+  curvePrefix: string,
+): { jsExpr: string; pyExpr: string } | null {
+  const jsKey = axis === 'x' ? 'jsXExpr' : 'jsYExpr';
+  const pyKey = axis === 'x' ? 'pyXExpr' : 'pyYExpr';
+  const aliasKeys =
+    axis === 'x'
+      ? ['exprX', 'xExpr']
+      : ['exprY', 'yExpr'];
+
+  let js =
+    pickStr(curveRaw, jsKey) ||
+    pickStr(itemRaw, jsKey) ||
+    pickStrAny(curveRaw, aliasKeys) ||
+    pickStrAny(itemRaw, aliasKeys);
+  let py =
+    pickStr(curveRaw, pyKey) ||
+    pickStr(itemRaw, pyKey);
+
+  if (js && !py) py = toPyExpr(js);
+  if (py && !js) js = toJsExpr(py);
+  if (!js || !py) {
+    errors.push(
+      `${curvePrefix}: ${axis}(t) needs ${jsKey} / ${pyKey} — provide at least one dialect per coordinate (aliases: ${aliasKeys.join(', ')}).`,
+    );
+    return null;
+  }
+  return {
+    jsExpr: js.replace(/\^/g, '**'),
+    pyExpr: py.replace(/\^/g, '**'),
+  };
+}
+
+function normalizeGraphCurve(
+  raw: Record<string, unknown>,
+  errors: string[],
+  prefix: string,
+): GraphCurveItem | null {
+  const base = baseDefaults(raw);
+  const axesId = typeof raw.axesId === 'string' ? raw.axesId : '';
+  if (!axesId) {
+    errors.push(`${prefix}.item.axesId is required for graphCurve.`);
+    return null;
+  }
+  const curveRaw = ((raw.curve ?? {}) as Record<string, unknown>);
+  const curvePrefix = `${prefix}.item.curve`;
+  const xPair = resolveParametricCoordinateExprs(
+    raw,
+    curveRaw,
+    'x',
+    errors,
+    curvePrefix,
+  );
+  const yPair = resolveParametricCoordinateExprs(
+    raw,
+    curveRaw,
+    'y',
+    errors,
+    curvePrefix,
+  );
+  if (!xPair || !yPair) return null;
+
+  let tDomain: [number, number];
+  if (Array.isArray(raw.tDomain) && raw.tDomain.length === 2) {
+    const ta = Number((raw.tDomain as number[])[0]);
+    const tb = Number((raw.tDomain as number[])[1]);
+    if (!Number.isFinite(ta) || !Number.isFinite(tb)) {
+      errors.push(`${prefix}.item.tDomain must be two finite numbers.`);
+      return null;
+    }
+    tDomain = [ta, tb];
+  } else {
+    tDomain = [0, Math.PI * 2];
+  }
+
+  return {
+    ...base,
+    kind: 'graphCurve',
+    axesId,
+    curve: {
+      id: asStr(curveRaw.id, base.id + '_curve'),
+      jsXExpr: xPair.jsExpr,
+      jsYExpr: yPair.jsExpr,
+      pyXExpr: xPair.pyExpr,
+      pyYExpr: yPair.pyExpr,
+      color: asStr(curveRaw.color, '#3b82f6'),
+      label: asStr(curveRaw.label, ''),
+    },
+    tDomain,
+    strokeWidth: asNum(raw.strokeWidth, 2),
+    lineStyle: asLineStyle(raw.lineStyle, 'solid'),
   };
 }
 
@@ -1155,6 +1441,104 @@ function normalizeGraphFunctionSeries(
   return { ...partial, duration };
 }
 
+function resolvePointSequenceCoordinateExprs(
+  itemRaw: Record<string, unknown>,
+  axis: 'x' | 'y',
+  errors: string[],
+  prefix: string,
+): { jsExpr: string; pyExpr: string } | null {
+  const jsKey = axis === 'x' ? 'jsXExpr' : 'jsYExpr';
+  const pyKey = axis === 'x' ? 'pyXExpr' : 'pyYExpr';
+  const aliasKeys =
+    axis === 'x' ? ['exprX', 'xExpr', 'x'] : ['exprY', 'yExpr', 'y'];
+
+  let js =
+    pickStr(itemRaw, jsKey) || pickStrAny(itemRaw, aliasKeys);
+  let py = pickStr(itemRaw, pyKey);
+
+  if (js && !py) py = toPyExpr(js);
+  if (py && !js) js = toJsExpr(py);
+  if (!js || !py) {
+    errors.push(
+      `${prefix}: ${axis}(n) needs ${jsKey} / ${pyKey} — provide at least one dialect per coordinate (aliases: ${aliasKeys.join(', ')}).`,
+    );
+    return null;
+  }
+  return {
+    jsExpr: js.replace(/\^/g, '**'),
+    pyExpr: py.replace(/\^/g, '**'),
+  };
+}
+
+function normalizeGraphPointSequence(
+  raw: Record<string, unknown>,
+  errors: string[],
+  prefix: string,
+): GraphPointSequenceItem | null {
+  const isReplacement = raw.mode === 'replacement';
+  const rawForBase =
+    raw.visibleAtSceneStart === true && isReplacement
+      ? { ...raw, visibleAtSceneStart: false }
+      : raw;
+  const base = baseDefaults(rawForBase);
+  const axesId = typeof raw.axesId === 'string' ? raw.axesId : '';
+  if (!axesId) {
+    errors.push(`${prefix}.item.axesId is required for graphPointSequence.`);
+    return null;
+  }
+  let nMin = Math.trunc(asNum(raw.nMin, 1));
+  let nMax = Math.trunc(asNum(raw.nMax, 5));
+  if (nMin > nMax) {
+    [nMin, nMax] = [nMax, nMin];
+  } else if (nMin === nMax) {
+    nMax = nMin + 1;
+  }
+
+  const xPair = resolvePointSequenceCoordinateExprs(
+    raw,
+    'x',
+    errors,
+    prefix,
+  );
+  const yPair = resolvePointSequenceCoordinateExprs(
+    raw,
+    'y',
+    errors,
+    prefix,
+  );
+  if (!xPair || !yPair) return null;
+
+  const defaults = normalizePointSequenceDefaults(raw.defaults);
+  const perN = normalizePointSequencePerNDict(raw.perN, errors, prefix);
+
+  const partial: GraphPointSequenceItem = {
+    ...base,
+    kind: 'graphPointSequence',
+    axesId,
+    jsXExpr: xPair.jsExpr,
+    pyXExpr: xPair.pyExpr,
+    jsYExpr: yPair.jsExpr,
+    pyYExpr: yPair.pyExpr,
+    nMin,
+    nMax,
+    mode: asFunctionSeriesMode(raw.mode, 'accumulation'),
+    defaults,
+    perN,
+    perNErrors: {},
+    topLevelError: null,
+  };
+
+  const durationExplicit =
+    'duration' in raw &&
+    typeof raw.duration === 'number' &&
+    Number.isFinite(raw.duration);
+  const duration = durationExplicit
+    ? Math.max(0.01, raw.duration as number)
+    : Math.max(0.01, pointSequenceTotalDuration(partial));
+
+  return { ...partial, duration };
+}
+
 const AGENT_SHAPE_KINDS = new Set<ShapeKind>([
   'circle',
   'rectangle',
@@ -1296,12 +1680,12 @@ function normalizeExitAnimation(
   };
 }
 
-const BLINK_MODES: readonly BlinkMode[] = ['scale', 'color', 'scale_color'];
+const BLINK_MODES: readonly BlinkMode[] = ['scale', 'color'];
 
 function asBlinkMode(v: unknown): BlinkMode {
   return typeof v === 'string' && (BLINK_MODES as readonly string[]).includes(v)
     ? (v as BlinkMode)
-    : 'scale_color';
+    : 'scale';
 }
 
 function normalizeBlinkAnimation(
@@ -1336,6 +1720,26 @@ function normalizeBlinkAnimation(
       }
       if (segmentIndices != null) {
         row.segmentIndices = segmentIndices;
+      }
+      const subRaw = t.mathSubtargets;
+      if (Array.isArray(subRaw)) {
+        const mrows: { segmentIndex: number; childIndices: number[] }[] = [];
+        for (const ent of subRaw) {
+          const rec = ent as Record<string, unknown>;
+          const si = Number(rec.segmentIndex);
+          if (!Number.isInteger(si) || si < 0) continue;
+          const chRaw = rec.childIndices;
+          if (!Array.isArray(chRaw)) continue;
+          const ch = chRaw
+            .map((x) => (typeof x === 'number' ? x : Number(x)))
+            .filter((x) => Number.isInteger(x) && x >= 0);
+          if (ch.length > 0) {
+            mrows.push({ segmentIndex: si, childIndices: [...new Set(ch)].sort((a, b) => a - b) });
+          }
+        }
+        if (mrows.length > 0) {
+          row.mathSubtargets = mrows;
+        }
       }
       return row;
     });

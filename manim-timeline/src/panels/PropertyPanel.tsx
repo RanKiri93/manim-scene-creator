@@ -3,9 +3,11 @@ import { useSceneStore } from '@/store/useSceneStore';
 import LineEditor from './LineEditor';
 import AxesEditor from './AxesEditor';
 import GraphPlotEditor from './GraphPlotEditor';
+import GraphCurveEditor from './GraphCurveEditor';
 import GraphDotEditor from './GraphDotEditor';
 import GraphFieldEditor from './GraphFieldEditor';
 import FunctionSeriesEditor from './FunctionSeriesEditor';
+import PointSequenceEditor from './PointSequenceEditor';
 import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
 import BlinkAnimationEditor from './BlinkAnimationEditor';
@@ -125,6 +127,9 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
     case 'graphPlot':
       body = <GraphPlotEditor item={item} />;
       break;
+    case 'graphCurve':
+      body = <GraphCurveEditor item={item} />;
+      break;
     case 'graphDot':
       body = <GraphDotEditor item={item} />;
       break;
@@ -133,6 +138,9 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
       break;
     case 'graphFunctionSeries':
       body = <FunctionSeriesEditor item={item} />;
+      break;
+    case 'graphPointSequence':
+      body = <PointSequenceEditor item={item} />;
       break;
     case 'graphArea':
       body = <GraphAreaEditor item={item} />;

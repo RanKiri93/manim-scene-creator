@@ -3,6 +3,7 @@ import { exportManimCode } from './manimExporter';
 import {
   createAxes,
   createExitAnimation,
+  createGraphCurve,
   createGraphPlot,
   createShape,
   createSurroundingRect,
@@ -46,6 +47,42 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(defBlock).not.toMatch(/\.plot\(/);
     expect(posBlock).toMatch(/\.plot\(/);
     expect(posBlock.indexOf('.move_to(')).toBeLessThan(posBlock.indexOf('.plot('));
+  });
+
+  it('emits ParametricFunction after axes positioning with t_range and Create(curve)', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    ax.x = -1;
+    ax.y = 2;
+    const curve = createGraphCurve(ax.id, 0);
+    curve.curve.pyXExpr = 'np.cos(t)';
+    curve.curve.pyYExpr = 'np.sin(t)';
+    curve.tDomain = [0, 6.283];
+
+    const code = exportManimCode([ax, curve], {
+      fullFile: true,
+      defaults,
+      audioItems: [],
+    });
+
+    const defStart = code.indexOf('# ========== 1. Definitions ==========');
+    const posStart = code.indexOf('# ========== 2. Positioning ==========');
+    const playStart = code.indexOf('# ========== 3. Playback ==========');
+    const defBlock = code.slice(defStart, posStart);
+    const posBlock = code.slice(posStart, playStart);
+    const playBlock = code.slice(playStart);
+
+    expect(defBlock).not.toMatch(/ParametricFunction\(/);
+    expect(posBlock).toContain('ParametricFunction(');
+    expect(posBlock.indexOf('.move_to(')).toBeLessThan(
+      posBlock.indexOf('ParametricFunction('),
+    );
+    expect(posBlock).toMatch(/t_range=\[\s*0/);
+    expect(posBlock).toMatch(/coords_to_point\(/);
+    expect(posBlock).toContain('.set_stroke(width=');
+    expect(playBlock).toContain('Create(');
+    expect(playBlock).toMatch(/Create\([^,)]+curve_/);
+    expect(playBlock).toMatch(/run_time=1[\d.]*\)/);
   });
 
   it('emits plot x_range when graph plot has xDomain', () => {

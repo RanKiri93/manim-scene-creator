@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { BlinkAnimationItem } from '@/types/scene';
+import type { BlinkAnimationItem, SceneItem } from '@/types/scene';
 import { createTextLine, defaultSceneDefaults } from '@/store/factories';
 import { formatBlinkClipPlay } from './blinkCodegen';
 
-function mapOf<T extends { id: string }>(...items: T[]): Map<string, T> {
+function mapOf(...items: SceneItem[]): Map<string, SceneItem> {
   return new Map(items.map((it) => [it.id, it]));
 }
 
@@ -55,7 +55,65 @@ describe('formatBlinkClipPlay', () => {
     const items = mapOf(line, blink);
     const idToVar = new Map<string, string>([['ln1', 'line_a']]);
     const code = formatBlinkClipPlay(blink, '', idToVar, items);
-    expect(code).toContain('VGroup(line_a[0])');
+    expect(code).toContain('line_a[0].animate.scale(');
+  });
+
+  it('emits line_a[0][2] for a single math child blink target', () => {
+    const line = createTextLine(defaultSceneDefaults(), 0);
+    line.id = 'ln1';
+    line.segments = [
+      { text: '$x$', isMath: true, color: '#ffffff', bold: false, italic: false },
+    ];
+    const blink: BlinkAnimationItem = {
+      kind: 'blink_animation',
+      id: 'b1',
+      label: '',
+      layer: 0,
+      startTime: 0,
+      duration: 0.2,
+      repetitions: 1,
+      targets: [
+        {
+          targetId: 'ln1',
+          mode: 'scale',
+          scaleFactor: 1.1,
+          mathSubtargets: [{ segmentIndex: 0, childIndices: [2] }],
+        },
+      ],
+    };
+    const items = mapOf(line, blink);
+    const idToVar = new Map<string, string>([['ln1', 'line_a']]);
+    const code = formatBlinkClipPlay(blink, '', idToVar, items);
+    expect(code).toContain('line_a[0][2].animate.scale(');
+  });
+
+  it('uses VGroup for multiple math children in one segment', () => {
+    const line = createTextLine(defaultSceneDefaults(), 0);
+    line.id = 'ln1';
+    line.segments = [
+      { text: '$a+b$', isMath: true, color: '#ffffff', bold: false, italic: false },
+    ];
+    const blink: BlinkAnimationItem = {
+      kind: 'blink_animation',
+      id: 'b1',
+      label: '',
+      layer: 0,
+      startTime: 0,
+      duration: 0.2,
+      repetitions: 1,
+      targets: [
+        {
+          targetId: 'ln1',
+          mode: 'scale',
+          scaleFactor: 1.12,
+          mathSubtargets: [{ segmentIndex: 0, childIndices: [1, 3] }],
+        },
+      ],
+    };
+    const items = mapOf(line, blink);
+    const idToVar = new Map<string, string>([['ln1', 'line_a']]);
+    const code = formatBlinkClipPlay(blink, '', idToVar, items);
+    expect(code).toContain('VGroup(line_a[0][1], line_a[0][3])');
   });
 
   it('includes color animate for color-only mode', () => {

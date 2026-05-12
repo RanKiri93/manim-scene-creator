@@ -20,9 +20,11 @@ export function resolvePositionOrAxesAnchor(
 ): { x: number; y: number } {
   if (
     (item.kind === 'graphPlot' ||
+      item.kind === 'graphCurve' ||
       item.kind === 'graphDot' ||
       item.kind === 'graphField' ||
       item.kind === 'graphFunctionSeries' ||
+      item.kind === 'graphPointSequence' ||
       item.kind === 'graphArea') &&
     item.axesId
   ) {
@@ -39,9 +41,11 @@ export function getItemSurroundBBox(
 ): ItemBBox {
   if (
     (item.kind === 'graphPlot' ||
+      item.kind === 'graphCurve' ||
       item.kind === 'graphDot' ||
       item.kind === 'graphField' ||
       item.kind === 'graphFunctionSeries' ||
+      item.kind === 'graphPointSequence' ||
       item.kind === 'graphArea') &&
     item.axesId
   ) {
