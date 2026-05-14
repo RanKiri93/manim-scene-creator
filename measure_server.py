@@ -34,6 +34,10 @@ submobjects in a deterministic order and versioning that contract with the UI/pr
 **Merge videos:** ``POST /api/concat_mp4`` accepts multiple uploads (multipart field ``files``)
 and concatenates them with ``ffmpeg`` (must be on ``PATH``). See endpoint docstring in code.
 
+**Normalize audio:** ``POST /api/normalize_audio`` applies EBU R128 loudness normalization
+(ffmpeg ``loudnorm``) to an uploaded file or an existing ``assets/audio/...`` path; requires
+``ffmpeg`` and optionally ``ffprobe`` on ``PATH``.
+
 **Axes preview:** ``POST /api/preview_axes`` returns a transparent PNG of ``Axes`` (same config as timeline export).
 
 **Security:** Do not expose this on the public internet without a sandbox: TeX can
@@ -60,6 +64,7 @@ if _ROOT not in sys.path:
 _RENDER_DEBUG_DIR = os.path.join(_ROOT, "render_debug")
 
 import base64
+import re
 import shutil
 import subprocess
 import tempfile
@@ -671,7 +676,7 @@ def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
 
 
 try:
-    from fastapi import FastAPI, File, HTTPException, UploadFile
+    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
@@ -892,6 +897,330 @@ try:
 
     def _which_ffmpeg() -> str | None:
         return shutil.which("ffmpeg")
+
+    def _which_ffprobe() -> str | None:
+        return shutil.which("ffprobe")
+
+    def _resolve_safe_audio_asset(rel: str) -> str:
+        """Resolve a repo-relative ``assets/audio/...`` path to an absolute file under ``_AUDIO_ASSETS_DIR``."""
+        raw = (rel or "").strip().replace("\\", "/")
+        if not raw or ".." in raw or raw.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid source_path")
+        if not raw.startswith("assets/audio/"):
+            raise HTTPException(
+                status_code=400,
+                detail="source_path must start with assets/audio/",
+            )
+        abs_path = os.path.normpath(os.path.join(_ROOT, raw))
+        root_norm = os.path.normpath(_AUDIO_ASSETS_DIR)
+        common = os.path.commonpath([abs_path, root_norm])
+        if common != root_norm:
+            raise HTTPException(status_code=400, detail="Invalid source_path")
+        if not os.path.isfile(abs_path):
+            raise HTTPException(status_code=404, detail=f"Audio file not found: {raw}")
+        return abs_path
+
+    def _wav_data_duration_seconds(path: str) -> float:
+        """PCM WAV duration from ``fmt`` + ``data`` chunks (no ffprobe)."""
+        try:
+            with open(path, "rb") as f:
+                if f.read(4) != b"RIFF":
+                    return 0.0
+                f.read(4)
+                if f.read(4) != b"WAVE":
+                    return 0.0
+                sr = 0
+                bytes_per_frame = 0
+                while True:
+                    cid = f.read(4)
+                    if len(cid) < 4:
+                        break
+                    sz = int.from_bytes(f.read(4), "little")
+                    payload = f.read(sz)
+                    if cid == b"fmt " and len(payload) >= 16:
+                        ch = int.from_bytes(payload[2:4], "little")
+                        sr = int.from_bytes(payload[4:8], "little")
+                        bits = int.from_bytes(payload[14:16], "little") if len(payload) >= 16 else 16
+                        bytes_per_frame = max(1, ch) * max(1, bits // 8)
+                    elif cid == b"data" and sr > 0 and bytes_per_frame > 0:
+                        return max(0.01, len(payload) / float(sr * bytes_per_frame))
+        except OSError:
+            pass
+        return 0.0
+
+    def _ffprobe_duration_seconds(path: str) -> float:
+        """Return media duration in seconds using ffprobe, or fall back for PCM WAV."""
+        prob = _which_ffprobe()
+        if prob:
+            try:
+                proc = subprocess.run(
+                    [
+                        prob,
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                )
+                if proc.returncode == 0 and proc.stdout:
+                    d = float(proc.stdout.strip())
+                    if d > 0 and d < 1e7:
+                        return d
+            except (ValueError, subprocess.TimeoutExpired, OSError):
+                pass
+        return _wav_data_duration_seconds(path)
+
+    def _loudnorm_json_from_ffmpeg_stderr(stderr: str) -> dict[str, object]:
+        """Extract the loudnorm JSON object (contains ``input_i``) from ffmpeg stderr."""
+        combined = stderr or ""
+        idx = 0
+        while True:
+            start = combined.find("{", idx)
+            if start < 0:
+                raise ValueError("No JSON in ffmpeg loudnorm output")
+            depth = 0
+            end = -1
+            for i, ch in enumerate(combined[start:], start=start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            if end < 0:
+                raise ValueError("Unbalanced JSON in ffmpeg loudnorm output")
+            snippet = combined[start:end]
+            if "input_i" in snippet:
+                return json.loads(snippet)
+            idx = start + 1
+
+    def _parse_output_integrated_lufs(stderr: str) -> float | None:
+        """Parse ``Output Integrated loudness:`` line from loudnorm summary (pass 2)."""
+        for line in (stderr or "").splitlines():
+            m = re.search(
+                r"Output Integrated loudness:\s*([-0-9.]+)\s*LUFS",
+                line,
+                re.IGNORECASE,
+            )
+            if m:
+                try:
+                    return float(m.group(1))
+                except ValueError:
+                    return None
+        return None
+
+    def _ffmpeg_loudnorm_two_pass(
+        ffmpeg_bin: str,
+        input_path: str,
+        output_path: str,
+        target_i: float,
+        target_tp: float,
+        target_lra: float,
+    ) -> tuple[float | None, float | None]:
+        """Two-pass EBU R128 loudnorm. Returns (measured_input_lufs, measured_output_lufs)."""
+        null_out = "NUL" if sys.platform == "win32" else "/dev/null"
+        af1 = f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json"
+        cmd1 = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            input_path,
+            "-af",
+            af1,
+            "-f",
+            "null",
+            null_out,
+        ]
+        p1 = subprocess.run(
+            cmd1,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3600,
+        )
+        err1 = (p1.stderr or "") + (p1.stdout or "")
+        if p1.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"loudnorm pass 1 failed (exit {p1.returncode}): {err1[-2500:]}",
+            )
+        try:
+            meta = _loudnorm_json_from_ffmpeg_stderr(err1)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"loudnorm pass 1 JSON parse failed: {e}\n{err1[-2500:]}",
+            ) from e
+
+        def _fnum(key: str) -> float:
+            v = meta.get(key)
+            if v is None:
+                return 0.0
+            return float(str(v).replace("LUFS", "").strip())
+
+        measured_i = _fnum("input_i")
+        measured_tp = _fnum("input_tp")
+        measured_lra = _fnum("input_lra")
+        measured_thresh = _fnum("input_thresh")
+        offset = _fnum("target_offset")
+
+        measured_in = measured_i if measured_i != 0.0 else None
+
+        af2 = (
+            f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:"
+            f"measured_I={measured_i}:measured_TP={measured_tp}:measured_LRA={measured_lra}:"
+            f"measured_thresh={measured_thresh}:offset={offset}:linear=true:print_format=summary"
+        )
+        cmd2 = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-y",
+            "-i",
+            input_path,
+            "-af",
+            af2,
+            "-ar",
+            "48000",
+            output_path,
+        ]
+        p2 = subprocess.run(
+            cmd2,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3600,
+        )
+        err2 = (p2.stderr or "") + (p2.stdout or "")
+        if p2.returncode != 0 or not os.path.isfile(output_path):
+            raise HTTPException(
+                status_code=500,
+                detail=f"loudnorm pass 2 failed (exit {p2.returncode}): {err2[-2500:]}",
+            )
+        out_lufs = _parse_output_integrated_lufs(err2)
+        return (measured_in, out_lufs)
+
+    class NormalizeAudioResponse(BaseModel):
+        file_path: str
+        duration: float
+        measured_input_lufs: float | None = None
+        measured_output_lufs: float | None = None
+
+    @app.post("/api/normalize_audio", response_model=NormalizeAudioResponse)
+    async def normalize_audio(
+        file: UploadFile | None = File(default=None),
+        source_path: str | None = Form(default=None),
+        target_lufs: float = Form(default=-16.0),
+        true_peak: float = Form(default=-1.5),
+        lra: float = Form(default=11.0),
+    ) -> NormalizeAudioResponse:
+        """EBU R128 loudness normalization via ffmpeg ``loudnorm``. Writes WAV under ``assets/audio/``."""
+        ffmpeg_bin = _which_ffmpeg()
+        if not ffmpeg_bin:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ffmpeg not found on PATH. Install ffmpeg and ensure it is available "
+                    "to the server process."
+                ),
+            )
+
+        has_file = file is not None
+        has_src = bool(source_path and str(source_path).strip())
+
+        if has_file == has_src:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of: multipart file upload, or form field source_path.",
+            )
+
+        input_abs: str | None = None
+        temp_input: str | None = None
+
+        try:
+            if has_src:
+                input_abs = _resolve_safe_audio_asset(source_path.strip())
+            else:
+                assert file is not None
+                ext = os.path.splitext(file.filename or "")[1] or ".wav"
+                fd, temp_input = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                body = await file.read()
+                if not body:
+                    raise HTTPException(status_code=400, detail="Empty upload")
+                with open(temp_input, "wb") as out_f:
+                    out_f.write(body)
+                input_abs = temp_input
+
+            out_name = f"normalized_{uuid.uuid4().hex}.wav"
+            out_rel = f"assets/audio/{out_name}"
+            out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
+
+            min_i, max_i = -70.0, -5.0
+            tl = float(target_lufs)
+            if tl < min_i or tl > max_i:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"target_lufs must be between {min_i} and {max_i}",
+                )
+            tp = float(true_peak)
+            lr = float(lra)
+            if tp > 0.0 or tp < -9.0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="true_peak must be in [-9, 0] dBTP",
+                )
+            if lr < 1.0 or lr > 20.0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="lra must be between 1 and 20",
+                )
+
+            in_lufs, out_lufs = _ffmpeg_loudnorm_two_pass(
+                ffmpeg_bin,
+                input_abs,
+                out_abs,
+                tl,
+                tp,
+                lr,
+            )
+
+            duration = _ffprobe_duration_seconds(out_abs)
+            if duration <= 0.0:
+                duration = _ffprobe_duration_seconds(input_abs)
+            if duration <= 0.0:
+                duration = 0.01
+
+            return NormalizeAudioResponse(
+                file_path=out_rel,
+                duration=float(duration),
+                measured_input_lufs=in_lufs,
+                measured_output_lufs=out_lufs,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+        finally:
+            if temp_input and os.path.isfile(temp_input):
+                try:
+                    os.unlink(temp_input)
+                except OSError:
+                    pass
 
     @app.post("/api/concat_mp4")
     async def concat_mp4(files: list[UploadFile] = File()) -> FileResponse:

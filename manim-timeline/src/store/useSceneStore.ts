@@ -20,7 +20,7 @@ import type {
 import { functionSeriesTotalDuration, pointSequenceTotalDuration } from '@/types/scene';
 import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
 import { validatePointSequence } from '@/lib/pointSequenceValidation';
-import { generateAudio, uploadRecordedAudio } from '@/services/measureClient';
+import { generateAudio, normalizeAudio, uploadRecordedAudio } from '@/services/measureClient';
 import {
   isTopLevelItem,
   isActiveAtTime,
@@ -34,6 +34,14 @@ import {
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 import { isAudioBindingNone, explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
+import {
+  deriveAudioAssetRelPath,
+  measureServerRelativeAudioPath,
+} from '@/lib/audioAssetPath';
+import {
+  computeChainedStartsForSortedUnlinked,
+  computeStartAfterPrevious,
+} from '@/lib/audioGapPresets';
 
 function clampAllExitStarts(items: Map<ItemId, SceneItem>): void {
   for (const it of items.values()) {
@@ -292,6 +300,26 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
       transcriptionLang?: string;
     },
   ) => Promise<void>;
+
+  /**
+   * Loudness-normalize an existing timeline audio clip (server ffmpeg loudnorm).
+   * Replaces the audio file URL; keeps timing start, word boundaries, and bindings.
+   */
+  normalizeAudioTrack: (
+    id: string,
+    options?: { targetLufs?: number; truePeak?: number; lra?: number },
+  ) => Promise<void>;
+
+  /**
+   * Move one unlinked audio clip to start `gapSec` after the latest preceding audio ends.
+   */
+  placeAudioAfterPrevious: (id: string, gapSec: number) => void;
+
+  /**
+   * Chain selected unlinked audio clips in timeline order with `gapSec` between end and next start.
+   * Requires at least two movable (unlinked) selected audio tracks.
+   */
+  spaceSelectedAudioItems: (gapSec: number) => void;
 }
 
 export const useSceneStore = create<SceneStore>()(
@@ -991,6 +1019,105 @@ export const useSceneStore = create<SceneStore>()(
           s.audioItems.push(track);
         });
       },
+
+      normalizeAudioTrack: async (id, options) => {
+        const baseUrl = get().measureConfig.url;
+        const track = get().audioItems.find((a) => a.id === id);
+        if (!track) return;
+
+        const prevRel = track.assetRelPath?.trim();
+        const serverRel = measureServerRelativeAudioPath(track);
+        const oldAudioUrl = track.audioUrl;
+
+        let result;
+        if (serverRel) {
+          result = await normalizeAudio(baseUrl, {
+            sourcePath: serverRel,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+          });
+        } else {
+          const resp = await fetch(track.audioUrl);
+          if (!resp.ok) {
+            throw new Error(`Could not read audio for normalization (HTTP ${resp.status})`);
+          }
+          const blob = await resp.blob();
+          const filename =
+            deriveAudioAssetRelPath(track).split('/').pop() || 'audio.webm';
+          result = await normalizeAudio(baseUrl, {
+            file: blob,
+            filename,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+          });
+        }
+
+        const root = baseUrl.replace(/\/$/, '');
+        const fp = result.file_path;
+        const newAudioUrl = `${root}${fp.startsWith('/') ? '' : '/'}${fp}`;
+
+        const targetLufs = options?.targetLufs ?? -16;
+
+        set((s) => {
+          const t = s.audioItems.find((a) => a.id === id);
+          if (!t) return;
+          if (typeof oldAudioUrl === 'string' && oldAudioUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(oldAudioUrl);
+            } catch {
+              /* ignore */
+            }
+          }
+          t.audioUrl = newAudioUrl;
+          t.assetRelPath = fp;
+          t.duration = Math.max(0.01, result.duration);
+          t.audioProcessing = {
+            ...t.audioProcessing,
+            normalized: {
+              targetLufs,
+              sourceAssetRelPath: prevRel ?? serverRel ?? undefined,
+              measuredInputLufs: result.measured_input_lufs ?? undefined,
+              measuredOutputLufs: result.measured_output_lufs ?? undefined,
+              processedAt: new Date().toISOString(),
+            },
+          };
+        });
+      },
+
+      placeAudioAfterPrevious: (id, gapSec) =>
+        set((s) => {
+          if (explicitVisualOwnerForAudioTrack(s.items, id)) return;
+          const nextStart = computeStartAfterPrevious(s.audioItems, id, gapSec);
+          if (nextStart == null) return;
+          const t = s.audioItems.find((a) => a.id === id);
+          if (!t) return;
+          t.startTime = nextStart;
+        }),
+
+      spaceSelectedAudioItems: (gapSec) =>
+        set((s) => {
+          const ids = s.selectedIds;
+          const unlinked: AudioTrackItem[] = [];
+          for (const a of s.audioItems) {
+            if (!ids.has(a.id)) continue;
+            if (explicitVisualOwnerForAudioTrack(s.items, a.id)) continue;
+            unlinked.push(a);
+          }
+          if (unlinked.length < 2) return;
+          unlinked.sort(
+            (x, y) =>
+              x.startTime - y.startTime || x.id.localeCompare(y.id),
+          );
+          const updates = computeChainedStartsForSortedUnlinked(unlinked, gapSec);
+          for (const u of updates) {
+            const t = s.audioItems.find((a) => a.id === u.id);
+            if (!t) continue;
+            if (explicitVisualOwnerForAudioTrack(s.items, t.id)) continue;
+            t.startTime = u.startTime;
+          }
+        }),
     })),
     { limit: 50 },
   ),

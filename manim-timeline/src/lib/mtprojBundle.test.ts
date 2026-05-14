@@ -140,4 +140,40 @@ describe('packMtprojToBlob + parseMtprojFromUint8Array', () => {
       URL.revokeObjectURL = origRevoke;
     }
   });
+
+  it('round-trips optional audioProcessing metadata on tracks', async () => {
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = () => 'blob:roundtrip-meta';
+    URL.revokeObjectURL = () => {};
+    try {
+      const project = minimalProject({
+        audioItems: [
+          {
+            id: 'trk',
+            text: 'x',
+            audioUrl: 'http://127.0.0.1:8765/assets/audio/a.webm',
+            startTime: 0,
+            duration: 2,
+            audioProcessing: {
+              normalized: {
+                targetLufs: -16,
+                processedAt: '2026-05-14T12:00:00.000Z',
+                sourceAssetRelPath: 'assets/audio/old.webm',
+              },
+            },
+          },
+        ],
+      });
+      const blob = await packMtprojToBlob(project);
+      const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+      expect(out.audioItems![0].audioProcessing?.normalized?.targetLufs).toBe(-16);
+      expect(out.audioItems![0].audioProcessing?.normalized?.sourceAssetRelPath).toBe(
+        'assets/audio/old.webm',
+      );
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
 });

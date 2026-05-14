@@ -44,3 +44,32 @@ export function isBundledVirtualAudioUrl(url: string): boolean {
   const u = url.split('?')[0].trim();
   return u.startsWith('assets/audio/') || u.startsWith('assets/textures/');
 }
+
+/**
+ * If the track’s audio already lives on the measure server as ``assets/audio/...``,
+ * return that relative path so the server can read the file without re-uploading.
+ * Otherwise return null (client must send bytes, e.g. blob URL).
+ */
+export function measureServerRelativeAudioPath(
+  track: AudioTrackItem,
+): string | null {
+  const pinned = track.assetRelPath?.trim().replace(/^\/+/, '');
+  if (pinned?.startsWith('assets/audio/')) {
+    return pinned;
+  }
+  const u = track.audioUrl.split('?')[0].trim();
+  if (u.startsWith('assets/audio/')) {
+    return u;
+  }
+  try {
+    if (u.startsWith('http://') || u.startsWith('https://')) {
+      const p = new URL(u).pathname.replace(/^\/+/, '');
+      if (p.startsWith('assets/audio/')) {
+        return p;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}

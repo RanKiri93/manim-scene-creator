@@ -386,6 +386,94 @@ export async function uploadRecordedAudio(
   return { file_path: j.file_path, duration: j.duration, word_boundaries };
 }
 
+export interface NormalizeAudioApiResult {
+  file_path: string;
+  duration: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+}
+
+interface NormalizeAudioResponseBody {
+  file_path?: string;
+  duration?: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+  detail?: string | { msg?: string }[];
+}
+
+/**
+ * EBU R128 loudness normalization via measure server ``/api/normalize_audio`` (ffmpeg loudnorm).
+ * Provide exactly one of ``sourcePath`` (existing ``assets/audio/...`` on the server) or ``file`` bytes.
+ */
+export async function normalizeAudio(
+  baseUrl: string,
+  opts: {
+    sourcePath?: string;
+    file?: Blob;
+    filename?: string;
+    targetLufs?: number;
+    truePeak?: number;
+    lra?: number;
+  },
+): Promise<NormalizeAudioApiResult> {
+  const sp = opts.sourcePath?.trim();
+  const file = opts.file;
+  if ((!sp && !file) || (Boolean(sp) && Boolean(file))) {
+    throw new Error('normalizeAudio: provide exactly one of sourcePath or file');
+  }
+
+  const formData = new FormData();
+  if (sp) {
+    formData.append('source_path', sp);
+  }
+  if (file) {
+    formData.append('file', file, opts.filename ?? 'audio.wav');
+  }
+  formData.append('target_lufs', String(opts.targetLufs ?? -16));
+  formData.append('true_peak', String(opts.truePeak ?? -1.5));
+  formData.append('lra', String(opts.lra ?? 11));
+
+  const resp = await measureFetch(
+    `${baseUrl.replace(/\/$/, '')}/api/normalize_audio`,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  );
+  const j = (await resp.json()) as NormalizeAudioResponseBody;
+  if (!resp.ok) {
+    const msg =
+      typeof j.detail === 'string'
+        ? j.detail
+        : Array.isArray(j.detail)
+          ? j.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('; ')
+          : `HTTP ${resp.status}`;
+    throw new Error(msg || 'normalize_audio failed');
+  }
+  if (!j.file_path || typeof j.file_path !== 'string') {
+    throw new Error('normalize_audio: missing file_path');
+  }
+  const dur =
+    typeof j.duration === 'number' && Number.isFinite(j.duration)
+      ? j.duration
+      : Number(j.duration);
+  if (!Number.isFinite(dur) || dur <= 0) {
+    throw new Error('normalize_audio: invalid duration');
+  }
+  return {
+    file_path: j.file_path,
+    duration: dur,
+    measured_input_lufs:
+      j.measured_input_lufs == null || j.measured_input_lufs === undefined
+        ? null
+        : Number(j.measured_input_lufs),
+    measured_output_lufs:
+      j.measured_output_lufs == null || j.measured_output_lufs === undefined
+        ? null
+        : Number(j.measured_output_lufs),
+  };
+}
+
 /**
  * Renders Manim scene source on the measure server and returns the MP4 as a Blob.
  */
