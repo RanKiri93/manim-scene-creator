@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { zipSync, strToU8 } from 'fflate';
 import SparkMD5 from 'spark-md5';
-import type { ProjectFile } from '@/types/scene';
+import type { AudioTrackItem, MultiSceneProjectFile, ProjectFile, ProjectFragmentFile } from '@/types/scene';
+import { isMultiSceneProjectFile, MULTISCENE_PROJECT_KIND } from '@/types/scene';
 import {
   parseMtprojFromUint8Array,
   packMtprojToBlob,
@@ -10,6 +11,16 @@ import {
   MtprojUnpackError,
   MTPROJ_BUNDLE_FORMAT_VERSION,
 } from '@/lib/mtprojErrors';
+
+/** Audio items for asserting legacy-first-scene semantics when tests pack `ProjectFile` only. */
+function audioFromParsedProject(
+  out: ProjectFile | MultiSceneProjectFile | ProjectFragmentFile,
+): AudioTrackItem[] {
+  if (isMultiSceneProjectFile(out)) {
+    return out.scenes[0]?.audioItems ?? [];
+  }
+  return out.audioItems ?? [];
+}
 
 function md5Lower(data: Uint8Array): string {
   const c = new Uint8Array(data.byteLength);
@@ -93,9 +104,10 @@ describe('parseMtprojFromUint8Array', () => {
     URL.revokeObjectURL = () => {};
     try {
       const out = parseMtprojFromUint8Array(zipped);
-      expect(out.audioItems).toHaveLength(1);
-      expect(out.audioItems![0].audioUrl).toBe('blob:unit-test');
-      expect(out.audioItems![0].assetRelPath).toBe('assets/audio/clip.webm');
+      const aud = audioFromParsedProject(out);
+      expect(aud).toHaveLength(1);
+      expect(aud[0].audioUrl).toBe('blob:unit-test');
+      expect(aud[0].assetRelPath).toBe('assets/audio/clip.webm');
     } finally {
       URL.createObjectURL = origCreate;
       URL.revokeObjectURL = origRevoke;
@@ -133,8 +145,9 @@ describe('packMtprojToBlob + parseMtprojFromUint8Array', () => {
       });
       const blob = await packMtprojToBlob(project);
       const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
-      expect(out.audioItems![0].assetRelPath).toBe('assets/audio/narration.webm');
-      expect(out.audioItems![0].audioUrl).toBe('blob:roundtrip');
+      const aud = audioFromParsedProject(out);
+      expect(aud[0].assetRelPath).toBe('assets/audio/narration.webm');
+      expect(aud[0].audioUrl).toBe('blob:roundtrip');
     } finally {
       URL.createObjectURL = origCreate;
       URL.revokeObjectURL = origRevoke;
@@ -167,10 +180,105 @@ describe('packMtprojToBlob + parseMtprojFromUint8Array', () => {
       });
       const blob = await packMtprojToBlob(project);
       const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
-      expect(out.audioItems![0].audioProcessing?.normalized?.targetLufs).toBe(-16);
-      expect(out.audioItems![0].audioProcessing?.normalized?.sourceAssetRelPath).toBe(
+      const aud = audioFromParsedProject(out);
+      expect(aud[0].audioProcessing?.normalized?.targetLufs).toBe(-16);
+      expect(aud[0].audioProcessing?.normalized?.sourceAssetRelPath).toBe(
         'assets/audio/old.webm',
       );
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
+});
+
+describe('packMtprojToBlob multi-scene', () => {
+  const origFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  it('collects audio from every scene and rehydrates independently', async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const u =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (u.includes('scene-a'))
+        return new Response(new Uint8Array([99, 1]));
+      if (u.includes('scene-b'))
+        return new Response(new Uint8Array([98, 2, 2]));
+      throw new Error(`unexpected fetch: ${u}`);
+    }) as typeof fetch;
+
+    let seq = 0;
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = () => {
+      seq += 1;
+      return `blob:ms-${seq}`;
+    };
+    URL.revokeObjectURL = () => {};
+
+    try {
+      const multi: MultiSceneProjectFile = {
+        kind: MULTISCENE_PROJECT_KIND,
+        version: minimalProject().version,
+        savedAt: '2026-01-01T00:00:00.000Z',
+        measureConfig: {
+          url: 'http://127.0.0.1:8765',
+          enabled: true,
+          includePreview: false,
+        },
+        activeSceneId: 's1',
+        scenes: [
+          {
+            id: 's1',
+            name: 'One',
+            defaults: minimalProject().defaults,
+            items: [],
+            audioItems: [
+              {
+                id: 'track-a',
+                text: '',
+                audioUrl: 'https://cdn.example/scene-a.webm',
+                startTime: 0,
+                duration: 1,
+              },
+            ],
+          },
+          {
+            id: 's2',
+            name: 'Two',
+            defaults: minimalProject().defaults,
+            items: [],
+            audioItems: [
+              {
+                id: 'track-b',
+                text: '',
+                audioUrl: 'https://cdn.example/scene-b.webm',
+                startTime: 0,
+                duration: 1,
+              },
+            ],
+          },
+        ],
+      };
+
+      const blob = await packMtprojToBlob(multi);
+      const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+      expect(isMultiSceneProjectFile(out)).toBe(true);
+      if (!isMultiSceneProjectFile(out)) throw new Error('expected multi');
+      const a0 = out.scenes[0]!.audioItems![0]!;
+      const a1 = out.scenes[1]!.audioItems![0]!;
+      expect(a0.audioUrl.startsWith('blob:')).toBe(true);
+      expect(a1.audioUrl.startsWith('blob:')).toBe(true);
+      expect(a0.assetRelPath).toMatch(/^assets\/audio\//);
+      expect(a1.assetRelPath).toMatch(/^assets\/audio\//);
+      expect(a0.assetRelPath).not.toBe(a1.assetRelPath);
     } finally {
       URL.createObjectURL = origCreate;
       URL.revokeObjectURL = origRevoke;

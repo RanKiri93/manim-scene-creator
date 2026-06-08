@@ -1,11 +1,15 @@
-import type { ProjectFile, ProjectFragmentFile } from '@/types/scene';
-import { isProjectFragmentFile } from '@/types/scene';
+import type {
+  AnyDiskProjectFile,
+  ProjectFile,
+  ProjectFragmentFile,
+} from '@/types/scene';
+import { isProjectFragmentFile, isMultiSceneProjectFile } from '@/types/scene';
 import { MtprojUnpackError } from '@/lib/mtprojErrors';
 
 export { MtprojPackError, MtprojUnpackError } from '@/lib/mtprojErrors';
 
 export type LoadedProjectOrFragment =
-  | { kind: 'project'; data: ProjectFile }
+  | { kind: 'project'; data: AnyDiskProjectFile }
   | { kind: 'fragment'; data: ProjectFragmentFile };
 
 /** How the active disk file should be written (matches extension). */
@@ -76,6 +80,9 @@ function parseJsonPayload(raw: unknown): LoadedProjectOrFragment | null {
   if (isProjectFragmentFile(raw)) {
     return { kind: 'fragment', data: raw };
   }
+  if (isMultiSceneProjectFile(raw)) {
+    return { kind: 'project', data: raw };
+  }
   const o = raw as Record<string, unknown>;
   if (
     Array.isArray(o.items) &&
@@ -144,7 +151,7 @@ async function ensureWritePermission(handle: FileSystemFileHandle): Promise<bool
  */
 export async function writeProjectToHandle(
   handle: FileSystemFileHandle,
-  project: ProjectFile,
+  project: AnyDiskProjectFile,
   kind: ProjectSaveKind,
 ): Promise<void> {
   const ok = await ensureWritePermission(handle);
@@ -176,7 +183,7 @@ function defaultMtprojSuggestedName(): string {
  * Show save dialog, write project, return the handle (or null if cancelled / FSA unavailable).
  */
 export async function saveProjectWithPicker(
-  project: ProjectFile,
+  project: AnyDiskProjectFile,
   kind: ProjectSaveKind,
   suggestedName?: string,
 ): Promise<FileSystemFileHandle | null> {
@@ -216,7 +223,7 @@ export async function saveProjectWithPicker(
  */
 export async function writeMtprojToTauriPath(
   path: string,
-  project: ProjectFile,
+  project: AnyDiskProjectFile,
 ): Promise<void> {
   const { invoke } = await import('@tauri-apps/api/core');
   const { packMtprojToBlob } = await import('@/lib/mtprojBundle');
@@ -335,7 +342,7 @@ async function loadProjectFileViaInput(): Promise<{
   });
 }
 
-export function downloadProjectFile(project: ProjectFile) {
+export function downloadProjectFile(project: AnyDiskProjectFile) {
   const json = JSON.stringify(project, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -346,7 +353,7 @@ export function downloadProjectFile(project: ProjectFile) {
   URL.revokeObjectURL(url);
 }
 
-export async function downloadMtprojBundle(project: ProjectFile): Promise<void> {
+export async function downloadMtprojBundle(project: AnyDiskProjectFile): Promise<void> {
   const { packMtprojToBlob } = await import('@/lib/mtprojBundle');
   const blob = await packMtprojToBlob(project);
   const url = URL.createObjectURL(blob);

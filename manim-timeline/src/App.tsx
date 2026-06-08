@@ -27,6 +27,8 @@ import FloatingPanel from '@/components/FloatingPanel';
 import AgentPanel from '@/agent/AgentPanel';
 import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
 import { useSceneUndoRedo } from '@/hooks/useSceneUndoRedo';
+import { useProjectScenesStore } from '@/store/useProjectScenesStore';
+import SceneTabsBar from '@/components/SceneTabsBar';
 
 const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
 const DEFAULT_TOOLBAR_WIDTH = 104;
@@ -128,12 +130,14 @@ export default function App() {
     },
     [toolbarWidth],
   );
-  const toProjectFile = useSceneStore((s) => s.toProjectFile);
-  const loadProject = useSceneStore((s) => s.loadProjectFile);
   const importFragment = useSceneStore((s) => s.importFragment);
   const defaults = useSceneStore((s) => s.defaults);
   const setDefaults = useSceneStore((s) => s.setDefaults);
   const { canUndo, canRedo, undo, redo } = useSceneUndoRedo();
+
+  useEffect(() => {
+    useProjectScenesStore.getState().bootstrapIfNeeded();
+  }, []);
 
   const activeFileHandle = useProjectFileStore((s) => s.activeHandle);
   const activeTauriPath = useProjectFileStore((s) => s.activeTauriPath);
@@ -154,7 +158,8 @@ export default function App() {
 
   /** Save portable bundle (.mtproj) — same as Ctrl+S / Cmd+S. */
   const saveBundle = useCallback(async () => {
-    const project = toProjectFile();
+    useProjectScenesStore.getState().bootstrapIfNeeded();
+    const project = useProjectScenesStore.getState().toMultiSceneProjectFile();
     const st = useProjectFileStore.getState();
     try {
       if (isTauriRuntime()) {
@@ -201,7 +206,7 @@ export default function App() {
     } catch (e) {
       alertPackError(e);
     }
-  }, [toProjectFile]);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -259,7 +264,7 @@ export default function App() {
         importFragment(loaded.data, { timeMode: mode });
         return;
       }
-      loadProject(loaded.data);
+      useProjectScenesStore.getState().loadFromAnyDiskProject(loaded.data);
       if (tauriPath) {
         setActiveTauriPath(tauriPath);
       } else if (fileHandle) {
@@ -295,7 +300,7 @@ export default function App() {
           {activeFileLabel ?? '— unsaved'}
         </span>
         <label className="flex items-center gap-2 text-xs text-slate-400 shrink-0 max-w-[min(280px,40vw)]">
-          <span className="shrink-0">Scene</span>
+          <span className="shrink-0">Manim class</span>
           <input
             type="text"
             value={defaults.sceneName}
@@ -367,6 +372,7 @@ export default function App() {
           Export
         </button>
       </header>
+      <SceneTabsBar />
 
       {/* Main content: list + canvas + export/audio; properties float over canvas */}
       <div className="flex flex-1 min-h-0 relative overflow-hidden">

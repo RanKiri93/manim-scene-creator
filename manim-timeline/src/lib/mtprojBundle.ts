@@ -1,8 +1,11 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import * as SparkMd5Pkg from 'spark-md5';
 import {
+  isMultiSceneProjectFile,
   isProjectFragmentFile,
+  type AnyDiskProjectFile,
   type AudioTrackItem,
+  type MultiSceneProjectFile,
   type ProjectFile,
   type ProjectFragmentFile,
 } from '@/types/scene';
@@ -87,16 +90,29 @@ async function fetchUrlBytes(url: string): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-function deepCloneProject(project: ProjectFile): ProjectFile {
-  return structuredClone(project) as ProjectFile;
+function deepCloneDiskProject(project: AnyDiskProjectFile): AnyDiskProjectFile {
+  return structuredClone(project) as AnyDiskProjectFile;
 }
 
 /**
  * Build a .mtproj ZIP blob: `state.json`, `manifest.json`, `assets/audio/*`.
  */
-export async function packMtprojToBlob(project: ProjectFile): Promise<Blob> {
-  const state = deepCloneProject(project);
-  const audioItems = state.audioItems ?? [];
+export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blob> {
+  const state = deepCloneDiskProject(project);
+  const tracks: AudioTrackItem[] = [];
+
+  if (isMultiSceneProjectFile(state)) {
+    for (const sc of state.scenes) {
+      for (const t of sc.audioItems ?? []) {
+        tracks.push(t);
+      }
+    }
+  } else {
+    for (const t of state.audioItems ?? []) {
+      tracks.push(t);
+    }
+  }
+
   const usedPaths = new Set<string>();
   const zipMap: Record<string, Uint8Array> = {};
   const manifest: MtprojManifest = {
@@ -105,7 +121,7 @@ export async function packMtprojToBlob(project: ProjectFile): Promise<Blob> {
   };
   const failed: { trackId: string; text: string; reason: string }[] = [];
 
-  for (const track of audioItems) {
+  for (const track of tracks) {
     const sourceUrl = track.audioUrl;
     if (isBundledVirtualAudioUrl(sourceUrl)) {
       failed.push({
@@ -221,7 +237,7 @@ function verifyManifest(files: Record<string, Uint8Array>, manifest: MtprojManif
  */
 export function parseMtprojFromUint8Array(
   zipBytes: Uint8Array,
-): ProjectFile | ProjectFragmentFile {
+): ProjectFile | MultiSceneProjectFile | ProjectFragmentFile {
   let files: Record<string, Uint8Array>;
   try {
     files = unzipSync(zipBytes);
@@ -253,6 +269,13 @@ export function parseMtprojFromUint8Array(
     return state;
   }
 
+  if (isMultiSceneProjectFile(state)) {
+    for (const sc of state.scenes) {
+      rehydrateAudioFromZip({ audioItems: sc.audioItems ?? [] }, files, manifest);
+    }
+    return state;
+  }
+
   const project = state as ProjectFile;
   rehydrateAudioFromZip(project, files, manifest);
   return project;
@@ -260,7 +283,7 @@ export function parseMtprojFromUint8Array(
 
 export async function parseMtprojFromFile(
   file: File,
-): Promise<ProjectFile | ProjectFragmentFile> {
+): Promise<ProjectFile | MultiSceneProjectFile | ProjectFragmentFile> {
   const buf = new Uint8Array(await file.arrayBuffer());
   return parseMtprojFromUint8Array(buf);
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
+import type { WritableDraft } from 'immer';
 import { temporal } from 'zundo';
 import type {
   ItemId,
@@ -161,6 +162,52 @@ function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
   }
 }
 
+/** Serializable scene slice loaded into the editor from disk or sibling scene tabs. */
+export interface SceneDiskPayload {
+  defaults: SceneDefaults;
+  items: SceneItem[];
+  audioItems?: AudioTrackItem[];
+}
+
+function runLoadSceneDraft(
+  s: WritableDraft<SceneStore>,
+  payload: SceneDiskPayload,
+  fileVersion: number,
+): void {
+  revokeAudioBlobUrls(s.audioItems);
+  s.items = new Map();
+  const migrated = migrateItemsToCurrentVersion(
+    payload.items as SceneItem[],
+    fileVersion,
+  );
+  for (const item of migrated) {
+    s.items.set(item.id, item);
+  }
+  for (const it of s.items.values()) {
+    if (it.kind === 'graphFunctionSeries') {
+      syncFunctionSeriesDerived(it as GraphFunctionSeriesItem, s.items);
+    }
+    if (it.kind === 'graphPointSequence') {
+      syncPointSequenceDerived(it as GraphPointSequenceItem, s.items);
+    }
+  }
+  s.defaults = { ...s.defaults, ...payload.defaults };
+  if (!s.defaults.sceneName?.trim()) {
+    s.defaults.sceneName = 'Scene1';
+  }
+  s.audioItems = payload.audioItems?.length
+    ? payload.audioItems.map((a) => ({ ...a }))
+    : [];
+  s.currentTime = 0;
+  s.isPlaying = false;
+  s.selectedIds = new Set();
+  s.inspectedId = null;
+  s.polylinePointCaptureId = null;
+  s.targetAnimationPathCapture = null;
+  syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+  clampEffectClipStarts(s.items);
+}
+
 // ── Playback slice ──
 
 interface PlaybackSlice {
@@ -278,7 +325,12 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
 
   // Serialization
   toProjectFile: () => ProjectFile;
+  /** Snapshot current editor scene (defaults + clips + timeline audio) — no wrapper kind. */
+  toSceneDiskPayload: () => SceneDiskPayload;
   loadProjectFile: (file: ProjectFile) => void;
+  /** Load only scene-local data from disk; preserves `measureConfig`. Clears undo history. */
+  loadSceneDocument: (payload: SceneDiskPayload, fileVersion: number) => void;
+  clearUndoHistory: () => void;
   /** Merge a portable fragment into the current scene (new ids; optional time shift). */
   importFragment: (
     fragment: ProjectFragmentFile,
@@ -853,41 +905,57 @@ export const useSceneStore = create<SceneStore>()(
             : undefined,
       }),
 
-      loadProjectFile: (file) => set((s) => {
-        revokeAudioBlobUrls(s.audioItems);
-        s.items = new Map();
-        const migrated = migrateItemsToCurrentVersion(
-          file.items as SceneItem[],
-          file.version ?? 0,
-        );
-        for (const item of migrated) {
-          s.items.set(item.id, item);
-        }
-        for (const it of s.items.values()) {
-          if (it.kind === 'graphFunctionSeries') {
-            syncFunctionSeriesDerived(it, s.items);
-          }
-          if (it.kind === 'graphPointSequence') {
-            syncPointSequenceDerived(it, s.items);
-          }
-        }
-        s.defaults = { ...s.defaults, ...file.defaults };
-        if (!s.defaults.sceneName?.trim()) {
-          s.defaults.sceneName = 'Scene1';
-        }
-        s.measureConfig = { ...s.measureConfig, ...file.measureConfig };
-        s.audioItems = file.audioItems?.length
-          ? file.audioItems.map((a) => ({ ...a }))
-          : [];
-        s.currentTime = 0;
-        s.isPlaying = false;
-        s.selectedIds = new Set();
-        s.inspectedId = null;
-        s.polylinePointCaptureId = null;
-        s.targetAnimationPathCapture = null;
-        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
-        clampEffectClipStarts(s.items);
+      toSceneDiskPayload: () => ({
+        defaults: { ...get().defaults },
+        items: Array.from(get().items.values()),
+        audioItems:
+          get().audioItems.length > 0
+            ? get().audioItems.map((a) => ({ ...a }))
+            : undefined,
       }),
+
+      loadProjectFile: (file) => {
+        useSceneStore.temporal.getState().pause();
+        try {
+          set((s) => {
+            runLoadSceneDraft(
+              s,
+              {
+                defaults: file.defaults,
+                items: file.items as SceneItem[],
+                audioItems: file.audioItems,
+              },
+              file.version ?? 0,
+            );
+            s.measureConfig = { ...s.measureConfig, ...file.measureConfig };
+          });
+        } finally {
+          useSceneStore.temporal.getState().resume();
+          useSceneStore.temporal.setState({
+            pastStates: [],
+            futureStates: [],
+          });
+        }
+      },
+
+      loadSceneDocument: (payload, fileVersion) => {
+        useSceneStore.temporal.getState().pause();
+        try {
+          set((s) => {
+            runLoadSceneDraft(s, payload, fileVersion);
+          });
+        } finally {
+          useSceneStore.temporal.getState().resume();
+          useSceneStore.temporal.setState({
+            pastStates: [],
+            futureStates: [],
+          });
+        }
+      },
+
+      clearUndoHistory: () => {
+        useSceneStore.temporal.setState({ pastStates: [], futureStates: [] });
+      },
 
       importFragment: (fragment, opts) =>
         set((s) => {

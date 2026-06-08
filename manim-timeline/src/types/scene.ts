@@ -979,6 +979,54 @@ export interface ProjectFile {
   audioItems?: AudioTrackItem[];
 }
 
+/** One editable scene inside a multi-scene project (.mtproj state.json kind manim-timeline-project). */
+export interface ProjectSceneFile {
+  id: string;
+  /** Tab label — may differ from `defaults.sceneName` (Manim class). */
+  name: string;
+  defaults: SceneDefaults;
+  items: SceneItem[];
+  audioItems?: AudioTrackItem[];
+}
+
+export const MULTISCENE_PROJECT_KIND = 'manim-timeline-project' as const;
+
+/** Multi-scene project file; persists multiple scene documents and shared measure config. */
+export interface MultiSceneProjectFile {
+  kind: typeof MULTISCENE_PROJECT_KIND;
+  version: number;
+  savedAt: string;
+  measureConfig: MeasureConfig;
+  activeSceneId: string;
+  scenes: ProjectSceneFile[];
+}
+
+/** Union of persisted full-project shapes (legacy single scene or multi-scene). */
+export type AnyDiskProjectFile = ProjectFile | MultiSceneProjectFile;
+
+export function isMultiSceneProjectFile(v: unknown): v is MultiSceneProjectFile {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    o.kind === MULTISCENE_PROJECT_KIND &&
+    typeof o.version === 'number' &&
+    typeof o.savedAt === 'string' &&
+    o.measureConfig != null &&
+    typeof o.measureConfig === 'object' &&
+    typeof o.activeSceneId === 'string' &&
+    Array.isArray(o.scenes) &&
+    o.scenes.every(
+      (s) =>
+        s &&
+        typeof s === 'object' &&
+        typeof (s as ProjectSceneFile).id === 'string' &&
+        typeof (s as ProjectSceneFile).name === 'string' &&
+        typeof (s as ProjectSceneFile).defaults === 'object' &&
+        Array.isArray((s as ProjectSceneFile).items),
+    )
+  );
+}
+
 /** Portable subset of a project for merge into another scene (not a full save file). */
 export const PROJECT_FRAGMENT_KIND = 'manim-timeline-fragment' as const;
 

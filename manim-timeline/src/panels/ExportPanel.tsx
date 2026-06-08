@@ -1,6 +1,11 @@
 import { useState, useMemo, useCallback, type ChangeEvent, type FormEvent } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
+import {
+  snapshotEditorToDiskPayload,
+  useProjectScenesStore,
+} from '@/store/useProjectScenesStore';
 import { exportManimCode } from '@/codegen/manimExporter';
+import { exportMultiSceneCombinedPython } from '@/codegen/projectExporter';
 import {
   exportAudioScriptToMarkdown,
   exportScriptToMarkdown,
@@ -8,6 +13,7 @@ import {
 import { concatMp4Files, renderSceneMp4 } from '@/services/measureClient';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
+import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
 
 const RENDER_QUALITIES = [
   { value: 'l', label: 'Low (l)' },
@@ -25,6 +31,7 @@ export default function ExportPanel() {
   const defaults = useSceneStore((s) => s.defaults);
   const audioItems = useSceneStore((s) => s.audioItems);
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
+  const sceneOrderSig = useProjectScenesStore((s) => s.sceneIds.join('|'));
   const [fullFile, setFullFile] = useState(true);
   const [copied, setCopied] = useState(false);
   const [renderModalOpen, setRenderModalOpen] = useState(false);
@@ -36,6 +43,8 @@ export default function ExportPanel() {
   const [mergeFiles, setMergeFiles] = useState<File[]>([]);
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
+  const [renderAllBusy, setRenderAllBusy] = useState(false);
+  const [renderAllErr, setRenderAllErr] = useState<string | null>(null);
 
   const code = useMemo(
     () => exportManimCode(items, { fullFile, defaults, audioItems }),
@@ -46,6 +55,23 @@ export default function ExportPanel() {
     () => exportManimCode(items, { fullFile: true, defaults, audioItems }),
     [items, defaults, audioItems],
   );
+
+  const combinedPython = useMemo(() => {
+    try {
+      useProjectScenesStore.getState().persistActiveIntoIdle();
+      const file = useProjectScenesStore.getState().toMultiSceneProjectFile();
+      return exportMultiSceneCombinedPython(
+        file.scenes.map((sc) => ({
+          items: sc.items,
+          defaults: sc.defaults,
+          audioItems: sc.audioItems,
+        })),
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return `from manim import *\n\n# COMBINED EXPORT ERROR: ${msg}\n`;
+    }
+  }, [items, defaults, audioItems, sceneOrderSig]);
 
   const openRenderModal = useCallback(() => {
     setRenderSceneName(safeSceneClassName(defaults.sceneName ?? ''));
@@ -69,6 +95,18 @@ export default function ExportPanel() {
       document.body.appendChild(a);
       a.click();
       a.remove();
+      const ps = useProjectScenesStore.getState();
+      const sid = ps.activeSceneId;
+      if (sid) {
+        ps.updateRenderMeta(sid, {
+          fingerprint: fingerprintSceneDiskPayload(
+            snapshotEditorToDiskPayload(),
+          ),
+          quality: renderQuality,
+          renderedAt: new Date().toISOString(),
+          error: null,
+        });
+      }
       if (openAfterRender) {
         const safeTitle = filename.replace(/[<>&"]/g, '');
         const html =
@@ -141,6 +179,62 @@ export default function ExportPanel() {
     }
   }, [measureUrl, mergeFiles]);
 
+  const renderFullProjectSequential = useCallback(async () => {
+    setRenderAllBusy(true);
+    setRenderAllErr(null);
+    try {
+      const ps = useProjectScenesStore.getState();
+      ps.persistActiveIntoIdle();
+      const file = ps.toMultiSceneProjectFile();
+      const blobs: Blob[] = [];
+      const nowIso = new Date().toISOString();
+
+      for (const sc of file.scenes) {
+        const py = exportManimCode(sc.items, {
+          fullFile: true,
+          defaults: sc.defaults,
+          audioItems: sc.audioItems,
+        });
+        const klass = safeSceneClassName(sc.defaults.sceneName ?? '');
+        blobs.push(await renderSceneMp4(measureUrl, py, renderQuality, klass));
+        ps.updateRenderMeta(sc.id, {
+          fingerprint: fingerprintSceneDiskPayload({
+            defaults: sc.defaults,
+            items: sc.items,
+            audioItems: sc.audioItems,
+          }),
+          quality: renderQuality,
+          renderedAt: nowIso,
+          error: null,
+        });
+      }
+
+      let combined: Blob;
+      if (blobs.length === 1) {
+        combined = blobs[0]!;
+      } else {
+        const mp4Files = blobs.map(
+          (b, i) => new File([b], `scene_${i}.mp4`, { type: 'video/mp4' }),
+        );
+        combined = await concatMp4Files(measureUrl, mp4Files);
+      }
+
+      const url = URL.createObjectURL(combined);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'full_project.mp4';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (err) {
+      setRenderAllErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRenderAllBusy(false);
+    }
+  }, [measureUrl, renderQuality]);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
@@ -184,6 +278,36 @@ export default function ExportPanel() {
           Render MP4
         </button>
       </div>
+
+      <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
+        <h4 className="text-xs font-semibold text-slate-200">Multi-scene render</h4>
+        <p className="text-[10px] text-slate-500 leading-relaxed">
+          Renders each scene tab in order, then merges MP4s via the measure server. Quality matches the Render MP4 modal
+          (default medium until changed).
+        </p>
+        <button
+          type="button"
+          onClick={() => void renderFullProjectSequential()}
+          disabled={renderAllBusy || rendering}
+          className="self-start px-2 py-1 text-xs bg-teal-800 hover:bg-teal-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+        >
+          {renderAllBusy ? 'Rendering all…' : 'Render all scenes → full_project.mp4'}
+        </button>
+        {renderAllErr && (
+          <p className="text-[10px] text-red-400 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+            {renderAllErr}
+          </p>
+        )}
+      </div>
+
+      <details className="rounded border border-slate-700 bg-slate-900/40 p-2">
+        <summary className="cursor-pointer text-xs text-slate-300 select-none">
+          Combined Python export (all scenes, one file)
+        </summary>
+        <pre className="mt-2 bg-slate-950 border border-slate-700 rounded p-2 text-[10px] text-slate-300 font-mono overflow-auto max-h-[30vh] whitespace-pre">
+          {combinedPython}
+        </pre>
+      </details>
 
       <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
         <h4 className="text-xs font-semibold text-slate-200">Merge MP4s</h4>
