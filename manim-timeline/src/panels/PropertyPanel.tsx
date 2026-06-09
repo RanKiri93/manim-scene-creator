@@ -12,6 +12,8 @@ import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
 import BlinkAnimationEditor from './BlinkAnimationEditor';
 import TargetAnimationEditor from './TargetAnimationEditor';
+import CameraMoveEditor from './CameraMoveEditor';
+import FrameAssignmentPanel from './FrameAssignmentPanel';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
 
@@ -155,6 +157,9 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
     case 'target_animation':
       body = <TargetAnimationEditor item={item} />;
       break;
+    case 'camera_move':
+      body = <CameraMoveEditor item={item} />;
+      break;
     case 'surroundingRect':
       body = <SurroundingRectEditor item={item} />;
       break;
@@ -190,6 +195,7 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
           ×
         </button>
       </div>
+      <FrameAssignmentPanel item={item} />
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3">{body}</div>
       <div
         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none"

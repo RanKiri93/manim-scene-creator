@@ -10,7 +10,13 @@ import {
   minTargetAnimationStartTimeForClip,
   effectiveStart,
 } from '@/lib/time';
-import { exitTargetSelectLabel, itemClipDisplayName } from '@/lib/itemDisplayName';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import {
+  filterTargetsByScope,
+  frameAwareItemLabel,
+  targetScopeFrameId,
+  type TargetScope,
+} from '@/lib/targetScope';
 import NumberInput from '@/components/NumberInput';
 import PropertyTabs from './PropertyTabs';
 import {
@@ -40,11 +46,15 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
   const updateItem = useSceneStore((s) => s.updateItem);
   const removeItem = useSceneStore((s) => s.removeItem);
   const itemsMap = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const pathCapture = useSceneStore((s) => s.targetAnimationPathCapture);
   const setPathCapture = useSceneStore((s) => s.setTargetAnimationPathCapture);
+  const [targetScope, setTargetScope] = useState<TargetScope>('same-frame');
   const [picker, setPicker] = useState<{ rowIndex: number; segmentIndex: number } | null>(
     null,
   );
+  const ownerFrameId = targetScopeFrameId(item, itemsMap, startFrameId);
 
   const set = useCallback(
     (patch: Partial<TargetAnimationItem>) => updateItem(item.id, patch),
@@ -59,6 +69,18 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
     [itemsMap, item.mode],
   );
 
+  const scopedTargets = useMemo(
+    () =>
+      filterTargetsByScope(
+        targets,
+        itemsMap,
+        startFrameId,
+        ownerFrameId,
+        targetScope,
+      ),
+    [targets, itemsMap, startFrameId, ownerFrameId, targetScope],
+  );
+
   const targetsList = item.targets?.length ? item.targets : [];
 
   const minStart = minTargetAnimationStartTimeForClip(item, itemsMap);
@@ -71,8 +93,8 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
   const addRow = () => {
     const pick =
-      targets.find((t) => !targetsList.some((r) => r.targetId === t.id)) ??
-      targets[0];
+      scopedTargets.find((t) => !targetsList.some((r) => r.targetId === t.id)) ??
+      scopedTargets[0];
     if (!pick) return;
     setTargets([...targetsList, defaultTargetAnimationRow(item.mode, pick.id)]);
   };
@@ -208,10 +230,21 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
     <div className="flex flex-col gap-3">
       <div>
         <div className="text-xs text-slate-400 mb-1">Targets</div>
+        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+          Scope
+          <select
+            value={targetScope}
+            onChange={(e) => setTargetScope(e.target.value as TargetScope)}
+            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+          >
+            <option value="same-frame">This frame</option>
+            <option value="all-frames">All frames</option>
+          </select>
+        </label>
         <div className="flex flex-col gap-2">
           {targetsList.map((row, index) => {
             const target = itemsMap.get(row.targetId);
-            const hasTarget = targets.some((t) => t.id === row.targetId);
+            const hasTarget = scopedTargets.some((t) => t.id === row.targetId);
             const line = target?.kind === 'textLine' ? target : null;
             const segIdx = row.segmentIndices?.filter(
               (i) => line && i >= 0 && i < line.segments.length,
@@ -234,12 +267,20 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                   >
                     {!hasTarget ? (
                       <option value={row.targetId}>
-                        (missing) {row.targetId.slice(0, 10)}
+                        {target && canBeTargetAnimationTarget(target, item.mode)
+                          ? frameAwareItemLabel(target, itemsMap, frames, startFrameId, true)
+                          : `(missing) ${row.targetId.slice(0, 10)}`}
                       </option>
                     ) : null}
-                    {targets.map((t) => (
+                    {scopedTargets.map((t) => (
                       <option key={t.id} value={t.id} title={t.id}>
-                        {exitTargetSelectLabel(t, itemsMap)}
+                        {frameAwareItemLabel(
+                          t,
+                          itemsMap,
+                          frames,
+                          startFrameId,
+                          targetScope === 'all-frames',
+                        )}
                       </option>
                     ))}
                   </select>

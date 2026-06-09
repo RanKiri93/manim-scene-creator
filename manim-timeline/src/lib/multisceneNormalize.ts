@@ -12,6 +12,17 @@ import {
   isMultiSceneProjectFile,
   MULTISCENE_PROJECT_KIND,
 } from '@/types/scene';
+import {
+  ensureFrameConfig,
+  normalizeItemFrameIdsInPlace,
+} from '@/lib/frameGrid';
+
+function normalizeSceneFramesInPlace(sc: ProjectSceneFile): void {
+  const cfg = ensureFrameConfig(sc.frames, sc.startFrameId);
+  sc.frames = cfg.frames;
+  sc.startFrameId = cfg.startFrameId;
+  normalizeItemFrameIdsInPlace(sc.items as SceneItem[], sc.frames, sc.startFrameId);
+}
 
 /**
  * Migrate every scene's items array using the file root `version`
@@ -21,6 +32,7 @@ export function migrateMultiSceneProjectsInPlace(multi: MultiSceneProjectFile): 
   const fv = multi.version ?? 0;
   for (const sc of multi.scenes) {
     sc.items = migrateItemsToCurrentVersion(sc.items as SceneItem[], fv);
+    normalizeSceneFramesInPlace(sc);
   }
 }
 
@@ -36,10 +48,12 @@ export function legacyProjectFileToMultiScene(p: ProjectFile): MultiSceneProject
     name: p.defaults.sceneName?.trim() || 'Scene 1',
     defaults: { ...p.defaults },
     items: migratedItems,
+    ...ensureFrameConfig(p.frames, p.startFrameId),
     audioItems: p.audioItems?.length
       ? p.audioItems.map((a) => ({ ...a }))
       : undefined,
   };
+  normalizeItemFrameIdsInPlace(scene.items as SceneItem[], scene.frames, scene.startFrameId);
   return {
     kind: MULTISCENE_PROJECT_KIND,
     version: PROJECT_VERSION,

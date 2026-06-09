@@ -6,6 +6,8 @@ import type {
   AxesItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  CameraMoveItem,
+  FrameDef,
   TargetAnimationItem,
   GraphPlotItem,
   GraphCurveItem,
@@ -46,6 +48,12 @@ import {
   generateGraphAreaPlay,
   validateAxesExit,
   formatExitGroupPlayLine,
+  overlayAreaVar,
+  overlayCurveVar,
+  overlayDotVar,
+  overlayPlotVar,
+  overlayPointSequenceGroupVar,
+  pythonOverlaySuffix,
   resolveExitTargetsForExport,
 } from './graphCodegen';
 import {
@@ -63,6 +71,7 @@ import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
   sequentialAnimSecondsForBlink,
+  sequentialAnimSecondsForCameraMove,
   sequentialAnimSecondsForTargetAnimation,
   sequentialAnimSecondsForLeaf,
   sequentialAnimSecondsForSurroundingRect,
@@ -86,6 +95,11 @@ import { formatBlinkClipPlay } from './blinkCodegen';
 import { formatTargetAnimationClipPlay } from './targetAnimationCodegen';
 import { generateSceneStartStaticAdds } from './staticAddCodegen';
 import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
+import {
+  cameraTargetPoint,
+  ensureFrameConfig,
+  frameCenter,
+} from '@/lib/frameGrid';
 
 type PlaybackEvent =
   | { t: number; kind: 'audio'; track: AudioTrackItem }
@@ -102,6 +116,7 @@ type PlaybackEvent =
   | { t: number; kind: 'surrounding_rect'; sr: SurroundingRectItem }
   | { t: number; kind: 'exit'; exit: ExitAnimationItem }
   | { t: number; kind: 'blink'; blink: BlinkAnimationItem }
+  | { t: number; kind: 'camera'; cam: CameraMoveItem }
   | { t: number; kind: 'target_animation'; ta: TargetAnimationItem };
 
 const TIMELINE_GAP_EPS = 0.001;
@@ -157,6 +172,29 @@ interface ExportOptions {
   fullFile: boolean;
   defaults: SceneDefaults;
   audioItems?: AudioTrackItem[];
+  frames?: FrameDef[];
+  startFrameId?: ItemId;
+}
+
+function manimVectorExpr(x: number, y: number): string {
+  const parts: string[] = [];
+  if (Math.abs(x) > 1e-9) parts.push(`${x.toFixed(6)} * RIGHT`);
+  if (Math.abs(y) > 1e-9) parts.push(`${y.toFixed(6)} * UP`);
+  return parts.length > 0 ? parts.join(' + ') : 'ORIGIN';
+}
+
+function cameraMovePlayLine(
+  clip: CameraMoveItem,
+  frames: readonly FrameDef[],
+  pad: string,
+): string {
+  const p = cameraTargetPoint(
+    frames,
+    clip.targetFrameId,
+    clip.offsetX ?? 0,
+    clip.offsetY ?? 0,
+  );
+  return `${pad}self.play(self.camera.frame.animate.move_to(${manimVectorExpr(p.x, p.y)}), run_time=${Math.max(0.01, clip.duration).toFixed(6)})\n`;
 }
 
 function leafNeedsNumpy(it: ExportLeaf): boolean {
@@ -280,6 +318,7 @@ function validateGraphAreaExport(
 function validateNextToExportOrder(
   flat: ExportLeaf[],
   itemsMap: Map<ItemId, SceneItem>,
+  frameIdFor: (item: SceneItem) => ItemId,
 ): void {
   const orderIndex = new Map<ItemId, number>();
   flat.forEach((leaf, i) => orderIndex.set(leaf.id, i));
@@ -293,6 +332,12 @@ function validateNextToExportOrder(
 
     for (const step of it.posSteps) {
       if (step.kind !== 'next_to' || !step.refId) continue;
+      const refItem = itemsMap.get(step.refId);
+      if (refItem && frameIdFor(it) !== frameIdFor(refItem)) {
+        throw new Error(
+          `Positioning: "${it.label || it.id}" uses next_to toward "${refItem.label || refItem.id}" in a different frame. Cross-frame next_to is not supported yet.`,
+        );
+      }
       const ri = orderIndex.get(step.refId);
       if (ri === undefined) {
         throw new Error(
@@ -304,7 +349,6 @@ function validateNextToExportOrder(
           `Positioning: "${it.label || it.id}" uses next_to toward "${step.refId}", but that object must be defined earlier in export order (place it before this clip on the timeline or reorder).`,
         );
       }
-      const refItem = itemsMap.get(step.refId);
       if (!refItem) continue;
       if (
         step.refSegmentIndex != null &&
@@ -338,6 +382,15 @@ function exportManimCodeInner(
 ): string {
   const flat = flattenExportLeaves(items);
   const itemsMap = itemsToMap(items);
+  const frameConfig = ensureFrameConfig(options.frames, options.startFrameId);
+  const frames = frameConfig.frames;
+  const startFrameId = frameConfig.startFrameId;
+  const frameIdFor = (item: SceneItem): ItemId =>
+    'frameId' in item && item.frameId && frames.some((f) => f.id === item.frameId)
+      ? item.frameId
+      : startFrameId;
+  const startFrame = frames.find((f) => f.id === startFrameId) ?? frames[0]!;
+  const startCenter = frameCenter(startFrame);
 
   for (const a of options.audioItems ?? []) {
     if (a.assetRelPath?.trim()) continue;
@@ -392,7 +445,7 @@ function exportManimCodeInner(
     }
   }
 
-  validateNextToExportOrder(flat, itemsMap);
+  validateNextToExportOrder(flat, itemsMap, frameIdFor);
 
   const needsNumpy = flat.some(leafNeedsNumpy);
 
@@ -612,6 +665,58 @@ function exportManimCodeInner(
     }
   }
 
+  const frameVars = new Map<ItemId, Set<string>>();
+  const addFrameVar = (frameId: ItemId, varName: string | undefined | null) => {
+    if (!varName) return;
+    const set = frameVars.get(frameId) ?? new Set<string>();
+    set.add(varName);
+    frameVars.set(frameId, set);
+  };
+  for (const it of flat) {
+    if (it.kind === 'textLine' || it.kind === 'axes' || it.kind === 'shape') {
+      addFrameVar(frameIdFor(it), idToVarName.get(it.id));
+      continue;
+    }
+    const axVar = 'axesId' in it ? idToVarName.get(it.axesId) : undefined;
+    if (!axVar) continue;
+    const ax = itemsMap.get(it.axesId);
+    const fid = ax ? frameIdFor(ax) : startFrameId;
+    if (it.kind === 'graphPlot') {
+      addFrameVar(fid, overlayPlotVar(axVar, it.id));
+    } else if (it.kind === 'graphCurve') {
+      addFrameVar(fid, overlayCurveVar(axVar, it.id));
+    } else if (it.kind === 'graphArea') {
+      addFrameVar(fid, overlayAreaVar(axVar, it.id));
+    } else if (it.kind === 'graphDot') {
+      const dVar = overlayDotVar(axVar, it.id);
+      addFrameVar(fid, dVar);
+      if (it.dot.label.trim()) addFrameVar(fid, `${dVar}_lbl`);
+    } else if (it.kind === 'graphField' && it.fieldMode !== 'none') {
+      const suf = pythonOverlaySuffix(it.id);
+      addFrameVar(fid, `${axVar}_vf_${suf}`);
+      if ((it.streamPoints ?? []).length > 0) {
+        addFrameVar(fid, `${axVar}_streams_${suf}`);
+      }
+    } else if (it.kind === 'graphFunctionSeries') {
+      addFrameVar(fid, `${axVar}_fs_${pythonOverlaySuffix(it.id)}`);
+    } else if (it.kind === 'graphPointSequence') {
+      addFrameVar(fid, overlayPointSequenceGroupVar(axVar, it.id));
+    }
+  }
+  for (const sr of srSorted) {
+    const sv = idToVarName.get(sr.id);
+    const anchorId = surroundPlacementLeafId(sr, flat, itemsMap);
+    const anchor = anchorId ? itemsMap.get(anchorId) : null;
+    addFrameVar(anchor ? frameIdFor(anchor) : startFrameId, sv);
+  }
+  for (const frame of frames) {
+    const center = frameCenter(frame);
+    if (Math.abs(center.x) < 1e-9 && Math.abs(center.y) < 1e-9) continue;
+    const vars = [...(frameVars.get(frame.id) ?? [])];
+    if (vars.length === 0) continue;
+    posStr += `${' '.repeat(base)}VGroup(${vars.join(', ')}).shift(${manimVectorExpr(center.x, center.y)})\n`;
+  }
+
   const playPad = ' '.repeat(base);
   let timelineCursor = 0;
 
@@ -736,10 +841,16 @@ function exportManimCodeInner(
       playEvents.push({ t: it.startTime, kind: 'target_animation', ta: it });
     }
   }
+  for (const it of items) {
+    if (it.kind === 'camera_move') {
+      playEvents.push({ t: it.startTime, kind: 'camera', cam: it });
+    }
+  }
   const eventKindOrder = (k: PlaybackEvent['kind']) => {
     if (k === 'audio') return 0;
     if (k === 'leaf' || k === 'visual_cluster') return 1;
     if (k === 'surrounding_rect') return 2;
+    if (k === 'camera') return 4;
     return 3;
   };
   const leafEventSortKey = (e: PlaybackEvent): string => {
@@ -783,9 +894,15 @@ function exportManimCodeInner(
     if (a.kind === 'target_animation' && b.kind === 'target_animation') {
       return a.ta.id.localeCompare(b.ta.id);
     }
+    if (a.kind === 'camera' && b.kind === 'camera') {
+      return a.cam.id.localeCompare(b.cam.id);
+    }
     return 0;
   });
 
+  if (Math.abs(startCenter.x) > 1e-9 || Math.abs(startCenter.y) > 1e-9) {
+    playStr += `${playPad}self.camera.frame.move_to(${manimVectorExpr(startCenter.x, startCenter.y)})\n`;
+  }
   playStr += generateSceneStartStaticAdds(flat, items, idToVarName, base);
 
   const emitLeafPlay = (
@@ -945,6 +1062,10 @@ function exportManimCodeInner(
       (e): e is Extract<PlaybackEvent, { kind: 'target_animation' }> =>
         e.kind === 'target_animation',
     );
+    const cameraMoves = group.filter(
+      (e): e is Extract<PlaybackEvent, { kind: 'camera' }> =>
+        e.kind === 'camera',
+    );
 
     if (audios.length && t0 + TIMELINE_GAP_EPS < timelineCursor) {
       playStr += `${playPad}# Note: audio below overlaps earlier playback in export order (Manim runs sequentially).\n`;
@@ -1012,6 +1133,9 @@ function exportManimCodeInner(
         itemsMap,
       );
     }
+    for (const cam of cameraMoves) {
+      playStr += cameraMovePlayLine(cam.cam, frames, playPad);
+    }
 
     let groupEnd = t0;
     for (const a of audios) {
@@ -1048,6 +1172,9 @@ function exportManimCodeInner(
     }
     for (const tac of targetAnims) {
       groupEnd = Math.max(groupEnd, tac.ta.startTime + tac.ta.duration);
+    }
+    for (const cam of cameraMoves) {
+      groupEnd = Math.max(groupEnd, cam.cam.startTime + cam.cam.duration);
     }
 
     // Manim's `add_sound` does not advance scene time. Pad with wait() so the scene clock
@@ -1091,6 +1218,9 @@ function exportManimCodeInner(
     for (const tac of targetAnims) {
       animSec += sequentialAnimSecondsForTargetAnimation(tac.ta);
     }
+    for (const cam of cameraMoves) {
+      animSec += sequentialAnimSecondsForCameraMove(cam.cam);
+    }
     const padAfter = Math.max(0, groupSpanCapped - animSec);
     if (padAfter > TIMELINE_GAP_EPS) {
       playStr += `${playPad}self.wait(${padAfter.toFixed(4)})\n`;
@@ -1122,6 +1252,9 @@ function exportManimCodeInner(
       fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
     }
     if (it.kind === 'target_animation' && it.targets.length > 0) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'camera_move') {
       fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
     }
     if (it.kind === 'surroundingRect') {
@@ -1157,7 +1290,11 @@ function exportManimCodeInner(
   }
 
   const className = safeSceneClassName(options.defaults.sceneName ?? '');
-  let body = `\nclass ${className}(Scene):\n`;
+  const needsMovingCamera =
+    items.some((it) => it.kind === 'camera_move') ||
+    Math.abs(startCenter.x) > 1e-9 ||
+    Math.abs(startCenter.y) > 1e-9;
+  let body = `\nclass ${className}(${needsMovingCamera ? 'MovingCameraScene' : 'Scene'}):\n`;
   body += '    def construct(self):\n';
 
   body += `        # ========== 1. Definitions ==========\n`;

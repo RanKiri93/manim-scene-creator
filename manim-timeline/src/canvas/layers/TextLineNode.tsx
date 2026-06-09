@@ -31,6 +31,7 @@ interface TextLineNodeProps {
   isSelected: boolean;
   resolvedX: number;
   resolvedY: number;
+  frameOffset: { x: number; y: number };
   currentTime: number;
   itemsMap: Map<ItemId, SceneItem>;
   audioItems: AudioTrackItem[];
@@ -202,6 +203,7 @@ export default function TextLineNode({
   isSelected,
   resolvedX,
   resolvedY,
+  frameOffset,
   currentTime,
   itemsMap,
   audioItems,
@@ -212,8 +214,8 @@ export default function TextLineNode({
   const pxPerUnitY = canvasHeight / FRAME_H;
 
   const canvasToManim = (cx: number, cy: number) => ({
-    mx: (cx / canvasWidth - 0.5) * FRAME_W,
-    my: (0.5 - cy / canvasHeight) * FRAME_H,
+    mx: (cx / canvasWidth - 0.5) * FRAME_W - frameOffset.x,
+    my: (0.5 - cy / canvasHeight) * FRAME_H - frameOffset.y,
   });
 
   const { onDragStart, onDragMove, onDragEnd, draggable } = useDragSnap({

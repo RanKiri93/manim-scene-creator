@@ -17,6 +17,8 @@ import type {
   ShapeItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  CameraMoveItem,
+  FrameDef,
   TargetAnimationItem,
   TargetAnimationMode,
   SurroundingRectItem,
@@ -28,6 +30,7 @@ import type {
   SceneDefaults,
   ItemId,
 } from '@/types/scene';
+import { createDefaultFrame } from '@/lib/frameGrid';
 import {
   DEFAULT_FIELD_ARROW_STROKE_WIDTH,
   functionSeriesTotalDuration,
@@ -109,6 +112,38 @@ export function createBlinkAnimation(
       scaleFactor: 1.15,
       blinkColor: '#fbbf24',
     })),
+  };
+}
+
+export function createFrame(col = 0, row = 0, label?: string): FrameDef {
+  return {
+    ...createDefaultFrame(),
+    col,
+    row,
+    label,
+  };
+}
+
+export function defaultFrames(): { frames: FrameDef[]; startFrameId: ItemId } {
+  const frame = createDefaultFrame();
+  return { frames: [frame], startFrameId: frame.id };
+}
+
+export function createCameraMove(
+  targetFrameId: ItemId,
+  startTime: number,
+  duration = 1,
+): CameraMoveItem {
+  return {
+    kind: 'camera_move',
+    id: newId(),
+    label: '',
+    layer: 0,
+    startTime,
+    duration: Math.max(0.05, duration),
+    targetFrameId,
+    offsetX: 0,
+    offsetY: 0,
   };
 }
 

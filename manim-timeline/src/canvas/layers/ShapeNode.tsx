@@ -70,6 +70,7 @@ interface ShapeNodeProps {
   isSelected: boolean;
   resolvedX: number;
   resolvedY: number;
+  frameOffset: { x: number; y: number };
   /** Playback preview: overrides item stroke when set. */
   previewStrokeColor?: string;
   /** Playback preview: overrides item fill when set (use transparent to clear). */
@@ -85,6 +86,7 @@ export default function ShapeNode({
   isSelected,
   resolvedX,
   resolvedY,
+  frameOffset,
   previewStrokeColor,
   previewFillColor,
   previewRotationDeltaDeg = 0,
@@ -102,8 +104,8 @@ export default function ShapeNode({
   const interactionRef = useRef(false);
 
   const canvasToManim = (cx: number, cy: number) => ({
-    mx: (cx / canvasWidth - 0.5) * FRAME_W,
-    my: (0.5 - cy / canvasHeight) * FRAME_H,
+    mx: (cx / canvasWidth - 0.5) * FRAME_W - frameOffset.x,
+    my: (0.5 - cy / canvasHeight) * FRAME_H - frameOffset.y,
   });
 
   const draggable = isFreelyDraggable(item.posSteps);

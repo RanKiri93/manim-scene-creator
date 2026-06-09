@@ -40,7 +40,8 @@ export function migrateItemsToV20(items: readonly SceneItem[]): SceneItem[] {
     if (
       it.kind === 'exit_animation' ||
       it.kind === 'blink_animation' ||
-      it.kind === 'target_animation'
+      it.kind === 'target_animation' ||
+      it.kind === 'camera_move'
     )
       return it;
     if (it.kind === 'surroundingRect') return it;

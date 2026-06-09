@@ -76,6 +76,7 @@ function normalizeItem(item: SceneItem): SceneItem {
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
     item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
     item.kind === 'surroundingRect'
   ) {
     return item;

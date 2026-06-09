@@ -1,9 +1,11 @@
 import { exportManimCode } from '@/codegen/manimExporter';
-import type { SceneDefaults, SceneItem, AudioTrackItem } from '@/types/scene';
+import type { SceneDefaults, SceneItem, AudioTrackItem, FrameDef, ItemId } from '@/types/scene';
 
 export interface SceneExportInput {
   items: SceneItem[];
   defaults: SceneDefaults;
+  frames?: FrameDef[];
+  startFrameId?: ItemId;
   audioItems?: AudioTrackItem[];
 }
 
@@ -49,6 +51,8 @@ export function exportMultiSceneCombinedPython(scenes: SceneExportInput[]): stri
     exportManimCode(sc.items, {
       fullFile: true,
       defaults: sc.defaults,
+      frames: sc.frames,
+      startFrameId: sc.startFrameId,
       audioItems: sc.audioItems,
     }));
   return combineMultiScenePythonExports(parts);

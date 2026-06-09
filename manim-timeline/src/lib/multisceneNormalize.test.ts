@@ -8,8 +8,10 @@ import {
   normalizeAnyDiskProjectToMulti,
 } from '@/lib/multisceneNormalize';
 import type { SceneItem } from '@/types/scene';
+import { defaultFrames } from '@/store/factories';
 
 function legacySingleScene(overrides: Partial<ProjectFile> = {}): ProjectFile {
+  const frameConfig = defaultFrames();
   return {
     version: PROJECT_VERSION,
     savedAt: '2020-01-01T00:00:00.000Z',
@@ -20,6 +22,8 @@ function legacySingleScene(overrides: Partial<ProjectFile> = {}): ProjectFile {
       exportNamePrefix: '',
       sceneName: 'LessonIntro',
     },
+    frames: frameConfig.frames,
+    startFrameId: frameConfig.startFrameId,
     items: [] as SceneItem[],
     audioItems: [
       {
@@ -52,6 +56,7 @@ describe('multisceneNormalize', () => {
   });
 
   it('normalizeAnyDiskProjectToMulti preserves multi-scene shape and repairs active id', () => {
+    const frameConfig = defaultFrames();
     const badMulti: MultiSceneProjectFile = {
       kind: MULTISCENE_PROJECT_KIND,
       version: PROJECT_VERSION,
@@ -63,6 +68,8 @@ describe('multisceneNormalize', () => {
           id: 'real-1',
           name: 'A',
           defaults: legacySingleScene().defaults,
+          frames: frameConfig.frames,
+          startFrameId: frameConfig.startFrameId,
           items: [],
           audioItems: undefined,
         },
@@ -85,6 +92,7 @@ describe('multisceneNormalize', () => {
   });
 
   it('migrateMultiSceneProjectsInPlace runs item migrations for every scene', () => {
+    const frameConfig = defaultFrames();
     const multi: MultiSceneProjectFile = {
       kind: MULTISCENE_PROJECT_KIND,
       version: PROJECT_VERSION - 10,
@@ -96,6 +104,8 @@ describe('multisceneNormalize', () => {
           id: 'old',
           name: '',
           defaults: legacySingleScene().defaults,
+          frames: frameConfig.frames,
+          startFrameId: frameConfig.startFrameId,
           items: [] as SceneItem[],
         },
       ],

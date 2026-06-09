@@ -1,6 +1,7 @@
 import type {
   AudioTrackItem,
   BlinkAnimationItem,
+  CameraMoveItem,
   TargetAnimationItem,
   ExitAnimationItem,
   ItemId,
@@ -155,6 +156,10 @@ export function sequentialAnimSecondsForTargetAnimation(
   ta: TargetAnimationItem,
 ): number {
   return Math.max(0.01, ta.duration);
+}
+
+export function sequentialAnimSecondsForCameraMove(cam: CameraMoveItem): number {
+  return Math.max(0.01, cam.duration);
 }
 
 export function sequentialAnimSecondsForSurroundingRect(

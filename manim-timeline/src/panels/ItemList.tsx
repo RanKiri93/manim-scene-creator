@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import type { SceneItem } from '@/types/scene';
+import type { ItemId, SceneItem } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
+import { associatedFrameId, frameDisplayName, readingOrderFrames } from '@/lib/frameGrid';
 
 export default function ItemList() {
   const itemsMap = useSceneStore((s) => s.items);
@@ -11,6 +12,15 @@ export default function ItemList() {
   const select = useSceneStore((s) => s.select);
   const removeItem = useSceneStore((s) => s.removeItem);
   const duplicateItem = useSceneStore((s) => s.duplicateItem);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+
+  const [filterFrameId, setFilterFrameId] = useState<ItemId | 'all'>('all');
+  // A deleted frame falls back to showing everything.
+  const effectiveFilter =
+    filterFrameId !== 'all' && !frames.some((f) => f.id === filterFrameId)
+      ? 'all'
+      : filterFrameId;
 
   const items = useMemo(
     () =>
@@ -18,6 +28,16 @@ export default function ItemList() {
         .filter(isTopLevelItem)
         .sort((a: SceneItem, b: SceneItem) => a.startTime - b.startTime || a.layer - b.layer),
     [itemsMap],
+  );
+
+  const visibleItems = useMemo(
+    () =>
+      effectiveFilter === 'all'
+        ? items
+        : items.filter(
+            (it) => associatedFrameId(it, itemsMap, startFrameId) === effectiveFilter,
+          ),
+    [items, itemsMap, startFrameId, effectiveFilter],
   );
 
   const renderRow = (item: SceneItem) => {
@@ -127,6 +147,9 @@ export default function ItemList() {
     } else if (item.kind === 'target_animation') {
       kindBadge = 'bg-yellow-900/35 text-yellow-200';
       kindLetter = 'TA';
+    } else if (item.kind === 'camera_move') {
+      kindBadge = 'bg-purple-700/35 text-purple-200';
+      kindLetter = 'Cam';
     } else if (item.kind === 'surroundingRect') {
       kindBadge = 'bg-orange-600/30 text-orange-200';
       kindLetter = 'R';
@@ -187,20 +210,39 @@ export default function ItemList() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 p-3 shrink-0 border-b border-slate-700/60">
-        <h3 className="text-sm font-semibold text-slate-200 flex-1 min-w-[80px]">Items</h3>
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center gap-2 p-3 shrink-0 border-b border-slate-700/60">
+        <h3 className="text-sm font-semibold text-slate-200 shrink-0">Items</h3>
+        <select
+          value={effectiveFilter}
+          onChange={(e) =>
+            setFilterFrameId(e.target.value as ItemId | 'all')
+          }
+          title="Filter items by frame"
+          className="ml-auto min-w-0 max-w-[140px] bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+        >
+          <option value="all">All frames</option>
+          {readingOrderFrames(frames).map((f) => (
+            <option key={f.id} value={f.id}>
+              {frameDisplayName(f, frames)}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
-        {items.length === 0 && (
+        {items.length === 0 ? (
           <p className="text-xs text-slate-500 italic py-4 text-center">
             No items yet. Use the toolbar beside the list to add objects or audio.
           </p>
-        )}
+        ) : visibleItems.length === 0 ? (
+          <p className="text-xs text-slate-500 italic py-4 text-center">
+            No items in this frame.
+          </p>
+        ) : null}
 
         <div className="flex flex-col gap-0.5">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <div key={item.id}>{renderRow(item)}</div>
           ))}
         </div>

@@ -5,6 +5,8 @@ import {
   createExitAnimation,
   createGraphCurve,
   createGraphPlot,
+  createCameraMove,
+  createFrame,
   createShape,
   createSurroundingRect,
   createTextLine,
@@ -21,6 +23,65 @@ const seg = (text: string) =>
   }) as const;
 
 describe('exportManimCode concurrent overlap (composable leaves)', () => {
+  it('exports frame placement and camera move with MovingCameraScene', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(0, 0, 'Home');
+    const right = createFrame(1, 0, 'Right');
+    const line = createTextLine(defaults, 0);
+    line.raw = 'hello';
+    line.frameId = right.id;
+    const cam = createCameraMove(right.id, 2, 1.5);
+
+    const code = exportManimCode([line, cam], {
+      fullFile: true,
+      defaults,
+      frames: [home, right],
+      startFrameId: home.id,
+    });
+
+    expect(code).toContain('class Scene1(MovingCameraScene):');
+    expect(code).toContain('VGroup(line_1).shift(14.222222 * RIGHT)');
+    expect(code).toContain(
+      'self.play(self.camera.frame.animate.move_to(14.222222 * RIGHT), run_time=1.500000)',
+    );
+  });
+
+  it('rejects cross-frame next_to exports', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(0, 0, 'Home');
+    const right = createFrame(1, 0, 'Right');
+    const a = createTextLine(defaults, 0);
+    a.id = 'a';
+    a.frameId = home.id;
+    a.raw = 'a';
+    const b = createTextLine(defaults, 1);
+    b.id = 'b';
+    b.frameId = right.id;
+    b.raw = 'b';
+    b.posSteps = [
+      {
+        kind: 'next_to',
+        refKind: 'line',
+        refId: a.id,
+        dir: 'DOWN',
+        buff: 0.3,
+        alignedEdge: null,
+        refSegmentIndex: null,
+        selfSegmentIndex: null,
+        bounds: null,
+      },
+    ];
+
+    const code = exportManimCode([a, b], {
+      fullFile: true,
+      defaults,
+      frames: [home, right],
+      startFrameId: home.id,
+    });
+    expect(code).toContain('EXPORT ERROR');
+    expect(code).toContain('different frame');
+  });
+
   it('emits graph plot() after axes positioning so coords_to_point uses the final pose', () => {
     const defaults = defaultSceneDefaults();
     const ax = createAxes(defaults, 0);

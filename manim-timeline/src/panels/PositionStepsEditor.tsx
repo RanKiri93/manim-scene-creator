@@ -11,7 +11,11 @@ import type {
   NextToBoundsMode,
 } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
-import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import {
+  filterTargetsByScope,
+  frameAwareShortLabel,
+  targetScopeFrameId,
+} from '@/lib/targetScope';
 
 const DIRECTIONS: ManimDirection[] = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'UL', 'UR', 'DL', 'DR'];
 const EDGE_DIRECTIONS: ManimDirection[] = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
@@ -55,11 +59,15 @@ interface PositionStepsEditorProps {
 
 export default function PositionStepsEditor({ steps, onChange, currentItemId }: PositionStepsEditorProps) {
   const itemsMap = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const currentItem = itemsMap.get(currentItemId);
+  const currentFrameId = targetScopeFrameId(currentItem, itemsMap, startFrameId);
 
   const otherItems = useMemo(() => {
-    const result: { id: ItemId; label: string; kind: SceneItem['kind'] }[] = [];
-    for (const [id, item] of itemsMap) {
-      if (id === currentItemId) continue;
+    const eligible: SceneItem[] = [];
+    for (const item of itemsMap.values()) {
+      if (item.id === currentItemId) continue;
       if (
         item.kind !== 'textLine' &&
         item.kind !== 'axes' &&
@@ -67,11 +75,21 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId }: 
       ) {
         continue;
       }
-      const label = itemClipDisplayName(item);
-      result.push({ id, label, kind: item.kind });
+      eligible.push(item);
     }
+    const result = filterTargetsByScope(
+      eligible,
+      itemsMap,
+      startFrameId,
+      currentFrameId,
+      'same-frame',
+    ).map((item) => ({
+      id: item.id,
+      label: frameAwareShortLabel(item, itemsMap, frames, startFrameId, false),
+      kind: item.kind,
+    }));
     return result.sort((a, b) => a.label.localeCompare(b.label));
-  }, [itemsMap, currentItemId]);
+  }, [itemsMap, currentItemId, startFrameId, currentFrameId, frames]);
 
   const update = (index: number, newStep: PosStep) => {
     onChange(steps.map((s, i) => (i === index ? newStep : s)));
@@ -202,8 +220,14 @@ function NextToFields({
   onChange: (s: PosStepNextTo) => void;
 }) {
   const itemsMap = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const refItem = step.refId ? itemsMap.get(step.refId) : undefined;
   const selfItem = itemsMap.get(currentItemId);
+  const refHiddenByFrame =
+    !!refItem &&
+    (refItem.kind === 'textLine' || refItem.kind === 'axes' || refItem.kind === 'shape') &&
+    !otherItems.some((it) => it.id === refItem.id);
   const refSegCount =
     refItem?.kind === 'textLine' ? refItem.segments.length : 0;
   const selfSegCount =
@@ -236,6 +260,12 @@ function NextToFields({
             className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300 max-w-[140px]"
           >
             <option value="">-- select item --</option>
+            {refHiddenByFrame ? (
+              <option value={refItem.id} disabled>
+                {frameAwareShortLabel(refItem, itemsMap, frames, startFrameId, true)} (not in
+                this frame)
+              </option>
+            ) : null}
             {otherItems.map((it) => (
               <option key={it.id} value={it.id}>
                 {it.kind === 'textLine'

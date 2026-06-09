@@ -9,6 +9,7 @@ import type {
   TextLineItem,
   AxesItem,
   SceneDefaults,
+  FrameDef,
   MeasureConfig,
   MeasureResult,
   ProjectFile,
@@ -101,7 +102,11 @@ import {
   MEASURE_SERVER_DEFAULT_URL,
   PROJECT_VERSION,
 } from '@/lib/constants';
-import { defaultSceneDefaults } from './factories';
+import { defaultFrames, defaultSceneDefaults } from './factories';
+import {
+  ensureFrameConfig,
+  normalizeItemFrameIdsInPlace,
+} from '@/lib/frameGrid';
 import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
 import {
   applyTimeShiftToFragment,
@@ -112,6 +117,8 @@ import {
 } from '@/lib/projectFragment';
 
 enableMapSet();
+
+const INITIAL_FRAME_CONFIG = defaultFrames();
 
 function dedupeExclusiveAudioOwner(
   items: Map<ItemId, SceneItem>,
@@ -149,6 +156,16 @@ function stripExclusiveAudioClone(c: SceneItem): void {
   }
 }
 
+function isFrameDrawable(item: SceneItem): boolean {
+  return !(
+    item.kind === 'exit_animation' ||
+    item.kind === 'blink_animation' ||
+    item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
+    item.kind === 'surroundingRect'
+  );
+}
+
 function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
   for (const a of tracks) {
     const u = a.audioUrl;
@@ -165,6 +182,8 @@ function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
 /** Serializable scene slice loaded into the editor from disk or sibling scene tabs. */
 export interface SceneDiskPayload {
   defaults: SceneDefaults;
+  frames: FrameDef[];
+  startFrameId: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
 }
@@ -180,6 +199,11 @@ function runLoadSceneDraft(
     payload.items as SceneItem[],
     fileVersion,
   );
+  const frameConfig = ensureFrameConfig(payload.frames, payload.startFrameId);
+  s.frames = frameConfig.frames;
+  s.startFrameId = frameConfig.startFrameId;
+  s.activeFrameId = frameConfig.startFrameId;
+  normalizeItemFrameIdsInPlace(migrated, s.frames, s.startFrameId);
   for (const item of migrated) {
     s.items.set(item.id, item);
   }
@@ -236,6 +260,8 @@ interface UiSlice {
   exportOpen: boolean;
   audioMode: AudioPanelMode | null;
   agentOpen: boolean;
+  /** Editor-only frame used as the default for newly-created drawable items. */
+  activeFrameId: ItemId | null;
   /** When set, the next plain-canvas clicks append local points to that polyline shape. */
   polylinePointCaptureId: ItemId | null;
   /** When set, plain-canvas clicks append relative offsets to a target_animation path row. */
@@ -243,6 +269,7 @@ interface UiSlice {
   setExportOpen: (open: boolean) => void;
   setAudioMode: (mode: AudioPanelMode | null) => void;
   setAgentOpen: (open: boolean) => void;
+  setActiveFrameId: (id: ItemId | null) => void;
   setPolylinePointCaptureId: (id: ItemId | null) => void;
   setTargetAnimationPathCapture: (capture: TargetAnimationPathCapture | null) => void;
 }
@@ -251,6 +278,8 @@ interface UiSlice {
 
 interface SceneDataSlice {
   items: Map<ItemId, SceneItem>;
+  frames: FrameDef[];
+  startFrameId: ItemId;
   defaults: SceneDefaults;
   measureConfig: MeasureConfig;
   audioItems: AudioTrackItem[];
@@ -271,6 +300,10 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   inspect: (id: ItemId | null) => void;
 
   // CRUD
+  addFrame: (frame: FrameDef) => void;
+  updateFrame: (id: ItemId, patch: Partial<Omit<FrameDef, 'id'>>) => void;
+  removeFrame: (id: ItemId) => void;
+  setStartFrame: (id: ItemId) => void;
   addItem: (item: SceneItem) => void;
   updateItem: <K extends SceneItem['kind']>(
     id: ItemId,
@@ -379,6 +412,8 @@ export const useSceneStore = create<SceneStore>()(
     immer<SceneStore>((set, get) => ({
       // ── Initial state ──
       items: new Map(),
+      frames: INITIAL_FRAME_CONFIG.frames,
+      startFrameId: INITIAL_FRAME_CONFIG.startFrameId,
       defaults: defaultSceneDefaults(),
       measureConfig: {
         url: MEASURE_SERVER_DEFAULT_URL,
@@ -394,11 +429,16 @@ export const useSceneStore = create<SceneStore>()(
       exportOpen: false,
       audioMode: null,
       agentOpen: false,
+      activeFrameId: INITIAL_FRAME_CONFIG.startFrameId,
       polylinePointCaptureId: null,
       targetAnimationPathCapture: null,
       setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
       setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
       setAgentOpen: (open) => set((s) => { s.agentOpen = open; }),
+      setActiveFrameId: (id) =>
+        set((s) => {
+          s.activeFrameId = id && s.frames.some((f) => f.id === id) ? id : s.startFrameId;
+        }),
       setPolylinePointCaptureId: (id) =>
         set((s) => {
           s.polylinePointCaptureId = id;
@@ -450,7 +490,96 @@ export const useSceneStore = create<SceneStore>()(
       inspect: (id) => set((s) => { s.inspectedId = id; }),
 
       // ── CRUD ──
+      addFrame: (frame) =>
+        set((s) => {
+          if (s.frames.some((f) => f.id === frame.id)) return;
+          s.frames.push({ ...frame });
+          s.activeFrameId = frame.id;
+        }),
+
+      updateFrame: (id, patch) =>
+        set((s) => {
+          const frame = s.frames.find((f) => f.id === id);
+          if (!frame) return;
+          if (typeof patch.col === 'number' && Number.isFinite(patch.col)) {
+            frame.col = Math.trunc(patch.col);
+          }
+          if (typeof patch.row === 'number' && Number.isFinite(patch.row)) {
+            frame.row = Math.trunc(patch.row);
+          }
+          if ('label' in patch) frame.label = patch.label;
+        }),
+
+      removeFrame: (id) =>
+        set((s) => {
+          if (s.frames.length <= 1) return;
+          const idx = s.frames.findIndex((f) => f.id === id);
+          if (idx < 0) return;
+          s.frames.splice(idx, 1);
+          const fallback = s.frames[0]!.id;
+          if (s.startFrameId === id) s.startFrameId = fallback;
+          if (s.activeFrameId === id) s.activeFrameId = s.startFrameId;
+          const removedItemIds = new Set<ItemId>();
+          for (const [itemId, item] of [...s.items.entries()]) {
+            if (item.kind === 'camera_move' && item.targetFrameId === id) {
+              s.items.delete(itemId);
+              s.selectedIds.delete(itemId);
+              if (s.inspectedId === itemId) s.inspectedId = null;
+              continue;
+            }
+            if (isFrameDrawable(item) && 'frameId' in item && item.frameId === id) {
+              s.items.delete(itemId);
+              removedItemIds.add(itemId);
+              s.selectedIds.delete(itemId);
+              if (s.inspectedId === itemId) s.inspectedId = null;
+            }
+          }
+          for (const [itemId, item] of [...s.items.entries()]) {
+            if (
+              item.kind === 'exit_animation' &&
+              item.targets.some((t) => removedItemIds.has(t.targetId))
+            ) {
+              s.items.delete(itemId);
+            } else if (
+              item.kind === 'blink_animation' &&
+              item.targets.some((t) => removedItemIds.has(t.targetId))
+            ) {
+              s.items.delete(itemId);
+            } else if (
+              item.kind === 'target_animation' &&
+              item.targets.some((t) => removedItemIds.has(t.targetId))
+            ) {
+              s.items.delete(itemId);
+            } else if (item.kind === 'surroundingRect') {
+              const next = item.targetIds.filter((tid) => !removedItemIds.has(tid));
+              if (next.length === 0) {
+                s.items.delete(itemId);
+              } else {
+                item.targetIds = next;
+              }
+            }
+            if (!s.items.has(itemId)) {
+              s.selectedIds.delete(itemId);
+              if (s.inspectedId === itemId) s.inspectedId = null;
+            }
+          }
+        }),
+
+      setStartFrame: (id) =>
+        set((s) => {
+          if (!s.frames.some((f) => f.id === id)) return;
+          s.startFrameId = id;
+          s.activeFrameId = id;
+        }),
+
       addItem: (item) => set((s) => {
+        if (isFrameDrawable(item)) {
+          const frameOwned = item as SceneItem & { frameId?: ItemId };
+          frameOwned.frameId =
+            frameOwned.frameId && s.frames.some((f) => f.id === frameOwned.frameId)
+              ? frameOwned.frameId
+              : (s.activeFrameId ?? s.startFrameId);
+        }
         s.items.set(item.id, item as SceneItem);
         if (item.kind === 'graphFunctionSeries') {
           const fs = s.items.get(item.id) as GraphFunctionSeriesItem;
@@ -633,6 +762,14 @@ export const useSceneStore = create<SceneStore>()(
           set((s) => { s.items.set(clone.id, clone); });
           return;
         }
+        if (src.kind === 'camera_move') {
+          const clone = structuredClone(src) as typeof src;
+          clone.id = crypto.randomUUID().slice(0, 12);
+          clone.label = (src.label || '') + ' (copy)';
+          clone.startTime = src.startTime + src.duration;
+          set((s) => { s.items.set(clone.id, clone); });
+          return;
+        }
         if (src.kind === 'surroundingRect') {
           const clone = structuredClone(src) as typeof src;
           clone.id = crypto.randomUUID().slice(0, 12);
@@ -667,14 +804,17 @@ export const useSceneStore = create<SceneStore>()(
         if (
           item.kind === 'exit_animation' ||
           item.kind === 'blink_animation' ||
-          item.kind === 'target_animation'
+          item.kind === 'target_animation' ||
+          item.kind === 'camera_move'
         ) {
           const minT =
             item.kind === 'exit_animation'
               ? minExitStartTimeForClip(item, s.items)
               : item.kind === 'blink_animation'
                 ? minBlinkStartTimeForClip(item, s.items)
-                : minTargetAnimationStartTimeForClip(item, s.items);
+                : item.kind === 'target_animation'
+                  ? minTargetAnimationStartTimeForClip(item, s.items)
+                  : 0;
           if (minT != null) t = Math.max(t, minT);
         }
         item.startTime = t;
@@ -779,7 +919,8 @@ export const useSceneStore = create<SceneStore>()(
         if (
           item.kind === 'exit_animation' ||
           item.kind === 'blink_animation' ||
-          item.kind === 'target_animation'
+          item.kind === 'target_animation' ||
+          item.kind === 'camera_move'
         ) {
           item.duration = Math.max(0.05, newDuration);
           return;
@@ -798,6 +939,7 @@ export const useSceneStore = create<SceneStore>()(
           item?.kind === 'exit_animation' ||
           item?.kind === 'blink_animation' ||
           item?.kind === 'target_animation' ||
+          item?.kind === 'camera_move' ||
           item?.kind === 'surroundingRect'
         ) {
           return;
@@ -810,6 +952,7 @@ export const useSceneStore = create<SceneStore>()(
           item?.kind === 'exit_animation' ||
           item?.kind === 'blink_animation' ||
           item?.kind === 'target_animation' ||
+          item?.kind === 'camera_move' ||
           item?.kind === 'surroundingRect'
         ) {
           return;
@@ -897,6 +1040,8 @@ export const useSceneStore = create<SceneStore>()(
         version: PROJECT_VERSION,
         savedAt: new Date().toISOString(),
         defaults: { ...get().defaults },
+        frames: get().frames.map((f) => ({ ...f })),
+        startFrameId: get().startFrameId,
         items: Array.from(get().items.values()),
         measureConfig: { ...get().measureConfig },
         audioItems:
@@ -907,6 +1052,8 @@ export const useSceneStore = create<SceneStore>()(
 
       toSceneDiskPayload: () => ({
         defaults: { ...get().defaults },
+        frames: get().frames.map((f) => ({ ...f })),
+        startFrameId: get().startFrameId,
         items: Array.from(get().items.values()),
         audioItems:
           get().audioItems.length > 0
@@ -922,6 +1069,8 @@ export const useSceneStore = create<SceneStore>()(
               s,
               {
                 defaults: file.defaults,
+                frames: file.frames,
+                startFrameId: file.startFrameId,
                 items: file.items as SceneItem[],
                 audioItems: file.audioItems,
               },
@@ -971,6 +1120,11 @@ export const useSceneStore = create<SceneStore>()(
             reserved.add(a.id);
           }
           remapFragmentItemsInPlace(migrated, audioIn, reserved);
+          normalizeItemFrameIdsInPlace(
+            migrated,
+            s.frames,
+            s.activeFrameId ?? s.startFrameId,
+          );
 
           const t0 = fragmentEarliestStart(migrated, audioIn);
           let delta = 0;

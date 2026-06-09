@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type {
   ItemId,
@@ -12,7 +12,13 @@ import {
   effectiveEnd,
   effectiveStart,
 } from '@/lib/time';
-import { exitTargetSelectLabel } from '@/lib/itemDisplayName';
+import {
+  filterTargetsByScope,
+  frameAwareItemLabel,
+  targetCandidateFrameId,
+  targetScopeFrameId,
+  type TargetScope,
+} from '@/lib/targetScope';
 import NumberInput from '@/components/NumberInput';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
@@ -75,6 +81,10 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
   const updateItem = useSceneStore((s) => s.updateItem);
   const removeItem = useSceneStore((s) => s.removeItem);
   const itemsMap = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const [targetScope, setTargetScope] = useState<TargetScope>('same-frame');
+  const ownerFrameId = targetScopeFrameId(item, itemsMap, startFrameId);
 
   const set = useCallback(
     (patch: Partial<SurroundingRectItem>) => updateItem(item.id, patch),
@@ -86,6 +96,18 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     [itemsMap],
   );
 
+  const scopedCandidates = useMemo(
+    () =>
+      filterTargetsByScope(
+        candidates,
+        itemsMap,
+        startFrameId,
+        ownerFrameId,
+        targetScope,
+      ),
+    [candidates, itemsMap, startFrameId, ownerFrameId, targetScope],
+  );
+
   const targetIdsList = useMemo(
     () => (item.targetIds?.length ? item.targetIds : []),
     [item.targetIds],
@@ -95,8 +117,17 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     (nextIds: ItemId[]) => {
       const unique: ItemId[] = [];
       const seen = new Set<ItemId>();
+      let surroundFrameId: ItemId | null = null;
       for (const id of nextIds) {
         if (seen.has(id)) continue;
+        const target = itemsMap.get(id);
+        if (!target || !canBeSurroundTarget(target)) continue;
+        const targetFrameId = targetCandidateFrameId(target, itemsMap, startFrameId);
+        if (surroundFrameId == null) {
+          surroundFrameId = targetFrameId;
+        } else if (targetFrameId !== surroundFrameId) {
+          continue;
+        }
         seen.add(id);
         unique.push(id);
       }
@@ -111,7 +142,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
             : null,
       });
     },
-    [item.id, item.startTime, item.segmentIndices, itemsMap, updateItem],
+    [item.id, item.startTime, item.segmentIndices, itemsMap, startFrameId, updateItem],
   );
 
   const validTargets = useMemo(
@@ -148,7 +179,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
 
   const addRow = () => {
     const pick =
-      candidates.find((c) => !targetIdsList.includes(c.id)) ?? candidates[0];
+      scopedCandidates.find((c) => !targetIdsList.includes(c.id)) ?? scopedCandidates[0];
     if (!pick) return;
     setTargetIds([...targetIdsList, pick.id]);
   };
@@ -200,11 +231,22 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     <div className="flex flex-col gap-3">
       <div>
         <div className="text-xs text-slate-400 mb-1">Targets</div>
+        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+          Scope
+          <select
+            value={targetScope}
+            onChange={(e) => setTargetScope(e.target.value as TargetScope)}
+            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+          >
+            <option value="same-frame">This frame</option>
+            <option value="all-frames">All frames</option>
+          </select>
+        </label>
         <div className="flex flex-col gap-2">
           {targetIdsList.map((tid, index) => {
             const rowTarget = itemsMap.get(tid);
             const hasRow = rowTarget && canBeSurroundTarget(rowTarget);
-            const inList = candidates.some((c) => c.id === tid);
+            const inList = scopedCandidates.some((c) => c.id === tid);
             return (
               <div
                 key={`${tid}-${index}`}
@@ -221,11 +263,25 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
                       <option value={tid}>(missing) {tid.slice(0, 10)}</option>
                     ) : null}
                     {!inList && hasRow ? (
-                      <option value={tid}>{exitTargetSelectLabel(rowTarget, itemsMap)}</option>
+                      <option value={tid}>
+                        {frameAwareItemLabel(
+                          rowTarget,
+                          itemsMap,
+                          frames,
+                          startFrameId,
+                          true,
+                        )}
+                      </option>
                     ) : null}
-                    {candidates.map((t) => (
+                    {scopedCandidates.map((t) => (
                       <option key={t.id} value={t.id} title={t.id}>
-                        {exitTargetSelectLabel(t, itemsMap)}
+                        {frameAwareItemLabel(
+                          t,
+                          itemsMap,
+                          frames,
+                          startFrameId,
+                          targetScope === 'all-frames',
+                        )}
                       </option>
                     ))}
                   </select>
@@ -246,10 +302,16 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           type="button"
           className="mt-2 text-xs text-sky-400 hover:text-sky-300"
           onClick={addRow}
-          disabled={candidates.length === 0}
+          disabled={scopedCandidates.length === 0}
         >
           + Add object
         </button>
+        {targetScope === 'all-frames' ? (
+          <p className="text-[10px] text-slate-500 mt-1">
+            Multi-target rectangles stay constrained to one frame; changing frames may drop
+            incompatible rows.
+          </p>
+        ) : null}
         {targetIdsList.length === 0 ? (
           <p className="text-xs text-amber-400 mt-1">Add at least one target to export.</p>
         ) : null}

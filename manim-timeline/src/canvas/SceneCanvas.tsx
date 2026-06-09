@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { Stage, Layer, Group } from 'react-konva';
+import { Stage, Layer, Group, Rect, Text } from 'react-konva';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
   usePreviewMergedItems,
@@ -21,6 +21,7 @@ import {
   activeTextTransformForLine,
   exitPreviewForTarget,
   blinkPreviewForTarget,
+  cameraOffsetAtTime,
   targetAnimPreviewAccum,
   lerpHexColor,
   type ExitPreviewState,
@@ -35,6 +36,12 @@ import {
 import { resolvePosition } from '@/lib/resolvePosition';
 import { surroundPreviewBBoxManim } from '@/lib/surroundCanvasPreview';
 import { manimToCanvas, surroundBBoxCanvasCenter } from '@/lib/canvasManimCoords';
+import {
+  frameCenter,
+  frameCenterById,
+  frameDisplayName,
+  readingOrderFrames,
+} from '@/lib/frameGrid';
 import type {
   AxesItem,
   ItemId,
@@ -138,10 +145,26 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const [showGrid, setShowGrid] = useState(true);
   const [showAxes, setShowAxes] = useState(true);
   const [renderLikePreview, setRenderLikePreview] = useState(false);
+  const [boardView, setBoardView] = useState(false);
   const [gridDivisions, setGridDivisions] = useState(16);
+  // Editor-only viewport. 'follow' tracks the camera (start frame + camera_move
+  // clips); 'free' lets the user pan around / jump to a frame while paused. This
+  // never affects export.
+  const [viewMode, setViewMode] = useState<'follow' | 'free'>('follow');
+  const [freeOffset, setFreeOffset] = useState({ x: 0, y: 0 });
+  const panRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    startOffset: { x: number; y: number };
+  } | null>(null);
+  const didPanRef = useRef(false);
 
   const currentTime = useSceneStore((s) => s.currentTime);
+  const isPlaying = useSceneStore((s) => s.isPlaying);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const itemsMap = usePreviewMergedItems();
   const previewOps = usePreviewOps();
   const selectedIds = useSceneStore((s) => s.selectedIds);
@@ -152,6 +175,60 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   );
   const updateItem = useSceneStore((s) => s.updateItem);
   const select = useSceneStore((s) => s.select);
+  const cameraOffset = useMemo(
+    () => cameraOffsetAtTime(currentTime, itemsMap, frames, startFrameId),
+    [currentTime, itemsMap, frames, startFrameId],
+  );
+  // During playback (or in follow mode) the viewport tracks the camera; when
+  // paused in free mode it uses the manually-panned / view-frame offset.
+  const effectiveOffset = useMemo(
+    () =>
+      isPlaying || viewMode === 'follow' ? cameraOffset : freeOffset,
+    [isPlaying, viewMode, cameraOffset, freeOffset],
+  );
+  const cameraPx = useMemo(
+    () => ({
+      x: (-effectiveOffset.x / FRAME_W) * size.width,
+      y: (effectiveOffset.y / FRAME_H) * size.height,
+    }),
+    [effectiveOffset.x, effectiveOffset.y, size.width, size.height],
+  );
+  const frameOffsetForItem = useCallback(
+    (item: SceneItem) =>
+      frameCenterById(frames, 'frameId' in item ? item.frameId : startFrameId),
+    [frames, startFrameId],
+  );
+  const boardTransform = useMemo(() => {
+    if (!boardView || frames.length === 0) {
+      return { x: cameraPx.x, y: cameraPx.y, scale: 1 };
+    }
+    const boxes = frames.map((f) => {
+      const c = frameCenter(f);
+      return {
+        left: c.x - FRAME_W / 2,
+        right: c.x + FRAME_W / 2,
+        bottom: c.y - FRAME_H / 2,
+        top: c.y + FRAME_H / 2,
+      };
+    });
+    const left = Math.min(...boxes.map((b) => b.left));
+    const right = Math.max(...boxes.map((b) => b.right));
+    const bottom = Math.min(...boxes.map((b) => b.bottom));
+    const top = Math.max(...boxes.map((b) => b.top));
+    const worldW = Math.max(FRAME_W, right - left);
+    const worldH = Math.max(FRAME_H, top - bottom);
+    const ppuX = size.width / FRAME_W;
+    const ppuY = size.height / FRAME_H;
+    const scale = Math.min(1, (size.width * 0.9) / (worldW * ppuX), (size.height * 0.9) / (worldH * ppuY));
+    const cx = (left + right) / 2;
+    const cy = (bottom + top) / 2;
+    const base = manimToCanvas(cx, cy, size.width, size.height);
+    return {
+      x: size.width / 2 - scale * base.x,
+      y: size.height / 2 - scale * base.y,
+      scale,
+    };
+  }, [boardView, frames, cameraPx.x, cameraPx.y, size.width, size.height]);
 
   const visibleItems = useMemo(
     () =>
@@ -196,7 +273,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       );
       if (!bboxManimRaw) continue;
       const taSr = targetAnimPreviewAccum(it.id, currentTime, itemsMap);
-      const bboxManim = shiftBBoxManim(bboxManimRaw, taSr.dx, taSr.dy);
+      const firstTarget = it.targetIds[0] ? itemsMap.get(it.targetIds[0]) : null;
+      const fc = firstTarget ? frameOffsetForItem(firstTarget) : { x: 0, y: 0 };
+      const bboxManim = shiftBBoxManim(
+        bboxManimRaw,
+        taSr.dx + fc.x,
+        taSr.dy + fc.y,
+      );
       out.push({
         kind: 'surround',
         layer: it.layer,
@@ -205,7 +288,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       });
     }
     return out;
-  }, [itemsMap, currentTime, selectedIds]);
+  }, [itemsMap, currentTime, selectedIds, frameOffsetForItem]);
 
   const graphLayers = useMemo((): GraphLayerState[] => {
     const axesItems = Array.from(itemsMap.values()).filter(
@@ -220,6 +303,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       )
       .map((axes) => {
         const pos = resolvePosition(axes, itemsMap);
+        const fc = frameOffsetForItem(axes);
         let streamPlacementFieldId: ItemId | null = null;
         for (const it of itemsMap.values()) {
           if (
@@ -244,12 +328,12 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           ),
           field,
           streamPlacementFieldId,
-          resolvedX: pos.x + taAx.dx,
-          resolvedY: pos.y + taAx.dy,
+          resolvedX: pos.x + taAx.dx + fc.x,
+          resolvedY: pos.y + taAx.dy + fc.y,
           isSelected: selectionTouchesAxes(axes.id, selectedIds, itemsMap),
         };
       });
-  }, [itemsMap, currentTime, selectedIds]);
+  }, [itemsMap, currentTime, selectedIds, frameOffsetForItem]);
 
   const canvasEntries = useMemo((): CanvasEntry[] => {
     const e: CanvasEntry[] = [];
@@ -324,6 +408,51 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           Render-like
         </label>
         <label className="flex items-center gap-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={boardView}
+            onChange={(e) => setBoardView(e.target.checked)}
+            className="accent-blue-500"
+          />
+          Board
+        </label>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-500">View</span>
+          <button
+            type="button"
+            onClick={() => setViewMode('follow')}
+            title="Follow the camera (start frame + camera pans)"
+            className={`rounded border px-2 py-0.5 transition-colors ${
+              viewMode === 'follow'
+                ? 'border-blue-500 bg-blue-600/30 text-blue-200'
+                : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            Follow camera
+          </button>
+          <select
+            value=""
+            onChange={(e) => {
+              const f = frames.find((fr) => fr.id === e.target.value);
+              if (!f) return;
+              setFreeOffset(frameCenter(f));
+              setViewMode('free');
+            }}
+            title="Jump the preview to a frame (does not change export)"
+            className="bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-slate-300"
+          >
+            <option value="">View frame…</option>
+            {readingOrderFrames(frames).map((f) => (
+              <option key={f.id} value={f.id}>
+                {frameDisplayName(f, frames)}
+              </option>
+            ))}
+          </select>
+          {viewMode === 'free' && !isPlaying && (
+            <span className="text-amber-300/80">Free view · drag/scroll to pan</span>
+          )}
+        </div>
+        <label className="flex items-center gap-1 cursor-pointer">
           Divisions
           <input
             type="number"
@@ -342,10 +471,55 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       <div
         ref={containerRef}
         className="w-full h-full flex-1 min-h-0 rounded-lg overflow-hidden border border-slate-700 bg-black flex items-center justify-center"
+        style={{ cursor: !isPlaying && !boardView ? 'grab' : 'default' }}
       >
         <Stage
           width={size.width}
           height={size.height}
+          onMouseDown={(e) => {
+            if (isPlaying || boardView) return;
+            if (targetAnimationPathCapture || polylinePointCaptureId) return;
+            const stage = e.target.getStage();
+            if (!stage || e.target !== stage) return;
+            const pos = stage.getPointerPosition();
+            if (!pos) return;
+            panRef.current = {
+              active: true,
+              startX: pos.x,
+              startY: pos.y,
+              startOffset: effectiveOffset,
+            };
+            didPanRef.current = false;
+          }}
+          onMouseMove={(e) => {
+            const p = panRef.current;
+            if (!p?.active) return;
+            const pos = e.target.getStage()?.getPointerPosition();
+            if (!pos) return;
+            const dxPx = pos.x - p.startX;
+            const dyPx = pos.y - p.startY;
+            if (Math.abs(dxPx) + Math.abs(dyPx) > 2) didPanRef.current = true;
+            setViewMode('free');
+            setFreeOffset({
+              x: p.startOffset.x - (dxPx * FRAME_W) / size.width,
+              y: p.startOffset.y + (dyPx * FRAME_H) / size.height,
+            });
+          }}
+          onMouseUp={() => {
+            if (panRef.current) panRef.current.active = false;
+          }}
+          onMouseLeave={() => {
+            if (panRef.current) panRef.current.active = false;
+          }}
+          onWheel={(e) => {
+            if (isPlaying || boardView) return;
+            e.evt.preventDefault();
+            setViewMode('free');
+            setFreeOffset({
+              x: effectiveOffset.x + (e.evt.deltaX * FRAME_W) / size.width,
+              y: effectiveOffset.y - (e.evt.deltaY * FRAME_H) / size.height,
+            });
+          }}
           onClick={(e) => {
             const stage = e.target.getStage();
             if (targetAnimationPathCapture && stage) {
@@ -356,8 +530,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const target = row ? itemsMap.get(row.targetId) : undefined;
                 if (row && target && (row.pathKind ?? 'polyline') === 'polyline') {
                   const abs = {
-                    x: (pos.x / size.width - 0.5) * FRAME_W,
-                    y: (0.5 - pos.y / size.height) * FRAME_H,
+                    x: (pos.x / size.width - 0.5) * FRAME_W + effectiveOffset.x,
+                    y: (0.5 - pos.y / size.height) * FRAME_H + effectiveOffset.y,
                   };
                   const base = resolvePosition(target, itemsMap);
                   const ta = targetAnimPreviewAccum(
@@ -366,6 +540,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     itemsMap,
                   );
                   const anchor = { x: base.x + ta.dx, y: base.y + ta.dy };
+                  const fc = frameOffsetForItem(target);
                   const existing =
                     row.pathPoints && row.pathPoints.length > 0
                       ? row.pathPoints
@@ -376,7 +551,10 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                           ...r,
                           pathPoints: [
                             ...existing,
-                            { x: abs.x - anchor.x, y: abs.y - anchor.y },
+                            {
+                              x: abs.x - (anchor.x + fc.x),
+                              y: abs.y - (anchor.y + fc.y),
+                            },
                           ],
                         }
                       : r,
@@ -398,14 +576,15 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 Math.abs(raw.scale - 1) < 1e-6
               ) {
                 const abs = {
-                  x: (pos.x / size.width - 0.5) * FRAME_W,
-                  y: (0.5 - pos.y / size.height) * FRAME_H,
+                  x: (pos.x / size.width - 0.5) * FRAME_W + effectiveOffset.x,
+                  y: (0.5 - pos.y / size.height) * FRAME_H + effectiveOffset.y,
                 };
                 const anchorBase = resolvePosition(raw, itemsMap);
                 const tad = targetAnimPreviewAccum(raw.id, currentTime, itemsMap);
+                const fc = frameOffsetForItem(raw);
                 const anchor = {
-                  x: anchorBase.x + tad.dx,
-                  y: anchorBase.y + tad.dy,
+                  x: anchorBase.x + tad.dx + fc.x,
+                  y: anchorBase.y + tad.dy + fc.y,
                 };
                 updateItem(raw.id, {
                   points: [...raw.points, { x: abs.x - anchor.x, y: abs.y - anchor.y }],
@@ -413,6 +592,10 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 select(raw.id);
                 return;
               }
+            }
+            if (didPanRef.current) {
+              didPanRef.current = false;
+              return;
             }
             if (e.target === e.target.getStage()) clearSelection();
           }}
@@ -427,6 +610,46 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             />
           </Layer>
           <Layer>
+            <Group
+              x={boardTransform.x}
+              y={boardTransform.y}
+              scaleX={boardTransform.scale}
+              scaleY={boardTransform.scale}
+            >
+            {boardView &&
+              frames.map((frame) => {
+                const c = frameCenter(frame);
+                const topLeft = manimToCanvas(
+                  c.x - FRAME_W / 2,
+                  c.y + FRAME_H / 2,
+                  size.width,
+                  size.height,
+                );
+                const frameSize = {
+                  w: (FRAME_W / FRAME_W) * size.width,
+                  h: (FRAME_H / FRAME_H) * size.height,
+                };
+                return (
+                  <Group key={frame.id} listening={false}>
+                    <Rect
+                      x={topLeft.x}
+                      y={topLeft.y}
+                      width={frameSize.w}
+                      height={frameSize.h}
+                      stroke={frame.id === startFrameId ? '#fbbf24' : '#64748b'}
+                      strokeWidth={frame.id === startFrameId ? 3 : 2}
+                      dash={[10, 6]}
+                    />
+                    <Text
+                      x={topLeft.x + 8}
+                      y={topLeft.y + 8}
+                      text={`${frameDisplayName(frame, frames)} (${frame.col}, ${frame.row})`}
+                      fill="#cbd5e1"
+                      fontSize={18}
+                    />
+                  </Group>
+                );
+              })}
             {canvasEntries.map((entry) => {
               if (entry.kind === 'graph') {
                 const layer = entry.graph;
@@ -460,6 +683,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         canvasHeight={size.height}
                         resolvedX={layer.resolvedX}
                         resolvedY={layer.resolvedY}
+                        frameOffset={frameOffsetForItem(layer.axes)}
                         currentTime={currentTime}
                         itemsMap={itemsMap}
                       />
@@ -496,12 +720,38 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   : null;
                 const blinkText = blinkPreviewForTarget(item.id, currentTime, itemsMap);
                 const taTxt = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
+                const fcTxt = frameOffsetForItem(item);
                 const playbackBlink =
                   blinkText && !blinkText.applyOuterBlinkScale
                     ? { ...blinkText, scaleMultiplier: 1 }
                     : blinkText;
-                const mx = pos?.x ?? item.x;
-                const my = pos?.y ?? item.y;
+                const mx = (pos?.x ?? item.x) + fcTxt.x;
+                const my = (pos?.y ?? item.y) + fcTxt.y;
+                const localToWorld = (target: SceneItem, p: { x: number; y: number }) => {
+                  const fc = frameOffsetForItem(target);
+                  return { x: p.x + fc.x, y: p.y + fc.y };
+                };
+                const transformWorld = transformPreviewWithPositions
+                  ? {
+                      ...transformPreviewWithPositions,
+                      sourceResolvedX: localToWorld(transformPreviewWithPositions.source, {
+                        x: transformPreviewWithPositions.sourceResolvedX,
+                        y: transformPreviewWithPositions.sourceResolvedY,
+                      }).x,
+                      sourceResolvedY: localToWorld(transformPreviewWithPositions.source, {
+                        x: transformPreviewWithPositions.sourceResolvedX,
+                        y: transformPreviewWithPositions.sourceResolvedY,
+                      }).y,
+                      targetResolvedX: localToWorld(transformPreviewWithPositions.target, {
+                        x: transformPreviewWithPositions.targetResolvedX,
+                        y: transformPreviewWithPositions.targetResolvedY,
+                      }).x,
+                      targetResolvedY: localToWorld(transformPreviewWithPositions.target, {
+                        x: transformPreviewWithPositions.targetResolvedX,
+                        y: transformPreviewWithPositions.targetResolvedY,
+                      }).y,
+                    }
+                  : null;
                 return (
                   <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
@@ -516,12 +766,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         canvasWidth={size.width}
                         canvasHeight={size.height}
                         isSelected={selected}
-                        resolvedX={pos?.x ?? item.x}
-                        resolvedY={pos?.y ?? item.y}
+                        resolvedX={mx}
+                        resolvedY={my}
+                        frameOffset={fcTxt}
                         currentTime={currentTime}
                         itemsMap={itemsMap}
                         audioItems={audioItems}
-                        transformPreview={transformPreviewWithPositions}
+                        transformPreview={transformWorld}
                         blinkPreview={blinkText}
                       />
                     </PlaybackWrap>
@@ -534,6 +785,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const pos = resolvedShapePositions.get(item.id);
                 const bShape = blinkPreviewForTarget(item.id, currentTime, itemsMap);
                 const taShape = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
+                const fcShape = frameOffsetForItem(item);
                 const strokeBase = item.strokeColor || '#60a5fa';
                 const previewStroke = strokeAfterBlinkThenTa(
                   strokeBase,
@@ -545,8 +797,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   item.fillColor !== ''
                     ? strokeAfterBlinkThenTa(item.fillColor, bShape, taShape)
                     : undefined;
-                const mx = pos?.x ?? item.x;
-                const my = pos?.y ?? item.y;
+                const mx = (pos?.x ?? item.x) + fcShape.x;
+                const my = (pos?.y ?? item.y) + fcShape.y;
                 return (
                   <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
@@ -560,8 +812,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         canvasWidth={size.width}
                         canvasHeight={size.height}
                         isSelected={selected}
-                        resolvedX={pos?.x ?? item.x}
-                        resolvedY={pos?.y ?? item.y}
+                        resolvedX={mx}
+                        resolvedY={my}
+                        frameOffset={fcShape}
                         previewStrokeColor={previewStroke}
                         previewFillColor={previewFill}
                         previewRotationDeltaDeg={-taShape.rotDeg}
@@ -599,6 +852,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 </PreviewWrap>
               );
             })}
+            </Group>
           </Layer>
         </Stage>
       </div>

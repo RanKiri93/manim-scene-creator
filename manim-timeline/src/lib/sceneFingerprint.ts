@@ -21,6 +21,8 @@ function sparkMd5ArrayBuffer(): {
 export function fingerprintSceneDiskPayload(payload: SceneDiskPayload): string {
   const canonical = JSON.stringify({
     defaults: payload.defaults,
+    frames: payload.frames,
+    startFrameId: payload.startFrameId,
     items: payload.items,
     audio: payload.audioItems ?? [],
   });

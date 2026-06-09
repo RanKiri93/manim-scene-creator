@@ -28,6 +28,9 @@ export function itemClipDisplayName(item: SceneItem): string {
     if (m === 'rotate') return 'Target · rotate';
     return 'Target animation';
   }
+  if (item.kind === 'camera_move') {
+    return item.label.trim() || 'Camera pan';
+  }
   if ('label' in item && item.label?.trim()) {
     return item.label.trim();
   }

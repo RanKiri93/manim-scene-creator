@@ -19,6 +19,7 @@ import { safeSceneClassName } from '@/lib/pythonIdent';
 import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
 import ItemList from '@/panels/ItemList';
+import FramesPanel from '@/panels/FramesPanel';
 import AddObjectToolbar from '@/panels/AddObjectToolbar';
 import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
@@ -379,6 +380,7 @@ export default function App() {
         {/* Left sidebar: Item list */}
         <aside className="w-64 border-r border-slate-700 bg-slate-850 flex flex-col shrink-0 z-10">
           <ItemList />
+          <FramesPanel />
         </aside>
 
         <div

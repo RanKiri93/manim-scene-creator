@@ -215,6 +215,8 @@ interface SceneItemBase extends TimeSpan, SpatialTransform {
   id: ItemId;
   label: string;
   layer: number;
+  /** Sparse camera-grid frame this drawable item belongs to. Missing = legacy home frame. */
+  frameId?: ItemId;
   posSteps: PosStep[];
   /**
    * When true, the object is on screen from the first frame (`t=0`): preview shows it immediately
@@ -335,6 +337,19 @@ export interface TargetAnimationItem {
   duration: number;
   mode: TargetAnimationMode;
   targets: TargetAnimationTargetSpec[];
+}
+
+/** Non-drawable clip: pans the camera to a frame center plus an optional free offset. */
+export interface CameraMoveItem {
+  kind: 'camera_move';
+  id: ItemId;
+  label: string;
+  layer: number;
+  startTime: number;
+  duration: number;
+  targetFrameId: ItemId;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 /** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */
@@ -939,6 +954,7 @@ export type SceneItem =
   | ExitAnimationItem
   | BlinkAnimationItem
   | TargetAnimationItem
+  | CameraMoveItem
   | SurroundingRectItem;
 
 /** True for visual items present from scene start via `visibleAtSceneStart` (not exit clips). */
@@ -946,7 +962,8 @@ export function isVisibleAtSceneStartItem(item: SceneItem): boolean {
   if (
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
-    item.kind === 'target_animation'
+    item.kind === 'target_animation' ||
+    item.kind === 'camera_move'
   ) {
     return false;
   }
@@ -970,10 +987,20 @@ export interface MeasureConfig {
   includePreview: boolean;
 }
 
+/** One camera-sized cell in the sparse frame grid. */
+export interface FrameDef {
+  id: ItemId;
+  col: number;
+  row: number;
+  label?: string;
+}
+
 export interface ProjectFile {
   version: number;
   savedAt: string;
   defaults: SceneDefaults;
+  frames: FrameDef[];
+  startFrameId: ItemId;
   items: SceneItem[];
   measureConfig: MeasureConfig;
   audioItems?: AudioTrackItem[];
@@ -985,6 +1012,8 @@ export interface ProjectSceneFile {
   /** Tab label — may differ from `defaults.sceneName` (Manim class). */
   name: string;
   defaults: SceneDefaults;
+  frames: FrameDef[];
+  startFrameId: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
 }
@@ -1034,6 +1063,8 @@ export interface ProjectFragmentFile {
   kind: typeof PROJECT_FRAGMENT_KIND;
   version: number;
   savedAt: string;
+  frames?: FrameDef[];
+  startFrameId?: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
 }

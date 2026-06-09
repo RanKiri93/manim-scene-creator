@@ -60,6 +60,7 @@ export function getItemBBox(item: SceneItem): ItemBBox {
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
     item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
     item.kind === 'surroundingRect'
   ) {
     return { x: 0, y: 0, w: 0, h: 0 };
@@ -189,6 +190,7 @@ function applyPosSteps(
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
     item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
     item.kind === 'surroundingRect'
   ) {
     return { x: 0, y: 0 };
@@ -263,6 +265,7 @@ export function resolvePosition(
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
     item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
     item.kind === 'surroundingRect'
   ) {
     return { x: 0, y: 0 };
@@ -282,6 +285,7 @@ export function resolvePositionBeforeStep(
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
     item.kind === 'target_animation' ||
+    item.kind === 'camera_move' ||
     item.kind === 'surroundingRect'
   ) {
     return { x: 0, y: 0 };

@@ -3,6 +3,7 @@ import { zipSync, strToU8 } from 'fflate';
 import SparkMD5 from 'spark-md5';
 import type { AudioTrackItem, MultiSceneProjectFile, ProjectFile, ProjectFragmentFile } from '@/types/scene';
 import { isMultiSceneProjectFile, MULTISCENE_PROJECT_KIND } from '@/types/scene';
+import { defaultFrames } from '@/store/factories';
 import {
   parseMtprojFromUint8Array,
   packMtprojToBlob,
@@ -29,6 +30,7 @@ function md5Lower(data: Uint8Array): string {
 }
 
 function minimalProject(overrides: Partial<ProjectFile> = {}): ProjectFile {
+  const frameConfig = defaultFrames();
   return {
     version: 10,
     savedAt: '2020-01-01T00:00:00.000Z',
@@ -39,6 +41,8 @@ function minimalProject(overrides: Partial<ProjectFile> = {}): ProjectFile {
       exportNamePrefix: '',
       sceneName: 'Scene1',
     },
+    frames: frameConfig.frames,
+    startFrameId: frameConfig.startFrameId,
     items: [],
     measureConfig: {
       url: 'http://127.0.0.1:8765',
@@ -224,6 +228,8 @@ describe('packMtprojToBlob multi-scene', () => {
     URL.revokeObjectURL = () => {};
 
     try {
+      const f1 = defaultFrames();
+      const f2 = defaultFrames();
       const multi: MultiSceneProjectFile = {
         kind: MULTISCENE_PROJECT_KIND,
         version: minimalProject().version,
@@ -239,6 +245,8 @@ describe('packMtprojToBlob multi-scene', () => {
             id: 's1',
             name: 'One',
             defaults: minimalProject().defaults,
+            frames: f1.frames,
+            startFrameId: f1.startFrameId,
             items: [],
             audioItems: [
               {
@@ -254,6 +262,8 @@ describe('packMtprojToBlob multi-scene', () => {
             id: 's2',
             name: 'Two',
             defaults: minimalProject().defaults,
+            frames: f2.frames,
+            startFrameId: f2.startFrameId,
             items: [],
             audioItems: [
               {

@@ -6,6 +6,7 @@ import type {
   ExitAnimationItem,
   BlinkAnimationItem,
   TargetAnimationItem,
+  CameraMoveItem,
   TargetAnimationMode,
 } from '@/types/scene';
 
@@ -173,6 +174,9 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
   if (item.kind === 'target_animation') {
     return Math.max(0.05, item.duration);
   }
+  if (item.kind === 'camera_move') {
+    return Math.max(0.05, item.duration);
+  }
   return 0;
 }
 
@@ -191,7 +195,8 @@ export function effectiveEnd(item: SceneItem, items: Map<ItemId, SceneItem>): nu
   if (
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
-    item.kind === 'target_animation'
+    item.kind === 'target_animation' ||
+    item.kind === 'camera_move'
   ) {
     return 0;
   }
@@ -206,7 +211,8 @@ export function timelineSpanEnd(item: SceneItem, items: Map<ItemId, SceneItem>):
   if (
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
-    item.kind === 'target_animation'
+    item.kind === 'target_animation' ||
+    item.kind === 'camera_move'
   ) {
     return item.startTime + item.duration;
   }
@@ -228,7 +234,8 @@ export function isActiveAtTime(
   if (
     item.kind === 'exit_animation' ||
     item.kind === 'blink_animation' ||
-    item.kind === 'target_animation'
+    item.kind === 'target_animation' ||
+    item.kind === 'camera_move'
   )
     return false;
   const start = effectiveStart(item, items);
@@ -334,4 +341,8 @@ export function minTargetAnimationStartTimeForClip(
   }
   if (mins.length === 0) return null;
   return Math.max(...mins);
+}
+
+export function minCameraMoveStartTimeForClip(_clip: CameraMoveItem): number {
+  return 0;
 }

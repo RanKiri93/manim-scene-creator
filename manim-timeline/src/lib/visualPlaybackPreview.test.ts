@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioTrackItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
-import { createBlinkAnimation, createExitAnimation, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
+import { createBlinkAnimation, createCameraMove, createExitAnimation, createFrame, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
 import {
   activeTextTransformForLine,
   blinkPreviewForTarget,
+  cameraOffsetAtTime,
   exitPreviewForTarget,
   previewRunTime,
   targetAnimPreviewAccum,
@@ -68,6 +69,20 @@ describe('textIntroSegmentStates', () => {
     const states = textIntroSegmentStates(item, 0.525, items, [audio]);
     expect(states[0]!.progress).toBeCloseTo(0.5);
     expect(states[1]!.progress).toBe(0);
+  });
+});
+
+describe('cameraOffsetAtTime', () => {
+  it('interpolates from the start frame to a camera move target', () => {
+    const home = createFrame(0, 0, 'Home');
+    const right = createFrame(1, 0, 'Right');
+    const cam = createCameraMove(right.id, 2, 2);
+    const items = mapOf(cam);
+
+    expect(cameraOffsetAtTime(0, items, [home, right], home.id).x).toBeCloseTo(0);
+    expect(cameraOffsetAtTime(0, items, [home, right], home.id).y).toBeCloseTo(0);
+    expect(cameraOffsetAtTime(3, items, [home, right], home.id).x).toBeCloseTo(7.111111);
+    expect(cameraOffsetAtTime(4.5, items, [home, right], home.id).x).toBeCloseTo(14.222222);
   });
 });
 

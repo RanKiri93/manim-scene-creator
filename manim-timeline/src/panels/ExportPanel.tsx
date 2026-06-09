@@ -29,6 +29,8 @@ export default function ExportPanel() {
     [itemsMap],
   );
   const defaults = useSceneStore((s) => s.defaults);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const audioItems = useSceneStore((s) => s.audioItems);
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
   const sceneOrderSig = useProjectScenesStore((s) => s.sceneIds.join('|'));
@@ -47,13 +49,13 @@ export default function ExportPanel() {
   const [renderAllErr, setRenderAllErr] = useState<string | null>(null);
 
   const code = useMemo(
-    () => exportManimCode(items, { fullFile, defaults, audioItems }),
-    [items, fullFile, defaults, audioItems],
+    () => exportManimCode(items, { fullFile, defaults, frames, startFrameId, audioItems }),
+    [items, fullFile, defaults, frames, startFrameId, audioItems],
   );
 
   const codeFullFile = useMemo(
-    () => exportManimCode(items, { fullFile: true, defaults, audioItems }),
-    [items, defaults, audioItems],
+    () => exportManimCode(items, { fullFile: true, defaults, frames, startFrameId, audioItems }),
+    [items, defaults, frames, startFrameId, audioItems],
   );
 
   const combinedPython = useMemo(() => {
@@ -64,6 +66,8 @@ export default function ExportPanel() {
         file.scenes.map((sc) => ({
           items: sc.items,
           defaults: sc.defaults,
+          frames: sc.frames,
+          startFrameId: sc.startFrameId,
           audioItems: sc.audioItems,
         })),
       );
@@ -71,7 +75,7 @@ export default function ExportPanel() {
       const msg = e instanceof Error ? e.message : String(e);
       return `from manim import *\n\n# COMBINED EXPORT ERROR: ${msg}\n`;
     }
-  }, [items, defaults, audioItems, sceneOrderSig]);
+  }, [items, defaults, frames, startFrameId, audioItems, sceneOrderSig]);
 
   const openRenderModal = useCallback(() => {
     setRenderSceneName(safeSceneClassName(defaults.sceneName ?? ''));
@@ -193,6 +197,8 @@ export default function ExportPanel() {
         const py = exportManimCode(sc.items, {
           fullFile: true,
           defaults: sc.defaults,
+          frames: sc.frames,
+          startFrameId: sc.startFrameId,
           audioItems: sc.audioItems,
         });
         const klass = safeSceneClassName(sc.defaults.sceneName ?? '');
@@ -200,6 +206,8 @@ export default function ExportPanel() {
         ps.updateRenderMeta(sc.id, {
           fingerprint: fingerprintSceneDiskPayload({
             defaults: sc.defaults,
+            frames: sc.frames,
+            startFrameId: sc.startFrameId,
             items: sc.items,
             audioItems: sc.audioItems,
           }),

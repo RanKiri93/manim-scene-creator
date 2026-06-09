@@ -249,6 +249,16 @@ function IconTaRotate() {
   );
 }
 
+function IconCameraMove() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <rect x="4" y="5" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10 3v3M10 14v3M3 10h3M14 10h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M13 7l2-2M7 13l-2 2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconMic() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -391,6 +401,12 @@ export default function AddObjectToolbar() {
           onClick={() => actions.addTargetAnimationClip('rotate')}
         >
           <IconTaRotate />
+        </ToolButton>
+        <ToolButton
+          title="Camera pan to frame"
+          onClick={actions.addCameraMoveClip}
+        >
+          <IconCameraMove />
         </ToolButton>
       </div>
 

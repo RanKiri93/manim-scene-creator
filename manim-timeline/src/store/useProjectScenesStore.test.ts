@@ -3,7 +3,7 @@ import { newId } from '@/lib/ids';
 import { PROJECT_VERSION } from '@/lib/constants';
 import type { MultiSceneProjectFile, ProjectSceneFile } from '@/types/scene';
 import { MULTISCENE_PROJECT_KIND } from '@/types/scene';
-import { defaultSceneDefaults, createTextLine } from '@/store/factories';
+import { defaultFrames, defaultSceneDefaults, createTextLine } from '@/store/factories';
 import { useSceneStore } from '@/store/useSceneStore';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import { legacyProjectFileToMultiScene } from '@/lib/multisceneNormalize';
@@ -22,8 +22,17 @@ function resetProjectScenesStore() {
 
 function resetSceneStoreMinimal() {
   const def = defaultSceneDefaults();
+  const frameConfig = defaultFrames();
+  const line = createTextLine(def, 0);
+  line.frameId = frameConfig.startFrameId;
   useSceneStore.getState().loadSceneDocument(
-    { defaults: def, items: [createTextLine(def, 0)], audioItems: undefined },
+    {
+      defaults: def,
+      frames: frameConfig.frames,
+      startFrameId: frameConfig.startFrameId,
+      items: [line],
+      audioItems: undefined,
+    },
     PROJECT_VERSION,
   );
 }
@@ -33,14 +42,20 @@ function buildTwoSceneProject(): MultiSceneProjectFile {
   const sid2 = newId();
   const d1 = { ...defaultSceneDefaults(), sceneName: 'First' };
   const d2 = { ...defaultSceneDefaults(), sceneName: 'Second' };
+  const f1 = defaultFrames();
+  const f2 = defaultFrames();
   const l1 = createTextLine(d1, 0);
+  l1.frameId = f1.startFrameId;
   l1.raw = 'alpha-marker';
   const l2 = createTextLine(d2, 0);
+  l2.frameId = f2.startFrameId;
   l2.raw = 'beta-marker';
   const sc1: ProjectSceneFile = {
     id: sid1,
     name: 'Tab1',
     defaults: d1,
+    frames: f1.frames,
+    startFrameId: f1.startFrameId,
     items: [l1],
     audioItems: undefined,
   };
@@ -48,6 +63,8 @@ function buildTwoSceneProject(): MultiSceneProjectFile {
     id: sid2,
     name: 'Tab2',
     defaults: d2,
+    frames: f2.frames,
+    startFrameId: f2.startFrameId,
     items: [l2],
     audioItems: undefined,
   };
@@ -112,6 +129,7 @@ describe('useProjectScenesStore', () => {
   it('loadFromLegacyProjectFile wraps into a single-scene project', () => {
     resetProjectScenesStore();
     const legacy: ProjectFile = {
+      ...defaultFrames(),
       version: PROJECT_VERSION,
       savedAt: '2020-01-01',
       defaults: { ...defaultSceneDefaults(), sceneName: 'Legacy' },
@@ -125,6 +143,7 @@ describe('useProjectScenesStore', () => {
 
   it('legacyProjectFileToMultiScene used by load matches store scene count', () => {
     const legacy: ProjectFile = {
+      ...defaultFrames(),
       version: PROJECT_VERSION,
       savedAt: '2020-01-01',
       defaults: defaultSceneDefaults(),

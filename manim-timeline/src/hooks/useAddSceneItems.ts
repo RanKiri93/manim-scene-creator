@@ -13,6 +13,7 @@ import {
   createGraphArea,
   createExitAnimation,
   createBlinkAnimation,
+  createCameraMove,
   createSurroundingRect,
   createShape,
 } from '@/store/factories';
@@ -25,6 +26,7 @@ import {
   effectiveStart,
   canBeTargetAnimationTarget,
 } from '@/lib/time';
+import { sameFrameTargets, targetCandidateFrameId } from '@/lib/targetScope';
 
 function pickDefaultAxesId(
   itemsMap: Map<ItemId, SceneItem>,
@@ -40,6 +42,28 @@ function pickDefaultAxesId(
   return [...axes].sort((a, b) => a.startTime - b.startTime)[0]!.id;
 }
 
+function frameIdForAxes(
+  itemsMap: Map<ItemId, SceneItem>,
+  axesId: ItemId,
+  fallback: ItemId,
+): ItemId {
+  const ax = itemsMap.get(axesId);
+  return ax?.kind === 'axes' ? (ax.frameId ?? fallback) : fallback;
+}
+
+function firstFrameTargetIds(
+  targets: readonly SceneItem[],
+  itemsMap: Map<ItemId, SceneItem>,
+  fallbackFrameId: ItemId,
+): ItemId[] {
+  const first = targets[0];
+  if (!first) return [];
+  const frameId = targetCandidateFrameId(first, itemsMap, fallbackFrameId);
+  return targets
+    .filter((target) => targetCandidateFrameId(target, itemsMap, fallbackFrameId) === frameId)
+    .map((target) => target.id);
+}
+
 export function useAddSceneItems() {
   const itemsMap = useSceneStore((s) => s.items);
   const currentTime = useSceneStore((s) => s.currentTime);
@@ -48,6 +72,8 @@ export function useAddSceneItems() {
   const removeItem = useSceneStore((s) => s.removeItem);
   const addItem = useSceneStore((s) => s.addItem);
   const defaults = useSceneStore((s) => s.defaults);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const activeFrameId = useSceneStore((s) => s.activeFrameId);
   const setAudioMode = useSceneStore((s) => s.setAudioMode);
 
   const ensureAxesId = useCallback((): string => {
@@ -81,51 +107,58 @@ export function useAddSceneItems() {
   const addGraphPlot = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphPlot(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphCurve = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphCurve(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphDot = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphDotItem(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphField = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphFieldItem(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphFunctionSeries = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphFunctionSeries(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphPointSequence = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphPointSequence(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addGraphArea = useCallback(() => {
     const axId = ensureAxesId();
     const item = createGraphArea(axId, currentTime);
+    item.frameId = frameIdForAxes(itemsMap, axId, activeFrameId ?? startFrameId);
     addItem(item);
     select(item.id);
-  }, [ensureAxesId, currentTime, addItem, select]);
+  }, [ensureAxesId, currentTime, itemsMap, activeFrameId, startFrameId, addItem, select]);
 
   const addExitAnimationClip = useCallback(() => {
     const map = useSceneStore.getState().items;
@@ -140,7 +173,13 @@ export function useAddSceneItems() {
       targetIds.push(it.id);
     }
     if (targetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeExitTarget);
+      const allCandidates = [...map.values()].filter(canBeExitTarget);
+      const candidates = sameFrameTargets(
+        allCandidates,
+        map,
+        startFrameId,
+        activeFrameId ?? startFrameId,
+      );
       if (candidates.length === 0) return;
       candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
       targetIds.push(candidates[0]!.id);
@@ -163,7 +202,7 @@ export function useAddSceneItems() {
     const ex = createExitAnimation(targetIds, start, 1);
     addItem(ex);
     select(ex.id);
-  }, [selectedIds, currentTime, removeItem, addItem, select]);
+  }, [selectedIds, currentTime, activeFrameId, startFrameId, removeItem, addItem, select]);
 
   const addBlinkAnimationClip = useCallback(() => {
     const map = useSceneStore.getState().items;
@@ -178,7 +217,13 @@ export function useAddSceneItems() {
       targetIds.push(it.id);
     }
     if (targetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeBlinkTarget);
+      const allCandidates = [...map.values()].filter(canBeBlinkTarget);
+      const candidates = sameFrameTargets(
+        allCandidates,
+        map,
+        startFrameId,
+        activeFrameId ?? startFrameId,
+      );
       if (candidates.length === 0) return;
       candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
       targetIds.push(candidates[0]!.id);
@@ -191,7 +236,7 @@ export function useAddSceneItems() {
     const blink = createBlinkAnimation(targetIds, start, 0.6);
     addItem(blink);
     select(blink.id);
-  }, [selectedIds, currentTime, addItem, select]);
+  }, [selectedIds, currentTime, activeFrameId, startFrameId, addItem, select]);
 
   const addTargetAnimationClip = useCallback(
     (mode: TargetAnimationMode) => {
@@ -210,8 +255,14 @@ export function useAddSceneItems() {
         targetIds.push(it.id);
       }
       if (targetIds.length === 0) {
-        const candidates = [...map.values()].filter((it) =>
+        const allCandidates = [...map.values()].filter((it) =>
           canBeTargetAnimationTarget(it, mode),
+        );
+        const candidates = sameFrameTargets(
+          allCandidates,
+          map,
+          startFrameId,
+          activeFrameId ?? startFrameId,
         );
         if (candidates.length === 0) return;
         candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
@@ -228,7 +279,7 @@ export function useAddSceneItems() {
       addItem(clip);
       select(clip.id);
     },
-    [selectedIds, currentTime, addItem, select],
+    [selectedIds, currentTime, activeFrameId, startFrameId, addItem, select],
   );
 
   const addSurroundingRectClip = useCallback(() => {
@@ -238,13 +289,23 @@ export function useAddSceneItems() {
       .filter((it): it is SceneItem => !!it && canBeSurroundTarget(it));
     const seen = new Set<ItemId>();
     const surroundTargetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      surroundTargetIds.push(it.id);
+    for (const id of firstFrameTargetIds(
+      selectedTargets,
+      map,
+      activeFrameId ?? startFrameId,
+    )) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      surroundTargetIds.push(id);
     }
     if (surroundTargetIds.length === 0) {
-      const candidates = [...map.values()].filter(canBeSurroundTarget);
+      const allCandidates = [...map.values()].filter(canBeSurroundTarget);
+      const candidates = sameFrameTargets(
+        allCandidates,
+        map,
+        startFrameId,
+        activeFrameId ?? startFrameId,
+      );
       if (candidates.length === 0) return;
       candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
       surroundTargetIds.push(candidates[0]!.id);
@@ -257,7 +318,14 @@ export function useAddSceneItems() {
     const item = createSurroundingRect(surroundTargetIds, start);
     addItem(item);
     select(item.id);
-  }, [selectedIds, currentTime, addItem, select]);
+  }, [selectedIds, currentTime, activeFrameId, startFrameId, addItem, select]);
+
+  const addCameraMoveClip = useCallback(() => {
+    const targetFrameId = activeFrameId ?? startFrameId;
+    const clip = createCameraMove(targetFrameId, currentTime, 1);
+    addItem(clip);
+    select(clip.id);
+  }, [activeFrameId, startFrameId, currentTime, addItem, select]);
 
   const openAudioRecording = useCallback(() => {
     setAudioMode('record');
@@ -285,6 +353,7 @@ export function useAddSceneItems() {
     addExitAnimationClip,
     addBlinkAnimationClip,
     addTargetAnimationClip,
+    addCameraMoveClip,
     addSurroundingRectClip,
     openAudioRecording,
     openAudioUpload,

@@ -13,7 +13,7 @@ import {
   normalizeAnyDiskProjectToMulti,
   legacyProjectFileToMultiScene,
 } from '@/lib/multisceneNormalize';
-import { defaultSceneDefaults, createTextLine } from '@/store/factories';
+import { defaultFrames, defaultSceneDefaults, createTextLine } from '@/store/factories';
 import { useSceneStore, type SceneDiskPayload } from '@/store/useSceneStore';
 import {
   collectCodegenIdsFromItems,
@@ -33,6 +33,8 @@ function payloadFromDiskScene(sf: ProjectSceneFile): SceneDiskPayload {
   const aud = sf.audioItems;
   return {
     defaults: { ...sf.defaults },
+    frames: sf.frames.map((f) => ({ ...f })),
+    startFrameId: sf.startFrameId,
     items: sf.items.map((it) =>
       structuredClone(it) as SceneItem),
     audioItems:
@@ -242,8 +244,12 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     const def = defaultSceneDefaults();
     def.sceneName = `Scene${st.sceneIds.length + 1}`;
     const line = createTextLine(def, 0);
+    const frameConfig = defaultFrames();
+    line.frameId = frameConfig.startFrameId;
     const payload: SceneDiskPayload = {
       defaults: { ...def },
+      frames: frameConfig.frames,
+      startFrameId: frameConfig.startFrameId,
       items: [line],
       audioItems: undefined,
     };
@@ -292,6 +298,8 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     };
     const payload: SceneDiskPayload = {
       defaults: dupDefaults,
+      frames: structuredClone(basePayload.frames),
+      startFrameId: basePayload.startFrameId,
       items,
       audioItems: audioItems.length ? audioItems : undefined,
     };
@@ -412,6 +420,8 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
           ? docRaw
           : {
               defaults: structuredClone(docRaw.defaults),
+              frames: docRaw.frames.map((f) => structuredClone(f)),
+              startFrameId: docRaw.startFrameId,
               items: docRaw.items.map((it) => structuredClone(it) as SceneItem),
               audioItems: docRaw.audioItems?.length
                 ? docRaw.audioItems.map(
@@ -424,6 +434,8 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
         id: sid,
         name: st.sceneTabNames[sid] ?? doc.defaults.sceneName ?? 'Scene',
         defaults: structuredClone(doc.defaults),
+        frames: doc.frames.map((f) => structuredClone(f)),
+        startFrameId: doc.startFrameId,
         items: doc.items.map((it) => structuredClone(it) as SceneItem),
         audioItems:
           doc.audioItems && doc.audioItems.length > 0
