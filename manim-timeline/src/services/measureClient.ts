@@ -1,5 +1,6 @@
 import type {
   TextLineItem,
+  AudioTrackItem,
   MeasureResult,
   SegmentStyle,
   SegmentLocalBox,
@@ -354,13 +355,15 @@ export async function uploadRecordedAudio(
   baseUrl: string,
   blob: Blob,
   filename: string = 'recording.webm',
-  options?: { lang?: string },
+  options?: { lang?: string; script?: string },
 ): Promise<UploadRecordedAudioResult> {
   const formData = new FormData();
   const safeName = filename.trim() || 'recording.webm';
   formData.append('file', blob, safeName);
   const lang = options?.lang?.trim();
   if (lang) formData.append('lang', lang);
+  const script = options?.script?.trim();
+  if (script) formData.append('script', script);
   const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/upload_audio`, {
     method: 'POST',
     body: formData,
@@ -384,6 +387,60 @@ export async function uploadRecordedAudio(
     end: w.end,
   }));
   return { file_path: j.file_path, duration: j.duration, word_boundaries };
+}
+
+interface SyncAudioAssetResponseBody {
+  file_path?: string;
+  bytes?: number;
+  detail?: string | { msg?: string }[];
+}
+
+function renderAssetRelPath(track: AudioTrackItem): string | null {
+  const rel = track.assetRelPath?.trim().replace(/^\/+/, '');
+  return rel?.startsWith('assets/audio/') ? rel : null;
+}
+
+export async function syncRenderAudioAssets(
+  baseUrl: string,
+  tracks: AudioTrackItem[],
+): Promise<void> {
+  const root = baseUrl.replace(/\/$/, '');
+  for (const track of tracks) {
+    const relPath = renderAssetRelPath(track);
+    if (!relPath) continue;
+
+    const resp = await fetch(track.audioUrl);
+    if (!resp.ok) {
+      throw new Error(
+        `Could not read bundled audio asset ${relPath}: HTTP ${resp.status}`,
+      );
+    }
+    const blob = await resp.blob();
+    const formData = new FormData();
+    formData.append('rel_path', relPath);
+    formData.append('file', blob, relPath.split('/').pop() || 'audio');
+
+    const syncResp = await measureFetch(`${root}/api/sync_audio_asset`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!syncResp.ok) {
+      const text = await syncResp.text();
+      let msg = text.trim() || `HTTP ${syncResp.status}`;
+      try {
+        const j = JSON.parse(text) as SyncAudioAssetResponseBody;
+        if (typeof j.detail === 'string') {
+          msg = j.detail;
+        } else if (Array.isArray(j.detail)) {
+          const parts = j.detail.map((d) => d.msg).filter(Boolean);
+          if (parts.length) msg = parts.join('; ');
+        }
+      } catch {
+        /* use raw text */
+      }
+      throw new Error(`Could not sync audio asset ${relPath}: ${msg}`);
+    }
+  }
 }
 
 export interface NormalizeAudioApiResult {
@@ -471,6 +528,204 @@ export async function normalizeAudio(
       j.measured_output_lufs == null || j.measured_output_lufs === undefined
         ? null
         : Number(j.measured_output_lufs),
+  };
+}
+
+export interface ProcessAudioApiResult {
+  file_path: string;
+  duration: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+  measured_input_noise_floor_db?: number | null;
+}
+
+interface ProcessAudioResponseBody {
+  file_path?: string;
+  duration?: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+  measured_input_noise_floor_db?: number | null;
+  detail?: string | { msg?: string }[];
+}
+
+/**
+ * Full deterministic voice cleanup chain (high-pass + denoise + compress) then EBU R128 loudnorm,
+ * via measure server ``/api/process_audio`` (ffmpeg). Applying identical settings to every clip is
+ * what makes sentence-by-sentence takes sound consistent.
+ * Provide exactly one of ``sourcePath`` (existing ``assets/audio/...`` on the server) or ``file`` bytes.
+ */
+export async function processAudio(
+  baseUrl: string,
+  opts: {
+    sourcePath?: string;
+    file?: Blob;
+    filename?: string;
+    targetLufs?: number;
+    truePeak?: number;
+    lra?: number;
+    highpassHz?: number;
+    denoise?: boolean;
+    denoiseDb?: number;
+    compress?: boolean;
+  },
+): Promise<ProcessAudioApiResult> {
+  const sp = opts.sourcePath?.trim();
+  const file = opts.file;
+  if ((!sp && !file) || (Boolean(sp) && Boolean(file))) {
+    throw new Error('processAudio: provide exactly one of sourcePath or file');
+  }
+
+  const formData = new FormData();
+  if (sp) {
+    formData.append('source_path', sp);
+  }
+  if (file) {
+    formData.append('file', file, opts.filename ?? 'audio.wav');
+  }
+  formData.append('target_lufs', String(opts.targetLufs ?? -16));
+  formData.append('true_peak', String(opts.truePeak ?? -1.5));
+  formData.append('lra', String(opts.lra ?? 11));
+  formData.append('highpass_hz', String(opts.highpassHz ?? 80));
+  // Denoise defaults OFF: the FFT denoiser adds metallic/"musical" artifacts on already-clean
+  // raw captures. Loudness normalization + light high-pass/compression give consistency without it.
+  formData.append('denoise', String(opts.denoise ?? false));
+  formData.append('denoise_db', String(opts.denoiseDb ?? 8));
+  formData.append('compress', String(opts.compress ?? true));
+
+  const resp = await measureFetch(
+    `${baseUrl.replace(/\/$/, '')}/api/process_audio`,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  );
+  const j = (await resp.json()) as ProcessAudioResponseBody;
+  if (!resp.ok) {
+    const msg =
+      typeof j.detail === 'string'
+        ? j.detail
+        : Array.isArray(j.detail)
+          ? j.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('; ')
+          : `HTTP ${resp.status}`;
+    throw new Error(msg || 'process_audio failed');
+  }
+  if (!j.file_path || typeof j.file_path !== 'string') {
+    throw new Error('process_audio: missing file_path');
+  }
+  const dur =
+    typeof j.duration === 'number' && Number.isFinite(j.duration)
+      ? j.duration
+      : Number(j.duration);
+  if (!Number.isFinite(dur) || dur <= 0) {
+    throw new Error('process_audio: invalid duration');
+  }
+  const num = (v: number | null | undefined) =>
+    v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+  return {
+    file_path: j.file_path,
+    duration: dur,
+    measured_input_lufs: num(j.measured_input_lufs),
+    measured_output_lufs: num(j.measured_output_lufs),
+    measured_input_noise_floor_db: num(j.measured_input_noise_floor_db),
+  };
+}
+
+export interface MatchEqBand {
+  freq: number;
+  gainDb: number;
+}
+
+export interface MatchEqApiResult {
+  file_path: string;
+  duration: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+  bands: MatchEqBand[];
+}
+
+interface MatchEqResponseBody {
+  file_path?: string;
+  duration?: number;
+  measured_input_lufs?: number | null;
+  measured_output_lufs?: number | null;
+  bands?: { freq: number; gain_db: number }[];
+  detail?: string | { msg?: string }[];
+}
+
+/**
+ * Match the tonal balance of a target clip to a reference take via measure server ``/api/match_eq``
+ * (corrective multiband EQ derived from the two clips' average spectra, then EBU R128 loudnorm).
+ * Provide the target as exactly one of ``sourcePath`` or ``file``; ``referencePath`` is a server
+ * ``assets/audio/...`` path of the reference clip.
+ */
+export async function matchEq(
+  baseUrl: string,
+  opts: {
+    referencePath: string;
+    sourcePath?: string;
+    file?: Blob;
+    filename?: string;
+    targetLufs?: number;
+    truePeak?: number;
+    lra?: number;
+    maxGainDb?: number;
+  },
+): Promise<MatchEqApiResult> {
+  const ref = opts.referencePath?.trim();
+  if (!ref) {
+    throw new Error('matchEq: referencePath is required');
+  }
+  const sp = opts.sourcePath?.trim();
+  const file = opts.file;
+  if ((!sp && !file) || (Boolean(sp) && Boolean(file))) {
+    throw new Error('matchEq: provide exactly one of sourcePath or file');
+  }
+
+  const formData = new FormData();
+  formData.append('reference_path', ref);
+  if (sp) {
+    formData.append('source_path', sp);
+  }
+  if (file) {
+    formData.append('file', file, opts.filename ?? 'audio.wav');
+  }
+  formData.append('target_lufs', String(opts.targetLufs ?? -16));
+  formData.append('true_peak', String(opts.truePeak ?? -1.5));
+  formData.append('lra', String(opts.lra ?? 11));
+  formData.append('max_gain_db', String(opts.maxGainDb ?? 9));
+
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/match_eq`, {
+    method: 'POST',
+    body: formData,
+  });
+  const j = (await resp.json()) as MatchEqResponseBody;
+  if (!resp.ok) {
+    const msg =
+      typeof j.detail === 'string'
+        ? j.detail
+        : Array.isArray(j.detail)
+          ? j.detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join('; ')
+          : `HTTP ${resp.status}`;
+    throw new Error(msg || 'match_eq failed');
+  }
+  if (!j.file_path || typeof j.file_path !== 'string') {
+    throw new Error('match_eq: missing file_path');
+  }
+  const dur =
+    typeof j.duration === 'number' && Number.isFinite(j.duration)
+      ? j.duration
+      : Number(j.duration);
+  if (!Number.isFinite(dur) || dur <= 0) {
+    throw new Error('match_eq: invalid duration');
+  }
+  const num = (v: number | null | undefined) =>
+    v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+  return {
+    file_path: j.file_path,
+    duration: dur,
+    measured_input_lufs: num(j.measured_input_lufs),
+    measured_output_lufs: num(j.measured_output_lufs),
+    bands: (j.bands ?? []).map((b) => ({ freq: b.freq, gainDb: b.gain_db })),
   };
 }
 

@@ -8,6 +8,10 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["custom-protocol"] }
+# NOTE: do NOT hardcode the "custom-protocol" feature here. The Tauri CLI enables it
+# automatically for `tauri build` (embeds dist) and leaves it off for `tauri dev` so the
+# app loads the live Vite dev server (devUrl) with HMR. Forcing it on makes `tauri dev`
+# always serve the stale embedded dist instead of the dev server.
+tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"

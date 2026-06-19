@@ -16,13 +16,20 @@ import type {
   ProjectFragmentFile,
   TransformMapping,
   AudioTrackItem,
+  AudioCleanupMeta,
   GraphFunctionSeriesItem,
   GraphPointSequenceItem,
 } from '@/types/scene';
 import { functionSeriesTotalDuration, pointSequenceTotalDuration } from '@/types/scene';
 import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
 import { validatePointSequence } from '@/lib/pointSequenceValidation';
-import { generateAudio, normalizeAudio, uploadRecordedAudio } from '@/services/measureClient';
+import {
+  generateAudio,
+  matchEq,
+  normalizeAudio,
+  processAudio,
+  uploadRecordedAudio,
+} from '@/services/measureClient';
 import {
   isTopLevelItem,
   isActiveAtTime,
@@ -247,9 +254,19 @@ interface PlaybackSlice {
 interface SelectionSlice {
   selectedIds: Set<ItemId>;
   inspectedId: ItemId | null;
+  /** Audio clip chosen as the tonal reference for "Match EQ" (transient; not exported). */
+  audioReferenceId: ItemId | null;
 }
 
 export type AudioPanelMode = 'tts' | 'record' | 'upload';
+
+/** Progress for a running batch audio operation (normalize-all / match-all). Transient UI state. */
+export interface AudioBatchProgress {
+  kind: 'normalize' | 'match';
+  total: number;
+  done: number;
+  failed: number;
+}
 
 export interface TargetAnimationPathCapture {
   clipId: ItemId;
@@ -283,6 +300,8 @@ interface SceneDataSlice {
   defaults: SceneDefaults;
   measureConfig: MeasureConfig;
   audioItems: AudioTrackItem[];
+  /** Progress of an in-flight batch audio op (null when idle). Drives the timeline batch toolbar. */
+  audioBatch: AudioBatchProgress | null;
 }
 
 // ── Combined store ──
@@ -383,6 +402,8 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
       emptyLabel?: string;
       /** Whisper / ASR language hint for the measure server (`iw` | `en`). */
       transcriptionLang?: string;
+      /** Run the full cleanup chain on import (defaults on for mic recordings). */
+      autoClean?: boolean;
     },
   ) => Promise<void>;
 
@@ -394,6 +415,66 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
     id: string,
     options?: { targetLufs?: number; truePeak?: number; lra?: number },
   ) => Promise<void>;
+
+  /**
+   * Run the full deterministic voice cleanup chain (high-pass + denoise + compress + loudnorm)
+   * on an existing timeline audio clip via the measure server. Replaces the audio file URL; keeps
+   * timing start, word boundaries, and bindings. This is what makes separate takes sound uniform.
+   */
+  processAudioTrack: (
+    id: string,
+    options?: {
+      targetLufs?: number;
+      truePeak?: number;
+      lra?: number;
+      highpassHz?: number;
+      denoise?: boolean;
+      compress?: boolean;
+    },
+  ) => Promise<void>;
+
+  /** Choose / clear the audio clip used as the tonal reference for "Match EQ" (null clears). */
+  setAudioReferenceId: (id: string | null) => void;
+
+  /**
+   * Tonally match an audio clip to the current reference clip (`audioReferenceId`) via the measure
+   * server: corrective multiband EQ from the two clips' spectra, then loudnorm. Replaces the audio
+   * file URL; keeps timing start, word boundaries, and bindings.
+   */
+  matchAudioTrackEq: (
+    id: string,
+    options?: {
+      referenceId?: string;
+      targetLufs?: number;
+      truePeak?: number;
+      lra?: number;
+      maxGainDb?: number;
+    },
+  ) => Promise<void>;
+
+  /**
+   * Loudness-normalize every audio clip in the current scene, sequentially. Idempotent (each clip is
+   * measured then gained), so it is safe to re-run. Reports progress via `audioBatch`; one failing
+   * clip does not abort the rest.
+   */
+  normalizeAllAudioTracks: (options?: {
+    targetLufs?: number;
+    truePeak?: number;
+    lra?: number;
+  }) => Promise<void>;
+
+  /**
+   * Tonally match every non-reference audio clip in the current scene to the reference
+   * (`audioReferenceId`), sequentially. Each pass moves a clip toward the reference, so re-running is
+   * safe (convergent). Reports progress via `audioBatch`; one failing clip does not abort the rest.
+   */
+  matchAllAudioTracksToReference: (options?: {
+    referenceId?: string;
+    targetLufs?: number;
+    truePeak?: number;
+    lra?: number;
+    maxGainDb?: number;
+  }) => Promise<void>;
 
   /**
    * Move one unlinked audio clip to start `gapSec` after the latest preceding audio ends.
@@ -421,11 +502,13 @@ export const useSceneStore = create<SceneStore>()(
         includePreview: true,
       },
       audioItems: [],
+      audioBatch: null,
       currentTime: 0,
       isPlaying: false,
       viewRange: [0, 30],
       selectedIds: new Set(),
       inspectedId: null,
+      audioReferenceId: null,
       exportOpen: false,
       audioMode: null,
       agentOpen: false,
@@ -1204,12 +1287,20 @@ export const useSceneStore = create<SceneStore>()(
           word_boundaries,
         } = await uploadRecordedAudio(baseUrl, blob, uploadName, {
           lang: options?.transcriptionLang,
+          script: trimmed,
         });
         const root = baseUrl.replace(/\/$/, '');
-        const audioUrl =
-          file_path.startsWith('http://') || file_path.startsWith('https://')
-            ? file_path
-            : `${root}${file_path.startsWith('/') ? '' : '/'}${file_path}`;
+        const toUrl = (fp: string) =>
+          fp.startsWith('http://') || fp.startsWith('https://')
+            ? fp
+            : `${root}${fp.startsWith('/') ? '' : '/'}${fp}`;
+        const isServerAsset =
+          !file_path.startsWith('http://') &&
+          !file_path.startsWith('https://') &&
+          file_path.replace(/\\/g, '/').startsWith('assets/audio/');
+
+        let audioUrl = toUrl(file_path);
+        let assetRelPath: string | undefined = isServerAsset ? file_path : undefined;
         let duration = apiDuration;
         if (duration == null || !Number.isFinite(duration) || duration <= 0) {
           const previewUrl = URL.createObjectURL(blob);
@@ -1228,14 +1319,47 @@ export const useSceneStore = create<SceneStore>()(
           }
         }
         duration = Math.max(0.01, duration);
+
+        // Auto-clean recordings on import so every take is processed identically (raw capture
+        // means we own the chain). Non-fatal: if ffmpeg is missing or fails, keep the raw take.
+        let cleaned: AudioCleanupMeta | undefined;
+        if (options?.autoClean && isServerAsset) {
+          try {
+            const res = await processAudio(baseUrl, {
+              sourcePath: file_path,
+              denoise: false,
+              compress: true,
+            });
+            audioUrl = toUrl(res.file_path);
+            assetRelPath = res.file_path;
+            duration = Math.max(0.01, res.duration);
+            cleaned = {
+              targetLufs: -16,
+              sourceAssetRelPath: file_path,
+              measuredInputLufs: res.measured_input_lufs ?? undefined,
+              measuredOutputLufs: res.measured_output_lufs ?? undefined,
+              measuredInputNoiseFloorDb:
+                res.measured_input_noise_floor_db ?? undefined,
+              highpassHz: 80,
+              denoise: false,
+              compress: true,
+              processedAt: new Date().toISOString(),
+            };
+          } catch (err) {
+            console.warn('Auto-clean failed; keeping raw recording:', err);
+          }
+        }
+
         const startTime = get().currentTime ?? 0;
         const track: AudioTrackItem = {
           id: crypto.randomUUID().slice(0, 12),
           text: trackText,
           audioUrl,
+          assetRelPath,
           boundaries: word_boundaries ?? [],
           startTime,
           duration,
+          audioProcessing: cleaned ? { cleaned } : undefined,
         };
         set((s) => {
           s.audioItems.push(track);
@@ -1306,6 +1430,247 @@ export const useSceneStore = create<SceneStore>()(
             },
           };
         });
+      },
+
+      processAudioTrack: async (id, options) => {
+        const baseUrl = get().measureConfig.url;
+        const track = get().audioItems.find((a) => a.id === id);
+        if (!track) return;
+
+        const prevRel = track.assetRelPath?.trim();
+        const serverRel = measureServerRelativeAudioPath(track);
+        const oldAudioUrl = track.audioUrl;
+
+        const denoise = options?.denoise ?? false;
+        const compress = options?.compress ?? true;
+        const highpassHz = options?.highpassHz ?? 80;
+
+        let result;
+        if (serverRel) {
+          result = await processAudio(baseUrl, {
+            sourcePath: serverRel,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+            highpassHz,
+            denoise,
+            compress,
+          });
+        } else {
+          const resp = await fetch(track.audioUrl);
+          if (!resp.ok) {
+            throw new Error(`Could not read audio for cleanup (HTTP ${resp.status})`);
+          }
+          const blob = await resp.blob();
+          const filename =
+            deriveAudioAssetRelPath(track).split('/').pop() || 'audio.webm';
+          result = await processAudio(baseUrl, {
+            file: blob,
+            filename,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+            highpassHz,
+            denoise,
+            compress,
+          });
+        }
+
+        const root = baseUrl.replace(/\/$/, '');
+        const fp = result.file_path;
+        const newAudioUrl = `${root}${fp.startsWith('/') ? '' : '/'}${fp}`;
+        const targetLufs = options?.targetLufs ?? -16;
+
+        set((s) => {
+          const t = s.audioItems.find((a) => a.id === id);
+          if (!t) return;
+          if (typeof oldAudioUrl === 'string' && oldAudioUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(oldAudioUrl);
+            } catch {
+              /* ignore */
+            }
+          }
+          t.audioUrl = newAudioUrl;
+          t.assetRelPath = fp;
+          t.duration = Math.max(0.01, result.duration);
+          t.audioProcessing = {
+            ...t.audioProcessing,
+            cleaned: {
+              targetLufs,
+              sourceAssetRelPath: prevRel ?? serverRel ?? undefined,
+              measuredInputLufs: result.measured_input_lufs ?? undefined,
+              measuredOutputLufs: result.measured_output_lufs ?? undefined,
+              measuredInputNoiseFloorDb:
+                result.measured_input_noise_floor_db ?? undefined,
+              highpassHz,
+              denoise,
+              compress,
+              processedAt: new Date().toISOString(),
+            },
+          };
+        });
+      },
+
+      setAudioReferenceId: (id) =>
+        set((s) => {
+          s.audioReferenceId =
+            id && s.audioItems.some((a) => a.id === id) ? id : null;
+        }),
+
+      matchAudioTrackEq: async (id, options) => {
+        const baseUrl = get().measureConfig.url;
+        const state = get();
+        const track = state.audioItems.find((a) => a.id === id);
+        if (!track) return;
+
+        const refId = options?.referenceId ?? state.audioReferenceId;
+        if (!refId) {
+          throw new Error('Pick a reference clip first (use "Set as ref").');
+        }
+        if (refId === id) {
+          throw new Error('A clip cannot be matched to itself.');
+        }
+        const refTrack = state.audioItems.find((a) => a.id === refId);
+        if (!refTrack) {
+          throw new Error('Reference clip no longer exists.');
+        }
+        const refRel = measureServerRelativeAudioPath(refTrack);
+        if (!refRel) {
+          throw new Error(
+            'Reference clip is not on the measure server — record, upload, or clean it first.',
+          );
+        }
+
+        const prevRel = track.assetRelPath?.trim();
+        const serverRel = measureServerRelativeAudioPath(track);
+        const oldAudioUrl = track.audioUrl;
+
+        let result;
+        if (serverRel) {
+          result = await matchEq(baseUrl, {
+            referencePath: refRel,
+            sourcePath: serverRel,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+            maxGainDb: options?.maxGainDb,
+          });
+        } else {
+          const resp = await fetch(track.audioUrl);
+          if (!resp.ok) {
+            throw new Error(`Could not read audio for EQ match (HTTP ${resp.status})`);
+          }
+          const blob = await resp.blob();
+          const filename =
+            deriveAudioAssetRelPath(track).split('/').pop() || 'audio.webm';
+          result = await matchEq(baseUrl, {
+            referencePath: refRel,
+            file: blob,
+            filename,
+            targetLufs: options?.targetLufs,
+            truePeak: options?.truePeak,
+            lra: options?.lra,
+            maxGainDb: options?.maxGainDb,
+          });
+        }
+
+        const root = baseUrl.replace(/\/$/, '');
+        const fp = result.file_path;
+        const newAudioUrl = `${root}${fp.startsWith('/') ? '' : '/'}${fp}`;
+        const targetLufs = options?.targetLufs ?? -16;
+
+        set((s) => {
+          const t = s.audioItems.find((a) => a.id === id);
+          if (!t) return;
+          if (typeof oldAudioUrl === 'string' && oldAudioUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(oldAudioUrl);
+            } catch {
+              /* ignore */
+            }
+          }
+          t.audioUrl = newAudioUrl;
+          t.assetRelPath = fp;
+          t.duration = Math.max(0.01, result.duration);
+          t.audioProcessing = {
+            ...t.audioProcessing,
+            matchedEq: {
+              targetLufs,
+              referenceId: refId,
+              referenceAssetRelPath: refRel,
+              sourceAssetRelPath: prevRel ?? serverRel ?? undefined,
+              measuredInputLufs: result.measured_input_lufs ?? undefined,
+              measuredOutputLufs: result.measured_output_lufs ?? undefined,
+              bands: result.bands,
+              maxGainDb: options?.maxGainDb,
+              processedAt: new Date().toISOString(),
+            },
+          };
+        });
+      },
+
+      normalizeAllAudioTracks: async (options) => {
+        if (get().audioBatch) return; // a batch is already running
+        const ids = get().audioItems.map((a) => a.id);
+        if (ids.length === 0) return;
+        set((s) => {
+          s.audioBatch = { kind: 'normalize', total: ids.length, done: 0, failed: 0 };
+        });
+        try {
+          for (const id of ids) {
+            try {
+              await get().normalizeAudioTrack(id, options);
+            } catch (err) {
+              console.error('normalizeAllAudioTracks: clip failed', id, err);
+              set((s) => {
+                if (s.audioBatch) s.audioBatch.failed += 1;
+              });
+            } finally {
+              set((s) => {
+                if (s.audioBatch) s.audioBatch.done += 1;
+              });
+            }
+          }
+        } finally {
+          set((s) => {
+            s.audioBatch = null;
+          });
+        }
+      },
+
+      matchAllAudioTracksToReference: async (options) => {
+        if (get().audioBatch) return; // a batch is already running
+        const state = get();
+        const refId = options?.referenceId ?? state.audioReferenceId;
+        if (!refId) {
+          throw new Error('Pick a reference clip first (use "Set as ref").');
+        }
+        const ids = state.audioItems.filter((a) => a.id !== refId).map((a) => a.id);
+        if (ids.length === 0) return;
+        set((s) => {
+          s.audioBatch = { kind: 'match', total: ids.length, done: 0, failed: 0 };
+        });
+        try {
+          for (const id of ids) {
+            try {
+              await get().matchAudioTrackEq(id, { ...options, referenceId: refId });
+            } catch (err) {
+              console.error('matchAllAudioTracksToReference: clip failed', id, err);
+              set((s) => {
+                if (s.audioBatch) s.audioBatch.failed += 1;
+              });
+            } finally {
+              set((s) => {
+                if (s.audioBatch) s.audioBatch.done += 1;
+              });
+            }
+          }
+        } finally {
+          set((s) => {
+            s.audioBatch = null;
+          });
+        }
       },
 
       placeAudioAfterPrevious: (id, gapSec) =>

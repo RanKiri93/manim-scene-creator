@@ -426,6 +426,10 @@ export function collectTransformPlayAnims(
   tc: TransformMapping,
   sourceSegCount: number,
 ): string[] {
+  if ((tc.mode ?? 'segments') === 'whole') {
+    return [`ReplacementTransform(${sourceVar}, ${targetVar})`];
+  }
+
   const anims: string[] = [];
   const pairs = tc.segmentPairs;
   const mappedSources = new Set(

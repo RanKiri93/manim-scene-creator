@@ -14,8 +14,21 @@ function recordingFilenameFromMime(mime: string): string {
   return 'recording.webm';
 }
 
-function recordingAudioConstraints(noiseCancellationEnabled: boolean): MediaStreamConstraints {
-  if (!noiseCancellationEnabled) return { audio: true };
+function recordingAudioConstraints(browserProcessingEnabled: boolean): MediaStreamConstraints {
+  // Raw capture (default): explicitly disable the browser DSP. `{ audio: true }` is NOT
+  // equivalent — most browsers silently default autoGainControl/noiseSuppression to ON,
+  // which rides the level + smears the noise floor differently on every take. That variable
+  // processing is the main source of clip-to-clip inconsistency, so we capture a clean,
+  // untouched signal and apply a deterministic cleanup chain afterwards (server loudnorm chain).
+  if (!browserProcessingEnabled) {
+    return {
+      audio: {
+        autoGainControl: false,
+        noiseSuppression: false,
+        echoCancellation: false,
+      },
+    };
+  }
 
   return {
     audio: {
@@ -75,7 +88,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [noiseCancellationEnabled, setNoiseCancellationEnabled] = useState(true);
+  const [browserProcessingEnabled, setBrowserProcessingEnabled] = useState(false);
   const chunksRef = useRef<BlobPart[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -158,6 +171,9 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         filename,
         emptyLabel: file ? 'Uploaded audio' : 'Mic recording',
         transcriptionLang: lang,
+        // Recordings and uploads both come in fully RAW (untouched). Apply consistency processing
+        // on demand via the per-clip "Clean" / "Normalize" / "Match EQ" buttons.
+        autoClean: false,
       });
       clearPendingPreview();
     } catch (err) {
@@ -178,7 +194,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia(
-        recordingAudioConstraints(noiseCancellationEnabled),
+        recordingAudioConstraints(browserProcessingEnabled),
       );
       streamRef.current = stream;
       chunksRef.current = [];
@@ -243,7 +259,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
     return (
       <div className="flex flex-col gap-3 text-xs text-slate-300">
         <label className="flex flex-col gap-1">
-          <span className="text-slate-400">Script / label (stored on the track)</span>
+          <span className="text-slate-400">Script for guided transcription / label</span>
           <textarea
             value={script}
             onChange={(e) => setScript(e.target.value)}
@@ -261,7 +277,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           label="Transcription"
         />
         <p className="text-[10px] text-slate-500 leading-snug">
-          Whisper / word timings use this language when the server supports it.
+          If you provide the exact script, the timeline uses it as the transcript and aligns it to
+          Whisper word timings.
         </p>
         <input
           ref={fileInputRef}
@@ -337,18 +354,25 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         disabled={loading && !isRecording}
         label="Transcription"
       />
+      <p className="text-[10px] text-slate-500 leading-snug">
+        Paste the exact script above to use it as the transcript and align it to Whisper word
+        timings after recording.
+      </p>
       <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
         <input
           type="checkbox"
-          checked={noiseCancellationEnabled}
+          checked={browserProcessingEnabled}
           disabled={isRecording || loading}
-          onChange={(e) => setNoiseCancellationEnabled(e.target.checked)}
+          onChange={(e) => setBrowserProcessingEnabled(e.target.checked)}
           className="mt-0.5"
         />
         <span className="flex flex-col gap-0.5">
-          <span className="text-slate-300">Noise cancellation</span>
+          <span className="text-slate-300">Browser mic processing</span>
           <span className="text-[10px] leading-snug text-slate-500">
-            Uses browser mic noise suppression, echo cancellation, and auto gain when supported.
+            Off (recommended): captures a raw, untouched signal for consistent takes — auto-gain,
+            noise suppression, and echo cancellation are disabled so every recording sounds the
+            same, then the cleanup chain is applied on import. Turn on only if your raw mic input
+            is unusable.
           </span>
         </span>
       </label>

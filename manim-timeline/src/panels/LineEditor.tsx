@@ -19,6 +19,7 @@ import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
   return {
     sourceLineId,
+    mode: 'segments',
     segmentPairs: {},
     unmappedSourceBehavior: 'fade_out',
     unmappedTargetBehavior: 'fade_in',
@@ -98,6 +99,7 @@ export default function LineEditor({ item }: LineEditorProps) {
         animStyle: 'transform',
         visibleAtSceneStart: undefined,
         transformConfig: {
+          mode: prev?.mode ?? 'segments',
           segmentPairs: prev?.segmentPairs ?? {},
           unmappedSourceBehavior: prev?.unmappedSourceBehavior ?? 'fade_out',
           unmappedTargetBehavior: prev?.unmappedTargetBehavior ?? 'fade_in',
@@ -222,26 +224,47 @@ export default function LineEditor({ item }: LineEditorProps) {
               </select>
             </label>
           )}
-          <button
-            type="button"
-            disabled={!sourceLineItem}
-            onClick={() => setMapperOpen(true)}
-            className="self-start rounded border border-slate-500 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Map segments…
-          </button>
-          {sourceLineItem && (
-            <SegmentMapperModal
-              open={mapperOpen}
-              onClose={() => setMapperOpen(false)}
-              sourceRaw={sourceLineItem.raw}
-              targetRaw={item.raw}
-              initialSegmentPairs={item.transformConfig?.segmentPairs ?? {}}
-              onApply={(segmentPairs) => {
-                const tc = item.transformConfig ?? defaultTransformMapping(sourceLineItem.id);
-                setLineTransformConfig(item.id, { ...tc, segmentPairs });
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Transform type
+            <select
+              value={item.transformConfig?.mode ?? 'segments'}
+              onChange={(e) => {
+                const base = item.transformConfig ?? defaultTransformMapping(sourceLineItem?.id ?? '');
+                setLineTransformConfig(item.id, {
+                  ...base,
+                  mode: e.target.value as TransformMapping['mode'],
+                });
               }}
-            />
+              className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+            >
+              <option value="segments">Mapped segments</option>
+              <option value="whole">Whole line morph</option>
+            </select>
+          </label>
+          {(item.transformConfig?.mode ?? 'segments') === 'segments' && (
+            <>
+              <button
+                type="button"
+                disabled={!sourceLineItem}
+                onClick={() => setMapperOpen(true)}
+                className="self-start rounded border border-slate-500 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Map segments…
+              </button>
+              {sourceLineItem && (
+                <SegmentMapperModal
+                  open={mapperOpen}
+                  onClose={() => setMapperOpen(false)}
+                  sourceRaw={sourceLineItem.raw}
+                  targetRaw={item.raw}
+                  initialSegmentPairs={item.transformConfig?.segmentPairs ?? {}}
+                  onApply={(segmentPairs) => {
+                    const tc = item.transformConfig ?? defaultTransformMapping(sourceLineItem.id);
+                    setLineTransformConfig(item.id, { ...tc, segmentPairs });
+                  }}
+                />
+              )}
+            </>
           )}
         </div>
       )}

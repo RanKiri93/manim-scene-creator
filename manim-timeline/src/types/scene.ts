@@ -105,12 +105,16 @@ export type UnmappedSourceBehavior = 'fade_out' | 'leave';
 
 export type UnmappedTargetBehavior = 'fade_in' | 'write';
 
+export type TextTransformMode = 'segments' | 'whole';
+
 /**
  * Maps LaTeX segment indices on this line (target) to segments on another line (source).
  * Used when animStyle is `transform`.
  */
 export interface TransformMapping {
   sourceLineId: string;
+  /** `segments` preserves legacy segment mapping; `whole` morphs the full source line into this line. */
+  mode?: TextTransformMode;
   segmentPairs: Record<number, number>;
   unmappedSourceBehavior: UnmappedSourceBehavior;
   unmappedTargetBehavior: UnmappedTargetBehavior;
@@ -132,8 +136,42 @@ export interface AudioNormalizationMeta {
   processedAt: string;
 }
 
+/** Full deterministic voice cleanup chain (high-pass + denoise + compress + EBU R128 loudnorm). */
+export interface AudioCleanupMeta {
+  targetLufs: number;
+  sourceAssetRelPath?: string;
+  measuredInputLufs?: number;
+  measuredOutputLufs?: number;
+  /** Raw input noise floor (dBFS) measured before the chain; lower is quieter/cleaner. */
+  measuredInputNoiseFloorDb?: number;
+  highpassHz?: number;
+  denoise?: boolean;
+  compress?: boolean;
+  processedAt: string;
+}
+
+/** Tonal-match of a clip to a chosen reference take (corrective multiband EQ + loudnorm). */
+export interface AudioMatchEqMeta {
+  targetLufs: number;
+  /** Id of the reference clip this take was matched to (may no longer exist). */
+  referenceId?: string;
+  /** Reference clip's server asset path at match time. */
+  referenceAssetRelPath?: string;
+  sourceAssetRelPath?: string;
+  measuredInputLufs?: number;
+  measuredOutputLufs?: number;
+  /** Applied corrective curve, for display: per-band center freq + gain (dB). */
+  bands?: { freq: number; gainDb: number }[];
+  maxGainDb?: number;
+  processedAt: string;
+}
+
 export interface AudioProcessingMeta {
   normalized?: AudioNormalizationMeta;
+  /** Set when the clip ran through the full cleanup chain (recordings auto-clean on import). */
+  cleaned?: AudioCleanupMeta;
+  /** Set when the clip was tonally matched to a reference take. */
+  matchedEq?: AudioMatchEqMeta;
 }
 
 export interface AudioTrackItem {

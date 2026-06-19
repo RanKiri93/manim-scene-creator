@@ -61,7 +61,21 @@ import json
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-_RENDER_DEBUG_DIR = os.path.join(_ROOT, "render_debug")
+
+
+def _default_data_root() -> str:
+    configured = os.environ.get("MANIM_TIMELINE_DATA_DIR")
+    if configured:
+        return configured
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "Manim Timeline", "measure-server")
+    return _ROOT
+
+
+_DATA_ROOT = _default_data_root()
+os.makedirs(_DATA_ROOT, exist_ok=True)
+_RENDER_DEBUG_DIR = os.path.join(_DATA_ROOT, "render_debug")
 
 import base64
 import re
@@ -692,7 +706,7 @@ try:
         allow_private_network=True,
     )
 
-    _AUDIO_ASSETS_DIR = os.path.join(_ROOT, "assets", "audio")
+    _AUDIO_ASSETS_DIR = os.path.join(_DATA_ROOT, "assets", "audio")
     os.makedirs(_AUDIO_ASSETS_DIR, exist_ok=True)
 
     class GenerateAudioRequest(BaseModel):
@@ -714,13 +728,116 @@ try:
 
     _whisper_model = None
 
+    def _whisper_language_code(lang: str | None) -> str:
+        incoming = (lang or "iw").strip().lower()
+        if incoming in ("he", "iw"):
+            return "he"
+        return incoming or "he"
+
     def _get_whisper_model():
         global _whisper_model
         if _whisper_model is None:
             import whisper
 
-            _whisper_model = whisper.load_model("base")
+            model_dir = os.environ.get("MANIM_TIMELINE_WHISPER_MODEL_DIR")
+            if model_dir and os.path.isdir(model_dir):
+                _whisper_model = whisper.load_model("base", download_root=model_dir)
+            else:
+                _whisper_model = whisper.load_model("base")
         return _whisper_model
+
+    def _word_boundaries_from_whisper_result(result: dict) -> list[dict[str, float | str]]:
+        word_boundaries: list[dict[str, float | str]] = []
+        for seg in result.get("segments") or []:
+            for w in seg.get("words") or []:
+                raw = w.get("word") or ""
+                word_boundaries.append(
+                    {
+                        "word": raw.strip(),
+                        "start": float(w.get("start", 0.0)),
+                        "end": float(w.get("end", 0.0)),
+                    }
+                )
+        if not word_boundaries:
+            for seg in result.get("segments") or []:
+                txt = (seg.get("text") or "").strip()
+                word_boundaries.append(
+                    {
+                        "word": txt or "...",
+                        "start": float(seg.get("start", 0.0)),
+                        "end": float(seg.get("end", 0.0)),
+                    }
+                )
+        return word_boundaries
+
+    def _duration_from_boundaries_or_result(
+        word_boundaries: list[dict[str, float | str]],
+        result: dict,
+        abs_path: str | None = None,
+    ) -> float:
+        duration = 0.0
+        for wb in word_boundaries:
+            duration = max(duration, float(wb["end"]))
+        if duration <= 0.0 and result.get("segments"):
+            duration = float(result["segments"][-1].get("end", 0.0))
+        if duration <= 0.0 and abs_path:
+            try:
+                duration = _ffprobe_duration_seconds(abs_path)
+            except Exception:
+                duration = 0.0
+        return duration
+
+    def _script_words(script: str | None) -> list[str]:
+        if not script:
+            return []
+        return [w.strip() for w in re.findall(r"\S+", script) if w.strip()]
+
+    def _align_script_to_word_timings(
+        script: str | None,
+        word_boundaries: list[dict[str, float | str]],
+        duration: float,
+    ) -> list[dict[str, float | str]]:
+        """Use the provided script as transcript text while preserving Whisper timing shape."""
+        words = _script_words(script)
+        if not words:
+            return word_boundaries
+
+        if not word_boundaries:
+            if duration <= 0.0:
+                return [{"word": word, "start": 0.0, "end": 0.0} for word in words]
+            step = duration / max(len(words), 1)
+            return [
+                {"word": word, "start": i * step, "end": (i + 1) * step}
+                for i, word in enumerate(words)
+            ]
+
+        if len(words) == len(word_boundaries):
+            return [
+                {
+                    "word": word,
+                    "start": float(src["start"]),
+                    "end": float(src["end"]),
+                }
+                for word, src in zip(words, word_boundaries)
+            ]
+
+        n = len(word_boundaries)
+        m = len(words)
+        aligned: list[dict[str, float | str]] = []
+        for i, word in enumerate(words):
+            start_idx = min(n - 1, int(i * n / m))
+            end_idx = min(n - 1, max(start_idx, int(((i + 1) * n + m - 1) / m) - 1))
+            start = float(word_boundaries[start_idx]["start"])
+            end = float(word_boundaries[end_idx]["end"])
+            if end <= start:
+                next_start = (
+                    float(word_boundaries[min(n - 1, end_idx + 1)]["start"])
+                    if end_idx + 1 < n
+                    else duration
+                )
+                end = max(start + 0.01, next_start)
+            aligned.append({"word": word, "start": start, "end": end})
+        return aligned
 
     @app.post("/measure", response_model=MeasureResponse)
     def measure(req: MeasureRequest) -> MeasureResponse:
@@ -744,10 +861,9 @@ try:
         incoming = (req.lang.strip() or "iw")
         if incoming in ("he", "iw"):
             tts_lang = "iw"
-            whisper_lang = "he"
         else:
             tts_lang = incoming
-            whisper_lang = incoming
+        whisper_lang = _whisper_language_code(incoming)
         tmp_path = None
         abs_saved: str | None = None
         try:
@@ -770,33 +886,16 @@ try:
                 language=whisper_lang,
             )
 
-            word_boundaries: list[WordBoundaryOut] = []
-            for seg in result.get("segments") or []:
-                for w in seg.get("words") or []:
-                    raw = w.get("word") or ""
-                    word_boundaries.append(
-                        WordBoundaryOut(
-                            word=raw.strip(),
-                            start=float(w.get("start", 0.0)),
-                            end=float(w.get("end", 0.0)),
-                        )
-                    )
-            if not word_boundaries:
-                for seg in result.get("segments") or []:
-                    txt = (seg.get("text") or "").strip()
-                    word_boundaries.append(
-                        WordBoundaryOut(
-                            word=txt or "…",
-                            start=float(seg.get("start", 0.0)),
-                            end=float(seg.get("end", 0.0)),
-                        )
-                    )
-
-            duration = 0.0
-            for wb in word_boundaries:
-                duration = max(duration, wb.end)
-            if duration <= 0.0 and result.get("segments"):
-                duration = float(result["segments"][-1].get("end", 0.0))
+            raw_boundaries = _word_boundaries_from_whisper_result(result)
+            duration = _duration_from_boundaries_or_result(raw_boundaries, result, abs_saved)
+            word_boundaries = [
+                WordBoundaryOut(
+                    word=str(wb["word"]),
+                    start=float(wb["start"]),
+                    end=float(wb["end"]),
+                )
+                for wb in _align_script_to_word_timings(req.text, raw_boundaries, duration)
+            ]
 
             return GenerateAudioResponse(
                 audio_base64=audio_b64,
@@ -824,12 +923,11 @@ try:
                     pass
 
     @app.post("/api/upload_audio")
-    async def upload_audio(file: UploadFile) -> dict[str, object]:
-        try:
-            import whisper
-        except ImportError as e:
-            raise HTTPException(status_code=501, detail=f"openai-whisper not installed: {e}") from e
-
+    async def upload_audio(
+        file: UploadFile = File(...),
+        lang: str = Form("iw"),
+        script: str = Form(""),
+    ) -> dict[str, object]:
         ext = os.path.splitext(file.filename or "")[1] or ".webm"
         filename = f"{uuid.uuid4().hex}{ext}"
         rel_path = f"assets/audio/{filename}"
@@ -840,50 +938,62 @@ try:
             with open(abs_path, "wb") as out_f:
                 shutil.copyfileobj(BytesIO(body), out_f)
 
+            try:
+                import whisper  # noqa: F401
+            except ImportError:
+                return {
+                    "file_path": rel_path,
+                    "duration": _ffprobe_duration_seconds(abs_path),
+                    "word_boundaries": [],
+                    "transcription_error": "openai-whisper not installed",
+                }
+
             model = _get_whisper_model()
             result = model.transcribe(
                 abs_path,
                 word_timestamps=True,
-                language="he",
+                language=_whisper_language_code(lang),
             )
 
-            word_boundaries: list[dict[str, float | str]] = []
-            for seg in result.get("segments") or []:
-                for w in seg.get("words") or []:
-                    raw = w.get("word") or ""
-                    word_boundaries.append(
-                        {
-                            "word": raw.strip(),
-                            "start": float(w.get("start", 0.0)),
-                            "end": float(w.get("end", 0.0)),
-                        }
-                    )
-            if not word_boundaries:
-                for seg in result.get("segments") or []:
-                    txt = (seg.get("text") or "").strip()
-                    word_boundaries.append(
-                        {
-                            "word": txt or "…",
-                            "start": float(seg.get("start", 0.0)),
-                            "end": float(seg.get("end", 0.0)),
-                        }
-                    )
-
-            duration = 0.0
-            for wb in word_boundaries:
-                duration = max(duration, float(wb["end"]))
-            if duration <= 0.0 and result.get("segments"):
-                duration = float(result["segments"][-1].get("end", 0.0))
-
-            boundaries = word_boundaries
-            print(f"DEBUG: Found {len(boundaries)} words")
+            raw_boundaries = _word_boundaries_from_whisper_result(result)
+            duration = _duration_from_boundaries_or_result(raw_boundaries, result, abs_path)
+            word_boundaries = _align_script_to_word_timings(script, raw_boundaries, duration)
+            print(f"DEBUG: Found {len(word_boundaries)} words")
             return {
                 "file_path": rel_path,
                 "duration": duration,
                 "word_boundaries": word_boundaries,
+                "transcription_source": "script" if _script_words(script) else "whisper",
             }
         except HTTPException:
             raise
+        except Exception as e:
+            if os.path.isfile(abs_path):
+                try:
+                    os.unlink(abs_path)
+                except OSError:
+                    pass
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+
+    @app.post("/api/sync_audio_asset")
+    async def sync_audio_asset(
+        rel_path: str = Form(...),
+        file: UploadFile = File(...),
+    ) -> dict[str, object]:
+        """Persist a bundled project audio asset at its exported ``assets/audio/...`` path."""
+        abs_path = _resolve_safe_audio_asset_target(rel_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        try:
+            body = await file.read()
+            with open(abs_path, "wb") as out_f:
+                shutil.copyfileobj(BytesIO(body), out_f)
+            return {
+                "file_path": rel_path.strip().replace("\\", "/"),
+                "bytes": len(body),
+            }
         except Exception as e:
             if os.path.isfile(abs_path):
                 try:
@@ -911,13 +1021,32 @@ try:
                 status_code=400,
                 detail="source_path must start with assets/audio/",
             )
-        abs_path = os.path.normpath(os.path.join(_ROOT, raw))
+        filename = raw.removeprefix("assets/audio/")
+        abs_path = os.path.normpath(os.path.join(_AUDIO_ASSETS_DIR, filename))
         root_norm = os.path.normpath(_AUDIO_ASSETS_DIR)
         common = os.path.commonpath([abs_path, root_norm])
         if common != root_norm:
             raise HTTPException(status_code=400, detail="Invalid source_path")
         if not os.path.isfile(abs_path):
             raise HTTPException(status_code=404, detail=f"Audio file not found: {raw}")
+        return abs_path
+
+    def _resolve_safe_audio_asset_target(rel: str) -> str:
+        """Resolve a writable repo-relative ``assets/audio/...`` target under ``_AUDIO_ASSETS_DIR``."""
+        raw = (rel or "").strip().replace("\\", "/")
+        if not raw or ".." in raw or raw.startswith("/"):
+            raise HTTPException(status_code=400, detail="Invalid rel_path")
+        if not raw.startswith("assets/audio/"):
+            raise HTTPException(
+                status_code=400,
+                detail="rel_path must start with assets/audio/",
+            )
+        filename = raw.removeprefix("assets/audio/")
+        abs_path = os.path.normpath(os.path.join(_AUDIO_ASSETS_DIR, filename))
+        root_norm = os.path.normpath(_AUDIO_ASSETS_DIR)
+        common = os.path.commonpath([abs_path, root_norm])
+        if common != root_norm:
+            raise HTTPException(status_code=400, detail="Invalid rel_path")
         return abs_path
 
     def _wav_data_duration_seconds(path: str) -> float:
@@ -1025,10 +1154,18 @@ try:
         target_i: float,
         target_tp: float,
         target_lra: float,
+        pre_filters: str = "",
     ) -> tuple[float | None, float | None]:
-        """Two-pass EBU R128 loudnorm. Returns (measured_input_lufs, measured_output_lufs)."""
+        """Two-pass EBU R128 loudnorm. Returns (measured_input_lufs, measured_output_lufs).
+
+        ``pre_filters`` is an optional ffmpeg ``-af`` chain (no trailing comma) applied *before*
+        ``loudnorm`` in **both** passes. Keeping it identical in both passes is what makes the
+        two-pass measurement correct: pass 1 measures the post-filter signal, pass 2 applies linear
+        gain to that same post-filter signal.
+        """
         null_out = "NUL" if sys.platform == "win32" else "/dev/null"
-        af1 = f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json"
+        pre = f"{pre_filters.strip().rstrip(',')}," if pre_filters and pre_filters.strip() else ""
+        af1 = f"{pre}loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json"
         cmd1 = [
             ffmpeg_bin,
             "-hide_banner",
@@ -1078,7 +1215,7 @@ try:
         measured_in = measured_i if measured_i != 0.0 else None
 
         af2 = (
-            f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:"
+            f"{pre}loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:"
             f"measured_I={measured_i}:measured_TP={measured_tp}:measured_LRA={measured_lra}:"
             f"measured_thresh={measured_thresh}:offset={offset}:linear=true:print_format=summary"
         )
@@ -1109,6 +1246,94 @@ try:
                 detail=f"loudnorm pass 2 failed (exit {p2.returncode}): {err2[-2500:]}",
             )
         out_lufs = _parse_output_integrated_lufs(err2)
+        return (measured_in, out_lufs)
+
+    def _ffmpeg_transparent_loudness(
+        ffmpeg_bin: str,
+        input_path: str,
+        output_path: str,
+        target_i: float,
+        target_tp: float,
+        target_lra: float = 11.0,  # accepted for signature parity; unused (no dynamic-range remap)
+        pre_filters: str = "",
+    ) -> tuple[float | None, float | None]:
+        """Transparent loudness normalization (no ``loudnorm`` dynamic mode).
+
+        Measures integrated loudness, applies a single **static gain** to hit ``target_i`` exactly,
+        then a true-peak limiter (ceiling ``target_tp``) that only catches occasional peaks. Because
+        nothing continuously reshapes the signal — unlike ``loudnorm`` which falls back to its dynamic
+        limiter on short, low-LRA spoken clips and produces a "metallic"/musical artifact — the natural
+        voice is preserved while every clip still lands at the same loudness. ``pre_filters`` is an
+        optional ffmpeg ``-af`` chain applied before the gain (e.g. cleanup chain or match-EQ).
+        """
+        null_out = "NUL" if sys.platform == "win32" else "/dev/null"
+        pre = f"{pre_filters.strip().rstrip(',')}," if pre_filters and pre_filters.strip() else ""
+
+        def _measure(path: str, extra_pre: str) -> float | None:
+            af = f"{extra_pre}loudnorm=I={target_i}:TP={target_tp}:LRA=11:print_format=json"
+            proc = subprocess.run(
+                [ffmpeg_bin, "-hide_banner", "-nostats", "-i", path, "-af", af, "-f", "null", null_out],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3600,
+            )
+            err = (proc.stderr or "") + (proc.stdout or "")
+            if proc.returncode != 0:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"loudness measure failed (exit {proc.returncode}): {err[-2500:]}",
+                )
+            try:
+                meta = _loudnorm_json_from_ffmpeg_stderr(err)
+            except (json.JSONDecodeError, ValueError) as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"loudness measure JSON parse failed: {e}\n{err[-2500:]}",
+                ) from e
+            v = meta.get("input_i")
+            if v is None:
+                return None
+            try:
+                return float(str(v).replace("LUFS", "").strip())
+            except ValueError:
+                return None
+
+        measured_i = _measure(input_path, pre)
+        # Static gain to hit target. Clamp so silence / parse-garbage can't produce an extreme gain.
+        base_i = measured_i if measured_i is not None else target_i
+        gain_db = max(-30.0, min(30.0, target_i - base_i))
+        limit_lin = 10 ** (target_tp / 20.0)  # dBFS ceiling -> linear amplitude for alimiter
+        af2 = f"{pre}volume={gain_db:.3f}dB,alimiter=limit={limit_lin:.6f}:level=false"
+        cmd2 = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-y",
+            "-i",
+            input_path,
+            "-af",
+            af2,
+            "-ar",
+            "48000",
+            output_path,
+        ]
+        p2 = subprocess.run(
+            cmd2,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3600,
+        )
+        err2 = (p2.stderr or "") + (p2.stdout or "")
+        if p2.returncode != 0 or not os.path.isfile(output_path):
+            raise HTTPException(
+                status_code=500,
+                detail=f"loudness gain pass failed (exit {p2.returncode}): {err2[-2500:]}",
+            )
+        out_lufs = _measure(output_path, "")
+        measured_in = measured_i if (measured_i is not None and measured_i != 0.0) else None
         return (measured_in, out_lufs)
 
     class NormalizeAudioResponse(BaseModel):
@@ -1187,7 +1412,7 @@ try:
                     detail="lra must be between 1 and 20",
                 )
 
-            in_lufs, out_lufs = _ffmpeg_loudnorm_two_pass(
+            in_lufs, out_lufs = _ffmpeg_transparent_loudness(
                 ffmpeg_bin,
                 input_abs,
                 out_abs,
@@ -1207,6 +1432,425 @@ try:
                 duration=float(duration),
                 measured_input_lufs=in_lufs,
                 measured_output_lufs=out_lufs,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+        finally:
+            if temp_input and os.path.isfile(temp_input):
+                try:
+                    os.unlink(temp_input)
+                except OSError:
+                    pass
+
+    def _build_cleanup_filtergraph(
+        highpass_hz: float,
+        denoise: bool,
+        denoise_db: float,
+        compress: bool,
+    ) -> str:
+        """Deterministic spoken-voice cleanup chain applied before ``loudnorm``.
+
+        Identical settings produce identical processing for every clip — that determinism is the
+        point: it is what makes sentence-by-sentence takes sound like one continuous recording.
+        Order: high-pass (rumble/handling) -> FFT denoise (steady noise floor) -> compressor (even
+        out dynamics). Final loudness is handled by the transparent gain+limiter stage that follows.
+        """
+        parts: list[str] = []
+        if highpass_hz and highpass_hz > 0:
+            parts.append(f"highpass=f={highpass_hz:g}")
+        if denoise:
+            # nr = noise reduction amount (dB); nf = assumed noise floor. Kept gentle: a high nf
+            # (e.g. -25) treats quiet real content as noise and produces "musical"/metallic
+            # artifacts on already-clean voice. -40 only removes a genuinely low noise bed.
+            nr = max(0.01, min(97.0, denoise_db))
+            parts.append(f"afftdn=nr={nr:g}:nf=-40")
+        if compress:
+            # Gentle leveling only (1.5:1, slow-ish attack to preserve transients). A heavier ratio
+            # squashes the voice; the goal here is subtle evenness, not character change.
+            parts.append("acompressor=threshold=-24dB:ratio=1.5:attack=30:release=300")
+        return ",".join(parts)
+
+    def _analyze_input_noise_floor(ffmpeg_bin: str, path: str) -> float | None:
+        """Best-effort noise floor (dBFS) of *path* via ffmpeg ``astats``. Returns None on failure."""
+        null_out = "NUL" if sys.platform == "win32" else "/dev/null"
+        try:
+            proc = subprocess.run(
+                [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-nostats",
+                    "-i",
+                    path,
+                    "-af",
+                    "astats=metadata=1:reset=0",
+                    "-f",
+                    "null",
+                    null_out,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+        combined = (proc.stderr or "") + (proc.stdout or "")
+        vals: list[float] = []
+        for line in combined.splitlines():
+            m = re.search(r"Noise floor dB:\s*([-0-9.]+)", line, re.IGNORECASE)
+            if m:
+                try:
+                    vals.append(float(m.group(1)))
+                except ValueError:
+                    pass
+        if vals:
+            # astats prints per-channel then an Overall block last; the last value is Overall.
+            return vals[-1]
+        return None
+
+    class ProcessAudioResponse(BaseModel):
+        file_path: str
+        duration: float
+        measured_input_lufs: float | None = None
+        measured_output_lufs: float | None = None
+        measured_input_noise_floor_db: float | None = None
+
+    @app.post("/api/process_audio", response_model=ProcessAudioResponse)
+    async def process_audio(
+        file: UploadFile | None = File(default=None),
+        source_path: str | None = Form(default=None),
+        target_lufs: float = Form(default=-16.0),
+        true_peak: float = Form(default=-1.5),
+        lra: float = Form(default=11.0),
+        highpass_hz: float = Form(default=80.0),
+        denoise: bool = Form(default=False),
+        denoise_db: float = Form(default=8.0),
+        compress: bool = Form(default=True),
+    ) -> ProcessAudioResponse:
+        """Full deterministic cleanup chain (high-pass + denoise + compress) then EBU R128 loudnorm.
+
+        Same contract as ``/api/normalize_audio`` (exactly one of multipart ``file`` or form
+        ``source_path``), but applies the voice cleanup chain so every clip is processed identically.
+        Writes a WAV under ``assets/audio/``.
+        """
+        ffmpeg_bin = _which_ffmpeg()
+        if not ffmpeg_bin:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "ffmpeg not found on PATH. Install ffmpeg and ensure it is available "
+                    "to the server process."
+                ),
+            )
+
+        has_file = file is not None
+        has_src = bool(source_path and str(source_path).strip())
+        if has_file == has_src:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of: multipart file upload, or form field source_path.",
+            )
+
+        input_abs: str | None = None
+        temp_input: str | None = None
+        try:
+            if has_src:
+                input_abs = _resolve_safe_audio_asset(source_path.strip())
+            else:
+                assert file is not None
+                ext = os.path.splitext(file.filename or "")[1] or ".wav"
+                fd, temp_input = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                body = await file.read()
+                if not body:
+                    raise HTTPException(status_code=400, detail="Empty upload")
+                with open(temp_input, "wb") as out_f:
+                    out_f.write(body)
+                input_abs = temp_input
+
+            tl = float(target_lufs)
+            if tl < -70.0 or tl > -5.0:
+                raise HTTPException(status_code=400, detail="target_lufs must be between -70 and -5")
+            tp = float(true_peak)
+            if tp > 0.0 or tp < -9.0:
+                raise HTTPException(status_code=400, detail="true_peak must be in [-9, 0] dBTP")
+            lr = float(lra)
+            if lr < 1.0 or lr > 20.0:
+                raise HTTPException(status_code=400, detail="lra must be between 1 and 20")
+            hp = float(highpass_hz)
+            if hp < 0.0 or hp > 500.0:
+                raise HTTPException(status_code=400, detail="highpass_hz must be between 0 and 500")
+
+            out_name = f"cleaned_{uuid.uuid4().hex}.wav"
+            out_rel = f"assets/audio/{out_name}"
+            out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
+
+            # Measure raw noise floor *before* the chain so the readout reflects the take, not the result.
+            noise_floor = _analyze_input_noise_floor(ffmpeg_bin, input_abs)
+
+            pre = _build_cleanup_filtergraph(hp, bool(denoise), float(denoise_db), bool(compress))
+            in_lufs, out_lufs = _ffmpeg_transparent_loudness(
+                ffmpeg_bin,
+                input_abs,
+                out_abs,
+                tl,
+                tp,
+                lr,
+                pre_filters=pre,
+            )
+
+            duration = _ffprobe_duration_seconds(out_abs)
+            if duration <= 0.0:
+                duration = _ffprobe_duration_seconds(input_abs)
+            if duration <= 0.0:
+                duration = 0.01
+
+            return ProcessAudioResponse(
+                file_path=out_rel,
+                duration=float(duration),
+                measured_input_lufs=in_lufs,
+                measured_output_lufs=out_lufs,
+                measured_input_noise_floor_db=noise_floor,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+        finally:
+            if temp_input and os.path.isfile(temp_input):
+                try:
+                    os.unlink(temp_input)
+                except OSError:
+                    pass
+
+    def _decode_mono_f32(ffmpeg_bin: str, path: str, sr: int = 48000) -> "np.ndarray":
+        """Decode *path* to a mono float32 numpy array at *sr* via ffmpeg (raw f32le on stdout)."""
+        proc = subprocess.run(
+            [
+                ffmpeg_bin,
+                "-hide_banner",
+                "-nostats",
+                "-i",
+                path,
+                "-ac",
+                "1",
+                "-ar",
+                str(sr),
+                "-f",
+                "f32le",
+                "-",
+            ],
+            capture_output=True,
+            timeout=600,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stderr or b"")[-1500:].decode("utf-8", "replace")
+            raise HTTPException(status_code=500, detail=f"audio decode failed: {tail}")
+        return np.frombuffer(proc.stdout, dtype=np.float32)
+
+    def _avg_mag_spectrum(
+        samples: "np.ndarray", win: int = 8192, hop: int = 4096
+    ) -> "np.ndarray | None":
+        """Average magnitude spectrum (Hann-windowed STFT, averaged over frames)."""
+        if samples.size == 0:
+            return None
+        if samples.size < win:
+            samples = np.pad(samples, (0, win - samples.size))
+        window = np.hanning(win).astype(np.float32)
+        n_frames = 1 + (samples.size - win) // hop
+        if n_frames <= 0:
+            return None
+        acc = np.zeros(win // 2 + 1, dtype=np.float64)
+        for i in range(n_frames):
+            start = i * hop
+            frame = samples[start : start + win] * window
+            acc += np.abs(np.fft.rfft(frame))
+        return acc / float(n_frames)
+
+    def _band_levels_db(
+        avg_mag: "np.ndarray", sr: int, win: int, centers: list[float], spacing_oct: float
+    ) -> list[float]:
+        """Mean magnitude (dB) of *avg_mag* within a ``spacing_oct`` band around each center freq."""
+        freqs = np.fft.rfftfreq(win, 1.0 / sr)
+        half = spacing_oct / 2.0
+        eps = 1e-9
+        out: list[float] = []
+        for fc in centers:
+            lo = fc * (2.0 ** (-half))
+            hi = fc * (2.0 ** half)
+            idx = np.where((freqs >= lo) & (freqs < hi))[0]
+            if idx.size == 0:
+                j = int(np.argmin(np.abs(freqs - fc)))
+                band = float(avg_mag[j])
+            else:
+                band = float(np.mean(avg_mag[idx]))
+            out.append(20.0 * float(np.log10(band + eps)))
+        return out
+
+    def _match_eq_band_centers(
+        f_lo: float = 80.0, f_hi: float = 12000.0, spacing_oct: float = 2.0 / 3.0
+    ) -> tuple[list[float], float]:
+        n = int(np.floor(np.log2(f_hi / f_lo) / spacing_oct)) + 1
+        centers = [float(f_lo * (2.0 ** (spacing_oct * i))) for i in range(max(1, n))]
+        return centers, spacing_oct
+
+    def _compute_match_eq_gains(
+        ref_db: list[float], tgt_db: list[float], max_gain_db: float
+    ) -> list[float]:
+        """Corrective per-band gain = reference - target, de-meaned, smoothed, and clamped.
+
+        De-meaning removes any overall level difference (loudnorm owns loudness); smoothing avoids
+        narrow resonant corrections; clamping keeps the curve musical rather than surgical.
+        """
+        gains = [r - t for r, t in zip(ref_db, tgt_db)]
+        if not gains:
+            return gains
+        med = float(np.median(np.asarray(gains)))
+        gains = [g - med for g in gains]
+        n = len(gains)
+        smoothed = [
+            (gains[max(0, i - 1)] + gains[i] + gains[min(n - 1, i + 1)]) / 3.0
+            for i in range(n)
+        ]
+        m = abs(float(max_gain_db))
+        return [max(-m, min(m, g)) for g in smoothed]
+
+    def _build_match_eq_filter(
+        centers: list[float], gains_db: list[float], width_oct: float = 1.0
+    ) -> str:
+        """Chain of peaking biquad ``equalizer`` filters (one per band). Skips ~0 dB bands."""
+        parts: list[str] = []
+        for fc, g in zip(centers, gains_db):
+            if abs(g) < 0.1:
+                continue
+            parts.append(
+                f"equalizer=f={fc:.1f}:width_type=o:width={width_oct:g}:g={g:.2f}"
+            )
+        return ",".join(parts)
+
+    class MatchEqBand(BaseModel):
+        freq: float
+        gain_db: float
+
+    class MatchEqResponse(BaseModel):
+        file_path: str
+        duration: float
+        measured_input_lufs: float | None = None
+        measured_output_lufs: float | None = None
+        bands: list[MatchEqBand] = []
+
+    @app.post("/api/match_eq", response_model=MatchEqResponse)
+    async def match_eq(
+        file: UploadFile | None = File(default=None),
+        source_path: str | None = Form(default=None),
+        reference_path: str = Form(...),
+        target_lufs: float = Form(default=-16.0),
+        true_peak: float = Form(default=-1.5),
+        lra: float = Form(default=11.0),
+        max_gain_db: float = Form(default=9.0),
+    ) -> MatchEqResponse:
+        """Match the tonal balance of the target clip to a reference take, then loudness-normalize.
+
+        Computes the average magnitude spectrum of both clips, derives a corrective multiband EQ
+        (reference minus target per band), applies it as peaking biquads, then runs two-pass
+        ``loudnorm`` so the result also hits ``target_lufs``. Provide the target as exactly one of
+        multipart ``file`` or form ``source_path``; ``reference_path`` is a server ``assets/audio/...``.
+        """
+        ffmpeg_bin = _which_ffmpeg()
+        if not ffmpeg_bin:
+            raise HTTPException(
+                status_code=503,
+                detail="ffmpeg not found on PATH. Install ffmpeg and ensure it is available.",
+            )
+
+        has_file = file is not None
+        has_src = bool(source_path and str(source_path).strip())
+        if has_file == has_src:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of: multipart file upload, or form field source_path.",
+            )
+
+        ref_abs = _resolve_safe_audio_asset(reference_path.strip())
+
+        temp_input: str | None = None
+        try:
+            if has_src:
+                input_abs = _resolve_safe_audio_asset(source_path.strip())
+            else:
+                assert file is not None
+                ext = os.path.splitext(file.filename or "")[1] or ".wav"
+                fd, temp_input = tempfile.mkstemp(suffix=ext)
+                os.close(fd)
+                body = await file.read()
+                if not body:
+                    raise HTTPException(status_code=400, detail="Empty upload")
+                with open(temp_input, "wb") as out_f:
+                    out_f.write(body)
+                input_abs = temp_input
+
+            tl = float(target_lufs)
+            if tl < -70.0 or tl > -5.0:
+                raise HTTPException(status_code=400, detail="target_lufs must be between -70 and -5")
+            tp = float(true_peak)
+            if tp > 0.0 or tp < -9.0:
+                raise HTTPException(status_code=400, detail="true_peak must be in [-9, 0] dBTP")
+            lr = float(lra)
+            if lr < 1.0 or lr > 20.0:
+                raise HTTPException(status_code=400, detail="lra must be between 1 and 20")
+            mg = float(max_gain_db)
+            if mg <= 0.0 or mg > 24.0:
+                raise HTTPException(status_code=400, detail="max_gain_db must be in (0, 24]")
+
+            sr = 48000
+            win = 8192
+            centers, spacing = _match_eq_band_centers()
+
+            ref_mag = _avg_mag_spectrum(_decode_mono_f32(ffmpeg_bin, ref_abs, sr), win)
+            tgt_mag = _avg_mag_spectrum(_decode_mono_f32(ffmpeg_bin, input_abs, sr), win)
+            if ref_mag is None or tgt_mag is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not analyze audio (clip too short or silent).",
+                )
+
+            ref_db = _band_levels_db(ref_mag, sr, win, centers, spacing)
+            tgt_db = _band_levels_db(tgt_mag, sr, win, centers, spacing)
+            gains = _compute_match_eq_gains(ref_db, tgt_db, mg)
+            eq_filter = _build_match_eq_filter(centers, gains)
+
+            out_name = f"matched_{uuid.uuid4().hex}.wav"
+            out_rel = f"assets/audio/{out_name}"
+            out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
+
+            in_lufs, out_lufs = _ffmpeg_transparent_loudness(
+                ffmpeg_bin, input_abs, out_abs, tl, tp, lr, pre_filters=eq_filter
+            )
+
+            duration = _ffprobe_duration_seconds(out_abs)
+            if duration <= 0.0:
+                duration = _ffprobe_duration_seconds(input_abs)
+            if duration <= 0.0:
+                duration = 0.01
+
+            return MatchEqResponse(
+                file_path=out_rel,
+                duration=float(duration),
+                measured_input_lufs=in_lufs,
+                measured_output_lufs=out_lufs,
+                bands=[
+                    MatchEqBand(freq=round(fc, 1), gain_db=round(g, 2))
+                    for fc, g in zip(centers, gains)
+                ],
             )
         except HTTPException:
             raise
@@ -1381,7 +2025,7 @@ try:
         process cwd. ``manim`` is run with ``cwd=work_dir`` (a temp directory), so without
         this step audio files are missing and ``construct()`` fails.
         """
-        src = os.path.join(_ROOT, "assets", "audio")
+        src = _AUDIO_ASSETS_DIR
         if not os.path.isdir(src):
             return
         dst = os.path.join(work_dir, "assets", "audio")
@@ -1424,6 +2068,7 @@ try:
                 sys.executable,
                 "-m",
                 "manim",
+                "render",
                 script_path,
                 scene,
                 f"-q{q}",
@@ -1451,9 +2096,17 @@ try:
                         if fn.lower().endswith(".mp4"):
                             candidates.append(os.path.join(root, fn))
             if not candidates:
+                logs = "\n".join(
+                    part
+                    for part in ((proc.stderr or "").strip(), (proc.stdout or "").strip())
+                    if part
+                )
                 raise HTTPException(
                     status_code=500,
-                    detail="No MP4 file found under media/videos after render.",
+                    detail=(
+                        "No MP4 file found under media/videos after render."
+                        + (f"\n\nManim output:\n{logs[-3000:]}" if logs else "")
+                    ),
                 )
 
             mp4_path: str | None = None

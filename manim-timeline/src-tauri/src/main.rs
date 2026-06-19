@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
@@ -16,6 +19,28 @@ fn kill_sidecar<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
             }
         }
     }
+}
+
+fn measure_server_is_healthy() -> bool {
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8765));
+    let timeout = Duration::from_millis(250);
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+
+    let request = b"GET /health HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nConnection: close\r\n\r\n";
+    if stream.write_all(request).is_err() {
+        return false;
+    }
+
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_err() {
+        return false;
+    }
+
+    response.starts_with("HTTP/1.1 200") && response.contains("\"status\":\"ok\"")
 }
 
 #[tauri::command]
@@ -37,6 +62,11 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![read_project_bytes, write_project_bytes])
         .setup(|app| {
+            if measure_server_is_healthy() {
+                println!("measure-server: reusing existing healthy server at http://127.0.0.1:8765");
+                return Ok(());
+            }
+
             let handle = app.handle().clone();
             match handle.shell().sidecar("measure-server") {
                 Ok(cmd) => match cmd.spawn() {

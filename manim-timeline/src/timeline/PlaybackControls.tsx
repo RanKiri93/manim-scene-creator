@@ -19,6 +19,15 @@ export default function PlaybackControls() {
   const itemsMap = useSceneStore((s) => s.items);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
+  const audioItemCount = useSceneStore((s) => s.audioItems.length);
+  const audioReferenceId = useSceneStore((s) => s.audioReferenceId);
+  const audioBatch = useSceneStore((s) => s.audioBatch);
+  const measureEnabled = useSceneStore((s) => s.measureConfig.enabled);
+  const normalizeAllAudioTracks = useSceneStore((s) => s.normalizeAllAudioTracks);
+  const matchAllAudioTracksToReference = useSceneStore(
+    (s) => s.matchAllAudioTracksToReference,
+  );
+
   const [gapDialogOpen, setGapDialogOpen] = useState(false);
   const [gapStart, setGapStart] = useState(0);
   const [gapEnd, setGapEnd] = useState(5);
@@ -139,6 +148,43 @@ export default function PlaybackControls() {
           <span className="max-w-[220px] text-[10px] leading-tight text-amber-400/95">{gapHint}</span>
         ) : null}
       </div>
+
+      {/* Batch audio processing */}
+      {measureEnabled && audioItemCount > 0 ? (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={audioBatch != null}
+            onClick={() => void normalizeAllAudioTracks()}
+            className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Loudness-normalize every audio clip in this scene to a consistent level (safe to re-run)"
+          >
+            Normalize all
+          </button>
+          <button
+            type="button"
+            disabled={audioBatch != null || audioReferenceId == null}
+            onClick={() => {
+              void matchAllAudioTracksToReference().catch(() => {});
+            }}
+            className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            title={
+              audioReferenceId == null
+                ? 'Set a reference clip first — use "Set as ref" on the clip whose tone you like'
+                : 'Tonally match every other clip in this scene to the reference, then level them (safe to re-run)'
+            }
+          >
+            Match all → ref
+          </button>
+          {audioBatch ? (
+            <span className="font-mono text-[10px] text-amber-300/90">
+              {audioBatch.kind === 'normalize' ? 'Normalizing' : 'Matching'} {audioBatch.done}/
+              {audioBatch.total}
+              {audioBatch.failed > 0 ? ` (${audioBatch.failed} failed)` : ''}…
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Time display */}
       <span className="text-xs text-slate-400 font-mono min-w-[100px]">

@@ -10,11 +10,19 @@ if (-not (Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
     Write-Error "Install PyInstaller: pip install pyinstaller"
 }
 
-pyinstaller scripts/measure-server.spec
+$buildId = [guid]::NewGuid().ToString("N")
+$buildRoot = Join-Path $env:TEMP "manim-timeline-sidecar-$buildId"
+$workPath = Join-Path $buildRoot "build"
+$distPath = Join-Path $buildRoot "dist"
+
+pyinstaller --noconfirm --workpath "$workPath" --distpath "$distPath" scripts/measure-server.spec
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "PyInstaller failed with exit code $LASTEXITCODE"
+}
 
 $triple = (rustc -vV | Select-String "^host: ").ToString().Substring(6).Trim()
 $ext = ".exe"
-$src = Join-Path $Root "dist\measure-server\measure-server$ext"
+$src = Join-Path $distPath "measure-server$ext"
 if (-not (Test-Path $src)) {
     Write-Error "Expected binary not found: $src"
 }

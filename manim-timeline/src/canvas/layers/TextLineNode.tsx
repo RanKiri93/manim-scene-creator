@@ -313,6 +313,33 @@ export default function TextLineNode({
     />
   ) : null;
 
+  const transformWholePreview = (() => {
+    if (!transformPreview || !img) return null;
+    if ((transformPreview.target.transformConfig?.mode ?? 'segments') !== 'whole') {
+      return null;
+    }
+
+    const p = transformPreview.progress;
+    const isSource = item.id === transformPreview.source.id;
+    const sourcePosX = (transformPreview.sourceResolvedX / FRAME_W + 0.5) * canvasWidth;
+    const sourcePosY = (0.5 - transformPreview.sourceResolvedY / FRAME_H) * canvasHeight;
+    const targetPosX = (transformPreview.targetResolvedX / FRAME_W + 0.5) * canvasWidth;
+    const targetPosY = (0.5 - transformPreview.targetResolvedY / FRAME_H) * canvasHeight;
+    const dx = targetPosX - sourcePosX;
+    const dy = targetPosY - sourcePosY;
+
+    return (
+      <Group
+        listening={false}
+        x={isSource ? dx * p : -dx * (1 - p)}
+        y={isSource ? dy * p : -dy * (1 - p)}
+        opacity={isSource ? 1 - p : p}
+      >
+        {fullImage}
+      </Group>
+    );
+  })();
+
   const segmentPreview = (() => {
     if (!canRenderSegments(item, img) || !imageGeometry) return null;
     if (transformPreview) return null;
@@ -343,6 +370,9 @@ export default function TextLineNode({
 
   const transformSegmentPreview = (() => {
     if (!transformPreview || !canRenderSegments(item, img) || !imageGeometry) {
+      return null;
+    }
+    if ((transformPreview.target.transformConfig?.mode ?? 'segments') !== 'segments') {
       return null;
     }
     const p = transformPreview.progress;
@@ -613,7 +643,7 @@ export default function TextLineNode({
       />
 
       {/* Preview raster (if available) */}
-      {transformSegmentPreview ?? segmentPreview ?? fullImage}
+      {transformWholePreview ?? transformSegmentPreview ?? segmentPreview ?? fullImage}
       {blinkPiecewiseScale}
       {blinkTintOverlay}
 

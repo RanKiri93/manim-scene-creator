@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useSceneStore } from '@/store/useSceneStore';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useSceneStore, type SceneDiskPayload } from '@/store/useSceneStore';
 import { useProjectFileStore } from '@/store/useProjectFileStore';
 import {
   downloadMtprojBundle,
@@ -63,6 +63,53 @@ function promptFragmentTimeMode(): FragmentTimeMode | null {
 
 function fileBasename(path: string): string {
   return path.replace(/^.*[/\\]/, '');
+}
+
+function formatSavedTime(iso: string | null): string {
+  if (!iso) return 'Not saved yet';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Last saved time unknown';
+  return `Saved ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function buildProjectContentKeyFromState(): string {
+  const project = useProjectScenesStore.getState();
+  const scene = useSceneStore.getState();
+  const activePayload = scene.toSceneDiskPayload();
+  const scenes = project.sceneIds.map((sid) => ({
+    id: sid,
+    name: project.sceneTabNames[sid] ?? 'Scene',
+    payload: sid === project.activeSceneId
+      ? activePayload
+      : project.idleScenes[sid] ?? null,
+  }));
+  return JSON.stringify({
+    activeSceneId: project.activeSceneId,
+    measureConfig: scene.measureConfig,
+    scenes,
+  });
+}
+
+function buildProjectContentKey(args: {
+  sceneIds: string[];
+  sceneTabNames: Record<string, string>;
+  idleScenes: Record<string, SceneDiskPayload>;
+  activeSceneId: string | null;
+  activePayload: SceneDiskPayload;
+  measureConfig: unknown;
+}): string {
+  const scenes = args.sceneIds.map((sid) => ({
+    id: sid,
+    name: args.sceneTabNames[sid] ?? 'Scene',
+    payload: sid === args.activeSceneId
+      ? args.activePayload
+      : args.idleScenes[sid] ?? null,
+  }));
+  return JSON.stringify({
+    activeSceneId: args.activeSceneId,
+    measureConfig: args.measureConfig,
+    scenes,
+  });
 }
 
 function isEditableTargetFocused(): boolean {
@@ -142,9 +189,58 @@ export default function App() {
 
   const activeFileHandle = useProjectFileStore((s) => s.activeHandle);
   const activeTauriPath = useProjectFileStore((s) => s.activeTauriPath);
+  const savedContentKey = useProjectFileStore((s) => s.savedContentKey);
+  const lastSavedAt = useProjectFileStore((s) => s.lastSavedAt);
   const setActiveProjectFile = useProjectFileStore((s) => s.setActiveProjectFile);
   const setActiveTauriPath = useProjectFileStore((s) => s.setActiveTauriPath);
   const clearActiveProjectFile = useProjectFileStore((s) => s.clearActiveProjectFile);
+  const projectSceneIds = useProjectScenesStore((s) => s.sceneIds);
+  const projectSceneTabNames = useProjectScenesStore((s) => s.sceneTabNames);
+  const projectIdleScenes = useProjectScenesStore((s) => s.idleScenes);
+  const projectActiveSceneId = useProjectScenesStore((s) => s.activeSceneId);
+  const currentItems = useSceneStore((s) => s.items);
+  const currentDefaults = useSceneStore((s) => s.defaults);
+  const currentFrames = useSceneStore((s) => s.frames);
+  const currentStartFrameId = useSceneStore((s) => s.startFrameId);
+  const currentAudioItems = useSceneStore((s) => s.audioItems);
+  const currentMeasureConfig = useSceneStore((s) => s.measureConfig);
+  const currentActivePayload = useMemo<SceneDiskPayload>(
+    () => ({
+      defaults: { ...currentDefaults },
+      frames: currentFrames.map((f) => ({ ...f })),
+      startFrameId: currentStartFrameId,
+      items: Array.from(currentItems.values()),
+      audioItems: currentAudioItems.length > 0
+        ? currentAudioItems.map((a) => ({ ...a }))
+        : undefined,
+    }),
+    [currentAudioItems, currentDefaults, currentFrames, currentItems, currentStartFrameId],
+  );
+  const currentContentKey = useMemo(
+    () =>
+      buildProjectContentKey({
+        sceneIds: projectSceneIds,
+        sceneTabNames: projectSceneTabNames,
+        idleScenes: projectIdleScenes,
+        activeSceneId: projectActiveSceneId,
+        activePayload: currentActivePayload,
+        measureConfig: currentMeasureConfig,
+      }),
+    [
+      currentActivePayload,
+      currentMeasureConfig,
+      projectActiveSceneId,
+      projectIdleScenes,
+      projectSceneIds,
+      projectSceneTabNames,
+    ],
+  );
+  const isDirty = savedContentKey == null || savedContentKey !== currentContentKey;
+  const saveStatusLabel = isDirty
+    ? lastSavedAt
+      ? `${formatSavedTime(lastSavedAt)} - unsaved changes`
+      : 'Unsaved changes'
+    : formatSavedTime(lastSavedAt);
 
   const alertPackError = (e: unknown) => {
     if (e instanceof MtprojPackError) {
@@ -157,48 +253,58 @@ export default function App() {
     }
   };
 
-  /** Save portable bundle (.mtproj) — same as Ctrl+S / Cmd+S. */
-  const saveBundle = useCallback(async () => {
+  /** Save current project (.mtproj) — same as Ctrl+S / Cmd+S. */
+  const saveProject = useCallback(async () => {
     useProjectScenesStore.getState().bootstrapIfNeeded();
     const project = useProjectScenesStore.getState().toMultiSceneProjectFile();
     const st = useProjectFileStore.getState();
+    const markCurrentProjectSaved = () => {
+      st.markSaved(buildProjectContentKeyFromState(), project.savedAt);
+    };
     try {
       if (isTauriRuntime()) {
         const { activeTauriPath, setActiveTauriPath: setTauri } = st;
         if (activeTauriPath) {
           if (saveKindFromFilename(fileBasename(activeTauriPath)) === 'mtproj') {
             await writeMtprojToTauriPath(activeTauriPath, project);
+            markCurrentProjectSaved();
             return;
           }
           const path = await pickTauriMtprojSavePath();
           if (!path) return;
           setTauri(path);
           await writeMtprojToTauriPath(path, project);
+          markCurrentProjectSaved();
           return;
         }
         const path = await pickTauriMtprojSavePath();
         if (!path) return;
         setTauri(path);
         await writeMtprojToTauriPath(path, project);
+        markCurrentProjectSaved();
         return;
       }
 
       const { activeHandle, activeKind } = st;
       if (supportsFileSystemAccess() && activeHandle && activeKind === 'mtproj') {
         await writeProjectToHandle(activeHandle, project, 'mtproj');
+        markCurrentProjectSaved();
         return;
       }
       if (supportsFileSystemAccess() && activeHandle && activeKind === 'json') {
         const handle = await saveProjectWithPicker(project, 'mtproj');
         if (handle) st.setActiveProjectFile(handle, 'mtproj');
+        if (handle) markCurrentProjectSaved();
         return;
       }
       if (supportsFileSystemAccess()) {
         const handle = await saveProjectWithPicker(project, 'mtproj');
         if (handle) st.setActiveProjectFile(handle, 'mtproj');
+        if (handle) markCurrentProjectSaved();
         return;
       }
       await downloadMtprojBundle(project);
+      markCurrentProjectSaved();
       if (import.meta.env.DEV) {
         console.info(
           '[Manim Timeline] Saved via browser download. For saving to one file on disk (no extra downloads), run the desktop app: npm run tauri:dev — or use Chrome/Edge at localhost with File System Access.',
@@ -208,6 +314,39 @@ export default function App() {
       alertPackError(e);
     }
   }, []);
+
+  /** Always choose a new .mtproj path. */
+  const saveProjectAs = useCallback(async () => {
+    useProjectScenesStore.getState().bootstrapIfNeeded();
+    const project = useProjectScenesStore.getState().toMultiSceneProjectFile();
+    const st = useProjectFileStore.getState();
+    const suggestedName =
+      activeFileHandle?.name ??
+      (activeTauriPath ? fileBasename(activeTauriPath) : undefined);
+    try {
+      if (isTauriRuntime()) {
+        const path = await pickTauriMtprojSavePath(suggestedName);
+        if (!path) return;
+        await writeMtprojToTauriPath(path, project);
+        st.setActiveTauriPath(path);
+        st.markSaved(buildProjectContentKeyFromState(), project.savedAt);
+        return;
+      }
+
+      if (supportsFileSystemAccess()) {
+        const handle = await saveProjectWithPicker(project, 'mtproj', suggestedName);
+        if (!handle) return;
+        st.setActiveProjectFile(handle, 'mtproj');
+        st.markSaved(buildProjectContentKeyFromState(), project.savedAt);
+        return;
+      }
+
+      await downloadMtprojBundle(project);
+      st.markSaved(buildProjectContentKeyFromState(), project.savedAt);
+    } catch (e) {
+      alertPackError(e);
+    }
+  }, [activeFileHandle?.name, activeTauriPath]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -222,7 +361,18 @@ export default function App() {
         !e.altKey;
       if (saveCombo) {
         e.preventDefault();
-        void saveBundle();
+        void saveProject();
+        return;
+      }
+
+      const saveAsCombo =
+        e.code === 'KeyS' &&
+        mod &&
+        e.shiftKey &&
+        !e.altKey;
+      if (saveAsCombo) {
+        e.preventDefault();
+        void saveProjectAs();
         return;
       }
 
@@ -252,7 +402,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [saveBundle]);
+  }, [saveProject, saveProjectAs]);
 
   const handleLoad = async () => {
     try {
@@ -273,6 +423,9 @@ export default function App() {
       } else {
         clearActiveProjectFile();
       }
+      useProjectFileStore
+        .getState()
+        .markSaved(buildProjectContentKeyFromState(), loaded.data.savedAt);
     } catch (e) {
       if (e instanceof MtprojUnpackError) {
         window.alert(e.message);
@@ -290,15 +443,27 @@ export default function App() {
       <header className="flex items-center gap-3 px-4 py-2 bg-slate-800 border-b border-slate-700 shrink-0">
         <h1 className="text-sm font-bold tracking-tight text-blue-400 shrink-0">Manim Timeline</h1>
         <span
-          className="text-xs text-slate-500 max-w-[min(200px,28vw)] truncate shrink-0 font-mono"
+          className={`text-xs max-w-[min(200px,28vw)] truncate shrink-0 font-mono ${
+            isDirty ? 'text-amber-300' : 'text-slate-500'
+          }`}
           title={
-            activeFileLabel ??
-            (isTauriRuntime()
-              ? 'Ctrl+S saves .mtproj; after choosing a file, saves overwrite that path'
-              : 'Ctrl+S saves a .mtproj; Chrome/Edge can overwrite after you pick once; other browsers may download')
+            `${activeFileLabel ?? 'Unsaved project'} - ${saveStatusLabel}`
           }
         >
-          {activeFileLabel ?? '— unsaved'}
+          {isDirty ? '* ' : ''}
+          {activeFileLabel ?? 'unsaved'}
+        </span>
+        <span
+          className={`hidden md:inline text-[11px] shrink-0 ${
+            isDirty ? 'text-amber-300' : 'text-slate-500'
+          }`}
+          title={
+            isTauriRuntime()
+              ? 'Ctrl+S saves; Ctrl+Shift+S opens Save as'
+              : 'Ctrl+S saves; Ctrl+Shift+S opens Save as. Browsers without File System Access download a new .mtproj.'
+          }
+        >
+          {saveStatusLabel}
         </span>
         <label className="flex items-center gap-2 text-xs text-slate-400 shrink-0 max-w-[min(280px,40vw)]">
           <span className="shrink-0">Manim class</span>
@@ -347,11 +512,19 @@ export default function App() {
         </button>
         <button
           type="button"
-          onClick={() => void saveBundle()}
+          onClick={() => void saveProject()}
           className="px-3 py-1 text-xs bg-emerald-700 hover:bg-emerald-600 rounded transition-colors"
-          title="Portable ZIP with embedded audio and checksums. Ctrl+S / Cmd+S saves to the active file when available (Chrome/Edge)."
+          title="Save the current .mtproj project. Ctrl+S / Cmd+S saves to the active file when available."
         >
-          Save bundle (.mtproj)
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => void saveProjectAs()}
+          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+          title="Choose a new .mtproj path. Ctrl+Shift+S / Cmd+Shift+S."
+        >
+          Save as
         </button>
         <button
           type="button"

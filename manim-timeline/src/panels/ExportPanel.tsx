@@ -10,7 +10,11 @@ import {
   exportAudioScriptToMarkdown,
   exportScriptToMarkdown,
 } from '@/codegen/scriptExport';
-import { concatMp4Files, renderSceneMp4 } from '@/services/measureClient';
+import {
+  concatMp4Files,
+  renderSceneMp4,
+  syncRenderAudioAssets,
+} from '@/services/measureClient';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
 import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
@@ -21,6 +25,43 @@ const RENDER_QUALITIES = [
   { value: 'h', label: 'High (h)' },
   { value: 'k', label: '4K (k)' },
 ] as const;
+
+interface RenderProgressState {
+  label: string;
+  detail?: string;
+  percent: number | null;
+}
+
+function clampPercent(n: number): number {
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function RenderProgressBar({ progress }: { progress: RenderProgressState }) {
+  const percent = progress.percent == null ? null : clampPercent(progress.percent);
+  return (
+    <div className="rounded border border-slate-700 bg-slate-950/70 p-2 flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="text-slate-300 flex-1">{progress.label}</span>
+        <span className="text-slate-500 font-mono">
+          {percent == null ? 'working' : `${percent}%`}
+        </span>
+      </div>
+      {progress.detail && (
+        <p className="text-[10px] text-slate-500 leading-relaxed">{progress.detail}</p>
+      )}
+      <div className="h-2 rounded bg-slate-800 overflow-hidden">
+        {percent == null ? (
+          <div className="h-full w-1/2 rounded bg-emerald-500/70 animate-pulse" />
+        ) : (
+          <div
+            className="h-full rounded bg-emerald-500 transition-[width] duration-300"
+            style={{ width: `${percent}%` }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ExportPanel() {
   const itemsMap = useSceneStore((s) => s.items);
@@ -42,11 +83,13 @@ export default function ExportPanel() {
   const [renderSceneName, setRenderSceneName] = useState('');
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [renderProgress, setRenderProgress] = useState<RenderProgressState | null>(null);
   const [mergeFiles, setMergeFiles] = useState<File[]>([]);
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [renderAllBusy, setRenderAllBusy] = useState(false);
   const [renderAllErr, setRenderAllErr] = useState<string | null>(null);
+  const [renderAllProgress, setRenderAllProgress] = useState<RenderProgressState | null>(null);
 
   const code = useMemo(
     () => exportManimCode(items, { fullFile, defaults, frames, startFrameId, audioItems }),
@@ -80,6 +123,7 @@ export default function ExportPanel() {
   const openRenderModal = useCallback(() => {
     setRenderSceneName(safeSceneClassName(defaults.sceneName ?? ''));
     setRenderError(null);
+    setRenderProgress(null);
     setRenderModalOpen(true);
   }, [defaults.sceneName]);
 
@@ -90,7 +134,22 @@ export default function ExportPanel() {
     const scene = safeSceneClassName(renderSceneName);
     const filename = `${scene}.mp4`;
     try {
+      setRenderProgress({
+        label: 'Syncing audio assets',
+        detail: 'Preparing any local audio files Manim needs for this scene.',
+        percent: 8,
+      });
+      await syncRenderAudioAssets(measureUrl, audioItems);
+      setRenderProgress({
+        label: `Rendering ${scene}`,
+        detail: 'Manim is running on the measure server. Detailed frame progress is not available from this endpoint yet.',
+        percent: null,
+      });
       const blob = await renderSceneMp4(measureUrl, codeFullFile, renderQuality, scene);
+      setRenderProgress({
+        label: 'Preparing MP4 download',
+        percent: 95,
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -130,9 +189,17 @@ export default function ExportPanel() {
       } else {
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       }
+      setRenderProgress({
+        label: 'Render complete',
+        percent: 100,
+      });
       setRenderModalOpen(false);
     } catch (err) {
       setRenderError(err instanceof Error ? err.message : String(err));
+      setRenderProgress({
+        label: 'Render failed',
+        percent: 100,
+      });
     } finally {
       setRendering(false);
     }
@@ -186,14 +253,29 @@ export default function ExportPanel() {
   const renderFullProjectSequential = useCallback(async () => {
     setRenderAllBusy(true);
     setRenderAllErr(null);
+    setRenderAllProgress({
+      label: 'Preparing project render',
+      detail: 'Collecting scene tabs and export settings.',
+      percent: 3,
+    });
     try {
       const ps = useProjectScenesStore.getState();
       ps.persistActiveIntoIdle();
       const file = ps.toMultiSceneProjectFile();
       const blobs: Blob[] = [];
       const nowIso = new Date().toISOString();
+      const totalScenes = Math.max(1, file.scenes.length);
 
-      for (const sc of file.scenes) {
+      for (const [index, sc] of file.scenes.entries()) {
+        const sceneNo = index + 1;
+        const klass = safeSceneClassName(sc.defaults.sceneName ?? '');
+        const sceneBasePercent = 5 + (index / totalScenes) * 80;
+        setRenderAllProgress({
+          label: `Syncing audio for scene ${sceneNo} of ${totalScenes}`,
+          detail: klass,
+          percent: sceneBasePercent,
+        });
+        await syncRenderAudioAssets(measureUrl, sc.audioItems ?? []);
         const py = exportManimCode(sc.items, {
           fullFile: true,
           defaults: sc.defaults,
@@ -201,8 +283,17 @@ export default function ExportPanel() {
           startFrameId: sc.startFrameId,
           audioItems: sc.audioItems,
         });
-        const klass = safeSceneClassName(sc.defaults.sceneName ?? '');
+        setRenderAllProgress({
+          label: `Rendering scene ${sceneNo} of ${totalScenes}`,
+          detail: `${klass} is running on the measure server.`,
+          percent: sceneBasePercent + 4,
+        });
         blobs.push(await renderSceneMp4(measureUrl, py, renderQuality, klass));
+        setRenderAllProgress({
+          label: `Finished scene ${sceneNo} of ${totalScenes}`,
+          detail: klass,
+          percent: 5 + (sceneNo / totalScenes) * 80,
+        });
         ps.updateRenderMeta(sc.id, {
           fingerprint: fingerprintSceneDiskPayload({
             defaults: sc.defaults,
@@ -221,12 +312,21 @@ export default function ExportPanel() {
       if (blobs.length === 1) {
         combined = blobs[0]!;
       } else {
+        setRenderAllProgress({
+          label: 'Merging rendered scenes',
+          detail: 'Joining the individual MP4 files into one project video.',
+          percent: 90,
+        });
         const mp4Files = blobs.map(
           (b, i) => new File([b], `scene_${i}.mp4`, { type: 'video/mp4' }),
         );
         combined = await concatMp4Files(measureUrl, mp4Files);
       }
 
+      setRenderAllProgress({
+        label: 'Preparing full project download',
+        percent: 97,
+      });
       const url = URL.createObjectURL(combined);
       const a = document.createElement('a');
       a.href = url;
@@ -236,8 +336,16 @@ export default function ExportPanel() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      setRenderAllProgress({
+        label: 'Full project render complete',
+        percent: 100,
+      });
     } catch (err) {
       setRenderAllErr(err instanceof Error ? err.message : String(err));
+      setRenderAllProgress({
+        label: 'Full project render failed',
+        percent: 100,
+      });
     } finally {
       setRenderAllBusy(false);
     }
@@ -301,6 +409,7 @@ export default function ExportPanel() {
         >
           {renderAllBusy ? 'Rendering all…' : 'Render all scenes → full_project.mp4'}
         </button>
+        {renderAllProgress && <RenderProgressBar progress={renderAllProgress} />}
         {renderAllErr && (
           <p className="text-[10px] text-red-400 whitespace-pre-wrap break-words max-h-24 overflow-auto">
             {renderAllErr}
@@ -416,6 +525,7 @@ export default function ExportPanel() {
                 {renderError}
               </p>
             )}
+            {renderProgress && <RenderProgressBar progress={renderProgress} />}
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"

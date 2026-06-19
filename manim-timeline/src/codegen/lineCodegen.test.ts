@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateLinePos, pickAudioTrackForClip } from './lineCodegen';
+import { generateLinePlay, generateLinePos, pickAudioTrackForClip } from './lineCodegen';
 import { AUDIO_BINDING_NONE } from '@/lib/audioBinding';
 import type { AudioTrackItem, MeasureResult, TextLineItem } from '@/types/scene';
 
@@ -97,6 +97,72 @@ describe('generateLinePos to_edge bounds', () => {
     expect(code).toContain('line_1.move_to([4.811111, 0.000000, 0])');
     expect(code).not.toContain('line_1.to_edge(');
     expect(code).not.toContain('line_1.shift(');
+  });
+});
+
+describe('generateLinePlay transform modes', () => {
+  it('exports whole-line transforms as one ReplacementTransform', () => {
+    const source = textLine([{ kind: 'absolute' }]);
+    source.id = 'source';
+    const target = textLine([{ kind: 'absolute' }]);
+    target.id = 'target';
+    target.animStyle = 'transform';
+    target.duration = 2;
+    target.transformConfig = {
+      sourceLineId: source.id,
+      mode: 'whole',
+      segmentPairs: { 0: 0 },
+      unmappedSourceBehavior: 'fade_out',
+      unmappedTargetBehavior: 'fade_in',
+    };
+
+    const code = generateLinePlay(
+      target,
+      'line_2',
+      8,
+      new Map([
+        [source.id, 'line_1'],
+        [target.id, 'line_2'],
+      ]),
+      new Map([
+        [source.id, source],
+        [target.id, target],
+      ]),
+    );
+
+    expect(code).toContain('self.play(ReplacementTransform(line_1, line_2), run_time=2)');
+    expect(code).not.toContain('line_1[0]');
+    expect(code).not.toContain('FadeIn(line_2[0])');
+  });
+
+  it('keeps legacy segment transforms by default', () => {
+    const source = textLine([{ kind: 'absolute' }]);
+    source.id = 'source';
+    const target = textLine([{ kind: 'absolute' }]);
+    target.id = 'target';
+    target.animStyle = 'transform';
+    target.transformConfig = {
+      sourceLineId: source.id,
+      segmentPairs: { 0: 0 },
+      unmappedSourceBehavior: 'fade_out',
+      unmappedTargetBehavior: 'fade_in',
+    };
+
+    const code = generateLinePlay(
+      target,
+      'line_2',
+      8,
+      new Map([
+        [source.id, 'line_1'],
+        [target.id, 'line_2'],
+      ]),
+      new Map([
+        [source.id, source],
+        [target.id, target],
+      ]),
+    );
+
+    expect(code).toContain('ReplacementTransform(line_1[0], line_2[0])');
   });
 });
 

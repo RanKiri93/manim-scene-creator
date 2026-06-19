@@ -1,63 +1,102 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for measure_server (Manim + FastAPI + HebrewMathLine).
-#
-# Usage (from repo root ``ManimStuff/``, with a venv that has manim, fastapi, etc.):
-#   pip install pyinstaller
-#   pyinstaller scripts/measure-server.spec
-#
-# Output (onedir, recommended for large Manim stacks):
-#   dist/measure-server/measure-server(.exe)
-#
-# Copy the executable to Tauri (see scripts/README-sidecar.md). Tauri expects:
-#   manim-timeline/src-tauri/binaries/measure-server-<target-triple>.exe
-#
-# You will likely need to extend ``hiddenimports`` / ``datas`` after a test run
-# if PyInstaller misses dynamic imports (run the exe once and check stderr).
 
-from pathlib import Path
+import os
+import shutil
 
-# SPEC is provided by PyInstaller — path to this file (…/scripts/measure-server.spec)
-ROOT = Path(SPEC).resolve().parent.parent  # ManimStuff/
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+)
+
 
 block_cipher = None
+project_root = os.path.abspath(os.path.join(SPECPATH, ".."))
 
-# Project Python sources to bundle as data if not picked up automatically
-datas = [
-    (str(ROOT / "hebrew_math_line.py"), "."),
-    (str(ROOT / "hebrew_math_parser.py"), "."),
-    (str(ROOT / "hebrew_tex_template.py"), "."),
-    (str(ROOT / "measure_server.py"), "."),
+
+def optional_submodules(package):
+    try:
+        return collect_submodules(package)
+    except Exception:
+        return []
+
+
+def optional_data_files(package):
+    try:
+        return collect_data_files(package)
+    except Exception:
+        return []
+
+
+hiddenimports = [
+    "fastapi",
+    "fastapi.middleware.cors",
+    "fastapi.responses",
+    "fastapi.staticfiles",
+    "starlette.background",
+    "uvicorn",
+    "uvicorn.logging",
+    "uvicorn.loops",
+    "uvicorn.loops.auto",
+    "uvicorn.protocols",
+    "uvicorn.protocols.http",
+    "uvicorn.protocols.http.auto",
+    "uvicorn.protocols.websockets",
+    "uvicorn.protocols.websockets.auto",
+    "uvicorn.lifespan",
+    "uvicorn.lifespan.on",
+    "hebrew_math_line",
+    "hebrew_math_parser",
+    "hebrew_tex_template",
 ]
+hiddenimports += collect_submodules("manimpango")
+hiddenimports += optional_submodules("whisper")
+hiddenimports += optional_submodules("tiktoken")
+hiddenimports += optional_submodules("tiktoken_ext")
+hiddenimports += optional_submodules("gtts")
+
+datas = [
+    (os.path.join(project_root, "hebrew_math_line.py"), "."),
+    (os.path.join(project_root, "hebrew_math_parser.py"), "."),
+    (os.path.join(project_root, "hebrew_tex_template.py"), "."),
+]
+datas += collect_data_files("manim")
+datas += collect_data_files("manimpango")
+datas += optional_data_files("whisper")
+datas += optional_data_files("tiktoken")
+datas += optional_data_files("tiktoken_ext")
+
+whisper_model = os.path.join(os.path.expanduser("~"), ".cache", "whisper", "base.pt")
+if os.path.isfile(whisper_model):
+    datas.append((whisper_model, "whisper_models"))
+
+binaries = []
+binaries += collect_dynamic_libs("manimpango")
+
+ffmpeg = shutil.which("ffmpeg")
+if ffmpeg:
+    binaries.append((ffmpeg, "ffmpeg"))
+ffprobe = shutil.which("ffprobe")
+if ffprobe:
+    binaries.append((ffprobe, "ffmpeg"))
 
 a = Analysis(
-    [str(ROOT / "sidecar_main.py")],
-    pathex=[str(ROOT)],
-    binaries=[],
+    [os.path.join(project_root, "sidecar_main.py")],
+    pathex=[project_root],
+    binaries=binaries,
     datas=datas,
-    hiddenimports=[
-        "uvicorn.logging",
-        "uvicorn.loops",
-        "uvicorn.loops.auto",
-        "uvicorn.protocols",
-        "uvicorn.protocols.http",
-        "uvicorn.protocols.http.auto",
-        "uvicorn.protocols.websockets",
-        "uvicorn.protocols.websockets.auto",
-        "uvicorn.lifespan",
-        "uvicorn.lifespan.on",
-        "pydantic",
-        "fastapi",
-        "starlette",
-        "anyio",
-        "manim",
-        "manim.utils",
-        "PIL",
-        "numpy",
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "pytest",
+        "tensorboard",
+        "tensorflow",
+        "tkinter",
+        "torchaudio",
+        "torchvision",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -69,8 +108,11 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name="measure-server",
     debug=False,
     bootloader_ignore_signals=False,
@@ -82,15 +124,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="measure-server",
 )
