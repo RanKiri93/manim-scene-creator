@@ -6,6 +6,7 @@ import type {
   ProjectSceneFile,
   SceneItem,
   AudioTrackItem,
+  AudioBed,
   ProjectFile,
 } from '@/types/scene';
 import { MULTISCENE_PROJECT_KIND } from '@/types/scene';
@@ -41,6 +42,9 @@ function payloadFromDiskScene(sf: ProjectSceneFile): SceneDiskPayload {
       aud && aud.length > 0
         ? aud.map((a) => structuredClone(a) as AudioTrackItem)
         : undefined,
+    audioBed: sf.audioBed
+      ? (structuredClone(sf.audioBed) as AudioBed)
+      : undefined,
   };
 }
 
@@ -428,6 +432,9 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
                     (a) => structuredClone(a) as AudioTrackItem,
                   )
                 : undefined,
+              audioBed: docRaw.audioBed
+                ? (structuredClone(docRaw.audioBed) as AudioBed)
+                : undefined,
             };
 
       scenes.push({
@@ -441,6 +448,9 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
           doc.audioItems && doc.audioItems.length > 0
             ? doc.audioItems.map((a) => structuredClone(a) as AudioTrackItem)
             : undefined,
+        audioBed: doc.audioBed
+          ? (structuredClone(doc.audioBed) as AudioBed)
+          : undefined,
       });
     }
 

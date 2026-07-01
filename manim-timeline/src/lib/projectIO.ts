@@ -26,13 +26,39 @@ export type OpenProjectDiskResult = {
 export function isTauriRuntime(): boolean {
   if (typeof window === 'undefined') return false;
   const w = window as unknown as {
+    isTauri?: unknown;
     __TAURI_INTERNALS__?: unknown;
     __TAURI__?: unknown;
   };
+  // `window.isTauri` is set by the Tauri runtime regardless of `withGlobalTauri`,
+  // and is the most reliable signal. Fall back to the internals globals.
   return (
+    w.isTauri === true ||
     w.__TAURI_INTERNALS__ !== undefined ||
     w.__TAURI__ !== undefined
   );
+}
+
+/**
+ * Trigger a browser download without stranding the webview.
+ *
+ * In Tauri's WebView2 an anchor `download` click can navigate to the `blob:` URL
+ * instead of downloading; revoking the URL immediately then leaves the webview on
+ * a dead page ("Page not found"). Appending the anchor to the DOM and deferring the
+ * revoke avoids that failure mode.
+ */
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Keep the blob alive long enough for the download to start.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 const OPEN_ACCEPT_TYPES: FilePickerAcceptType[] = [
@@ -345,22 +371,11 @@ async function loadProjectFileViaInput(): Promise<{
 export function downloadProjectFile(project: AnyDiskProjectFile) {
   const json = JSON.stringify(project, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = defaultJsonSuggestedName();
-  a.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, defaultJsonSuggestedName());
 }
 
 export async function downloadMtprojBundle(project: AnyDiskProjectFile): Promise<void> {
   const { packMtprojToBlob } = await import('@/lib/mtprojBundle');
   const blob = await packMtprojToBlob(project);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = defaultMtprojSuggestedName();
-  a.rel = 'noopener';
-  a.click();
-  URL.revokeObjectURL(url);
+  triggerBlobDownload(blob, defaultMtprojSuggestedName());
 }

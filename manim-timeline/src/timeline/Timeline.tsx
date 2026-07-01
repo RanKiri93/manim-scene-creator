@@ -16,6 +16,9 @@ import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
 import AudioClip from './AudioClip';
+import BedClip from './BedClip';
+import AudioClipEditPopup from './AudioClipEditPopup';
+import BackgroundBedPopup from '@/panels/BackgroundBedPopup';
 import PlaybackControls from './PlaybackControls';
 import Playhead from './Playhead';
 import { usePlaybackEngine } from './hooks/usePlaybackEngine';
@@ -36,8 +39,17 @@ export default function Timeline() {
   const setViewRange = useSceneStore((s) => s.setViewRange);
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const audioBed = useSceneStore((s) => s.audioBed);
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
+
+  const [bedPopupOpen, setBedPopupOpen] = useState(false);
+  const [editingClipId, setEditingClipId] = useState<string | null>(null);
+
+  const sceneDurationSec = useMemo(
+    () => getSceneDuration(),
+    [getSceneDuration, items, audioItems, audioBed],
+  );
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const isHovered = useRef(false);
@@ -362,7 +374,7 @@ export default function Timeline() {
             <Playhead pixelsPerSecond={pxPerSecond} />
           </div>
 
-          {/* Below scene tracks; low z-index so it never intercepts hits meant for clips above */}
+          {/* Narration audio lane */}
           <div className="relative z-0 min-h-10 h-10 shrink-0 border-t-2 border-slate-600 bg-slate-800/50">
             <span className="pointer-events-none absolute left-1 top-1 z-0 text-[9px] text-slate-300">
               Audio
@@ -375,11 +387,35 @@ export default function Timeline() {
                 viewStart={0}
                 stackIndex={i}
                 isSelected={selectedIds.has(item.id)}
+                onEditRequest={setEditingClipId}
               />
             ))}
           </div>
+
+          {/* Background bed lane (full-scene, post-production) */}
+          <div className="relative z-0 min-h-8 h-8 shrink-0 border-t border-slate-700 bg-slate-850/80">
+            <span className="pointer-events-none absolute left-1 top-1 z-0 text-[9px] text-indigo-300/90">
+              Bed
+            </span>
+            <BedClip
+              audioBed={audioBed}
+              sceneDurationSec={sceneDurationSec}
+              pxPerSecond={pxPerSecond}
+              onEdit={() => setBedPopupOpen(true)}
+            />
+          </div>
         </div>
       </div>
+
+      {bedPopupOpen ? (
+        <BackgroundBedPopup onClose={() => setBedPopupOpen(false)} />
+      ) : null}
+      {editingClipId ? (
+        <AudioClipEditPopup
+          clipId={editingClipId}
+          onClose={() => setEditingClipId(null)}
+        />
+      ) : null}
 
       <div
         ref={scrollbarTrackRef}

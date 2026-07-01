@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
@@ -62,6 +62,20 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![read_project_bytes, write_project_bytes])
         .setup(|app| {
+            // Create the main window in Rust so we can attach a navigation guard.
+            // WebView2 may navigate the top-level document to `blob:`/`data:` URLs
+            // (e.g. an anchor-download fallback), which strands the SPA on a dead
+            // page ("Page not found") and loses unsaved in-memory state. Cancelling
+            // those navigations keeps the app alive.
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Manim Timeline")
+                .inner_size(1280.0, 800.0)
+                .on_navigation(|url| {
+                    let scheme = url.scheme();
+                    scheme != "blob" && scheme != "data"
+                })
+                .build()?;
+
             if measure_server_is_healthy() {
                 println!("measure-server: reusing existing healthy server at http://127.0.0.1:8765");
                 return Ok(());

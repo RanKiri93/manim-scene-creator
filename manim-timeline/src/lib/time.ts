@@ -10,6 +10,8 @@ import type {
   TargetAnimationMode,
 } from '@/types/scene';
 
+import { transformSourceIds } from '@/lib/transformMapping';
+
 /** Items shown on the main timeline. */
 export function isTopLevelItem(_item: SceneItem): boolean {
   return true;
@@ -261,7 +263,9 @@ export function isTransformSourceHiddenInPreview(
   for (const it of items.values()) {
     if (it.kind !== 'textLine') continue;
     if (it.animStyle !== 'transform') continue;
-    if (it.transformConfig?.sourceLineId !== sourceLine.id) continue;
+    const tc = it.transformConfig;
+    const ids = tc ? transformSourceIds(tc) : [];
+    if (!ids.includes(sourceLine.id)) continue;
     const end =
       effectiveStart(it, items) + textLineAnimOnlyDuration(it, items);
     hideAt = Math.min(hideAt, end);

@@ -146,13 +146,7 @@ export function exportAudioScriptToMarkdown(state: {
 }): void {
   const md = buildAudioScriptMarkdown(state.items, state.audioItems);
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'audio_script.md';
-  a.rel = 'noopener';
-  a.click();
-  URL.revokeObjectURL(url);
+  triggerMarkdownDownload(blob, 'audio_script.md');
 }
 
 function lineHeading(raw: string): string {
@@ -301,11 +295,22 @@ export function exportScriptToMarkdown(state: SceneState): void {
 
   const md = parts.join('\n');
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  triggerMarkdownDownload(blob, 'scene_script.md');
+}
+
+/**
+ * Trigger a download without stranding Tauri's WebView2: append the anchor to the
+ * DOM and defer the blob revoke so the navigation/download isn't killed mid-flight.
+ */
+function triggerMarkdownDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'scene_script.md';
+  a.download = filename;
   a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

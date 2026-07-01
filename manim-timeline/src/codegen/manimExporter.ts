@@ -1307,6 +1307,45 @@ function exportManimCodeInner(
   return header + body;
 }
 
+/** Total scene timeline length in seconds (matches export tail `wait` padding). */
+export function computeSceneDurationSec(
+  items: SceneItem[],
+  options: Pick<ExportOptions, 'audioItems' | 'frames' | 'startFrameId'>,
+): number {
+  const itemsMap = itemsToMap(items);
+  const flat = flattenExportLeaves(items);
+  const audioList = options.audioItems ?? [];
+
+  let fullSceneEnd = 0;
+  for (const tr of audioList) {
+    fullSceneEnd = Math.max(fullSceneEnd, tr.startTime + tr.duration);
+  }
+  for (const leaf of flat) {
+    fullSceneEnd = Math.max(fullSceneEnd, holdEnd(leaf, itemsMap));
+  }
+  for (const it of items) {
+    if (
+      it.kind === 'exit_animation' &&
+      it.targets.some((x) => x.animStyle !== 'none')
+    ) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'blink_animation' && it.targets.length > 0) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'target_animation' && it.targets.length > 0) {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'camera_move') {
+      fullSceneEnd = Math.max(fullSceneEnd, it.startTime + it.duration);
+    }
+    if (it.kind === 'surroundingRect') {
+      fullSceneEnd = Math.max(fullSceneEnd, holdEnd(it, itemsMap));
+    }
+  }
+  return Math.max(0.01, fullSceneEnd);
+}
+
 /**
  * Generate the complete Manim Python source from a list of SceneItems.
  */

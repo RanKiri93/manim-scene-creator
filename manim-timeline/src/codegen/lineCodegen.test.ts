@@ -164,6 +164,87 @@ describe('generateLinePlay transform modes', () => {
 
     expect(code).toContain('ReplacementTransform(line_1[0], line_2[0])');
   });
+
+  it('exports multi-source whole-line transforms as VGroup ReplacementTransform', () => {
+    const sourceA = textLine([{ kind: 'absolute' }]);
+    sourceA.id = 'sourceA';
+    sourceA.startTime = 0;
+    const sourceB = textLine([{ kind: 'absolute' }]);
+    sourceB.id = 'sourceB';
+    sourceB.startTime = 1;
+    const sourceC = textLine([{ kind: 'absolute' }]);
+    sourceC.id = 'sourceC';
+    sourceC.startTime = 2;
+    const target = textLine([{ kind: 'absolute' }]);
+    target.id = 'target';
+    target.startTime = 3;
+    target.animStyle = 'transform';
+    target.duration = 2;
+    target.transformConfig = {
+      sourceLineId: sourceA.id,
+      sourceLineIds: [sourceA.id, sourceB.id, sourceC.id],
+      mode: 'whole',
+      segmentPairs: {},
+      unmappedSourceBehavior: 'fade_out',
+      unmappedTargetBehavior: 'fade_in',
+    };
+
+    const code = generateLinePlay(
+      target,
+      'line_4',
+      8,
+      new Map([
+        [sourceA.id, 'line_1'],
+        [sourceB.id, 'line_2'],
+        [sourceC.id, 'line_3'],
+        [target.id, 'line_4'],
+      ]),
+      new Map([
+        [sourceA.id, sourceA],
+        [sourceB.id, sourceB],
+        [sourceC.id, sourceC],
+        [target.id, target],
+      ]),
+    );
+
+    expect(code).toContain(
+      'self.play(ReplacementTransform(VGroup(line_1, line_2, line_3), line_4), run_time=2)',
+    );
+  });
+
+  it('does not wrap a single whole-line source in VGroup', () => {
+    const source = textLine([{ kind: 'absolute' }]);
+    source.id = 'source';
+    const target = textLine([{ kind: 'absolute' }]);
+    target.id = 'target';
+    target.animStyle = 'transform';
+    target.duration = 2;
+    target.transformConfig = {
+      sourceLineId: source.id,
+      sourceLineIds: [source.id],
+      mode: 'whole',
+      segmentPairs: {},
+      unmappedSourceBehavior: 'fade_out',
+      unmappedTargetBehavior: 'fade_in',
+    };
+
+    const code = generateLinePlay(
+      target,
+      'line_2',
+      8,
+      new Map([
+        [source.id, 'line_1'],
+        [target.id, 'line_2'],
+      ]),
+      new Map([
+        [source.id, source],
+        [target.id, target],
+      ]),
+    );
+
+    expect(code).toContain('self.play(ReplacementTransform(line_1, line_2), run_time=2)');
+    expect(code).not.toContain('VGroup(');
+  });
 });
 
 function audioTrack(id: string, startTime: number, duration: number): AudioTrackItem {

@@ -927,6 +927,7 @@ try:
         file: UploadFile = File(...),
         lang: str = Form("iw"),
         script: str = Form(""),
+        transcribe: str = Form("true"),
     ) -> dict[str, object]:
         ext = os.path.splitext(file.filename or "")[1] or ".webm"
         filename = f"{uuid.uuid4().hex}{ext}"
@@ -937,6 +938,15 @@ try:
             body = await file.read()
             with open(abs_path, "wb") as out_f:
                 shutil.copyfileobj(BytesIO(body), out_f)
+
+            skip_transcription = transcribe.strip().lower() in ("false", "0", "no")
+            if skip_transcription:
+                return {
+                    "file_path": rel_path,
+                    "duration": _ffprobe_duration_seconds(abs_path),
+                    "word_boundaries": [],
+                    "transcription_source": "skipped",
+                }
 
             try:
                 import whisper  # noqa: F401
@@ -1989,6 +1999,209 @@ try:
                 detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
             ) from e
 
+    class MixdownClip(BaseModel):
+        rel_path: str
+        start_sec: float = 0
+        fade_in_ms: float = 0
+        fade_out_ms: float = 0
+        gain_db: float = 0
+
+    class MixdownBed(BaseModel):
+        rel_path: str
+        gain_db: float = -24
+
+    class MixdownRequest(BaseModel):
+        total_duration_sec: float
+        clips: list[MixdownClip] = Field(default_factory=list)
+        bed: MixdownBed | None = None
+
+    def _ffmpeg_mixdown_audio(req: MixdownRequest) -> tuple[str, float]:
+        """Build a single master WAV from narration clips (+ optional looped bed)."""
+        ffmpeg = _which_ffmpeg()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="ffmpeg not found on PATH")
+
+        total = max(0.01, float(req.total_duration_sec))
+        if not req.clips and not req.bed:
+            raise HTTPException(
+                status_code=400,
+                detail="mixdown requires at least one clip or a background bed",
+            )
+
+        inputs: list[str] = []
+        filter_parts: list[str] = []
+        mix_labels: list[str] = []
+        idx = 0
+
+        for clip in req.clips:
+            abs_path = _resolve_safe_audio_asset(clip.rel_path)
+            inputs.extend(["-i", abs_path])
+            dur = _ffprobe_duration_seconds(abs_path)
+            fade_in = max(0.0, float(clip.fade_in_ms) / 1000.0)
+            fade_out = max(0.0, float(clip.fade_out_ms) / 1000.0)
+            st_out = max(0.0, dur - fade_out) if fade_out > 0 else dur
+
+            parts: list[str] = []
+            if clip.gain_db != 0:
+                parts.append(f"volume={clip.gain_db}dB")
+            if fade_in > 0:
+                parts.append(f"afade=t=in:st=0:d={fade_in:.4f}")
+            if fade_out > 0 and st_out < dur:
+                parts.append(f"afade=t=out:st={st_out:.4f}:d={fade_out:.4f}")
+            delay_ms = int(round(float(clip.start_sec) * 1000))
+            parts.append(f"adelay={delay_ms}|{delay_ms}")
+            filter_parts.append(f"[{idx}:a]" + ",".join(parts) + f"[a{idx}]")
+            mix_labels.append(f"[a{idx}]")
+            idx += 1
+
+        if req.bed:
+            bed_path = _resolve_safe_audio_asset(req.bed.rel_path)
+            inputs.extend(["-stream_loop", "-1", "-i", bed_path])
+            filter_parts.append(
+                f"[{idx}:a]atrim=0:{total:.4f},asetpts=PTS-STARTPTS,"
+                f"volume={req.bed.gain_db}dB[bed]"
+            )
+            mix_labels.append("[bed]")
+            idx += 1
+
+        n = len(mix_labels)
+        if n == 1:
+            filter_parts.append(
+                f"{mix_labels[0]}atrim=0:{total:.4f},asetpts=PTS-STARTPTS[out]"
+            )
+        else:
+            joined = "".join(mix_labels)
+            filter_parts.append(
+                f"{joined}amix=inputs={n}:duration=longest:dropout_transition=0,"
+                f"atrim=0:{total:.4f},asetpts=PTS-STARTPTS[out]"
+            )
+
+        out_name = f"master_{uuid.uuid4().hex}.wav"
+        out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
+        rel_out = f"assets/audio/{out_name}"
+
+        cmd = [
+            ffmpeg,
+            "-y",
+            *inputs,
+            "-filter_complex",
+            ";".join(filter_parts),
+            "-map",
+            "[out]",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            out_abs,
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "ffmpeg mixdown failed").strip()
+            raise HTTPException(status_code=500, detail=err[-4000:])
+
+        duration = _ffprobe_duration_seconds(out_abs)
+        if duration <= 0:
+            duration = total
+        return rel_out, duration
+
+    @app.post("/api/mixdown_audio")
+    def mixdown_audio(req: MixdownRequest) -> dict[str, object]:
+        try:
+            rel_path, duration = _ffmpeg_mixdown_audio(req)
+            return {"file_path": rel_path, "duration": duration}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+
+    class GenerateBedNoiseRequest(BaseModel):
+        color: str = Field("pink", description="Noise color: pink, brown, or white")
+        duration_sec: float = Field(8.0, description="Clip length in seconds (looped at export)")
+        level_db: float = Field(-40.0, description="Output level in dBFS before mix gain")
+
+    _BED_NOISE_COLORS = frozenset({"pink", "brown", "white"})
+
+    def _ffmpeg_generate_bed_noise(
+        color: str,
+        duration_sec: float,
+        level_db: float,
+    ) -> tuple[str, float]:
+        ffmpeg = _which_ffmpeg()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="ffmpeg not found on PATH")
+
+        c = (color or "pink").strip().lower()
+        if c not in _BED_NOISE_COLORS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"color must be one of: {', '.join(sorted(_BED_NOISE_COLORS))}",
+            )
+        dur = max(1.0, min(30.0, float(duration_sec)))
+        level = max(-80.0, min(0.0, float(level_db)))
+
+        out_name = f"bed_noise_{uuid.uuid4().hex}.wav"
+        out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
+        rel_out = f"assets/audio/{out_name}"
+
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"anoisesrc=color={c}:d={dur:.4f}:a=0.5",
+            "-af",
+            f"volume={level:.2f}dB",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            out_abs,
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "ffmpeg bed noise failed").strip()
+            raise HTTPException(status_code=500, detail=err[-4000:])
+
+        duration = _ffprobe_duration_seconds(out_abs)
+        if duration <= 0:
+            duration = dur
+        return rel_out, duration
+
+    @app.post("/api/generate_bed_noise")
+    def generate_bed_noise(req: GenerateBedNoiseRequest) -> dict[str, object]:
+        try:
+            rel_path, duration = _ffmpeg_generate_bed_noise(
+                req.color,
+                req.duration_sec,
+                req.level_db,
+            )
+            return {"file_path": rel_path, "duration": duration}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            ) from e
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -1997,6 +2210,46 @@ try:
         python_code: str = Field(..., description="Full Manim scene Python source")
         quality: str = Field(..., description="Render quality: l, m, h, or k")
         scene_name: str = Field(..., description="Scene class name for manim CLI")
+        master_audio_path: str | None = Field(
+            None,
+            description="Optional repo-relative assets/audio/... master WAV to replace Manim audio",
+        )
+
+    def _mux_master_audio_over_mp4(video_path: str, audio_abs: str, out_path: str) -> None:
+        ffmpeg = _which_ffmpeg()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="ffmpeg not found on PATH")
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-i",
+            video_path,
+            "-i",
+            audio_abs,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            out_path,
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "ffmpeg mux failed").strip()
+            raise HTTPException(status_code=500, detail=err[-4000:])
 
     def _cleanup_render_workdir(path: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
@@ -2117,8 +2370,16 @@ try:
             if mp4_path is None:
                 mp4_path = max(candidates, key=lambda p: os.path.getmtime(p))
 
+            deliver_path = mp4_path
+            if req.master_audio_path:
+                master_rel = req.master_audio_path.strip().replace("\\", "/")
+                master_abs = _resolve_safe_audio_asset(master_rel)
+                muxed_path = os.path.join(work_dir, f"{scene}_master_mux.mp4")
+                _mux_master_audio_over_mp4(mp4_path, master_abs, muxed_path)
+                deliver_path = muxed_path
+
             return FileResponse(
-                mp4_path,
+                deliver_path,
                 media_type="video/mp4",
                 filename=f"{scene}.mp4",
                 background=BackgroundTask(_cleanup_render_workdir, work_dir),

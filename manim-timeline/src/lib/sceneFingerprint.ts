@@ -25,6 +25,7 @@ export function fingerprintSceneDiskPayload(payload: SceneDiskPayload): string {
     startFrameId: payload.startFrameId,
     items: payload.items,
     audio: payload.audioItems ?? [],
+    audioBed: payload.audioBed ?? null,
   });
   const enc = new TextEncoder().encode(canonical);
   const copy = new Uint8Array(enc.byteLength);

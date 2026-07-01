@@ -1,6 +1,7 @@
 import type {
   TextLineItem,
   AudioTrackItem,
+  AudioBed,
   MeasureResult,
   SegmentStyle,
   SegmentLocalBox,
@@ -8,6 +9,10 @@ import type {
   AxesItem,
   AxisPreviewBounds,
 } from '@/types/scene';
+import {
+  deriveAudioBedAssetRelPath,
+} from '@/lib/audioAssetPath';
+import type { AudioMixdownSpec } from '@/lib/audioMixdown';
 import {
   type AxesPreviewRequestBody,
   buildAxesPreviewRequestBody,
@@ -355,7 +360,7 @@ export async function uploadRecordedAudio(
   baseUrl: string,
   blob: Blob,
   filename: string = 'recording.webm',
-  options?: { lang?: string; script?: string },
+  options?: { lang?: string; script?: string; transcribe?: boolean },
 ): Promise<UploadRecordedAudioResult> {
   const formData = new FormData();
   const safeName = filename.trim() || 'recording.webm';
@@ -364,6 +369,9 @@ export async function uploadRecordedAudio(
   if (lang) formData.append('lang', lang);
   const script = options?.script?.trim();
   if (script) formData.append('script', script);
+  if (options?.transcribe === false) {
+    formData.append('transcribe', 'false');
+  }
   const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/upload_audio`, {
     method: 'POST',
     body: formData,
@@ -403,6 +411,7 @@ function renderAssetRelPath(track: AudioTrackItem): string | null {
 export async function syncRenderAudioAssets(
   baseUrl: string,
   tracks: AudioTrackItem[],
+  bed?: AudioBed | null,
 ): Promise<void> {
   const root = baseUrl.replace(/\/$/, '');
   for (const track of tracks) {
@@ -441,6 +450,132 @@ export async function syncRenderAudioAssets(
       throw new Error(`Could not sync audio asset ${relPath}: ${msg}`);
     }
   }
+
+  if (!bed) return;
+  const bedRel =
+    bed.assetRelPath?.trim().replace(/^\/+/, '') ??
+    deriveAudioBedAssetRelPath(bed);
+  if (!bedRel.startsWith('assets/audio/')) return;
+
+  const bedResp = await fetch(bed.audioUrl);
+  if (!bedResp.ok) {
+    throw new Error(
+      `Could not read background bed asset ${bedRel}: HTTP ${bedResp.status}`,
+    );
+  }
+  const bedBlob = await bedResp.blob();
+  const bedForm = new FormData();
+  bedForm.append('rel_path', bedRel);
+  bedForm.append('file', bedBlob, bedRel.split('/').pop() || 'bed');
+
+  const bedSync = await measureFetch(`${root}/api/sync_audio_asset`, {
+    method: 'POST',
+    body: bedForm,
+  });
+  if (!bedSync.ok) {
+    const text = await bedSync.text();
+    throw new Error(
+      `Could not sync background bed ${bedRel}: ${text.trim() || `HTTP ${bedSync.status}`}`,
+    );
+  }
+}
+
+export interface MixdownAudioApiResult {
+  file_path: string;
+  duration: number;
+}
+
+export async function mixdownAudio(
+  baseUrl: string,
+  spec: AudioMixdownSpec,
+): Promise<MixdownAudioApiResult> {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/mixdown_audio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      total_duration_sec: spec.total_duration_sec,
+      clips: spec.clips.map((c) => ({
+        rel_path: c.rel_path,
+        start_sec: c.start_sec,
+        fade_in_ms: c.fade_in_ms,
+        fade_out_ms: c.fade_out_ms,
+        gain_db: c.gain_db ?? 0,
+      })),
+      bed: spec.bed
+        ? { rel_path: spec.bed.rel_path, gain_db: spec.bed.gain_db }
+        : null,
+    }),
+  });
+  const j = (await resp.json()) as {
+    file_path?: string;
+    duration?: number;
+    detail?: string | { msg?: string }[];
+  };
+  if (!resp.ok) {
+    const msg =
+      typeof j.detail === 'string'
+        ? j.detail
+        : Array.isArray(j.detail)
+          ? j.detail.map((d) => d.msg).filter(Boolean).join('; ')
+          : `HTTP ${resp.status}`;
+    throw new Error(msg || 'mixdown_audio failed');
+  }
+  if (!j.file_path || typeof j.file_path !== 'string') {
+    throw new Error('mixdown_audio: missing file_path');
+  }
+  const dur = Number(j.duration);
+  return {
+    file_path: j.file_path,
+    duration: Number.isFinite(dur) && dur > 0 ? dur : spec.total_duration_sec,
+  };
+}
+
+export type BedNoiseColor = 'pink' | 'brown' | 'white';
+
+export interface GenerateBedNoiseApiResult {
+  file_path: string;
+  duration: number;
+}
+
+export async function generateBedNoise(
+  baseUrl: string,
+  options: {
+    color?: BedNoiseColor;
+    durationSec?: number;
+    levelDb?: number;
+  },
+): Promise<GenerateBedNoiseApiResult> {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/generate_bed_noise`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      color: options.color ?? 'pink',
+      duration_sec: options.durationSec ?? 8,
+      level_db: options.levelDb ?? -40,
+    }),
+  });
+  const j = (await resp.json()) as {
+    file_path?: string;
+    duration?: number;
+    detail?: string | { msg?: string }[];
+  };
+  if (!resp.ok) {
+    const msg =
+      typeof j.detail === 'string'
+        ? j.detail
+        : Array.isArray(j.detail)
+          ? j.detail.map((d) => d.msg).filter(Boolean).join('; ')
+          : `HTTP ${resp.status}`;
+    throw new Error(msg || 'generate_bed_noise failed');
+  }
+  if (!j.file_path || typeof j.file_path !== 'string') {
+    throw new Error('generate_bed_noise: missing file_path');
+  }
+  const dur = Number(j.duration);
+  return {
+    file_path: j.file_path,
+    duration: Number.isFinite(dur) && dur > 0 ? dur : options.durationSec ?? 8,
+  };
 }
 
 export interface NormalizeAudioApiResult {
@@ -737,6 +872,7 @@ export async function renderSceneMp4(
   code: string,
   quality: string,
   sceneName: string,
+  masterAudioPath?: string | null,
 ): Promise<Blob> {
   const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/render`, {
     method: 'POST',
@@ -745,6 +881,7 @@ export async function renderSceneMp4(
       python_code: code,
       quality,
       scene_name: sceneName,
+      master_audio_path: masterAudioPath?.trim() || null,
     }),
   });
   if (!resp.ok) {

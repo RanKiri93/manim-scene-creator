@@ -52,6 +52,7 @@ export function legacyProjectFileToMultiScene(p: ProjectFile): MultiSceneProject
     audioItems: p.audioItems?.length
       ? p.audioItems.map((a) => ({ ...a }))
       : undefined,
+    audioBed: p.audioBed ? { ...p.audioBed } : undefined,
   };
   normalizeItemFrameIdsInPlace(scene.items as SceneItem[], scene.frames, scene.startFrameId);
   return {

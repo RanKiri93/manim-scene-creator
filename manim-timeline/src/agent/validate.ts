@@ -1,3 +1,4 @@
+import { normalizeTransformMapping } from '@/lib/transformMapping';
 import {
   functionSeriesTotalDuration,
   pointSequenceTotalDuration,
@@ -30,6 +31,7 @@ import {
   type ShapePoint,
   type SurroundingRectItem,
   type TextLineItem,
+  type TransformMapping,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE } from '@/lib/constants';
@@ -888,6 +890,29 @@ function rawFromSegments(segments: TextLineItem['segments']): string {
     .join('');
 }
 
+function sanitizeTransformConfig(raw: unknown): TransformMapping | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const tc = raw as Record<string, unknown>;
+  const sourceLineId = asStr(tc.sourceLineId, '');
+  if (!sourceLineId) return null;
+  const sourceLineIds = Array.isArray(tc.sourceLineIds)
+    ? tc.sourceLineIds.filter((id): id is string => typeof id === 'string' && !!id)
+    : undefined;
+  return normalizeTransformMapping({
+    sourceLineId,
+    sourceLineIds,
+    mode: tc.mode === 'whole' || tc.mode === 'segments' ? tc.mode : undefined,
+    segmentPairs:
+      tc.segmentPairs && typeof tc.segmentPairs === 'object'
+        ? (tc.segmentPairs as TransformMapping['segmentPairs'])
+        : {},
+    unmappedSourceBehavior:
+      tc.unmappedSourceBehavior === 'leave' ? 'leave' : 'fade_out',
+    unmappedTargetBehavior:
+      tc.unmappedTargetBehavior === 'write' ? 'write' : 'fade_in',
+  });
+}
+
 function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
   const rawForBase =
     raw.animStyle === 'transform' && raw.visibleAtSceneStart === true
@@ -911,8 +936,7 @@ function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
     font: asStr(raw.font, DEFAULT_FONT),
     fontSize: asNum(raw.fontSize, DEFAULT_FONT_SIZE),
     animStyle: raw.animStyle as TextLineItem['animStyle'],
-    transformConfig:
-      (raw.transformConfig as TextLineItem['transformConfig']) ?? null,
+    transformConfig: sanitizeTransformConfig(raw.transformConfig),
     segments,
     measure: null,
     measureError: null,

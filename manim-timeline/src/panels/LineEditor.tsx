@@ -19,11 +19,17 @@ import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
   return {
     sourceLineId,
+    sourceLineIds: [sourceLineId],
     mode: 'segments',
     segmentPairs: {},
     unmappedSourceBehavior: 'fade_out',
     unmappedTargetBehavior: 'fade_in',
   };
+}
+
+function lineLabel(line: TextLineItem): string {
+  const label = (line.label || line.raw || '(empty)').trim();
+  return label.length > 48 ? `${label.slice(0, 47)}…` : label;
 }
 
 interface LineEditorProps {
@@ -104,6 +110,11 @@ export default function LineEditor({ item }: LineEditorProps) {
           unmappedSourceBehavior: prev?.unmappedSourceBehavior ?? 'fade_out',
           unmappedTargetBehavior: prev?.unmappedTargetBehavior ?? 'fade_in',
           sourceLineId,
+          sourceLineIds: prev?.sourceLineIds?.length
+            ? prev.sourceLineIds.filter((id) =>
+                earlierTextLines.some((l) => l.id === id) || id === sourceLineId,
+              )
+            : [sourceLineId],
         },
       });
       return;
@@ -200,6 +211,59 @@ export default function LineEditor({ item }: LineEditorProps) {
           <div className="text-[10px] uppercase tracking-wide text-slate-500">Transform mapping</div>
           {earlierTextLines.length === 0 ? (
             <p className="text-[11px] text-amber-400/90">No earlier text lines in the scene to use as source.</p>
+          ) : (item.transformConfig?.mode ?? 'segments') === 'whole' ? (
+            <div className="flex flex-col gap-1 text-xs text-slate-400">
+              Source lines
+              <div className="flex flex-col gap-1 rounded border border-slate-700 bg-slate-900/40 p-2 max-h-40 overflow-y-auto">
+                {earlierTextLines.map((line) => {
+                  const selectedIds =
+                    item.transformConfig?.sourceLineIds?.length
+                      ? item.transformConfig.sourceLineIds
+                      : item.transformConfig?.sourceLineId
+                        ? [item.transformConfig.sourceLineId]
+                        : [];
+                  const checked = selectedIds.includes(line.id);
+                  return (
+                    <label
+                      key={line.id}
+                      className="flex items-center gap-2 text-slate-200 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const base =
+                            item.transformConfig ??
+                            defaultTransformMapping(line.id);
+                          const prevIds =
+                            base.sourceLineIds?.length
+                              ? base.sourceLineIds
+                              : [base.sourceLineId];
+                          let nextIds: string[];
+                          if (e.target.checked) {
+                            nextIds = prevIds.includes(line.id)
+                              ? prevIds
+                              : [...prevIds, line.id];
+                          } else {
+                            nextIds = prevIds.filter((id) => id !== line.id);
+                            if (nextIds.length === 0) {
+                              nextIds = [earlierTextLines[0]?.id ?? line.id];
+                            }
+                          }
+                          setLineTransformConfig(item.id, {
+                            ...base,
+                            sourceLineIds: nextIds,
+                            sourceLineId: nextIds[0]!,
+                          });
+                        }}
+                        className="rounded border-slate-600"
+                      />
+                      <span className="truncate">{lineLabel(line)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
             <label className="flex flex-col gap-1 text-xs text-slate-400">
               Source line
@@ -208,19 +272,19 @@ export default function LineEditor({ item }: LineEditorProps) {
                 onChange={(e) => {
                   const id = e.target.value;
                   const base = item.transformConfig ?? defaultTransformMapping(id);
-                  setLineTransformConfig(item.id, { ...base, sourceLineId: id });
+                  setLineTransformConfig(item.id, {
+                    ...base,
+                    sourceLineId: id,
+                    sourceLineIds: [id],
+                  });
                 }}
                 className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
               >
-                {earlierTextLines.map((line) => {
-                  const label = (line.label || line.raw || '(empty)').trim();
-                  const short = label.length > 48 ? `${label.slice(0, 47)}…` : label;
-                  return (
-                    <option key={line.id} value={line.id}>
-                      {short}
-                    </option>
-                  );
-                })}
+                {earlierTextLines.map((line) => (
+                  <option key={line.id} value={line.id}>
+                    {lineLabel(line)}
+                  </option>
+                ))}
               </select>
             </label>
           )}
@@ -229,10 +293,19 @@ export default function LineEditor({ item }: LineEditorProps) {
             <select
               value={item.transformConfig?.mode ?? 'segments'}
               onChange={(e) => {
+                const mode = e.target.value as TransformMapping['mode'];
                 const base = item.transformConfig ?? defaultTransformMapping(sourceLineItem?.id ?? '');
+                const primary = base.sourceLineId || earlierTextLines[0]?.id || '';
                 setLineTransformConfig(item.id, {
                   ...base,
-                  mode: e.target.value as TransformMapping['mode'],
+                  mode,
+                  sourceLineId: primary,
+                  sourceLineIds:
+                    mode === 'whole'
+                      ? base.sourceLineIds?.length
+                        ? base.sourceLineIds
+                        : [primary]
+                      : [primary],
                 });
               }}
               className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"

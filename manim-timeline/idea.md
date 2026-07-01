@@ -1,135 +1,291 @@
-# Feature Ideas And Status
+# Manim Timeline — Ideas Roadmap
 
-This file is a handoff note for future agents. It tracks which feature directions were already explored or implemented, and what remains useful to build next.
+This file collects product / engineering ideas that are worth discussing before
+implementation. Each item should eventually become a focused implementation plan
+or a small PR-sized task.
 
-## Done Or Recently Implemented
+## Priority Shortlist
 
-1. Measurement-aware text layout, first slices
-   - Added ink-aware frame-edge alignment for text-line `to_edge` positioning.
-   - `to_edge` can now distinguish legacy behavior, Manim/VGroup bbox alignment, and tight visible ink alignment.
-   - Added quick layout buttons for measured text lines, such as visible-ink edge alignment and Center X.
-   - Fixed the Center X follow-up issue: manual X/Y editing should work with active `set_x` / `set_y` positioning steps instead of appearing stuck.
-   - Important design decision: layout helpers should keep writing ordinary `posSteps`, so users can inspect and edit the result in the existing Positioning steps UI.
+1. **Undo history should ignore playback / transient UI state.**
+2. **Social-media export presets should become scene/project settings, not only export options.**
+3. **Guided transcription should align recorded audio with the intended script.**
+4. **Audio editing should grow from the current normalize / clean / match-EQ pipeline.**
+5. **Agent self-feedback should start with single-frame visual review before autonomous loops.**
 
-2. Copilot support for `graphFunctionSeries`
-   - Basic Copilot CREATE support for `graphFunctionSeries` was planned and handed off.
-   - Expected completed behavior: the agent can create a function series on valid axes with `jsExpr`, `pyExpr`, `nMin`, `nMax`, `displayMode`, and `mode`.
-   - Follow-up check found that advanced editing support is already present:
-     - The system prompt instructs UPDATEs for `displayMode`, `mode`, `nMin` / `nMax`, defaults, and per-`n` styling/timing.
-     - `validate.ts` normalizes `graphFunctionSeries` UPDATE patches, including `perN`, `defaults`, `nMin` / `nMax`, `mode`, `jsExpr`, and `pyExpr`.
-     - `commit.ts` deep-merges `perN` and `defaults` so partial Copilot edits do not wipe user-authored styling.
-     - Tests cover per-`n` update normalization and deep-merge behavior.
+## 1. Social-Media Video Presets
 
-3. Explicit audio-to-visual binding
-   - Added an item-level Audio binding selector using the existing `audioTrackId` model.
-   - Semantics:
-     - Auto: use existing timeline-overlap heuristic.
-     - None: disable audio binding for that item.
-     - Explicit track: bind the visual item to a selected audio clip.
-   - Export already preferred explicit `audioTrackId`; the main work was UI and explicit-none behavior.
+### Goal
 
-4. Timeline binding clarity
-   - Audio/visual timeline indicators were explored.
-   - Final user preference: when an audio track is explicitly bound to a visual clip, the real audio clip should snap to the visual clip's timeline start and follow it when the visual moves.
-   - Do not use ghost audio overlays or duplicate audio blocks for this behavior.
-   - Important design decision: explicit binding means the visual item owns the audio track's `startTime`.
-   - If one audio track is bound to a different visual item, the app should prevent ambiguous ownership or clearly resolve it.
+Allow the user to choose a target video format before authoring / rendering, so
+the canvas, frame grid, Manim export, and final MP4 all share the same aspect
+ratio and resolution. Main use cases: Instagram Reels / TikTok / Shorts
+(`9:16`), square posts (`1:1`), and standard landscape (`16:9`).
 
-5. Selection Fragment export cleanup
-   - The Selection Fragment UI was identified as not useful.
-   - If still present, remove only that feature:
-     - UI labeled "SELECTION FRAGMENT"
-     - Compact / Strip segment wait controls
-     - Export JSON / Export `.mtproj` / Copy JSON for selection fragments
-   - Do not remove normal project save/load, normal `.mtproj` bundles, or normal export.
+### MVP
 
-6. Script-to-timeline workflow, MVP
-   - Added a Copilot preset inside the existing AI panel.
-   - Users can paste a Hebrew lesson script and click "Propose timeline".
-   - The app wraps the script in a strict prompt and sends it through the normal `sendMessage` path.
-   - The LLM still emits ordinary `CREATE` / `UPDATE` / `DELETE` actions.
-   - Existing validation, pending preview, Approve, and Reject behavior are reused; the script panel does not directly mutate scene state.
-   - Added focused tests for `scriptToTimelinePrompt`.
-   - Verified with `npm test -- scriptToTimelinePrompt`, `npm test -- validate`, and `npm run build`.
-   - Important design decision: keep this as an AI Copilot preset first, not a deterministic markdown parser or project importer, until the workflow proves useful.
+- Add a scene/project-level video format setting, for example:
+  - `16:9 landscape` → `1920x1080`
+  - `9:16 vertical` → `1080x1920`
+  - `1:1 square` → `1080x1080`
+  - `custom` → explicit width / height
+- Feed this setting into Manim export as `config.pixel_width`,
+  `config.pixel_height`, and the matching frame dimensions when needed.
+- Update the canvas preview and frame grid to use the selected aspect ratio.
+- Show the active format clearly in the UI, probably near project defaults or
+  export settings.
 
-7. Property panel canvas-anchor implementation
-   - Wrote `property-panel-canvas-anchor-guide.md`.
-   - Wrote `property-panel-canvas-anchor-composer-task.md` for the implementation handoff.
-   - Implemented the behavior: the Properties popup now opens from the top-left of the black canvas frame instead of the top-right of the app viewport.
-   - Approach: measure `SceneCanvas`'s `containerRef` with `getBoundingClientRect()`, pass the rect through `App`, and initialize `PropertyPanel` position from that anchor.
-   - Keep dragging/resizing unchanged and only reset the position when the panel opens.
+### Design Notes
 
-8. Axes editor scale and appearance controls
-   - Moved `Scale X` / `Scale Y` from the Positioning tab to the Base tab in `AxesEditor`.
-   - Added optional axes appearance fields: axis stroke color, stroke width, tip shape, and tip length.
-   - Added an Appearance section to the axes editor and wired the new fields through factory defaults, validation normalization, and Manim codegen.
-   - Verified with `npm test` and `npm run build`.
+- This should not live only in `ExportPanel`; the authoring surface must match
+  the final video.
+- The existing `FrameDef` grid should remain camera-sized, but the camera cell
+  dimensions need to follow the chosen format.
+- Existing projects need a migration/default, probably the current Manim-style
+  landscape ratio.
 
-9. Reliable canvas playback for axes and ordinary plots
-   - Added canvas-side create/progress playback for axes and ordinary `graphPlot` items, so they animate with normal Play/scrubbing like function series.
-   - Axes preview now uses a richer phased create spec: x-axis, y-axis, ticks, reveal marker, and canvas arrowheads when tips are enabled.
-   - Fixed axes visibility when zero is outside the displayed domain by clamping canvas axes to the nearest frame edge instead of drawing them outside the graph box.
-   - Removed dedicated replay buttons; playback is driven by the normal timeline playhead.
-   - Verified with `npm test` and `npm run build`.
+### Likely Touchpoints
 
-## Good Next Features
+`src/types/scene.ts`, `src/store/useSceneStore.ts`, project migrations,
+canvas sizing / coordinate helpers, frame grid helpers, and Manim exporters.
 
-1. Script-to-timeline follow-up
-   - Test the MVP with real Hebrew lesson scripts and tighten the prompt based on failures.
-   - Add examples or quick-start presets in the Script panel if users need structure.
-   - Consider timeline chunking for long scripts, but only after the basic proposal quality is understood.
-   - Later, add narration chunk/audio generation or deterministic parsing of a small markdown DSL.
+## 2. Agent Self-Feedback From Rendered Frames
 
-2. Copilot support for more graph item kinds
-   - Add `graphField` once its invariants are reflected in validator normalization and provider schemas.
-   - Add `graphArea` after that; it has more cross-reference and geometry cases, so it should not be the first follow-up.
+### Goal
 
-3. More measurement-aware layout tools
-   - Align/distribute multiple selected items by visible ink bounds.
-   - Add measured vertical spacing tools for proof steps and chain calculations.
-   - Add overlap avoidance for measured text blocks.
-   - Add snap tools for `next_to` chains while keeping generated `posSteps` visible.
+Let the agent inspect visual output instead of relying only on structured scene
+JSON. The agent should be able to render selected timestamps / frames, evaluate
+whether the result looks good, and then propose or apply corrections.
 
-4. Audio binding refinements
-   - Add optional word-boundary or transcript-range binding after the simple whole-track binding is stable.
-   - Consider splitting one long narration track into visual slices, but only with a clear UI model.
-   - Keep the current rule clear: one explicitly bound audio clip should follow its owning visual clip.
+Examples:
 
-## Larger Backlog
+- Check that a graph is not clipped.
+- Check that colors are readable.
+- Check that function stroke width is visible.
+- Check that labels and Hebrew text are positioned correctly.
+- Check that objects are inside the intended frame.
 
-1. Reusable scene blocks and templates
-   - Presets for theorem titles, definitions, proof steps, chain calculations, axes plus plot plus marked point, series visualizations, and transform layouts.
-   - Store templates as ordinary scene items or compounds where possible.
+### MVP
 
-2. Render-backed preview validation
-   - Add a quick render for the current frame or selected time range using `/api/render`.
-   - Use it to catch Manim/canvas mismatches in positioning, graph rendering, function series, and exit animations.
+- Add a measure-server endpoint that renders one still image for a scene at a
+  requested timestamp.
+- Add a UI action such as `Render current frame for agent review`.
+- Send the image plus scene JSON to a vision-capable provider with a small
+  rubric.
+- Have the agent return normal timeline actions, not hidden mutations.
 
-3. Future Manim-backed preview mode
-   - Long-term direction: keep Konva as the interactive editor geometry, but optionally add Manim-rendered preview snapshots for selected moments or final-frame comparison.
-   - A full Manim preview would send scene state at time `t` to a preview server, render a PNG/frame sequence/video snippet, and draw that result as canvas image layers.
-   - Benefits: much better fidelity for axes, Hebrew text, labels, tips, stroke defaults, Manim layout, and final render parity.
-   - Costs: slower edit feedback, heavier cache invalidation, more server dependency, and harder animation preview because exact motion requires frame sequences or video rather than a single PNG.
-   - Interactivity still needs Konva underneath for dragging, snapping, selection, graph-point placement, and editor hit testing.
-   - Best future shape: opt-in "final preview" / "render comparison" snapshots with careful hash caching, not a replacement for the default editing loop.
+### Later
 
-4. Timeline diagnostics
-   - Explain why an item is visible at the current time.
-   - Show which exit animation controls its end.
-   - Show which audio track is matched or explicitly bound.
-   - Explain where export waits, audio starts, and audio tails are inserted.
-   - Surface validation locks and timing issues in a user-facing way.
+- Allow the agent to run a bounded review loop:
+  1. apply candidate changes,
+  2. render one or more timestamps,
+  3. review the result,
+  4. stop when acceptable or after a limit.
+- Store the rendered snapshots and review notes so the user can understand what
+  changed and why.
 
-5. Desktop packaging polish
-   - Improve the Tauri path toward a single local tool.
-   - Add clearer sidecar status, auto-start behavior, dependency checks, render logs, and export readiness feedback.
+### Guardrails
 
-## Notes For Future Agents
+- Always use a hard iteration limit.
+- Make failures visible instead of silently continuing.
+- Prefer user approval before applying large visual rewrites.
+- Do not let this become an unbounded render loop; rendering is expensive.
 
-- Use `HebrewMathLine` conventions and project rules for Hebrew/math text.
-- Prefer writing user-visible layout changes as `posSteps`.
-- Do not introduce hidden layout state when existing positioning steps can express the behavior.
-- For audio binding, do not reintroduce ghost clips unless the user explicitly asks for an overlay model. The preferred model is real audio snapping to the bound visual clip.
-- Before changing Copilot support, update all relevant parts together: allowed kinds, validator normalization, provider schemas, system prompt, and tests.
+### Likely Touchpoints
 
+`measure_server.py`, `src/services/measureClient.ts`, agent context / provider
+pipeline, agent validation / commit flow, and preview UI.
+
+## 3. Advanced Audio Editing
+
+### Goal
+
+Let the user fix narration clips without re-recording. The audio workflow should
+support basic destructive or asset-generating edits from the timeline.
+
+### Natural cuts (v1 — implemented)
+
+- **Background bed:** post-production layer on a dedicated **Bed** timeline row (full-scene,
+  auto-looped at export). Sources: upload music, record room tone, or **server-generated
+  noise** (pink/brown/white via `/api/generate_bed_noise`). Managed via `BackgroundBedPopup`
+  from the Bed lane — not tied to any narration clip.
+- **Cut fades:** short fade-in / fade-out (default 40 ms, configurable 20–80 ms)
+  at narration clip boundaries.
+- **Export delivery:** server-side ffmpeg mixdown (`/api/mixdown_audio`) builds one
+  master WAV (clips at timeline positions + fades + looped bed); after Manim render,
+  ffmpeg mux replaces the video’s audio track with the master.
+- **Preview:** bed and cut fades are **render-only for v1**. Timeline preview still
+  plays one narration clip at a time with no bed/fade audibility.
+- **Later:** WebAudio mixing graph so bed + fades are audible while scrubbing the
+  timeline (deferred).
+
+### Audio clip editor popup (partial — implemented)
+
+- Double-click a narration clip (or **Edit** when selected) to open `AudioClipEditPopup`.
+- Popup sections today: **Processing** (Clean, Normalize, Set as ref, Match EQ),
+  **Timing** (gap presets T/N/I/R), **Export fades** (per-clip in/out ms), audio preview,
+  processing status badges.
+- Inline clip overlay is minimal (name, Linked, remove, word-boundary ticks only).
+
+### MVP (deferred — full audio editor)
+
+- Right-click / extended editor with:
+  - waveform preview,
+  - trim start / trim end,
+  - split at playhead or selected time,
+  - gain adjustment.
+- Apply destructive edits by creating new processed assets through the measure server.
+
+### Later
+
+- Multi-band EQ UI.
+- Noise reduction strength control.
+- Non-destructive edit stack.
+- Compare before / after.
+- Batch operations on selected clips.
+- **Preview-audible bed + cut fades** (WebAudio graph; see Natural cuts above).
+
+### Design Notes
+
+- The app already has normalize, clean, and match-EQ operations. The editor
+  should reuse that pipeline instead of creating a separate audio system.
+- Splitting a clip must also split or remap word boundaries / bookmarks.
+- If an audio clip is bound to a visual item, the UI should warn before edits
+  that affect duration or timing.
+- Background bed assets skip Whisper on upload (`transcribe=false`).
+
+### Likely Touchpoints
+
+`src/timeline/AudioClip.tsx`, `src/timeline/AudioClipEditPopup.tsx`, `src/timeline/BedClip.tsx`,
+`src/panels/BackgroundBedPopup.tsx`, `src/lib/audioMixdown.ts`, `src/lib/audioRenderHelpers.ts`,
+`src/store/useSceneStore.ts`, `src/services/measureClient.ts`,
+`measure_server.py`, and audio project serialization.
+
+## 4. Undo / Redo Keyboard Shortcuts
+
+### Current State
+
+`Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z` appear to already be wired in `App.tsx`,
+with safeguards for focused editable inputs.
+
+### Goal
+
+Make undo / redo feel like a standard desktop editor.
+
+### Follow-Up Checks
+
+- Confirm the shortcuts work on Windows with Hebrew keyboard layouts.
+- Confirm they do not hijack typing inside text inputs / textareas.
+- Confirm toolbar button state matches actual history state.
+- Confirm redo works after undoing object edits.
+
+### Likely Touchpoints
+
+`src/App.tsx`, `src/hooks/useSceneUndoRedo.ts`, and any component with its own
+keyboard handlers.
+
+## 5. Undo Should Ignore Playback And Transient State
+
+### Goal
+
+Undo history should contain only meaningful editing operations: creating,
+deleting, moving, styling, recording/importing audio, changing timing, changing
+frames, and similar content changes.
+
+Playback should not be undoable. Scrubbing the playhead should not be undoable.
+Opening panels, selecting objects, and changing temporary UI state should also
+not pollute undo history.
+
+### Current Problem
+
+The scene store is wrapped by `zundo`, but history currently appears to include
+state such as `currentTime` and `isPlaying`. This causes a bad flow: after
+playback stops, pressing Undo may restore a playback state instead of undoing the
+last object edit.
+
+### MVP
+
+- Configure `zundo` with a `partialize` function that records only persistent
+  authoring state.
+- Include at least:
+  - `items`
+  - `frames`
+  - `startFrameId`
+  - `defaults`
+  - `audioItems`
+- Exclude at least:
+  - `currentTime`
+  - `isPlaying`
+  - `viewRange`
+  - `selectedIds`
+  - `inspectedId`
+  - panel open flags
+  - transient capture modes
+  - audio batch progress
+- Add a test or manual QA checklist around play / pause / scrub / undo.
+
+### Design Notes
+
+- Selection may or may not deserve history later, but it should not block the
+  main fix.
+- Import/load paths that intentionally clear history should keep doing so.
+- Async audio operations need care: the final content update should be undoable,
+  while progress state should not be.
+
+### Likely Touchpoints
+
+`src/store/useSceneStore.ts`, `src/hooks/useSceneUndoRedo.ts`, and tests around
+store history.
+
+## 6. Guided Transcription With Script Alignment
+
+### Goal
+
+Improve transcription and bookmark quality when the user already knows what they
+intended to read. Whisper gives useful timing, but the final words / punctuation
+/ segmentation can be better if aligned against the original script.
+
+### MVP
+
+- Add an optional `script` field when recording or uploading audio.
+- Send the audio and script to a new guided transcription endpoint.
+- Use Whisper for approximate word timings.
+- Align the Whisper output to the provided script.
+- Return cleaner `WordBoundary[]` based on the script text, not only the raw
+  ASR text.
+
+### Later
+
+- Optional provider API key for a smarter cleanup step.
+- Use an LLM to add punctuation, paragraph breaks, and bookmark candidates.
+- Let the user review and approve corrected transcript / bookmarks before
+  committing them to the timeline.
+
+### Design Notes
+
+- The robust approach is not "LLM instead of Whisper"; it is Whisper timings plus
+  script alignment.
+- The script should be treated as the source of truth when the recording mostly
+  matches it.
+- If the speaker deviates substantially from the script, the UI should show a
+  confidence warning and allow fallback to raw Whisper output.
+
+### Likely Touchpoints
+
+`measure_server.py`, `src/services/measureClient.ts`,
+`src/panels/AudioPanel.tsx`, `src/store/useSceneStore.ts`, and
+`src/types/scene.ts`.
+
+## Archived / Previous Plan: Frame-Aware Agent
+
+The previous content of this file was a focused implementation plan for making
+the agent aware of the frame grid. The core idea remains valid and should be
+kept as a future agent task:
+
+- Add frame catalog data to the agent context.
+- Preserve and validate `frameId` in agent-created items.
+- Add dedicated frame actions such as `CREATE_FRAME` and `UPDATE_FRAME`.
+- Reject unknown frame IDs instead of silently falling back to the active frame.
+- Later, allow camera panning actions between frames.
+
+If this work resumes, split it into a separate implementation plan before
+editing agent validators / schema / prompt together.

@@ -17,6 +17,8 @@ import type {
   TransformMapping,
   AudioTrackItem,
   AudioCleanupMeta,
+  AudioBed,
+  AudioBedKind,
   GraphFunctionSeriesItem,
   GraphPointSequenceItem,
 } from '@/types/scene';
@@ -29,6 +31,7 @@ import {
   normalizeAudio,
   processAudio,
   uploadRecordedAudio,
+  generateBedNoise,
 } from '@/services/measureClient';
 import {
   isTopLevelItem,
@@ -115,6 +118,8 @@ import {
   normalizeItemFrameIdsInPlace,
 } from '@/lib/frameGrid';
 import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
+import { migrateSceneDefaultsToV39 } from '@/lib/migrateProjectToV39';
+import { normalizeTransformMapping } from '@/lib/transformMapping';
 import {
   applyTimeShiftToFragment,
   collectReservedIdsFromMap,
@@ -186,6 +191,53 @@ function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
   }
 }
 
+function cloneAudioBed(bed: AudioBed | null): AudioBed | undefined {
+  if (!bed) return undefined;
+  return {
+    audioUrl: bed.audioUrl,
+    assetRelPath: bed.assetRelPath,
+    gainDb: bed.gainDb,
+    kind: bed.kind,
+  };
+}
+
+function revokeAudioBedBlobUrl(bed: AudioBed | null | undefined) {
+  if (!bed) return;
+  const u = bed.audioUrl;
+  if (typeof u === 'string' && u.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function applyServerBedAsset(
+  s: WritableDraft<SceneStore>,
+  baseUrl: string,
+  file_path: string,
+  kind: AudioBedKind,
+  gainDb: number,
+): void {
+  const root = baseUrl.replace(/\/$/, '');
+  const audioUrl =
+    file_path.startsWith('http://') || file_path.startsWith('https://')
+      ? file_path
+      : `${root}${file_path.startsWith('/') ? '' : '/'}${file_path}`;
+  const isServerAsset =
+    !file_path.startsWith('http://') &&
+    !file_path.startsWith('https://') &&
+    file_path.replace(/\\/g, '/').startsWith('assets/audio/');
+  revokeAudioBedBlobUrl(s.audioBed);
+  s.audioBed = {
+    audioUrl,
+    assetRelPath: isServerAsset ? file_path : undefined,
+    gainDb,
+    kind,
+  };
+}
+
 /** Serializable scene slice loaded into the editor from disk or sibling scene tabs. */
 export interface SceneDiskPayload {
   defaults: SceneDefaults;
@@ -193,6 +245,7 @@ export interface SceneDiskPayload {
   startFrameId: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
+  audioBed?: AudioBed;
 }
 
 function runLoadSceneDraft(
@@ -201,6 +254,7 @@ function runLoadSceneDraft(
   fileVersion: number,
 ): void {
   revokeAudioBlobUrls(s.audioItems);
+  revokeAudioBedBlobUrl(s.audioBed);
   s.items = new Map();
   const migrated = migrateItemsToCurrentVersion(
     payload.items as SceneItem[],
@@ -222,13 +276,17 @@ function runLoadSceneDraft(
       syncPointSequenceDerived(it as GraphPointSequenceItem, s.items);
     }
   }
-  s.defaults = { ...s.defaults, ...payload.defaults };
+  s.defaults = migrateSceneDefaultsToV39({
+    ...s.defaults,
+    ...payload.defaults,
+  });
   if (!s.defaults.sceneName?.trim()) {
     s.defaults.sceneName = 'Scene1';
   }
   s.audioItems = payload.audioItems?.length
     ? payload.audioItems.map((a) => ({ ...a }))
     : [];
+  s.audioBed = payload.audioBed ? { ...payload.audioBed } : null;
   s.currentTime = 0;
   s.isPlaying = false;
   s.selectedIds = new Set();
@@ -300,6 +358,8 @@ interface SceneDataSlice {
   defaults: SceneDefaults;
   measureConfig: MeasureConfig;
   audioItems: AudioTrackItem[];
+  /** Optional background bed (music or room tone) mixed at export. */
+  audioBed: AudioBed | null;
   /** Progress of an in-flight batch audio op (null when idle). Drives the timeline batch toolbar. */
   audioBatch: AudioBatchProgress | null;
 }
@@ -486,6 +546,30 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
    * Requires at least two movable (unlinked) selected audio tracks.
    */
   spaceSelectedAudioItems: (gapSec: number) => void;
+
+  /** Upload and set the scene background bed (music or recorded room tone). */
+  uploadAudioBed: (
+    blob: Blob,
+    options: { kind: AudioBedKind; filename?: string; gainDb?: number },
+  ) => Promise<void>;
+
+  generateAudioBedNoise: (options: {
+    color?: 'pink' | 'brown' | 'white';
+    durationSec?: number;
+    levelDb?: number;
+    gainDb?: number;
+  }) => Promise<void>;
+
+  removeAudioBed: () => void;
+
+  setAudioBedGain: (gainDb: number) => void;
+
+  setAudioClipFades: (
+    id: string,
+    fades: { fadeInMs?: number; fadeOutMs?: number },
+  ) => void;
+
+  setCutFadeDefault: (ms: number) => void;
 }
 
 export const useSceneStore = create<SceneStore>()(
@@ -502,6 +586,7 @@ export const useSceneStore = create<SceneStore>()(
         includePreview: true,
       },
       audioItems: [],
+      audioBed: null,
       audioBatch: null,
       currentTime: 0,
       isPlaying: false,
@@ -1073,7 +1158,11 @@ export const useSceneStore = create<SceneStore>()(
       setLineTransformConfig: (id, transformConfig) => set((s) => {
         const item = s.items.get(id);
         if (item?.kind !== 'textLine') return;
-        item.transformConfig = transformConfig;
+        if (transformConfig) {
+          item.transformConfig = normalizeTransformMapping(transformConfig);
+        } else {
+          item.transformConfig = transformConfig;
+        }
       }),
 
       // ── Defaults ──
@@ -1131,6 +1220,7 @@ export const useSceneStore = create<SceneStore>()(
           get().audioItems.length > 0
             ? get().audioItems.map((a) => ({ ...a }))
             : undefined,
+        audioBed: cloneAudioBed(get().audioBed),
       }),
 
       toSceneDiskPayload: () => ({
@@ -1142,6 +1232,7 @@ export const useSceneStore = create<SceneStore>()(
           get().audioItems.length > 0
             ? get().audioItems.map((a) => ({ ...a }))
             : undefined,
+        audioBed: cloneAudioBed(get().audioBed),
       }),
 
       loadProjectFile: (file) => {
@@ -1156,6 +1247,7 @@ export const useSceneStore = create<SceneStore>()(
                 startFrameId: file.startFrameId,
                 items: file.items as SceneItem[],
                 audioItems: file.audioItems,
+                audioBed: file.audioBed,
               },
               file.version ?? 0,
             );
@@ -1672,6 +1764,75 @@ export const useSceneStore = create<SceneStore>()(
           });
         }
       },
+
+      uploadAudioBed: async (blob, options) => {
+        const baseUrl = get().measureConfig.url;
+        const uploadName = options.filename?.trim() || 'bed.webm';
+        const { file_path } = await uploadRecordedAudio(
+          baseUrl,
+          blob,
+          uploadName,
+          { transcribe: false },
+        );
+        set((s) => {
+          applyServerBedAsset(
+            s,
+            baseUrl,
+            file_path,
+            options.kind,
+            options.gainDb ?? s.audioBed?.gainDb ?? -24,
+          );
+        });
+      },
+
+      generateAudioBedNoise: async (options) => {
+        const baseUrl = get().measureConfig.url;
+        const { file_path } = await generateBedNoise(baseUrl, {
+          color: options.color,
+          durationSec: options.durationSec,
+          levelDb: options.levelDb,
+        });
+        set((s) => {
+          applyServerBedAsset(
+            s,
+            baseUrl,
+            file_path,
+            'noise',
+            options.gainDb ?? s.audioBed?.gainDb ?? -24,
+          );
+        });
+      },
+
+      removeAudioBed: () =>
+        set((s) => {
+          revokeAudioBedBlobUrl(s.audioBed);
+          s.audioBed = null;
+        }),
+
+      setAudioBedGain: (gainDb) =>
+        set((s) => {
+          if (!s.audioBed) return;
+          s.audioBed.gainDb = gainDb;
+        }),
+
+      setAudioClipFades: (id, fades) =>
+        set((s) => {
+          const track = s.audioItems.find((a) => a.id === id);
+          if (!track) return;
+          if ('fadeInMs' in fades) {
+            if (fades.fadeInMs === undefined) delete track.fadeInMs;
+            else track.fadeInMs = fades.fadeInMs;
+          }
+          if ('fadeOutMs' in fades) {
+            if (fades.fadeOutMs === undefined) delete track.fadeOutMs;
+            else track.fadeOutMs = fades.fadeOutMs;
+          }
+        }),
+
+      setCutFadeDefault: (ms) =>
+        set((s) => {
+          s.defaults.audioCutFadeMs = Math.max(0, Math.min(500, ms));
+        }),
 
       placeAudioAfterPrevious: (id, gapSec) =>
         set((s) => {

@@ -113,6 +113,8 @@ export type TextTransformMode = 'segments' | 'whole';
  */
 export interface TransformMapping {
   sourceLineId: string;
+  /** Full ordered source list for whole-line morph (includes sourceLineId as [0]). Falls back to [sourceLineId] when absent. */
+  sourceLineIds?: string[];
   /** `segments` preserves legacy segment mapping; `whole` morphs the full source line into this line. */
   mode?: TextTransformMode;
   segmentPairs: Record<number, number>;
@@ -188,6 +190,21 @@ export interface AudioTrackItem {
   word_boundaries?: WordBoundary[];
   startTime: number;
   duration: number;
+  /** Per-clip fade-in at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
+  fadeInMs?: number;
+  /** Per-clip fade-out at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
+  fadeOutMs?: number;
+}
+
+export type AudioBedKind = 'music' | 'roomtone' | 'noise';
+
+/** Scene-level background bed (music or looped room tone) mixed under narration at export. */
+export interface AudioBed {
+  audioUrl: string;
+  assetRelPath?: string;
+  /** Mix gain in dB (typically negative, e.g. -24). */
+  gainDb: number;
+  kind: AudioBedKind;
 }
 
 /** Convert boundary timestamps to seconds when the server sent milliseconds. */
@@ -1017,6 +1034,8 @@ export interface SceneDefaults {
   exportNamePrefix: string;
   /** Shown in UI; full-file export uses a sanitized Python class name (see pythonIdent.safeSceneClassName). */
   sceneName: string;
+  /** Default fade-in/out (ms) applied at narration cut boundaries when exporting with mixdown. */
+  audioCutFadeMs?: number;
 }
 
 export interface MeasureConfig {
@@ -1042,6 +1061,7 @@ export interface ProjectFile {
   items: SceneItem[];
   measureConfig: MeasureConfig;
   audioItems?: AudioTrackItem[];
+  audioBed?: AudioBed;
 }
 
 /** One editable scene inside a multi-scene project (.mtproj state.json kind manim-timeline-project). */
@@ -1054,6 +1074,7 @@ export interface ProjectSceneFile {
   startFrameId: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
+  audioBed?: AudioBed;
 }
 
 export const MULTISCENE_PROJECT_KIND = 'manim-timeline-project' as const;
@@ -1105,6 +1126,7 @@ export interface ProjectFragmentFile {
   startFrameId?: ItemId;
   items: SceneItem[];
   audioItems?: AudioTrackItem[];
+  audioBed?: AudioBed;
 }
 
 export function isProjectFragmentFile(v: unknown): v is ProjectFragmentFile {

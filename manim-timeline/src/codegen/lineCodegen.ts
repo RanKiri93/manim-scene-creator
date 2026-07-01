@@ -23,6 +23,7 @@ import {
   segmentWaitTotal,
   textLineAnimOnlyDuration,
 } from '@/lib/time';
+import { transformSourceIds } from '@/lib/transformMapping';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { getSegmentAnimSec } from '@/lib/segmentAnimDurations';
 import type { ExportLeaf } from './flattenExport';
@@ -422,14 +423,17 @@ export function generateLinePos(
 export function collectTransformPlayAnims(
   item: TextLineItem,
   targetVar: string,
-  sourceVar: string,
+  sourceVars: string[],
   tc: TransformMapping,
   sourceSegCount: number,
 ): string[] {
   if ((tc.mode ?? 'segments') === 'whole') {
-    return [`ReplacementTransform(${sourceVar}, ${targetVar})`];
+    const srcExpr =
+      sourceVars.length > 1 ? `VGroup(${sourceVars.join(', ')})` : sourceVars[0]!;
+    return [`ReplacementTransform(${srcExpr}, ${targetVar})`];
   }
 
+  const sourceVar = sourceVars[0]!;
   const anims: string[] = [];
   const pairs = tc.segmentPairs;
   const mappedSources = new Set(
@@ -597,13 +601,14 @@ export function generateLinePlay(
 
   const tc = item.transformConfig;
   const runDur = item.duration;
-  const sourceVar =
-    item.animStyle === 'transform' && tc
-      ? idToVarName.get(tc.sourceLineId)
-      : undefined;
+  const sourceIds =
+    item.animStyle === 'transform' && tc ? transformSourceIds(tc) : [];
+  const sourceVars = sourceIds
+    .map((id) => idToVarName.get(id))
+    .filter((v): v is string => !!v);
   const sourceItem =
-    tc && itemsMap
-      ? (itemsMap.get(tc.sourceLineId) as TextLineItem | undefined)
+    tc && itemsMap && sourceIds[0]
+      ? (itemsMap.get(sourceIds[0]) as TextLineItem | undefined)
       : undefined;
   const sourceSegCount =
     sourceItem?.kind === 'textLine' ? sourceItem.segments.length : 0;
@@ -611,11 +616,11 @@ export function generateLinePlay(
   const useTransform =
     item.animStyle === 'transform' &&
     tc &&
-    sourceVar &&
+    sourceVars.length > 0 &&
     sourceItem?.kind === 'textLine';
 
   const transformPlayInner = useTransform
-    ? `self.play(${collectTransformPlayAnims(item, varName, sourceVar, tc, sourceSegCount).join(', ')}, run_time=__RUN__)\n`
+    ? `self.play(${collectTransformPlayAnims(item, varName, sourceVars, tc, sourceSegCount).join(', ')}, run_time=__RUN__)\n`
     : null;
 
   const recorded =

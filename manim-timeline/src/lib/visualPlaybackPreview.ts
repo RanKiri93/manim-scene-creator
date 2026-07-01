@@ -12,6 +12,7 @@ import type {
   TargetAnimationTargetSpec,
 } from '@/types/scene';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
+import { transformSourceIds } from '@/lib/transformMapping';
 import {
   effectiveStart,
   segmentWaitTotal,
@@ -208,8 +209,9 @@ export function activeTextTransformForLine(
   for (const it of items.values()) {
     if (it.kind !== 'textLine') continue;
     if (it.animStyle !== 'transform') continue;
-    const sourceId = it.transformConfig?.sourceLineId;
-    if (sourceId !== line.id && it.id !== line.id) continue;
+    const sourceIds = it.transformConfig ? transformSourceIds(it.transformConfig) : [];
+    if (!sourceIds.includes(line.id) && it.id !== line.id) continue;
+    const sourceId = sourceIds[0];
     const source = sourceId ? items.get(sourceId) : null;
     if (!source || source.kind !== 'textLine') continue;
     const start = effectiveStart(it, items);

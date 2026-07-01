@@ -11,14 +11,7 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Manim Timeline",
-        "width": 1280,
-        "height": 800
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

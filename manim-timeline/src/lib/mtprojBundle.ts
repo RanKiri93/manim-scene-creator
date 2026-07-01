@@ -4,12 +4,13 @@ import {
   isMultiSceneProjectFile,
   isProjectFragmentFile,
   type AnyDiskProjectFile,
+  type AudioBed,
   type AudioTrackItem,
   type MultiSceneProjectFile,
   type ProjectFile,
   type ProjectFragmentFile,
 } from '@/types/scene';
-import { deriveAudioAssetRelPath, isBundledVirtualAudioUrl } from '@/lib/audioAssetPath';
+import { deriveAudioAssetRelPath, deriveAudioBedAssetRelPath, isBundledVirtualAudioUrl } from '@/lib/audioAssetPath';
 import {
   MtprojPackError,
   MtprojUnpackError,
@@ -81,6 +82,55 @@ function allocateBundleAudioPath(track: AudioTrackItem, used: Set<string>): stri
   return rel;
 }
 
+function allocateBundleBedPath(bed: AudioBed, used: Set<string>): string {
+  let rel = deriveAudioBedAssetRelPath(bed);
+  if (!used.has(rel)) {
+    used.add(rel);
+    return rel;
+  }
+  const slash = rel.lastIndexOf('/');
+  const dir = slash >= 0 ? rel.slice(0, slash + 1) : '';
+  const file = slash >= 0 ? rel.slice(slash + 1) : rel;
+  const dot = file.lastIndexOf('.');
+  const stem = dot > 0 ? file.slice(0, dot) : file;
+  const ext = dot > 0 ? file.slice(dot) : '';
+  rel = `${dir}${stem}_bed${ext}`;
+  used.add(rel);
+  return rel;
+}
+
+async function embedAudioAssetFromUrl(
+  sourceUrl: string,
+  rel: string,
+  zipMap: Record<string, Uint8Array>,
+  manifest: MtprojManifest,
+  failed: { trackId: string; text: string; reason: string }[],
+  failId: string,
+  failLabel: string,
+): Promise<boolean> {
+  if (isBundledVirtualAudioUrl(sourceUrl)) {
+    failed.push({
+      trackId: failId,
+      text: failLabel,
+      reason: 'audio is already a bundle path (missing live blob or HTTP URL)',
+    });
+    return false;
+  }
+  try {
+    const bytes = await fetchUrlBytes(sourceUrl);
+    zipMap[rel] = bytes;
+    manifest.assets[rel] = md5Hex(bytes);
+    return true;
+  } catch (e) {
+    failed.push({
+      trackId: failId,
+      text: failLabel,
+      reason: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
+}
+
 async function fetchUrlBytes(url: string): Promise<Uint8Array> {
   const resp = await fetch(url);
   if (!resp.ok) {
@@ -100,16 +150,23 @@ function deepCloneDiskProject(project: AnyDiskProjectFile): AnyDiskProjectFile {
 export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blob> {
   const state = deepCloneDiskProject(project);
   const tracks: AudioTrackItem[] = [];
+  const beds: { bed: AudioBed; sceneLabel: string }[] = [];
 
   if (isMultiSceneProjectFile(state)) {
     for (const sc of state.scenes) {
       for (const t of sc.audioItems ?? []) {
         tracks.push(t);
       }
+      if (sc.audioBed) {
+        beds.push({ bed: sc.audioBed, sceneLabel: sc.name });
+      }
     }
   } else {
     for (const t of state.audioItems ?? []) {
       tracks.push(t);
+    }
+    if (state.audioBed) {
+      beds.push({ bed: state.audioBed, sceneLabel: state.defaults.sceneName ?? 'Scene' });
     }
   }
 
@@ -122,28 +179,36 @@ export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blo
   const failed: { trackId: string; text: string; reason: string }[] = [];
 
   for (const track of tracks) {
-    const sourceUrl = track.audioUrl;
-    if (isBundledVirtualAudioUrl(sourceUrl)) {
-      failed.push({
-        trackId: track.id,
-        text: track.text,
-        reason: 'audio is already a bundle path (missing live blob or HTTP URL)',
-      });
-      continue;
-    }
     const rel = allocateBundleAudioPath(track, usedPaths);
-    try {
-      const bytes = await fetchUrlBytes(sourceUrl);
-      zipMap[rel] = bytes;
-      manifest.assets[rel] = md5Hex(bytes);
+    const ok = await embedAudioAssetFromUrl(
+      track.audioUrl,
+      rel,
+      zipMap,
+      manifest,
+      failed,
+      track.id,
+      track.text,
+    );
+    if (ok) {
       track.audioUrl = rel;
       track.assetRelPath = rel;
-    } catch (e) {
-      failed.push({
-        trackId: track.id,
-        text: track.text,
-        reason: e instanceof Error ? e.message : String(e),
-      });
+    }
+  }
+
+  for (const { bed, sceneLabel } of beds) {
+    const rel = allocateBundleBedPath(bed, usedPaths);
+    const ok = await embedAudioAssetFromUrl(
+      bed.audioUrl,
+      rel,
+      zipMap,
+      manifest,
+      failed,
+      `bed-${sceneLabel}`,
+      `Background bed (${sceneLabel})`,
+    );
+    if (ok) {
+      bed.audioUrl = rel;
+      bed.assetRelPath = rel;
     }
   }
 
@@ -188,6 +253,29 @@ function parseManifest(raw: string): MtprojManifest {
     assets[k] = v.toLowerCase();
   }
   return { bundleFormatVersion: MTPROJ_BUNDLE_FORMAT_VERSION, assets };
+}
+
+function rehydrateAudioBedFromZip(
+  bed: AudioBed | undefined,
+  files: Record<string, Uint8Array>,
+  manifest: MtprojManifest,
+): void {
+  if (!bed) return;
+  const url = bed.audioUrl.split('?')[0];
+  if (!isBundledVirtualAudioUrl(url)) return;
+  if (!(url in manifest.assets)) {
+    throw new MtprojUnpackError(
+      `state.json references bed "${url}" but it is not listed in manifest.json`,
+    );
+  }
+  const bytes = files[url];
+  if (!bytes) {
+    throw new MtprojUnpackError(`Missing bed asset in archive: ${url}`);
+  }
+  const mime = guessAudioMime(url);
+  const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+  bed.assetRelPath = url;
+  bed.audioUrl = URL.createObjectURL(blob);
 }
 
 function rehydrateAudioFromZip(
@@ -266,18 +354,21 @@ export function parseMtprojFromUint8Array(
 
   if (isProjectFragmentFile(state)) {
     rehydrateAudioFromZip(state, files, manifest);
+    rehydrateAudioBedFromZip(state.audioBed, files, manifest);
     return state;
   }
 
   if (isMultiSceneProjectFile(state)) {
     for (const sc of state.scenes) {
       rehydrateAudioFromZip({ audioItems: sc.audioItems ?? [] }, files, manifest);
+      rehydrateAudioBedFromZip(sc.audioBed, files, manifest);
     }
     return state;
   }
 
   const project = state as ProjectFile;
   rehydrateAudioFromZip(project, files, manifest);
+  rehydrateAudioBedFromZip(project.audioBed, files, manifest);
   return project;
 }
 

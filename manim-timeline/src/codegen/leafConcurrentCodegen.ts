@@ -21,6 +21,7 @@ import {
   resolveRecordedPlayback,
   textLineConcurrentWriteFadeExpr,
 } from './lineCodegen';
+import { transformSourceIds } from '@/lib/transformMapping';
 import { segmentWaitTotal } from '@/lib/time';
 import {
   exitAnimationExpr,
@@ -292,29 +293,30 @@ function concurrentBranchForLeaf(
     const varName = idToVarName.get(item.id)!;
     const runDur = item.duration;
     const tc = item.transformConfig;
-    const sourceVar =
-      item.animStyle === 'transform' && tc
-        ? idToVarName.get(tc.sourceLineId)
-        : undefined;
+    const sourceIds =
+      item.animStyle === 'transform' && tc ? transformSourceIds(tc) : [];
+    const sourceVars = sourceIds
+      .map((id) => idToVarName.get(id))
+      .filter((v): v is string => !!v);
     const sourceItem =
-      tc && itemsMap
-        ? (itemsMap.get(tc.sourceLineId) as TextLineItem | undefined)
+      tc && itemsMap && sourceIds[0]
+        ? (itemsMap.get(sourceIds[0]) as TextLineItem | undefined)
         : undefined;
     const sourceSegCount =
       sourceItem?.kind === 'textLine' ? sourceItem.segments.length : 0;
     const useTransform =
       item.animStyle === 'transform' &&
       tc &&
-      sourceVar &&
+      sourceVars.length > 0 &&
       sourceItem?.kind === 'textLine';
 
     const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
     const transformAnims =
-      useTransform && tc && sourceVar
+      useTransform && tc
         ? collectTransformPlayAnims(
             item,
             varName,
-            sourceVar,
+            sourceVars,
             tc,
             sourceSegCount,
           ).join(', ')

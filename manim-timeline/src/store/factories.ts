@@ -576,5 +576,6 @@ export function defaultSceneDefaults(): SceneDefaults {
     mathColor: DEFAULT_MATH_COLOR,
     exportNamePrefix: '',
     sceneName: 'Scene1',
+    audioCutFadeMs: 40,
   };
 }

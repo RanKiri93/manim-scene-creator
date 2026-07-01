@@ -1,4 +1,4 @@
-import { useRef, useCallback, useMemo, useState } from 'react';
+import { useRef, useCallback, useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { boundaryTimeToSeconds, type AudioTrackItem } from '@/types/scene';
@@ -6,10 +6,6 @@ import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
-import {
-  AUDIO_GAP_PRESETS,
-  findPreviousAudioEndingBefore,
-} from '@/lib/audioGapPresets';
 
 interface AudioClipProps {
   item: AudioTrackItem;
@@ -17,6 +13,7 @@ interface AudioClipProps {
   viewStart: number;
   stackIndex: number;
   isSelected: boolean;
+  onEditRequest: (id: string) => void;
 }
 
 export default function AudioClip({
@@ -25,20 +22,12 @@ export default function AudioClip({
   viewStart,
   stackIndex,
   isSelected,
+  onEditRequest,
 }: AudioClipProps) {
   const select = useSceneStore((s) => s.select);
   const moveAudioItem = useSceneStore((s) => s.moveAudioItem);
   const setAudioItemStartTimes = useSceneStore((s) => s.setAudioItemStartTimes);
   const removeAudioItem = useSceneStore((s) => s.removeAudioItem);
-  const normalizeAudioTrack = useSceneStore((s) => s.normalizeAudioTrack);
-  const processAudioTrack = useSceneStore((s) => s.processAudioTrack);
-  const matchAudioTrackEq = useSceneStore((s) => s.matchAudioTrackEq);
-  const setAudioReferenceId = useSceneStore((s) => s.setAudioReferenceId);
-  const audioReferenceId = useSceneStore((s) => s.audioReferenceId);
-  const placeAudioAfterPrevious = useSceneStore((s) => s.placeAudioAfterPrevious);
-  const spaceSelectedAudioItems = useSceneStore((s) => s.spaceSelectedAudioItems);
-  const measureEnabled = useSceneStore((s) => s.measureConfig.enabled);
-  const selectedIds = useSceneStore((s) => s.selectedIds);
   const audioItems = useSceneStore((s) => s.audioItems);
   const itemsMap = usePreviewMergedItems();
 
@@ -51,17 +40,17 @@ export default function AudioClip({
     const primary = item.text.trim()
       ? item.text
       : `Audio (${item.id.slice(0, 8)}...)`;
-    const parts = [primary];
+    const parts = [primary, 'Double-click to edit audio.'];
     if (owner) {
       parts.push(
         [
           `Linked to: ${itemClipDisplayName(owner)}`,
-          `This audio clip’s timeline start follows “${itemClipDisplayName(owner)}”. Move that clip or unbind to reposition audio.`,
+          `This audio clip's timeline start follows "${itemClipDisplayName(owner)}". Move that clip or unbind to reposition audio.`,
         ].join('\n'),
       );
     }
     return parts.join('\n');
-  }, [item.text, item.id, owner, item.audioProcessing?.normalized]);
+  }, [item.text, item.id, owner]);
 
   const dragRef = useRef<{
     startX: number;
@@ -69,138 +58,6 @@ export default function AudioClip({
     baselines: Record<string, number>;
   } | null>(null);
   const lastSnappedStartRef = useRef<number | null>(null);
-
-  const [normBusy, setNormBusy] = useState(false);
-  const [normErr, setNormErr] = useState<string | null>(null);
-  const [cleanBusy, setCleanBusy] = useState(false);
-
-  const onNormalizeClick = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setNormErr(null);
-      setNormBusy(true);
-      try {
-        await normalizeAudioTrack(item.id);
-      } catch (err) {
-        setNormErr(err instanceof Error ? err.message : String(err));
-      } finally {
-        setNormBusy(false);
-      }
-    },
-    [normalizeAudioTrack, item.id],
-  );
-
-  const onCleanClick = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setNormErr(null);
-      setCleanBusy(true);
-      try {
-        await processAudioTrack(item.id);
-      } catch (err) {
-        setNormErr(err instanceof Error ? err.message : String(err));
-      } finally {
-        setCleanBusy(false);
-      }
-    },
-    [processAudioTrack, item.id],
-  );
-
-  const [matchBusy, setMatchBusy] = useState(false);
-  const isReference = audioReferenceId === item.id;
-  const hasReference = audioReferenceId != null;
-
-  const onToggleReference = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setAudioReferenceId(isReference ? null : item.id);
-    },
-    [setAudioReferenceId, isReference, item.id],
-  );
-
-  const onMatchEqClick = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setNormErr(null);
-      setMatchBusy(true);
-      try {
-        await matchAudioTrackEq(item.id);
-      } catch (err) {
-        setNormErr(err instanceof Error ? err.message : String(err));
-      } finally {
-        setMatchBusy(false);
-      }
-    },
-    [matchAudioTrackEq, item.id],
-  );
-
-  const selectedAudioCount = useMemo(() => {
-    let n = 0;
-    for (const id of selectedIds) {
-      if (audioItems.some((a) => a.id === id)) n += 1;
-    }
-    return n;
-  }, [selectedIds, audioItems]);
-
-  const unlinkedSelectedAudioCount = useMemo(() => {
-    let n = 0;
-    for (const id of selectedIds) {
-      const a = audioItems.find((x) => x.id === id);
-      if (!a) continue;
-      if (!explicitVisualOwnerForAudioTrack(itemsMap, a.id)) n += 1;
-    }
-    return n;
-  }, [selectedIds, audioItems, itemsMap]);
-
-  const hasPreviousAudio = useMemo(
-    () => findPreviousAudioEndingBefore(audioItems, item.id) != null,
-    [audioItems, item.id],
-  );
-
-  const gapPresetsDisabled =
-    Boolean(owner) ||
-    (selectedAudioCount >= 2 && unlinkedSelectedAudioCount < 2) ||
-    (selectedAudioCount === 1 && !hasPreviousAudio);
-
-  const gapPresetTitle = (p: (typeof AUDIO_GAP_PRESETS)[number]) => {
-    if (owner) {
-      return 'Linked audio follows its visual clip — unbind to set gaps manually.';
-    }
-    if (selectedAudioCount >= 2 && unlinkedSelectedAudioCount < 2) {
-      return 'Need at least two selected clips that are not linked to visuals.';
-    }
-    if (selectedAudioCount >= 2) {
-      return `Space ${unlinkedSelectedAudioCount} narration clip(s): ${p.label} (${p.seconds}s between clips)`;
-    }
-    if (!hasPreviousAudio) {
-      return 'No earlier audio on the timeline to place after.';
-    }
-    return `After previous clip + ${p.seconds}s gap (${p.label})`;
-  };
-
-  const onGapPresetClick = useCallback(
-    (gapSec: number) => (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (owner) return;
-      if (selectedAudioCount >= 2) {
-        spaceSelectedAudioItems(gapSec);
-      } else {
-        placeAudioAfterPrevious(item.id, gapSec);
-      }
-    },
-    [
-      owner,
-      selectedAudioCount,
-      spaceSelectedAudioItems,
-      placeAudioAfterPrevious,
-      item.id,
-    ],
-  );
 
   const left = (item.startTime - viewStart) * pxPerSecond;
   const width = Math.max(item.duration * pxPerSecond, 4);
@@ -308,6 +165,11 @@ export default function AudioClip({
       style={{ left: `${left}px`, width: `${width}px`, zIndex }}
       title={clipTitle}
       onMouseDown={onMouseDownMove}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onEditRequest(item.id);
+      }}
     >
       <button
         type="button"
@@ -328,6 +190,24 @@ export default function AudioClip({
           ×
         </span>
       </button>
+      {isSelected ? (
+        <button
+          type="button"
+          className="absolute right-5 top-0.5 z-40 flex h-4 items-center justify-center rounded bg-slate-900/90 px-1 text-[8px] text-slate-300 hover:bg-indigo-900/90 hover:text-indigo-100 border border-slate-600/80"
+          title="Edit audio (processing, timing, fades)"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onEditRequest(item.id);
+          }}
+        >
+          Edit
+        </button>
+      ) : null}
       <span className="pointer-events-none absolute left-0.5 top-0 z-30 flex max-w-[min(200px,calc(100%-20px))] min-w-0 items-center gap-0.5">
         <span className="min-w-0 truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
           {item.text.trim() ? item.text : '·'}
@@ -340,179 +220,7 @@ export default function AudioClip({
             Linked
           </span>
         ) : null}
-        {item.audioProcessing?.cleaned ? (
-          <span
-            title={(() => {
-              const c = item.audioProcessing.cleaned;
-              const chain = [
-                c.highpassHz ? 'high-pass' : null,
-                c.denoise ? 'denoise' : null,
-                c.compress ? 'compress' : null,
-                `${c.targetLufs} LUFS`,
-              ].filter(Boolean);
-              const lines = [`Cleaned: ${chain.join(' + ')}`];
-              if (c.measuredInputLufs != null)
-                lines.push(`Input loudness: ${c.measuredInputLufs.toFixed(1)} LUFS`);
-              if (c.measuredOutputLufs != null)
-                lines.push(`Output loudness: ${c.measuredOutputLufs.toFixed(1)} LUFS`);
-              if (c.measuredInputNoiseFloorDb != null)
-                lines.push(`Input noise floor: ${c.measuredInputNoiseFloorDb.toFixed(1)} dB`);
-              return lines.join('\n');
-            })()}
-            className="shrink-0 rounded border border-sky-500/55 bg-sky-600/20 px-1 text-[9px] font-medium leading-none text-sky-100"
-          >
-            {`Cleaned ${item.audioProcessing.cleaned.targetLufs} LUFS`}
-          </span>
-        ) : item.audioProcessing?.normalized ? (
-          <span
-            title={`Normalized to ${item.audioProcessing.normalized.targetLufs} LUFS (integrated)`}
-            className="shrink-0 rounded border border-emerald-500/55 bg-emerald-600/20 px-1 text-[9px] font-medium leading-none text-emerald-100"
-          >
-            {`${item.audioProcessing.normalized.targetLufs} LUFS`}
-          </span>
-        ) : null}
-        {isReference ? (
-          <span
-            title="This clip is the tonal reference for Match EQ. Other clips can be matched to it."
-            className="shrink-0 rounded border border-amber-400/60 bg-amber-500/25 px-1 text-[9px] font-medium leading-none text-amber-50"
-          >
-            Ref
-          </span>
-        ) : null}
-        {item.audioProcessing?.matchedEq ? (
-          <span
-            title={(() => {
-              const m = item.audioProcessing.matchedEq;
-              const lines = ['Tonally matched to a reference take (EQ + loudness)'];
-              const top = [...(m.bands ?? [])]
-                .sort((a, b) => Math.abs(b.gainDb) - Math.abs(a.gainDb))
-                .slice(0, 3)
-                .map((b) => `${b.freq < 1000 ? `${Math.round(b.freq)}Hz` : `${(b.freq / 1000).toFixed(1)}kHz`}: ${b.gainDb > 0 ? '+' : ''}${b.gainDb.toFixed(1)}dB`);
-              if (top.length) lines.push(`Biggest moves — ${top.join(', ')}`);
-              return lines.join('\n');
-            })()}
-            className="shrink-0 rounded border border-violet-500/55 bg-violet-600/25 px-1 text-[9px] font-medium leading-none text-violet-100"
-          >
-            EQ✓
-          </span>
-        ) : null}
       </span>
-      {isSelected ? (
-        <div className="pointer-events-auto absolute bottom-0.5 left-0.5 right-6 z-40 flex max-w-[calc(100%-8px)] flex-col items-start gap-1">
-          {!owner ? (
-            <div className="flex flex-wrap gap-0.5" aria-label="Gap presets">
-              {AUDIO_GAP_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={gapPresetsDisabled}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onClick={onGapPresetClick(p.seconds)}
-                  className="min-w-[1.25rem] rounded border border-slate-500/70 bg-slate-900/95 px-1 py-0.5 text-[8px] font-semibold leading-none text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-                  title={gapPresetTitle(p)}
-                >
-                  {p.shortLabel}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {normErr ? (
-            <span
-              className="max-w-full truncate rounded bg-red-950/70 px-1 text-[8px] text-red-200"
-              title={normErr}
-            >
-              {normErr}
-            </span>
-          ) : null}
-          <div className="flex flex-wrap gap-0.5">
-            <button
-              type="button"
-              disabled={cleanBusy || normBusy || matchBusy || !measureEnabled}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => void onCleanClick(e)}
-              className="rounded border border-sky-500/80 bg-sky-950/80 px-1.5 py-0.5 text-[8px] font-medium text-sky-100 hover:bg-sky-900 disabled:cursor-not-allowed disabled:opacity-50"
-              title={
-                measureEnabled
-                  ? 'Clean: high-pass + compression + loudness normalize (EBU R128). Denoise is off by default (it can sound metallic on clean takes).'
-                  : 'Turn on the measure server in settings'
-              }
-            >
-              {cleanBusy ? 'Cleaning…' : 'Clean'}
-            </button>
-            <button
-              type="button"
-              disabled={normBusy || cleanBusy || matchBusy || !measureEnabled}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => void onNormalizeClick(e)}
-              className="rounded border border-slate-500/80 bg-slate-900/95 px-1.5 py-0.5 text-[8px] font-medium text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              title={
-                measureEnabled
-                  ? 'Normalize loudness only (EBU R128) via measure server'
-                  : 'Turn on the measure server in settings'
-              }
-            >
-              {normBusy ? 'Normalizing…' : 'Normalize'}
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={onToggleReference}
-              className={`rounded border px-1.5 py-0.5 text-[8px] font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
-                isReference
-                  ? 'border-amber-400/80 bg-amber-500/30 text-amber-50 hover:bg-amber-500/40'
-                  : 'border-slate-500/80 bg-slate-900/95 text-slate-100 hover:bg-slate-800'
-              }`}
-              title={
-                isReference
-                  ? 'This is the tonal reference — click to unset.'
-                  : 'Use this clip as the tonal reference for matching other clips.'
-              }
-            >
-              {isReference ? 'Ref ✓' : 'Set as ref'}
-            </button>
-            <button
-              type="button"
-              disabled={
-                matchBusy ||
-                cleanBusy ||
-                normBusy ||
-                !measureEnabled ||
-                !hasReference ||
-                isReference
-              }
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => void onMatchEqClick(e)}
-              className="rounded border border-violet-500/80 bg-violet-950/80 px-1.5 py-0.5 text-[8px] font-medium text-violet-100 hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-50"
-              title={
-                !measureEnabled
-                  ? 'Turn on the measure server in settings'
-                  : isReference
-                    ? 'This clip is the reference.'
-                    : !hasReference
-                      ? 'Pick a reference clip first (Set as ref on the take you like).'
-                      : 'Match this clip’s tone to the reference take (EQ + loudness)'
-              }
-            >
-              {matchBusy ? 'Matching…' : 'Match EQ'}
-            </button>
-          </div>
-        </div>
-      ) : null}
       {boundaries.map((boundary, i) => {
         const raw = rawList[i];
         const startRaw = raw?.start ?? boundary.start;

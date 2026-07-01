@@ -13,8 +13,8 @@ import {
 import {
   concatMp4Files,
   renderSceneMp4,
-  syncRenderAudioAssets,
 } from '@/services/measureClient';
+import { prepareSceneMasterAudio } from '@/lib/audioRenderHelpers';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
 import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
@@ -73,6 +73,7 @@ export default function ExportPanel() {
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const audioBed = useSceneStore((s) => s.audioBed);
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
   const sceneOrderSig = useProjectScenesStore((s) => s.sceneIds.join('|'));
   const [fullFile, setFullFile] = useState(true);
@@ -139,13 +140,38 @@ export default function ExportPanel() {
         detail: 'Preparing any local audio files Manim needs for this scene.',
         percent: 8,
       });
-      await syncRenderAudioAssets(measureUrl, audioItems);
+      let masterPath: string | null = null;
+      try {
+        setRenderProgress({
+          label: 'Preparing audio for export',
+          detail: 'Syncing assets and building mixdown when bed or cut fades are enabled.',
+          percent: 10,
+        });
+        masterPath = await prepareSceneMasterAudio(measureUrl, {
+          items,
+          defaults,
+          frames,
+          startFrameId,
+          audioItems,
+          audioBed,
+        });
+      } catch (mixErr) {
+        throw mixErr;
+      }
       setRenderProgress({
         label: `Rendering ${scene}`,
-        detail: 'Manim is running on the measure server. Detailed frame progress is not available from this endpoint yet.',
+        detail: masterPath
+          ? 'Manim is rendering video; final audio will be replaced with the mixed master track.'
+          : 'Manim is running on the measure server. Detailed frame progress is not available from this endpoint yet.',
         percent: null,
       });
-      const blob = await renderSceneMp4(measureUrl, codeFullFile, renderQuality, scene);
+      const blob = await renderSceneMp4(
+        measureUrl,
+        codeFullFile,
+        renderQuality,
+        scene,
+        masterPath,
+      );
       setRenderProgress({
         label: 'Preparing MP4 download',
         percent: 95,
@@ -275,7 +301,19 @@ export default function ExportPanel() {
           detail: klass,
           percent: sceneBasePercent,
         });
-        await syncRenderAudioAssets(measureUrl, sc.audioItems ?? []);
+        let masterPath: string | null = null;
+        try {
+          masterPath = await prepareSceneMasterAudio(measureUrl, {
+            items: sc.items,
+            defaults: sc.defaults,
+            frames: sc.frames,
+            startFrameId: sc.startFrameId,
+            audioItems: sc.audioItems ?? [],
+            audioBed: sc.audioBed,
+          });
+        } catch (mixErr) {
+          throw mixErr;
+        }
         const py = exportManimCode(sc.items, {
           fullFile: true,
           defaults: sc.defaults,
@@ -288,7 +326,7 @@ export default function ExportPanel() {
           detail: `${klass} is running on the measure server.`,
           percent: sceneBasePercent + 4,
         });
-        blobs.push(await renderSceneMp4(measureUrl, py, renderQuality, klass));
+        blobs.push(await renderSceneMp4(measureUrl, py, renderQuality, klass, masterPath));
         setRenderAllProgress({
           label: `Finished scene ${sceneNo} of ${totalScenes}`,
           detail: klass,
