@@ -1,0 +1,28 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    ".cursor/rules/*.mdc",
+    "docs/handoffs/TEMPLATE.md"
+  ],
+  "permission": {
+    "read": {
+      "*": "allow",
+      "assets/audio/**": "deny",
+      "media/**": "deny",
+      "render_debug/**": "deny",
+      "manim-timeline/src-tauri/binaries/*.exe": "deny",
+      "manim-timeline/src-tauri/target/**": "deny",
+      "**/node_modules/**": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "git push*": "ask",
+      "git reset --hard*": "deny",
+      "git checkout -- *": "deny",
+      "git branch -D*": "deny",
+      "manim *": "ask",
+      "python -m manim*": "ask",
+      "npm run tauri*": "ask"
+    }
+  }
+}

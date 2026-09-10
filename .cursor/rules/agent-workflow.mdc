@@ -1,0 +1,46 @@
+---
+description: Role-based workflow for Manim Timeline — when to delegate to which subagent, and the handoff-file contract
+alwaysApply: true
+---
+
+# Agent workflow (Cursor)
+
+The main Agent is the orchestrator. Specialist roles live in `.cursor/agents/` and are invoked
+as subagents. Shared project knowledge is in `AGENTS.md` and `.agents/skills/`.
+
+## Flow
+
+`architect` → `<owner_role>` (editor-dev | codegen-dev | server-dev | copilot-dev) → `verifier`
+→ optional `manim-reviewer` / `ui-reviewer` → `docs-keeper`.
+
+The contract between roles is `docs/handoffs/<yyyy-mm-dd>-<slug>.md`, created from
+`docs/handoffs/TEMPLATE.md`. Each role appends only its own section. Frontmatter `status`,
+`owner_role`, `next_tool` is the only place task status lives. Handoff files are committed.
+
+## When to delegate
+
+- Non-trivial request (touches more than one layer, changes persisted schema, changes emitted
+  Python, adds an endpoint, or is an `idea.md` item): start with `architect`, then follow the
+  handoff. Do not implement before a plan exists.
+- Small fix inside one file with an obvious test: do it directly, then still run `verifier`.
+- Any change under `manim-timeline/src/codegen` or `src/lib/time.ts`: `codegen-dev` only.
+- Any change to `measure_server.py` / `hebrew_*.py`: `server-dev` only.
+- Any change under `manim-timeline/src/agent`: `copilot-dev` only.
+- After an implementer reports done: always `verifier` before telling the user it is done.
+- Generated Python changed shape, or a visual defect is reported: `manim-reviewer` in the
+  background while other work continues.
+- New or changed panel/timeline UI: `ui-reviewer` in parallel with `verifier`.
+- `status: docs`: `docs-keeper`.
+
+## Handoff from / to OpenCode
+
+If a handoff's `next_tool` is `opencode`, do not pick it up unless the user says so. When passing
+work to OpenCode use `/handoff-opencode`, which records a dated note, sets `next_tool: opencode`,
+runs the quick gates, and commits `Checkpoint: <slug> — <status> (→ opencode)`.
+
+## Guard rails (also in AGENTS.md)
+
+Run `git status` first; uncommitted files you did not create are WIP — leave them. `npm` only
+from `manim-timeline/`; `pytest`/`uvicorn` only from the repo root. Never read `assets/audio/`,
+`media/`, `render_debug/`, or the sidecar `.exe`. No `git push`, hard resets, or branch deletes
+without explicit instruction.
