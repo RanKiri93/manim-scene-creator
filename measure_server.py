@@ -78,6 +78,7 @@ os.makedirs(_DATA_ROOT, exist_ok=True)
 _RENDER_DEBUG_DIR = os.path.join(_DATA_ROOT, "render_debug")
 
 import base64
+import difflib
 import re
 import shutil
 import subprocess
@@ -689,6 +690,340 @@ def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
         )
 
 
+_NIQQUD_RE = re.compile(r"[\u0591-\u05C7]")
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _normalize_hebrew(s: str) -> str:
+    """Normalize text for alignment matching (not for display)."""
+    cleaned = s.strip().lower()
+    cleaned = _NIQQUD_RE.sub("", cleaned)
+    cleaned = _PUNCT_RE.sub("", cleaned)
+    return " ".join(cleaned.split())
+
+
+def _tokenize_script(script: str | None) -> list[dict[str, str | None]]:
+    """Split script into text words and opaque $...$ math spans."""
+    if not script or not script.strip():
+        return []
+    tokens: list[dict[str, str | None]] = []
+    for part in re.split(r"(\$[^$]*\$)", script):
+        if not part.strip():
+            continue
+        if part.startswith("$") and part.endswith("$") and len(part) >= 2:
+            tokens.append({"kind": "math", "display": part, "norm": None})
+            continue
+        for word in re.findall(r"\S+", part):
+            word = word.strip()
+            if word:
+                tokens.append(
+                    {
+                        "kind": "text",
+                        "display": word,
+                        "norm": _normalize_hebrew(word),
+                    }
+                )
+    return tokens
+
+
+def _script_words(script: str | None) -> list[str]:
+    """Display tokens from script (text words + math spans)."""
+    return [str(t["display"]) for t in _tokenize_script(script)]
+
+
+def _token_similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _fuzzy_anchor_pairs(
+    script_norms: list[str],
+    whisper_norms: list[str],
+    sim_floor: float = 0.45,
+    ins_cost: float = 0.4,
+    del_cost: float = 0.6,
+) -> list[tuple[int, int]]:
+    """Monotonically align script text tokens to Whisper words by fuzzy similarity.
+
+    Uses Needleman-Wunsch so ASR misspellings still anchor (e.g. "פונקציית" ~ "פונקציה"), while
+    merged/extra Whisper words (like a spoken formula split into many tokens) are treated as
+    insertions/deletions rather than forcing a bad 1:1 mapping. Returns (script_index, whisper_index)
+    pairs whose similarity clears ``sim_floor``.
+    """
+    k = len(script_norms)
+    n = len(whisper_norms)
+    if k == 0 or n == 0:
+        return []
+
+    dp = [[0.0] * (n + 1) for _ in range(k + 1)]
+    back = [[0] * (n + 1) for _ in range(k + 1)]
+    for i in range(1, k + 1):
+        dp[i][0] = i * del_cost
+        back[i][0] = 1
+    for j in range(1, n + 1):
+        dp[0][j] = j * ins_cost
+        back[0][j] = 2
+
+    for i in range(1, k + 1):
+        for j in range(1, n + 1):
+            sim = _token_similarity(script_norms[i - 1], whisper_norms[j - 1])
+            diag = dp[i - 1][j - 1] + (1.0 - sim)
+            up = dp[i - 1][j] + del_cost  # skip a script token
+            left = dp[i][j - 1] + ins_cost  # skip a Whisper word
+            best, choice = diag, 0
+            if up < best:
+                best, choice = up, 1
+            if left < best:
+                best, choice = left, 2
+            dp[i][j] = best
+            back[i][j] = choice
+
+    pairs: list[tuple[int, int]] = []
+    i, j = k, n
+    while i > 0 and j > 0:
+        choice = back[i][j]
+        if choice == 0:
+            if _token_similarity(script_norms[i - 1], whisper_norms[j - 1]) >= sim_floor:
+                pairs.append((i - 1, j - 1))
+            i -= 1
+            j -= 1
+        elif choice == 1:
+            i -= 1
+        else:
+            j -= 1
+    pairs.reverse()
+    return pairs
+
+
+def _fill_gap_by_whisper_index(
+    gap_tokens: list[int],
+    w_lo: int,
+    w_hi: int,
+    word_boundaries: list[dict[str, float | str]],
+    timings: list[tuple[float, float] | None],
+) -> None:
+    """Map gap tokens onto Whisper words [w_lo, w_hi] by proportional index.
+
+    This preserves the actual speech rhythm (from Whisper's word times) even when the script text
+    does not string-match the ASR output, so bookmarks are never spread evenly across the clip.
+    """
+    m = len(gap_tokens)
+    available = w_hi - w_lo + 1
+    for j, tok_i in enumerate(gap_tokens):
+        a = min(w_lo + (j * available) // m, w_hi)
+        b = min(max(w_lo + ((j + 1) * available) // m - 1, a), w_hi)
+        timings[tok_i] = (
+            float(word_boundaries[a]["start"]),
+            float(word_boundaries[b]["end"]),
+        )
+
+
+def _align_script_to_word_timings(
+    script: str | None,
+    word_boundaries: list[dict[str, float | str]],
+    duration: float,
+) -> list[dict[str, float | str]]:
+    """Align script tokens to Whisper word timings using text anchors and index interpolation."""
+    tokens = _tokenize_script(script)
+    if not tokens:
+        return word_boundaries
+
+    n_whisper = len(word_boundaries)
+    if n_whisper == 0:
+        if duration <= 0.0:
+            return [{"word": str(t["display"]), "start": 0.0, "end": 0.0} for t in tokens]
+        step = duration / max(len(tokens), 1)
+        return [
+            {
+                "word": str(t["display"]),
+                "start": i * step,
+                "end": (i + 1) * step,
+            }
+            for i, t in enumerate(tokens)
+        ]
+
+    whisper_norms = [_normalize_hebrew(str(wb["word"])) for wb in word_boundaries]
+
+    text_indices = [i for i, t in enumerate(tokens) if t["kind"] == "text"]
+    script_text_norms = [str(tokens[i]["norm"]) for i in text_indices]
+
+    # Fuzzy-align script text tokens to Whisper words (tolerates ASR errors and merged/split words),
+    # then treat matches as timing anchors. Unmatched runs (incl. math) are filled from the gap.
+    anchors = sorted(
+        (text_indices[ti], wj)
+        for ti, wj in _fuzzy_anchor_pairs(script_text_norms, whisper_norms)
+    )
+
+    timings: list[tuple[float, float] | None] = [None] * len(tokens)
+    for tok_i, w_i in anchors:
+        wb = word_boundaries[w_i]
+        timings[tok_i] = (float(wb["start"]), float(wb["end"]))
+
+    # Fill the token spans between consecutive anchors (with virtual anchors at the ends) by
+    # mapping onto the Whisper words that fall between the same anchors, proportionally by index.
+    sentinels = [(-1, -1)] + anchors + [(len(tokens), n_whisper)]
+    for (s_left, w_left), (s_right, w_right) in zip(sentinels, sentinels[1:]):
+        gap_tokens = list(range(s_left + 1, s_right))
+        if not gap_tokens:
+            continue
+        w_lo = w_left + 1
+        w_hi = w_right - 1
+        if w_hi >= w_lo:
+            _fill_gap_by_whisper_index(gap_tokens, w_lo, w_hi, word_boundaries, timings)
+        else:
+            # No Whisper words between these anchors: interpolate across the empty time span.
+            left_t = float(word_boundaries[w_left]["end"]) if w_left >= 0 else 0.0
+            right_t = (
+                float(word_boundaries[w_right]["start"]) if w_right < n_whisper else duration
+            )
+            span = max(right_t - left_t, 0.01)
+            step = span / len(gap_tokens)
+            for j, tok_i in enumerate(gap_tokens):
+                start = left_t + j * step
+                timings[tok_i] = (start, max(start + 0.01, left_t + (j + 1) * step))
+
+    aligned: list[dict[str, float | str]] = []
+    prev_end = 0.0
+    for i, token in enumerate(tokens):
+        if timings[i] is None:
+            start = prev_end
+            end = min(duration, start + 0.01) if duration > 0 else start + 0.01
+        else:
+            start, end = timings[i]
+        if start < prev_end:
+            start = prev_end
+        if end <= start:
+            end = start + 0.01
+        aligned.append({"word": str(token["display"]), "start": start, "end": end})
+        prev_end = end
+
+    return aligned
+
+
+def _dump_transcribe_debug(payload: dict) -> None:
+    """Write the latest transcription/alignment details to a JSON file for diagnosis."""
+    try:
+        path = os.path.join(_DATA_ROOT, "transcribe_debug_latest.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _decode_audio_mono(abs_path: str, sr: int = 16000):
+    """Decode an audio file to a mono float32 numpy waveform via ffmpeg. Best-effort."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg or not abs_path or not os.path.isfile(abs_path):
+        return None, sr
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-i",
+                abs_path,
+                "-ac",
+                "1",
+                "-ar",
+                str(sr),
+                "-f",
+                "f32le",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+        )
+        samples = np.frombuffer(proc.stdout, dtype=np.float32)
+        return samples, sr
+    except Exception:
+        return None, sr
+
+
+def _snap_boundaries_to_onsets(
+    word_boundaries: list[dict[str, float | str]],
+    abs_path: str,
+) -> list[dict[str, float | str]]:
+    """Correct boundary starts that fall in silence to the following speech onset.
+
+    Whisper word starts can be early: a word may be timestamped inside a silent lead-in or pause.
+    Only when a word's start lands in silence do we move it forward to the next speech onset
+    (bounded by the next word). Words whose start is already inside speech (continuous talking)
+    keep Whisper's timing, since energy gives no reliable per-word onset there. Best-effort: any
+    failure returns the input unchanged.
+    """
+    if not word_boundaries:
+        return word_boundaries
+
+    samples, sr = _decode_audio_mono(abs_path)
+    if samples is None or samples.size == 0:
+        return word_boundaries
+
+    win = max(1, int(sr * 0.025))
+    hop = max(1, int(sr * 0.010))
+    n = samples.size
+    if n < win:
+        return word_boundaries
+
+    num_frames = 1 + (n - win) // hop
+    if num_frames <= 1:
+        return word_boundaries
+
+    sq = samples.astype(np.float64) ** 2
+    csum = np.concatenate([[0.0], np.cumsum(sq)])
+    starts = np.arange(num_frames) * hop
+    frame_energy = np.sqrt((csum[starts + win] - csum[starts]) / win)
+    frame_times = (starts + win / 2.0) / sr
+    clip_end = float(frame_times[-1])
+
+    noise = float(np.percentile(frame_energy, 20))
+    peak = float(np.percentile(frame_energy, 95))
+    if peak <= noise:
+        return word_boundaries
+    threshold = noise + 0.15 * (peak - noise)
+
+    count = len(word_boundaries)
+
+    def frame_index(t: float) -> int:
+        idx = int(np.searchsorted(frame_times, t))
+        return min(max(idx, 0), num_frames - 1)
+
+    result: list[dict[str, float | str]] = []
+    prev_start = 0.0
+    for i, wb in enumerate(word_boundaries):
+        start = float(wb["start"])
+        end = float(wb["end"])
+        next_start = (
+            float(word_boundaries[i + 1]["start"]) if i + 1 < count else clip_end
+        )
+
+        snapped = start
+        # Only correct the start if Whisper placed it inside silence; then advance to the first
+        # speech frame before the next word begins. Starts already inside speech are trusted.
+        if frame_energy[frame_index(start)] < threshold:
+            hi = max(start, min(next_start, clip_end))
+            mask = (frame_times >= start) & (frame_times <= hi)
+            if mask.any():
+                for k in np.where(mask)[0]:
+                    if frame_energy[k] >= threshold:
+                        snapped = float(frame_times[k])
+                        break
+
+        upper = max(prev_start, min(end - 0.01, next_start))
+        snapped = max(prev_start, min(snapped, upper))
+        new_wb = dict(wb)
+        new_wb["start"] = snapped
+        if float(new_wb["end"]) <= snapped:
+            new_wb["end"] = snapped + 0.01
+        result.append(new_wb)
+        prev_start = snapped
+
+    return result
+
+
 try:
     from fastapi import FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
@@ -787,58 +1122,6 @@ try:
                 duration = 0.0
         return duration
 
-    def _script_words(script: str | None) -> list[str]:
-        if not script:
-            return []
-        return [w.strip() for w in re.findall(r"\S+", script) if w.strip()]
-
-    def _align_script_to_word_timings(
-        script: str | None,
-        word_boundaries: list[dict[str, float | str]],
-        duration: float,
-    ) -> list[dict[str, float | str]]:
-        """Use the provided script as transcript text while preserving Whisper timing shape."""
-        words = _script_words(script)
-        if not words:
-            return word_boundaries
-
-        if not word_boundaries:
-            if duration <= 0.0:
-                return [{"word": word, "start": 0.0, "end": 0.0} for word in words]
-            step = duration / max(len(words), 1)
-            return [
-                {"word": word, "start": i * step, "end": (i + 1) * step}
-                for i, word in enumerate(words)
-            ]
-
-        if len(words) == len(word_boundaries):
-            return [
-                {
-                    "word": word,
-                    "start": float(src["start"]),
-                    "end": float(src["end"]),
-                }
-                for word, src in zip(words, word_boundaries)
-            ]
-
-        n = len(word_boundaries)
-        m = len(words)
-        aligned: list[dict[str, float | str]] = []
-        for i, word in enumerate(words):
-            start_idx = min(n - 1, int(i * n / m))
-            end_idx = min(n - 1, max(start_idx, int(((i + 1) * n + m - 1) / m) - 1))
-            start = float(word_boundaries[start_idx]["start"])
-            end = float(word_boundaries[end_idx]["end"])
-            if end <= start:
-                next_start = (
-                    float(word_boundaries[min(n - 1, end_idx + 1)]["start"])
-                    if end_idx + 1 < n
-                    else duration
-                )
-                end = max(start + 0.01, next_start)
-            aligned.append({"word": word, "start": start, "end": end})
-        return aligned
-
     @app.post("/measure", response_model=MeasureResponse)
     def measure(req: MeasureRequest) -> MeasureResponse:
         return measure_line(req)
@@ -888,6 +1171,7 @@ try:
 
             raw_boundaries = _word_boundaries_from_whisper_result(result)
             duration = _duration_from_boundaries_or_result(raw_boundaries, result, abs_saved)
+            raw_boundaries = _snap_boundaries_to_onsets(raw_boundaries, abs_saved)
             word_boundaries = [
                 WordBoundaryOut(
                     word=str(wb["word"]),
@@ -967,8 +1251,20 @@ try:
 
             raw_boundaries = _word_boundaries_from_whisper_result(result)
             duration = _duration_from_boundaries_or_result(raw_boundaries, result, abs_path)
-            word_boundaries = _align_script_to_word_timings(script, raw_boundaries, duration)
+            snapped_boundaries = _snap_boundaries_to_onsets(raw_boundaries, abs_path)
+            word_boundaries = _align_script_to_word_timings(script, snapped_boundaries, duration)
             print(f"DEBUG: Found {len(word_boundaries)} words")
+            _dump_transcribe_debug(
+                {
+                    "file_path": rel_path,
+                    "script": script,
+                    "lang": lang,
+                    "duration": duration,
+                    "whisper_raw": raw_boundaries,
+                    "whisper_snapped": snapped_boundaries,
+                    "aligned": word_boundaries,
+                }
+            )
             return {
                 "file_path": rel_path,
                 "duration": duration,

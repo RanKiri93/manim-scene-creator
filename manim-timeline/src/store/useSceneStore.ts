@@ -16,13 +16,18 @@ import type {
   ProjectFragmentFile,
   TransformMapping,
   AudioTrackItem,
+  WordBoundary,
   AudioCleanupMeta,
   AudioBed,
   AudioBedKind,
   GraphFunctionSeriesItem,
   GraphPointSequenceItem,
 } from '@/types/scene';
-import { functionSeriesTotalDuration, pointSequenceTotalDuration } from '@/types/scene';
+import {
+  boundaryTimeToSeconds,
+  functionSeriesTotalDuration,
+  pointSequenceTotalDuration,
+} from '@/types/scene';
 import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
 import { validatePointSequence } from '@/lib/pointSequenceValidation';
 import {
@@ -405,6 +410,11 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   setSceneItemStartTimes: (updates: { id: ItemId; startTime: number }[]) => void;
   /** Move many audio clips in one undo step. */
   setAudioItemStartTimes: (updates: { id: string; startTime: number }[]) => void;
+  updateAudioBoundary: (
+    id: string,
+    index: number,
+    patch: Partial<Pick<WordBoundary, 'word' | 'start' | 'end'>>,
+  ) => void;
   resizeItem: (id: ItemId, newDuration: number) => void;
   setItemLayer: (id: ItemId, layer: number) => void;
 
@@ -460,6 +470,8 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
       filename?: string;
       /** Used when displayText is empty after trim (e.g. "Uploaded audio"). */
       emptyLabel?: string;
+      /** When true, displayText is sent as the guided transcription script. */
+      useScriptForTranscription?: boolean;
       /** Whisper / ASR language hint for the measure server (`iw` | `en`). */
       transcriptionLang?: string;
       /** Run the full cleanup chain on import (defaults on for mic recordings). */
@@ -1058,6 +1070,44 @@ export const useSceneStore = create<SceneStore>()(
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
+      updateAudioBoundary: (id, index, patch) => set((s) => {
+        const track = s.audioItems.find((a) => a.id === id);
+        if (!track) return;
+        const raw = track.boundaries ?? track.word_boundaries ?? [];
+        if (index < 0 || index >= raw.length) return;
+
+        const duration = Math.max(0.01, track.duration);
+        const boundaries = raw.map((b) => ({
+          word: b.word,
+          start: boundaryTimeToSeconds(b.start, duration),
+          end: boundaryTimeToSeconds(b.end, duration),
+        }));
+        const boundary = boundaries[index]!;
+        const prevStart = index > 0 ? boundaries[index - 1]!.start : 0;
+        const nextStart =
+          index + 1 < boundaries.length ? boundaries[index + 1]!.start : duration;
+        const eps = 0.001;
+
+        if (patch.word != null) boundary.word = patch.word;
+        if (patch.start != null && Number.isFinite(patch.start)) {
+          boundary.start = Math.min(
+            Math.max(0, patch.start, index > 0 ? prevStart + eps : 0),
+            Math.max(0, nextStart - eps),
+          );
+        }
+        if (patch.end != null && Number.isFinite(patch.end)) {
+          boundary.end = patch.end;
+        }
+        boundary.end = Math.min(
+          Math.max(boundary.start + eps, boundary.end),
+          duration,
+          nextStart,
+        );
+
+        track.boundaries = boundaries;
+        track.word_boundaries = undefined;
+      }),
+
       resizeItem: (id, newDuration) => set((s) => {
         const item = s.items.get(id);
         if (!item) return;
@@ -1369,7 +1419,8 @@ export const useSceneStore = create<SceneStore>()(
 
       addRecordedAudioTrack: async (blob, options) => {
         const baseUrl = get().measureConfig.url;
-        const trimmed = options?.displayText?.trim();
+        const useScript = options?.useScriptForTranscription === true;
+        const trimmed = useScript ? options?.displayText?.trim() : undefined;
         const trackText =
           trimmed || options?.emptyLabel || 'Mic recording';
         const uploadName = options?.filename?.trim() || 'recording.webm';

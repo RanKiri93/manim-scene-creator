@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FloatingPanel from '@/components/FloatingPanel';
 import { useSceneStore } from '@/store/useSceneStore';
 import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { getAudioBoundaries } from '@/types/scene';
 import {
   AUDIO_GAP_PRESETS,
   findPreviousAudioEndingBefore,
@@ -14,14 +15,74 @@ type AudioClipEditPopupProps = {
   onClose: () => void;
 };
 
+function BoundaryTimeInput(props: {
+  value: number;
+  min?: number;
+  max?: number;
+  onCommit: (value: number) => void;
+  className?: string;
+}) {
+  const { value, min = 0, max, onCommit, className } = props;
+  const [draft, setDraft] = useState(() => value.toFixed(2));
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value.toFixed(2));
+  }, [value]);
+
+  const commit = useCallback(() => {
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed)) {
+      setDraft(value.toFixed(2));
+      return;
+    }
+    const clamped = Math.min(Math.max(parsed, min), max ?? parsed);
+    onCommit(clamped);
+    setDraft(clamped.toFixed(2));
+  }, [draft, max, min, onCommit, value]);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        focusedRef.current = false;
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setDraft(value.toFixed(2));
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+    />
+  );
+}
+
 export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPopupProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const previewStopAtRef = useRef<number | null>(null);
+  const previewStopTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const item = useSceneStore((s) => s.audioItems.find((a) => a.id === clipId));
+  const isTimelinePlaying = useSceneStore((s) => s.isPlaying);
   const sceneDefaults = useSceneStore((s) => s.defaults);
   const normalizeAudioTrack = useSceneStore((s) => s.normalizeAudioTrack);
   const processAudioTrack = useSceneStore((s) => s.processAudioTrack);
   const matchAudioTrackEq = useSceneStore((s) => s.matchAudioTrackEq);
   const setAudioReferenceId = useSceneStore((s) => s.setAudioReferenceId);
   const setAudioClipFades = useSceneStore((s) => s.setAudioClipFades);
+  const updateAudioBoundary = useSceneStore((s) => s.updateAudioBoundary);
   const audioReferenceId = useSceneStore((s) => s.audioReferenceId);
   const placeAudioAfterPrevious = useSceneStore((s) => s.placeAudioAfterPrevious);
   const spaceSelectedAudioItems = useSceneStore((s) => s.spaceSelectedAudioItems);
@@ -72,6 +133,7 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
     () => (item ? findPreviousAudioEndingBefore(audioItems, item.id) != null : false),
     [audioItems, item],
   );
+  const boundaries = useMemo(() => (item ? getAudioBoundaries(item) : []), [item]);
 
   const gapPresetsDisabled =
     !item ||
@@ -146,6 +208,51 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
     [item, owner, selectedAudioCount, spaceSelectedAudioItems, placeAudioAfterPrevious],
   );
 
+  const clearBoundaryPreview = useCallback(() => {
+    if (previewStopTimerRef.current != null) {
+      window.clearTimeout(previewStopTimerRef.current);
+      previewStopTimerRef.current = null;
+    }
+    previewStopAtRef.current = null;
+  }, []);
+
+  const stopBoundaryPreview = useCallback((audio: HTMLAudioElement, stopAt: number) => {
+    if (previewStopTimerRef.current != null) {
+      window.clearTimeout(previewStopTimerRef.current);
+      previewStopTimerRef.current = null;
+    }
+    previewStopAtRef.current = null;
+    audio.pause();
+    audio.currentTime = Math.min(Math.max(0, stopAt), Number.isFinite(audio.duration) ? audio.duration : stopAt);
+  }, []);
+
+  useEffect(() => {
+    if (isTimelinePlaying) {
+      clearBoundaryPreview();
+      audioRef.current?.pause();
+    }
+  }, [clearBoundaryPreview, isTimelinePlaying]);
+
+  useEffect(() => () => clearBoundaryPreview(), [clearBoundaryPreview]);
+
+  const playBoundaryRange = useCallback((start: number, end: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    clearBoundaryPreview();
+    const safeStart = Math.max(0, start);
+    const stopAt = Math.max(safeStart + 0.01, end);
+    previewStopAtRef.current = stopAt;
+    audio.currentTime = safeStart;
+    void audio.play();
+    previewStopTimerRef.current = window.setTimeout(
+      () => {
+        const currentAudio = audioRef.current;
+        if (currentAudio) stopBoundaryPreview(currentAudio, stopAt);
+      },
+      Math.max(20, (stopAt - safeStart) * 1000),
+    );
+  }, [clearBoundaryPreview, stopBoundaryPreview]);
+
   if (!item) {
     return null;
   }
@@ -161,7 +268,21 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
           </p>
         ) : null}
 
-        <audio controls src={item.audioUrl} className="w-full h-9" />
+        <audio
+          ref={audioRef}
+          controls
+          src={item.audioUrl}
+          className="w-full h-9"
+          onTimeUpdate={(e) => {
+            const stopAt = previewStopAtRef.current;
+            const audio = e.currentTarget;
+            if (stopAt != null && audio.currentTime >= stopAt) {
+              stopBoundaryPreview(audio, stopAt);
+            }
+          }}
+          onPause={clearBoundaryPreview}
+          onEnded={clearBoundaryPreview}
+        />
 
         <div className="flex flex-wrap gap-1">
           {item.audioProcessing?.cleaned ? (
@@ -250,6 +371,87 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
           </div>
           <p className="text-[10px] text-slate-500">
             T/N/I/R gap presets. With multiple unlinked clips selected, spaces all selected clips.
+          </p>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-slate-400 font-medium text-[11px] uppercase tracking-wide">
+              Bookmarks / transcript
+            </h3>
+            <span className="text-[10px] text-slate-500">{boundaries.length} marks</span>
+          </div>
+          {boundaries.length === 0 ? (
+            <p className="rounded border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-[10px] text-slate-500">
+              This clip has no word boundaries to edit.
+            </p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded border border-slate-700 bg-slate-950/60">
+              <div className="grid grid-cols-[minmax(7rem,1fr)_4.2rem_4.2rem_8.5rem] gap-1 border-b border-slate-800 px-2 py-1 text-[10px] uppercase tracking-wide text-slate-500">
+                <span>Label</span>
+                <span>Start</span>
+                <span>End</span>
+                <span>Nudge</span>
+              </div>
+              {boundaries.map((boundary, index) => (
+                <div
+                  key={`${boundary.word}-${index}`}
+                  className="grid grid-cols-[minmax(7rem,1fr)_4.2rem_4.2rem_8.5rem] items-center gap-1 border-b border-slate-800/70 px-2 py-1 last:border-b-0"
+                >
+                  <input
+                    value={boundary.word}
+                    onChange={(e) =>
+                      updateAudioBoundary(item.id, index, { word: e.target.value })
+                    }
+                    className="min-w-0 rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-[11px] text-slate-100"
+                    spellCheck={false}
+                    dir="auto"
+                  />
+                  <BoundaryTimeInput
+                    value={boundary.start}
+                    min={0}
+                    max={item.duration}
+                    onCommit={(value) => updateAudioBoundary(item.id, index, { start: value })}
+                    className="rounded border border-slate-700 bg-slate-900 px-1 py-1 text-[11px] text-slate-100"
+                  />
+                  <BoundaryTimeInput
+                    value={boundary.end}
+                    min={0}
+                    max={item.duration}
+                    onCommit={(value) => updateAudioBoundary(item.id, index, { end: value })}
+                    className="rounded border border-slate-700 bg-slate-900 px-1 py-1 text-[11px] text-slate-100"
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {[-0.1, -0.05, 0.05, 0.1].map((delta) => (
+                      <button
+                        key={delta}
+                        type="button"
+                        onClick={() =>
+                          updateAudioBoundary(item.id, index, {
+                            start: boundary.start + delta,
+                          })
+                        }
+                        className="rounded border border-slate-600 bg-slate-900 px-1 py-0.5 text-[10px] text-slate-200 hover:bg-slate-800"
+                      >
+                        {delta > 0 ? '+' : ''}
+                        {Math.round(delta * 1000)}ms
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => playBoundaryRange(boundary.start, boundary.end)}
+                      className="rounded border border-cyan-600/70 bg-cyan-950/70 px-1 py-0.5 text-[10px] text-cyan-100 hover:bg-cyan-900"
+                    >
+                      Play
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-slate-500">
+            Start times are clamped between neighboring bookmarks. Use nudges for small Whisper
+            timing fixes.
           </p>
         </section>
 

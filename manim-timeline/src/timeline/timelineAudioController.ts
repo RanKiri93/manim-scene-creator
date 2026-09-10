@@ -77,8 +77,8 @@ function applySyncFrame() {
     }
   }
   if (el.paused) {
-    void el.play().catch(() => {
-      /* autoplay policy / decode */
+    void el.play().catch((err) => {
+      console.warn('Timeline audio play failed:', err);
     });
   }
 }
@@ -99,6 +99,12 @@ function kickRafIfPlaying() {
   if (playing && rafId == null) {
     rafId = requestAnimationFrame(rafLoop);
   }
+}
+
+/** Trigger one immediate sync pass, intended to be called from the user's Play click handler. */
+export function kickTimelineAudioSyncNow() {
+  applySyncFrame();
+  kickRafIfPlaying();
 }
 
 /**

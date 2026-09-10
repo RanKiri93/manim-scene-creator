@@ -259,6 +259,10 @@ intended to read. Whisper gives useful timing, but the final words / punctuation
 - Use an LLM to add punctuation, paragraph breaks, and bookmark candidates.
 - Let the user review and approve corrected transcript / bookmarks before
   committing them to the timeline.
+- **Manual bookmark editing.** Even with energy-onset snapping, word/bookmark
+  starts can be slightly off. The user should be able to nudge/drag a bookmark
+  on the timeline (and edit its text) to fix small timing accidents by hand,
+  without re-running transcription.
 
 ### Design Notes
 

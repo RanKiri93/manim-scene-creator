@@ -3,6 +3,7 @@ import { useSceneStore } from '@/store/useSceneStore';
 import NumberInput from '@/components/NumberInput';
 import { isTopLevelItem } from '@/lib/time';
 import { functionSeriesHasErrors, pointSequenceHasErrors } from '@/types/scene';
+import { kickTimelineAudioSyncNow } from './timelineAudioController';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -100,11 +101,18 @@ export default function PlaybackControls() {
     }
   }, [closeGap, gapStart, gapEnd]);
 
+  const onTogglePlayback = useCallback(() => {
+    togglePlayback();
+    // Run the audio sync while still inside the click event so desktop/web autoplay policy treats
+    // the shared timeline audio element as user-initiated.
+    if (!isPlaying) kickTimelineAudioSyncNow();
+  }, [isPlaying, togglePlayback]);
+
   return (
     <div className="relative z-30 flex flex-wrap items-center gap-3 px-3 py-2 bg-slate-800 border-t border-slate-700">
       {/* Play/Pause */}
       <button
-        onClick={togglePlayback}
+        onClick={onTogglePlayback}
         disabled={playbackLocked && !isPlaying}
         className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-600 disabled:hover:bg-slate-600 disabled:opacity-60"
         aria-label={isPlaying ? 'Pause' : 'Play'}

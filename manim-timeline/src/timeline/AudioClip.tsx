@@ -6,6 +6,7 @@ import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import BoundaryLabel, { isMathBoundaryWord } from './BoundaryLabel';
 
 interface AudioClipProps {
   item: AudioTrackItem;
@@ -208,43 +209,77 @@ export default function AudioClip({
           Edit
         </button>
       ) : null}
-      <span className="pointer-events-none absolute left-0.5 top-0 z-30 flex max-w-[min(200px,calc(100%-20px))] min-w-0 items-center gap-0.5">
-        <span className="min-w-0 truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
-          {item.text.trim() ? item.text : '·'}
-        </span>
-        {owner ? (
-          <span
-            title={clipTitle}
-            className="shrink-0 rounded border border-amber-400/55 bg-amber-500/20 px-1 text-[9px] font-medium leading-none text-amber-100"
-          >
-            Linked
-          </span>
-        ) : null}
-      </span>
-      {boundaries.map((boundary, i) => {
-        const raw = rawList[i];
-        const startRaw = raw?.start ?? boundary.start;
-        let tickLeft = startRaw * pxPerSecond;
-        if (tickLeft > width + 2) {
-          tickLeft = (startRaw / 1000) * pxPerSecond;
-        }
-        return (
-          <div
-            key={`${boundary.start}-${i}`}
-            className="pointer-events-none absolute top-0 bottom-0 z-20 flex h-full flex-row items-stretch"
-            style={{ left: `${tickLeft}px` }}
-          >
-            <div
-              className="shrink-0 bg-cyan-400"
-              style={{ width: '2px', height: '100%', zIndex: 20 }}
-              aria-hidden
-            />
-            <span className="pointer-events-none max-w-[96px] truncate pl-1 pt-0.5 text-[8px] font-bold leading-tight text-white drop-shadow-sm">
-              {boundary.word}
+      {boundaries.length === 0 || owner ? (
+        <span className="pointer-events-none absolute left-0.5 top-0 z-30 flex max-w-[min(200px,calc(100%-20px))] min-w-0 items-center gap-0.5">
+          {boundaries.length === 0 ? (
+            <span className="min-w-0 truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
+              {item.text.trim() ? item.text : '·'}
             </span>
-          </div>
-        );
-      })}
+          ) : null}
+          {owner ? (
+            <span
+              title={clipTitle}
+              className="shrink-0 rounded border border-amber-400/55 bg-amber-500/20 px-1 text-[9px] font-medium leading-none text-amber-100"
+            >
+              Linked
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      {(() => {
+        const tickLefts = boundaries.map((boundary, i) => {
+          const raw = rawList[i];
+          const startRaw = raw?.start ?? boundary.start;
+          let tickLeft = startRaw * pxPerSecond;
+          if (tickLeft > width + 2) {
+            tickLeft = (startRaw / 1000) * pxPerSecond;
+          }
+          return Math.max(0, Math.min(tickLeft, width - 2));
+        });
+        return boundaries.map((boundary, i) => {
+          const tickLeft = tickLefts[i];
+          const prevLeft = i > 0 ? tickLefts[i - 1] : 0;
+          const nextLeft = i + 1 < tickLefts.length ? tickLefts[i + 1] : width;
+          const nearRight = tickLeft > width - 100;
+          const segmentEnd = nearRight ? tickLeft : nextLeft;
+          const segmentStart = nearRight ? prevLeft : tickLeft;
+          const segmentWidth = Math.max(12, segmentEnd - segmentStart - 4);
+          const isMath = isMathBoundaryWord(boundary.word);
+          const labelMax = isMath
+            ? segmentWidth
+            : Math.max(12, Math.min(segmentEnd - tickLeft - 4, 200));
+          return (
+            <div
+              key={`${boundary.start}-${i}`}
+              className="pointer-events-none absolute top-0 bottom-0 z-20"
+              style={{ left: `${tickLeft}px`, width: 0 }}
+            >
+              <div
+                className="absolute top-0 bg-cyan-400"
+                style={{ left: 0, width: '2px', height: '100%', zIndex: 20 }}
+                aria-hidden
+              />
+              <div
+                className="absolute top-0.5"
+                style={
+                  isMath
+                    ? { left: '4px', width: `${labelMax}px` }
+                    : nearRight
+                      ? { right: 0 }
+                      : { left: '4px' }
+                }
+              >
+                <BoundaryLabel
+                  word={boundary.word}
+                  align={nearRight ? 'right' : 'left'}
+                  maxWidthPx={labelMax}
+                  fillSegment={isMath}
+                />
+              </div>
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }

@@ -84,6 +84,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const [script, setScript] = useState('');
+  const [useScript, setUseScript] = useState(false);
   const [lang, setLang] = useState<'iw' | 'en'>('iw');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +168,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
       const blob = file ?? rec!.blob;
       const filename = file?.name ?? rec!.filename;
       await addRecordedAudioTrack(blob, {
-        displayText: script,
+        displayText: useScript ? script : undefined,
+        useScriptForTranscription: useScript,
         filename,
         emptyLabel: file ? 'Uploaded audio' : 'Mic recording',
         transcriptionLang: lang,
@@ -258,28 +260,52 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   if (mode === 'upload') {
     return (
       <div className="flex flex-col gap-3 text-xs text-slate-300">
-        <label className="flex flex-col gap-1">
-          <span className="text-slate-400">Script for guided transcription / label</span>
-          <textarea
-            value={script}
-            onChange={(e) => setScript(e.target.value)}
-            rows={6}
-            spellCheck={false}
+        <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+          <input
+            type="checkbox"
+            checked={useScript}
             disabled={loading}
-            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-            placeholder="Narration for this recording…"
+            onChange={(e) => setUseScript(e.target.checked)}
+            className="mt-0.5"
           />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-slate-300">Use script for transcription</span>
+            <span className="text-[10px] leading-snug text-slate-500">
+              When enabled, the script below is aligned to Whisper word timings. When off, raw
+              Whisper transcription is used and the clip keeps a generic label.
+            </span>
+          </span>
         </label>
+        {useScript && (
+          <label className="flex flex-col gap-1">
+            <span className="text-slate-400">Script for guided transcription</span>
+            <textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              rows={6}
+              spellCheck={false}
+              disabled={loading}
+              className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+              placeholder="Narration for this recording…"
+            />
+          </label>
+        )}
+        {useScript && (
+          <p className="text-[10px] text-slate-500 leading-snug">
+            Wrap math in <code className="text-slate-400">$...$</code> for one bookmark per
+            formula, e.g.{' '}
+            <span dir="rtl" className="text-slate-400">
+              נגדיר את הפונקציה $f(x)=x^2$ ואז נגזור
+            </span>
+            .
+          </p>
+        )}
         <LangToggle
           lang={lang}
           setLang={setLang}
           disabled={loading}
           label="Transcription"
         />
-        <p className="text-[10px] text-slate-500 leading-snug">
-          If you provide the exact script, the timeline uses it as the transcript and aligns it to
-          Whisper word timings.
-        </p>
         <input
           ref={fileInputRef}
           type="file"
@@ -336,28 +362,52 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
 
   return (
     <div className="flex flex-col gap-3 text-xs text-slate-300">
-      <label className="flex flex-col gap-1">
-        <span className="text-slate-400">Script to read while recording</span>
-        <textarea
-          value={script}
-          onChange={(e) => setScript(e.target.value)}
-          rows={6}
-          spellCheck={false}
-          disabled={loading && !isRecording}
-          className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-          placeholder="Script to read while recording…"
+      <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+        <input
+          type="checkbox"
+          checked={useScript}
+          disabled={(loading && !isRecording) || isRecording}
+          onChange={(e) => setUseScript(e.target.checked)}
+          className="mt-0.5"
         />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-slate-300">Use script for transcription</span>
+          <span className="text-[10px] leading-snug text-slate-500">
+            When enabled, the script below is aligned to Whisper word timings after recording.
+            When off, raw Whisper transcription is used and the clip keeps a generic label.
+          </span>
+        </span>
       </label>
+      {useScript && (
+        <label className="flex flex-col gap-1">
+          <span className="text-slate-400">Script to read while recording</span>
+          <textarea
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            rows={6}
+            spellCheck={false}
+            disabled={loading && !isRecording}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+            placeholder="Script to read while recording…"
+          />
+        </label>
+      )}
+      {useScript && (
+        <p className="text-[10px] text-slate-500 leading-snug">
+          Wrap math in <code className="text-slate-400">$...$</code> for one bookmark per formula,
+          e.g.{' '}
+          <span dir="rtl" className="text-slate-400">
+            נגדיר את הפונקציה $f(x)=x^2$ ואז נגזור
+          </span>
+          .
+        </p>
+      )}
       <LangToggle
         lang={lang}
         setLang={setLang}
         disabled={loading && !isRecording}
         label="Transcription"
       />
-      <p className="text-[10px] text-slate-500 leading-snug">
-        Paste the exact script above to use it as the transcript and align it to Whisper word
-        timings after recording.
-      </p>
       <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
         <input
           type="checkbox"
