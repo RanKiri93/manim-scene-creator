@@ -1,34 +1,130 @@
 import type { ReactNode } from 'react';
 import { useAddSceneItems } from '@/hooks/useAddSceneItems';
+import { useSceneStore } from '@/store/useSceneStore';
+import {
+  canBeBlinkTarget,
+  canBeExitTarget,
+  canBeTargetAnimationTarget,
+} from '@/lib/time';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import type { SceneItem, TargetAnimationMode } from '@/types/scene';
+
+function truncLabel(s: string, max: number): string {
+  const t = s.trim();
+  if (!t) return '';
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+const TARGET_ANIMATION_MODES: readonly TargetAnimationMode[] = [
+  'scale',
+  'color',
+  'move',
+  'path',
+  'rotate',
+];
 
 function ToolButton({
   title,
   onClick,
   children,
+  label,
+  collapsed,
+  active,
+  dimmed,
   'aria-label': ariaLabel,
 }: {
   title: string;
   onClick: () => void;
   children: ReactNode;
+  label?: string;
+  collapsed: boolean;
+  active?: boolean;
+  dimmed?: boolean;
   'aria-label'?: string;
 }) {
+  const emphasize = active
+    ? 'border-blue-400/80 bg-blue-500/15 text-blue-100'
+    : 'bg-slate-800/80 border-slate-600/80 text-slate-200';
+  const fade = dimmed && !active ? 'opacity-50' : '';
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        title={title}
+        aria-label={ariaLabel ?? title}
+        onClick={onClick}
+        className={`flex items-center justify-center w-9 h-9 rounded-md border hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0 ${emphasize} ${fade}`}
+      >
+        {children}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
       title={title}
       aria-label={ariaLabel ?? title}
       onClick={onClick}
-      className="flex items-center justify-center w-9 h-9 rounded-md bg-slate-800/80 border border-slate-600/80 text-slate-200 hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0"
+      className={`flex items-center gap-2 w-full px-2 h-9 rounded-md border text-xs hover:bg-slate-700 hover:border-slate-500 transition-colors ${emphasize} ${fade}`}
     >
-      {children}
+      <span className="shrink-0 flex items-center justify-center">{children}</span>
+      {label != null && (
+        <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+      )}
     </button>
   );
 }
 
-function CategoryLabel({ children }: { children: string }) {
+function CategoryLabel({
+  children,
+  collapsed,
+}: {
+  children: ReactNode;
+  collapsed: boolean;
+}) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 px-0.5 mt-2 first:mt-0 mb-1 text-center w-full">
+    <div
+      className={`text-[10px] font-semibold uppercase tracking-wide text-slate-500 px-1 mt-3 first:mt-0 mb-1 w-full ${
+        collapsed ? 'text-center px-0.5' : 'text-left'
+      }`}
+    >
       {children}
+    </div>
+  );
+}
+
+function InsertSidebarHeader({
+  collapsed,
+  onToggleCollapsed,
+}: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center shrink-0 pt-1 pb-1 ${
+        collapsed ? 'justify-center px-0' : 'justify-between px-2'
+      }`}
+    >
+      {!collapsed && (
+        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+          Insert
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        title={
+          collapsed
+            ? 'Expand insert sidebar (show labels)'
+            : 'Collapse insert sidebar (icons only)'
+        }
+        aria-label={collapsed ? 'Expand insert sidebar' : 'Collapse insert sidebar'}
+        aria-expanded={!collapsed}
+        className="flex items-center justify-center w-7 h-7 rounded-md bg-slate-800/80 border border-slate-600/80 text-slate-300 hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0 text-xs"
+      >
+        <span aria-hidden>{collapsed ? '»' : '«'}</span>
+      </button>
     </div>
   );
 }
@@ -292,65 +388,99 @@ function IconTts() {
   );
 }
 
-export default function AddObjectToolbar() {
+export default function AddObjectToolbar({
+  collapsed,
+  onToggleCollapsed,
+}: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
   const actions = useAddSceneItems();
+  const itemsMap = useSceneStore((s) => s.items);
+  const selectedIds = useSceneStore((s) => s.selectedIds);
+
+  const selectedItems: SceneItem[] = [];
+  for (const id of selectedIds) {
+    const it = itemsMap.get(id);
+    if (it) selectedItems.push(it);
+  }
+  const hasSelection = selectedItems.length > 0;
+  const hasExitTarget = selectedItems.some((it) => canBeExitTarget(it));
+  const hasBlinkTarget = selectedItems.some((it) => canBeBlinkTarget(it));
+  const compatibleModes = new Set<TargetAnimationMode>();
+  for (const mode of TARGET_ANIMATION_MODES) {
+    if (selectedItems.some((it) => canBeTargetAnimationTarget(it, mode))) {
+      compatibleModes.add(mode);
+    }
+  }
+  const hasAnyAnimationTarget =
+    hasExitTarget || hasBlinkTarget || compatibleModes.size > 0;
+  const animationTitle = !hasAnyAnimationTarget
+    ? 'Animations'
+    : selectedItems.length === 1
+      ? `Animations · ${truncLabel(itemClipDisplayName(selectedItems[0]!), 20)}`
+      : 'Animations · for selection';
+  const animationHint = !hasSelection
+    ? 'No selection — uses first eligible.'
+    : hasAnyAnimationTarget
+      ? 'Uses your selection.'
+      : 'Selection is not animatable — uses first eligible.';
+
+  const axesItems = [...itemsMap.values()].filter((i) => i.kind === 'axes');
+  const selectedAxes = selectedItems.find((i) => i.kind === 'axes');
+  const graphHelper =
+    selectedAxes != null
+      ? `Uses selected axes (${truncLabel(itemClipDisplayName(selectedAxes), 22)}).`
+      : axesItems.length === 1
+        ? 'Uses existing axes.'
+        : axesItems.length > 1
+          ? 'Uses earliest axes — select axes to choose.'
+          : 'Will create axes automatically.';
+
+  const groupClass = collapsed
+    ? 'flex flex-wrap gap-1 justify-center'
+    : 'flex flex-col gap-1';
 
   return (
     <div
-      className="min-h-0 w-full flex flex-col py-2 px-2 overflow-y-auto overflow-x-hidden"
+      className="min-h-0 flex-1 w-full flex flex-col py-2 px-2 overflow-y-auto overflow-x-hidden"
       role="toolbar"
-      aria-label="Add objects and audio"
+      aria-label="Insert objects and animations"
     >
-      <CategoryLabel>Independent</CategoryLabel>
-      <div className="flex flex-wrap gap-1 justify-center">
-        <ToolButton title="Text line" onClick={actions.addTextLine}>
+      <InsertSidebarHeader
+        collapsed={collapsed}
+        onToggleCollapsed={onToggleCollapsed}
+      />
+
+      <CategoryLabel collapsed={collapsed}>Objects</CategoryLabel>
+      <div className={groupClass}>
+        <ToolButton
+          collapsed={collapsed}
+          label="Text line"
+          title="Text line"
+          onClick={actions.addTextLine}
+        >
           <IconTextLine />
         </ToolButton>
-        <ToolButton title="Axes" onClick={actions.addAxes}>
+        <ToolButton
+          collapsed={collapsed}
+          label="Axes"
+          title="Axes"
+          onClick={actions.addAxes}
+        >
           <IconAxes />
         </ToolButton>
-        <ToolButton title="Shape (circle, rectangle, arrow, line)" onClick={actions.addShape}>
+        <ToolButton
+          collapsed={collapsed}
+          label="Shape"
+          title="Shape (circle, rectangle, arrow, line)"
+          onClick={actions.addShape}
+        >
           <IconShape />
         </ToolButton>
-      </div>
-
-      <CategoryLabel>Axes</CategoryLabel>
-      <div className="flex flex-wrap gap-1 justify-center">
         <ToolButton
-          title="Graph plot (function y = f(x))"
-          onClick={actions.addGraphPlot}
-        >
-          <IconGraphPlot />
-        </ToolButton>
-        <ToolButton title="Graph curve (parametric x(t), y(t))" onClick={actions.addGraphCurve}>
-          <IconGraphCurve />
-        </ToolButton>
-        <ToolButton title="Graph dot" onClick={actions.addGraphDot}>
-          <IconGraphDot />
-        </ToolButton>
-        <ToolButton title="Vector / slope field" onClick={actions.addGraphField}>
-          <IconVectorField />
-        </ToolButton>
-        <ToolButton
-          title="Function series (partial sums or family f(n,x))"
-          onClick={actions.addGraphFunctionSeries}
-        >
-          <IconFunctionSeries />
-        </ToolButton>
-        <ToolButton
-          title="Point sequence (x(n), y(n))"
-          onClick={actions.addGraphPointSequence}
-        >
-          <IconPointSequence />
-        </ToolButton>
-        <ToolButton title="Graph area (fill under/between)" onClick={actions.addGraphArea}>
-          <IconGraphArea />
-        </ToolButton>
-      </div>
-
-      <CategoryLabel>Dependent</CategoryLabel>
-      <div className="flex flex-wrap gap-1 justify-center">
-        <ToolButton
+          collapsed={collapsed}
+          label="Surrounding rect"
           title="Surrounding rectangle (select targets or uses first eligible)"
           onClick={actions.addSurroundingRectClip}
         >
@@ -358,67 +488,212 @@ export default function AddObjectToolbar() {
         </ToolButton>
       </div>
 
-      <CategoryLabel>Animations</CategoryLabel>
-      <div className="flex flex-wrap gap-1 justify-center">
+      <CategoryLabel collapsed={collapsed}>Graph (uses axes)</CategoryLabel>
+      <div className={groupClass}>
         <ToolButton
-          title="Exit animation (multi-select targets; replaces prior exits on those targets)"
-          onClick={actions.addExitAnimationClip}
+          collapsed={collapsed}
+          label="Plot"
+          title={`Graph plot (function y = f(x)) — ${graphHelper}`}
+          onClick={actions.addGraphPlot}
         >
-          <IconExitAnimation />
+          <IconGraphPlot />
         </ToolButton>
         <ToolButton
-          title="Blink animation (pulse scale/color; does not remove targets)"
-          onClick={actions.addBlinkAnimationClip}
+          collapsed={collapsed}
+          label="Curve"
+          title={`Graph curve (parametric x(t), y(t)) — ${graphHelper}`}
+          onClick={actions.addGraphCurve}
         >
-          <IconBlinkAnimation />
+          <IconGraphCurve />
         </ToolButton>
         <ToolButton
-          title="Target: persistent scale — select compatible objects or picks first eligible"
-          onClick={() => actions.addTargetAnimationClip('scale')}
+          collapsed={collapsed}
+          label="Dot"
+          title={`Graph dot — ${graphHelper}`}
+          onClick={actions.addGraphDot}
         >
-          <IconTaScale />
+          <IconGraphDot />
         </ToolButton>
         <ToolButton
-          title="Target: persistent color — same eligible set as blink"
-          onClick={() => actions.addTargetAnimationClip('color')}
+          collapsed={collapsed}
+          label="Area"
+          title={`Graph area (fill under/between) — ${graphHelper}`}
+          onClick={actions.addGraphArea}
         >
-          <IconTaColor />
+          <IconGraphArea />
         </ToolButton>
         <ToolButton
-          title="Target: persistent move shift (dx/dy)"
-          onClick={() => actions.addTargetAnimationClip('move')}
+          collapsed={collapsed}
+          label="Vector field"
+          title={`Vector / slope field — ${graphHelper}`}
+          onClick={actions.addGraphField}
         >
-          <IconTaMove />
+          <IconVectorField />
         </ToolButton>
         <ToolButton
-          title="Target: persistent move along path (relative offsets)"
-          onClick={() => actions.addTargetAnimationClip('path')}
+          collapsed={collapsed}
+          label="Function series"
+          title={`Function series (partial sums or family f(n,x)) — ${graphHelper}`}
+          onClick={actions.addGraphFunctionSeries}
         >
-          <IconTaPath />
+          <IconFunctionSeries />
         </ToolButton>
         <ToolButton
-          title="Target: persistent rotate — text/shape/highlight first"
-          onClick={() => actions.addTargetAnimationClip('rotate')}
+          collapsed={collapsed}
+          label="Point sequence"
+          title={`Point sequence (x(n), y(n)) — ${graphHelper}`}
+          onClick={actions.addGraphPointSequence}
         >
-          <IconTaRotate />
-        </ToolButton>
-        <ToolButton
-          title="Camera pan to frame"
-          onClick={actions.addCameraMoveClip}
-        >
-          <IconCameraMove />
+          <IconPointSequence />
         </ToolButton>
       </div>
+      {!collapsed && (
+        <p className="px-1 mt-1 text-[10px] leading-snug text-slate-500 text-left">
+          {graphHelper}
+        </p>
+      )}
 
-      <CategoryLabel>Audio</CategoryLabel>
-      <div className="flex flex-wrap gap-1 justify-center">
-        <ToolButton title="Record audio" onClick={actions.openAudioRecording}>
+      <div
+        className={
+          hasAnyAnimationTarget && !collapsed
+            ? 'mt-2 rounded-lg border border-blue-500/40 bg-blue-500/5 px-2 pt-1 pb-2'
+            : undefined
+        }
+      >
+        <CategoryLabel collapsed={collapsed}>
+          <span className={hasAnyAnimationTarget ? 'text-blue-300' : undefined}>
+            {animationTitle}
+          </span>
+        </CategoryLabel>
+        <div className={groupClass}>
+          <ToolButton
+            collapsed={collapsed}
+            label="Exit"
+            title="Exit animation (multi-select targets; replaces prior exits on those targets)"
+            onClick={actions.addExitAnimationClip}
+            active={hasExitTarget}
+            dimmed={hasSelection && !hasExitTarget}
+          >
+            <IconExitAnimation />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Blink"
+            title="Blink animation (pulse scale/color; does not remove targets)"
+            onClick={actions.addBlinkAnimationClip}
+            active={hasBlinkTarget}
+            dimmed={hasSelection && !hasBlinkTarget}
+          >
+            <IconBlinkAnimation />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Scale"
+            title="Target: persistent scale — select compatible objects or picks first eligible"
+            onClick={() => actions.addTargetAnimationClip('scale')}
+            active={compatibleModes.has('scale')}
+            dimmed={hasSelection && !compatibleModes.has('scale')}
+          >
+            <IconTaScale />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Color"
+            title="Target: persistent color — same eligible set as blink"
+            onClick={() => actions.addTargetAnimationClip('color')}
+            active={compatibleModes.has('color')}
+            dimmed={hasSelection && !compatibleModes.has('color')}
+          >
+            <IconTaColor />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Move"
+            title="Target: persistent move shift (dx/dy)"
+            onClick={() => actions.addTargetAnimationClip('move')}
+            active={compatibleModes.has('move')}
+            dimmed={hasSelection && !compatibleModes.has('move')}
+          >
+            <IconTaMove />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Path"
+            title="Target: persistent move along path (relative offsets)"
+            onClick={() => actions.addTargetAnimationClip('path')}
+            active={compatibleModes.has('path')}
+            dimmed={hasSelection && !compatibleModes.has('path')}
+          >
+            <IconTaPath />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Rotate"
+            title="Target: persistent rotate — text/shape/highlight first"
+            onClick={() => actions.addTargetAnimationClip('rotate')}
+            active={compatibleModes.has('rotate')}
+            dimmed={hasSelection && !compatibleModes.has('rotate')}
+          >
+            <IconTaRotate />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Camera pan"
+            title="Camera pan to frame"
+            onClick={actions.addCameraMoveClip}
+          >
+            <IconCameraMove />
+          </ToolButton>
+        </div>
+        {!collapsed && (
+          <p className="px-1 mt-1 text-[10px] leading-snug text-slate-500 text-left">
+            {animationHint}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Audio entry points, rendered separately from the object/animation insert surface. */
+export function InsertAudioActions({ collapsed }: { collapsed: boolean }) {
+  const actions = useAddSceneItems();
+  return (
+    <div role="toolbar" aria-label="Audio actions">
+      {!collapsed && (
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 px-1 mb-1 text-left w-full">
+          Audio
+        </div>
+      )}
+      <div
+        className={
+          collapsed
+            ? 'flex flex-wrap gap-1 justify-center'
+            : 'flex flex-col gap-1'
+        }
+      >
+        <ToolButton
+          collapsed={collapsed}
+          label="Record audio"
+          title="Record audio"
+          onClick={actions.openAudioRecording}
+        >
           <IconMic />
         </ToolButton>
-        <ToolButton title="Upload audio file" onClick={actions.openAudioUpload}>
+        <ToolButton
+          collapsed={collapsed}
+          label="Upload audio"
+          title="Upload audio file"
+          onClick={actions.openAudioUpload}
+        >
           <IconUploadAudio />
         </ToolButton>
-        <ToolButton title="Text-to-speech" onClick={actions.openAudioTts}>
+        <ToolButton
+          collapsed={collapsed}
+          label="Text-to-speech"
+          title="Text-to-speech"
+          onClick={actions.openAudioTts}
+        >
           <IconTts />
         </ToolButton>
       </div>

@@ -56,7 +56,8 @@ const GEMINI_RESPONSE_SCHEMA = {
               '• When `kind` is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
               '• When `kind` is "graphPlot", the function goes under `fn` as `{ jsExpr, pyExpr, color, label }`. `jsExpr` is a JavaScript expression (e.g. "x*x" or "Math.sin(x)"), `pyExpr` is its NumPy equivalent (e.g. "x**2" or "np.sin(x)"). NEVER put the expression under `fn.expr` or as a bare string — always use `jsExpr` and `pyExpr` with the correct dialect. Use "**" (not "^") for power.\n' +
               '• When `kind` is "graphCurve", coordinates go under `curve` as `{ jsXExpr, pyXExpr, jsYExpr, pyYExpr, color, label }` with parameter `t`. Also set top-level `tDomain: [tMin, tMax]` (two numbers). Use "**" (not "^") for power.\n' +
-              '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement"). Vector/slope fields (`graphField`) and filled regions (`graphArea`) are not agent-created — use the editor UI.\n',
+              '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement"). Vector/slope fields (`graphField`) and filled regions (`graphArea`) are not agent-created — use the editor UI.\n' +
+              '• Set `frameId` on new drawable items (text, axes, graphs, shapes) to the payload `activeFrameId`, or to another frame id from the payload `frames` catalog when the user names a different frame. Never set `frameId` on exit_animation / blink_animation / target_animation (they follow their targets).\n',
             properties: {
               id: { type: 'string' },
               kind: {
@@ -67,6 +68,11 @@ const GEMINI_RESPONSE_SCHEMA = {
                 type: 'string',
                 description:
                   'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
+              },
+              frameId: {
+                type: 'string',
+                description:
+                  'Optional frame id for drawable kinds (textLine, axes, graph overlays, shape). Must equal a frame id from the payload `frames` catalog; when omitted the active frame is used. Never set on exit_animation / blink_animation / target_animation (they follow their targets).',
               },
               fn: {
                 type: 'object',

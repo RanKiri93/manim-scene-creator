@@ -128,7 +128,13 @@ CRITICAL ARCHITECTURE RULES:
    Example — fade out a function series named "fs1" at t=6s after it finishes drawing:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "exit_animation", "label": "יציאת סדרה", "startTime": 6, "duration": 1, "targets": [ { "targetId": "fs1", "animStyle": "uncreate" } ] } }
 
-10. blink_animation workflow (emphasize / pulse without removing items):
+ 11. Frames (camera grid):
+    - The payload includes \`frames\` (id + label + grid cell), \`startFrameId\`, and \`activeFrameId\`.
+    - New drawable items (text, axes, graphs, shapes) belong to \`activeFrameId\` by default — set \`frameId\` to it explicitly, or to another valid frame id from \`frames\` when the user names a different frame. Use ONLY ids listed in \`frames\`.
+    - Do NOT set \`frameId\` on exit_animation / blink_animation / target_animation clips — they follow their targets' frames automatically.
+    - If the user names a frame you cannot match to the catalog, ask which frame they mean (actions: []) instead of guessing.
+
+ 10. blink_animation workflow (emphasize / pulse without removing items):
    To briefly highlight visible objects (scale and/or color, then restore), emit CREATE \`kind: "blink_animation"\`. Targets stay on screen; this is not an exit.
    - \`targets\`: required, non-empty. Each row: \`{ targetId, mode, scaleFactor?, blinkColor?, segmentIndices?, mathSubtargets? }\`.
    - \`mode\`: "scale" | "color".

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   AxesItem,
+  FrameDef,
   SceneDefaults,
   SceneItem,
   TextLineItem,
@@ -138,7 +139,44 @@ describe('buildContextPayload', () => {
       expect(rec.previewDataUrl).toBeUndefined();
     }
   });
+});
 
+describe('frame-aware Copilot context', () => {
+  const frames: FrameDef[] = [
+    { id: 'f1', col: 0, row: 0, label: 'Frame 1' },
+    { id: 'f2', col: 1, row: 0 },
+  ];
+
+  it('includes the frame catalog with start and active frame ids', () => {
+    const payload = buildContextPayload({
+      defaults: defaults(),
+      currentTime: 1,
+      items: new Map(),
+      frames,
+      startFrameId: 'f1',
+      activeFrameId: 'f2',
+    });
+    expect(payload.frames).toEqual([
+      { id: 'f1', label: 'Frame 1', col: 0, row: 0 },
+      { id: 'f2', label: undefined, col: 1, row: 0 },
+    ]);
+    expect(payload.startFrameId).toBe('f1');
+    expect(payload.activeFrameId).toBe('f2');
+  });
+
+  it('defaults to an empty catalog when frames are omitted', () => {
+    const payload = buildContextPayload({
+      defaults: defaults(),
+      currentTime: 0,
+      items: new Map(),
+    });
+    expect(payload.frames).toEqual([]);
+    expect(payload.startFrameId).toBeNull();
+    expect(payload.activeFrameId).toBeNull();
+  });
+});
+
+describe('buildContextPayload defaults', () => {
   it('returns a shallow copy of defaults so caller can mutate safely', () => {
     const d = defaults();
     const payload = buildContextPayload({

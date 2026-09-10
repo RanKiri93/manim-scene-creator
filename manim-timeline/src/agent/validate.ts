@@ -49,6 +49,18 @@ export type ValidationResult =
   | { ok: false; errors: string[] };
 
 /**
+ * Live frame context for `frameId` validation. Mirrors the scene store at
+ * request time. Optional so older callers (and unit tests without frames)
+ * keep working — when absent, `frameId` handling is skipped entirely and the
+ * store's own fallbacks apply at commit.
+ */
+export interface AgentFrameContext {
+  frameIds: readonly ItemId[];
+  activeFrameId: ItemId | null;
+  startFrameId: ItemId | null;
+}
+
+/**
  * Kinds that can appear in an `exit_animation.targets[i].targetId`. Must stay
  * in sync with `canBeExitTarget` in `@/lib/time` — we inline the predicate as
  * a `Set<kind>` to keep the validator free of store / DOM dependencies.
@@ -81,6 +93,7 @@ const EXIT_TARGET_KINDS: ReadonlySet<SceneItem['kind']> = new Set<SceneItem['kin
 export function validateAgentResponse(
   raw: unknown,
   currentItems: Map<ItemId, SceneItem>,
+  frameCtx?: AgentFrameContext,
 ): ValidationResult {
   const errors: string[] = [];
 
@@ -176,6 +189,12 @@ export function validateAgentResponse(
       }
       const normalized = normalizeCreateItem(item, errors, prefix);
       if (!normalized) return;
+      if (
+        frameCtx &&
+        !applyFrameIdOnCreate(item, normalized, frameCtx, errors, prefix)
+      ) {
+        return;
+      }
       plannedCreates.set(id, normalized.kind);
       plannedCreateRaw.set(id, item);
       normalizedActions.push({ action: 'CREATE', item: normalized });
@@ -215,6 +234,27 @@ export function validateAgentResponse(
       }
       const targetKind =
         currentItems.get(itemId)?.kind ?? plannedCreates.get(itemId) ?? '';
+      if (frameCtx && 'frameId' in updates) {
+        const fid = (updates as Record<string, unknown>).frameId;
+        if (fid == null) {
+          // Clearing carries no meaning (association falls back the same
+          // way); drop it so the store never persists a null frameId.
+          delete (updates as Record<string, unknown>).frameId;
+        } else if (!isFrameDrawableKind(targetKind)) {
+          // Effect clips and camera moves derive frame association from
+          // their targets; a stray frameId is dropped silently.
+          delete (updates as Record<string, unknown>).frameId;
+        } else if (
+          typeof fid !== 'string' ||
+          !fid ||
+          !frameCtx.frameIds.includes(fid)
+        ) {
+          errors.push(
+            `${prefix}.updates.frameId "${String(fid)}" is not a known frame (known: ${frameCtx.frameIds.join(', ') || 'none'}).`,
+          );
+          return;
+        }
+      }
       normalizedActions.push({
         action: 'UPDATE',
         itemId,
@@ -467,6 +507,58 @@ function autoLinkAxesIds(actions: unknown[]): void {
 }
 
 /**
+ * Drawable items carry their own `frameId`; effect clips, camera moves, and
+ * surrounding rects derive frame association from their targets (see
+ * `associatedFrameId` in `@/lib/frameGrid`). Keep in sync with
+ * `isFrameDrawable` in `store/useSceneStore.ts`.
+ */
+function isFrameDrawableKind(kind: string): boolean {
+  return (
+    kind !== 'exit_animation' &&
+    kind !== 'blink_animation' &&
+    kind !== 'target_animation' &&
+    kind !== 'camera_move' &&
+    kind !== 'surroundingRect'
+  );
+}
+
+/**
+ * Validate / normalize `frameId` on a CREATE item. Explicit unknown frame ids
+ * fail loudly; a missing `frameId` on a drawable is stamped with the active
+ * (else start) frame, mirroring `addItem` in the store so the preview already
+ * shows the clip in the right frame. `frameId` on non-drawables is dropped
+ * silently — those clips follow their targets by design.
+ */
+function applyFrameIdOnCreate(
+  rawItem: Record<string, unknown>,
+  normalized: SceneItem,
+  frameCtx: AgentFrameContext,
+  errors: string[],
+  prefix: string,
+): boolean {
+  const out = normalized as unknown as Record<string, unknown>;
+  if (!isFrameDrawableKind(normalized.kind)) {
+    delete out.frameId;
+    return true;
+  }
+  const explicit =
+    typeof rawItem.frameId === 'string' ? rawItem.frameId : '';
+  if (explicit) {
+    if (!frameCtx.frameIds.includes(explicit)) {
+      errors.push(
+        `${prefix}.item.frameId "${explicit}" is not a known frame (known: ${frameCtx.frameIds.join(', ') || 'none'}).`,
+      );
+      return false;
+    }
+    out.frameId = explicit;
+    return true;
+  }
+  const fallback = frameCtx.activeFrameId ?? frameCtx.startFrameId;
+  if (fallback) out.frameId = fallback;
+  return true;
+}
+
+/**
  * Stable deep equality for JSON-serializable values. Used to tolerate
  * accidental exact-duplicate CREATE actions emitted by flaky preview LLMs.
  */
@@ -591,8 +683,6 @@ function normalizePointSequenceDefaults(raw: unknown): PointSequenceDefaults {
 
 function normalizePointSequencePerNDict(
   raw: unknown,
-  _errors: string[],
-  _prefix: string,
 ): Record<string, PointSequencePerN> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: Record<string, PointSequencePerN> = {};
@@ -685,7 +775,7 @@ function normalizeUpdates(
       // map `waitAfterSec` → `waitAfter`. commit.ts is responsible for the
       // deep-merge against the store; this pass only ensures the patch is
       // well-typed.
-      next.perN = normalizePerNDict(patch.perN, errors, prefix + '.updates');
+      next.perN = normalizePerNDict(patch.perN);
     }
     if ('defaults' in patch) {
       // Merge user-supplied defaults over the factory defaults so any fields
@@ -721,11 +811,7 @@ function normalizeUpdates(
   }
   if (targetKind === 'graphPointSequence') {
     if ('perN' in patch) {
-      next.perN = normalizePointSequencePerNDict(
-        patch.perN,
-        errors,
-        prefix + '.updates',
-      );
+      next.perN = normalizePointSequencePerNDict(patch.perN);
     }
     if ('defaults' in patch) {
       next.defaults = normalizePointSequenceDefaults(patch.defaults);
@@ -1383,8 +1469,6 @@ function normalizeFunctionSeriesDefaults(
  */
 function normalizePerNDict(
   raw: unknown,
-  _errors: string[],
-  _prefix: string,
 ): Record<string, FunctionSeriesPerN> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: Record<string, FunctionSeriesPerN> = {};
@@ -1460,7 +1544,7 @@ function normalizeGraphFunctionSeries(
       : null;
 
   const defaults = normalizeFunctionSeriesDefaults(raw.defaults);
-  const perN = normalizePerNDict(raw.perN, errors, prefix);
+  const perN = normalizePerNDict(raw.perN);
 
   const partial: GraphFunctionSeriesItem = {
     ...base,
@@ -1561,7 +1645,7 @@ function normalizeGraphPointSequence(
   if (!xPair || !yPair) return null;
 
   const defaults = normalizePointSequenceDefaults(raw.defaults);
-  const perN = normalizePointSequencePerNDict(raw.perN, errors, prefix);
+  const perN = normalizePointSequencePerNDict(raw.perN);
 
   const partial: GraphPointSequenceItem = {
     ...base,

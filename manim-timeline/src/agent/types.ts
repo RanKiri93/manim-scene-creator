@@ -58,12 +58,25 @@ export type AgentUiOnlyField = (typeof AGENT_UI_ONLY_FIELDS)[number];
  */
 export type MinimalSceneItem = Omit<SceneItem, AgentUiOnlyField>;
 
+/** Slim frame-catalog entry so the agent can reference frames by id. */
+export interface AgentFrameInfo {
+  id: ItemId;
+  label?: string;
+  col: number;
+  row: number;
+}
+
 /** Payload shape the agent receives in every request. */
 export interface AgentContextPayload {
   projectDefaults: SceneDefaults;
   /** Playhead position in seconds; use as `startTime` when the user asks to add "now". */
   currentTimeSec: number;
   existingItems: MinimalSceneItem[];
+  /** Camera-grid frames (id + label + grid cell) the model may reference. */
+  frames: AgentFrameInfo[];
+  startFrameId: ItemId | null;
+  /** Frame new drawable items belong to unless the model picks another valid frame. */
+  activeFrameId: ItemId | null;
 }
 
 export type AgentAction =

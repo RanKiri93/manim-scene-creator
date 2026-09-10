@@ -114,6 +114,9 @@ export const useAgentStore = create<AgentStoreShape>()(
           defaults: sceneState.defaults,
           currentTime: sceneState.currentTime,
           items: sceneState.items,
+          frames: sceneState.frames,
+          startFrameId: sceneState.startFrameId,
+          activeFrameId: sceneState.activeFrameId,
         });
         const systemPrompt = buildSystemPrompt(state.customRules);
         // Everything preceding the most recent user turn is "history".
@@ -138,6 +141,11 @@ export const useAgentStore = create<AgentStoreShape>()(
           const result = validateAgentResponse(
             raw,
             useSceneStore.getState().items,
+            {
+              frameIds: sceneState.frames.map((f) => f.id),
+              activeFrameId: sceneState.activeFrameId,
+              startFrameId: sceneState.startFrameId,
+            },
           );
           if (!result.ok) {
             const errorMsg: AgentChatMessage = {

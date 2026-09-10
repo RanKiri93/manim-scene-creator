@@ -71,10 +71,20 @@ All paths are relative to `src/agent/`.
 ### 3.1 Context sent to the LLM
 
 ```ts
+interface AgentFrameInfo {
+  id: ItemId;
+  label?: string;
+  col: number;
+  row: number;
+}
+
 interface AgentContextPayload {
   projectDefaults: ProjectDefaults;    // constants from useSceneStore.defaults
   currentTimeSec: number;              // wall-clock position on the timeline
   existingItems: MinimalSceneItem[];   // UI-only fields stripped
+  frames: AgentFrameInfo[];            // camera-grid catalog (id + label + cell)
+  startFrameId: ItemId | null;
+  activeFrameId: ItemId | null;        // frame new drawables belong to by default
 }
 ```
 
@@ -154,12 +164,12 @@ For `graphFunctionSeries`, the normalizer in `validate.ts` upholds:
 ## 4. Request lifecycle (`useAgentStore.sendMessage`)
 
 1. **Append user turn**: push a `{role:'user', content}` entry onto `messages`.
-2. **Snapshot state**: read `items`, `currentTime`, `defaults` from `useSceneStore`.
-3. **Serialize**: `buildContextPayload(...)` produces the slim payload (UI-only fields stripped). The payload is attached only to the **current** user turn, never to historical turns.
+2. **Snapshot state**: read `items`, `currentTime`, `defaults`, `frames`, `startFrameId`, and `activeFrameId` from `useSceneStore`.
+3. **Serialize**: `buildContextPayload(...)` produces the slim payload (UI-only fields stripped, frame catalog included). The payload is attached only to the **current** user turn, never to historical turns.
 4. **Build system prompt**: `buildSystemPrompt(customRules)` = `BASE_SYSTEM_PROMPT` + optional user rules.
 5. **Pick provider**: `getProvider({ provider, apiKey, baseUrl, model })`.
 6. **Call the provider** with `{ payload, systemPrompt, history, userPrompt, includeThinking, signal }`. `history` is every `messages` entry before the latest user turn, oldest-first.
-7. **Validate**: `validateAgentResponse(raw, currentItems)` — strict invariants, per-kind normalizers, plus auto-repair passes (see §7). Accepts empty `actions` as a valid pure-chat reply.
+7. **Validate**: `validateAgentResponse(raw, currentItems, frameCtx)` — strict invariants, per-kind normalizers, plus auto-repair passes (see §7) and `frameId` checks (see §7.5). Accepts empty `actions` as a valid pure-chat reply.
 8. On success: append a new `{role:'assistant'}` message with `content=reply`, optional `thinking`, and — if actions are non-empty — `actions + actionsStatus:'pending'`. Any prior `pending` assistant message is demoted to `'superseded'` (see §5) and `activePreviewMessageId` is set to the new message.
 9. On failure: append an assistant message with `error: [...]` attached; the UI renders it as a red bubble with a Retry button (which reuses the previous user turn via `regenerateLast()`).
 
@@ -342,6 +352,16 @@ And finally, `^` is always rewritten to `**` on both dialects because `^` means 
 
 **`graphFunctionSeries`** uses `resolveGraphFunctionSeriesExprs` instead: top-level `jsExpr` / `pyExpr` (plus the same string aliases), optional single-dialect derivation via `toPyExpr` / `toJsExpr`, and **no default expression** — wholly missing expressions fail validation.
 
+### 7.5 `frameId` validation
+
+`validateAgentResponse(raw, currentItems, frameCtx)` takes an optional live frame context (`frameIds`, `activeFrameId`, `startFrameId` from `useSceneStore` at request time). When present:
+
+- **Drawable CREATEs** (everything except `exit_animation` / `blink_animation` / `target_animation` / `camera_move` / `surroundingRect` — same predicate as `isFrameDrawable` in the store): an explicit `frameId` must be a known frame id or the turn fails loudly; a missing `frameId` is stamped with `activeFrameId ?? startFrameId`, mirroring `addItem`, so the preview already shows the clip in the right frame.
+- **`frameId` on effect clips** (`exit_animation` / `blink_animation` / `target_animation`) is dropped silently on CREATE and UPDATE — those clips derive frame association from their targets (`associatedFrameId` in `lib/frameGrid`), so the field is meaningless there.
+- **UPDATE** with an unknown `frameId` on a drawable fails loudly; `frameId: null` is dropped (association falls back the same way).
+
+When `frameCtx` is absent (older callers, unit tests without frames), `frameId` handling is skipped and the store's own fallbacks apply at commit.
+
 ---
 
 ## 8. System prompt
@@ -480,6 +500,7 @@ Segment indices are in **parse order** (left to right in `raw`), even though Heb
 ## 13. Known limitations (v2 — chat)
 
 - Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence`; `graphArea` / `graphField` remain UI-only.
+- The Copilot is frame-aware in context (frame catalog + active frame in the payload, `frameId` validated per §7.5), but there are no dedicated frame actions yet — no `CREATE_FRAME` / `UPDATE_FRAME`, and no agent-driven camera panning between frames.
 - Each approved action produces its own `zundo` snapshot rather than one batched undo entry.
 - No token streaming: the UI shows a "Thinking…" indicator and waits for the full response. Reasoning/thinking output is surfaced as a collapsible block only after the turn completes.
 - The full chat history is re-sent on every turn; token usage grows linearly with conversation length. `MAX_PERSISTED_MESSAGES` (100) caps the persisted log but does not summarize older turns — long conversations may need a manual "New chat".

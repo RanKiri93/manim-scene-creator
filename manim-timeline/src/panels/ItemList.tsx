@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, SceneItem } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { associatedFrameId, frameDisplayName, readingOrderFrames } from '@/lib/frameGrid';
+import {
+  buildObjectPanelModel,
+  nestedChildTitle,
+  relatedCountLabel,
+  type RelatedChildRef,
+} from '@/lib/itemRelationships';
+
+type ItemListView = 'timeline' | 'object';
 
 export default function ItemList() {
   const itemsMap = useSceneStore((s) => s.items);
@@ -16,6 +24,7 @@ export default function ItemList() {
   const startFrameId = useSceneStore((s) => s.startFrameId);
 
   const [filterFrameId, setFilterFrameId] = useState<ItemId | 'all'>('all');
+  const [viewMode, setViewMode] = useState<ItemListView>('timeline');
   // A deleted frame falls back to showing everything.
   const effectiveFilter =
     filterFrameId !== 'all' && !frames.some((f) => f.id === filterFrameId)
@@ -40,7 +49,40 @@ export default function ItemList() {
     [items, itemsMap, startFrameId, effectiveFilter],
   );
 
-  const renderRow = (item: SceneItem) => {
+  const panelModel = useMemo(
+    () => buildObjectPanelModel(visibleItems, itemsMap),
+    [visibleItems, itemsMap],
+  );
+
+  const renderChildTitle = (child: RelatedChildRef, parentId: ItemId): ReactNode => {
+    const title = nestedChildTitle(child.item, parentId);
+    const extraCount = child.targetCount > 1 ? child.targetCount - 1 : 0;
+    const tipParts = [...child.otherTargetNames];
+    if (child.hasMissingTarget) tipParts.push('A referenced target is missing.');
+    const tip = tipParts.length > 0 ? tipParts.join(', ') : undefined;
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">{title}</span>
+        {extraCount > 0 ? (
+          <span
+            className={`shrink-0 rounded px-1 text-[9px] ${
+              child.hasMissingTarget
+                ? 'bg-amber-900/50 text-amber-200'
+                : 'bg-slate-700/80 text-slate-300'
+            }`}
+            title={tip}
+          >
+            +{extraCount}
+          </span>
+        ) : null}
+      </span>
+    );
+  };
+
+  const renderRow = (
+    item: SceneItem,
+    opts?: { compact?: boolean; title?: ReactNode; trailing?: ReactNode },
+  ) => {
     const isSelected = selectedIds.has(item.id);
     const exitTargets =
       item.kind === 'exit_animation'
@@ -164,7 +206,7 @@ export default function ItemList() {
       <div
         key={item.id}
         onClick={(e) => select(item.id, isMultiSelectModifier(e))}
-        className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-xs transition-colors ${
+        className={`flex items-center gap-2 px-2 ${opts?.compact ? 'py-1' : 'py-1.5'} rounded cursor-pointer text-xs transition-colors ${
           isSelected
             ? 'bg-blue-600/20 border border-blue-500/40'
             : 'bg-slate-800/50 border border-transparent hover:bg-slate-700/50'
@@ -176,8 +218,9 @@ export default function ItemList() {
           {kindLetter}
         </span>
         <span className="flex-1 truncate text-slate-300" dir="auto">
-          {label}
+          {opts?.title ?? label}
         </span>
+        {opts?.trailing}
         <span className="text-slate-500 font-mono text-[10px] shrink-0">{timeLabel}</span>
 
         <button
@@ -230,6 +273,34 @@ export default function ItemList() {
         </select>
       </div>
 
+      <div
+        className="flex shrink-0 gap-1 border-b border-slate-700/60 px-3 pb-2"
+        role="tablist"
+        aria-label="Items view"
+      >
+        {(
+          [
+            { id: 'timeline', label: 'Timeline' },
+            { id: 'object', label: 'By object' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={viewMode === tab.id}
+            onClick={() => setViewMode(tab.id)}
+            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+              viewMode === tab.id
+                ? 'bg-slate-700 text-slate-100'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
         {items.length === 0 ? (
           <p className="text-xs text-slate-500 italic py-4 text-center">
@@ -241,11 +312,57 @@ export default function ItemList() {
           </p>
         ) : null}
 
-        <div className="flex flex-col gap-0.5">
-          {visibleItems.map((item) => (
-            <div key={item.id}>{renderRow(item)}</div>
-          ))}
-        </div>
+        {viewMode === 'timeline' ? (
+          <div className="flex flex-col gap-0.5">
+            {visibleItems.map((item) => (
+              <div key={item.id}>{renderRow(item)}</div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {panelModel.groups.map((group) => (
+              <div
+                key={group.object.id}
+                className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-1"
+              >
+                {renderRow(
+                  group.object,
+                  group.children.length > 0
+                    ? {
+                        trailing: (
+                          <span className="shrink-0 text-[10px] text-slate-500">
+                            {relatedCountLabel(group.children.length)}
+                          </span>
+                        ),
+                      }
+                    : undefined,
+                )}
+                {group.children.length > 0 ? (
+                  <div className="ml-4 flex flex-col gap-0.5 border-l-2 border-slate-600/60 pl-1 pt-1">
+                    {group.children.map((child) => (
+                      <div key={`${group.object.id}-${child.item.id}`}>
+                        {renderRow(child.item, {
+                          compact: true,
+                          title: renderChildTitle(child, group.object.id),
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+            {panelModel.unassigned.length > 0 ? (
+              <div className="flex flex-col gap-0.5">
+                <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  Unassigned
+                </div>
+                {panelModel.unassigned.map((item) => (
+                  <div key={item.id}>{renderRow(item)}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );

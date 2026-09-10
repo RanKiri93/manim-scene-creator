@@ -50,7 +50,17 @@ import {
   minTargetAnimationStartTimeForClip,
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
-import { isAudioBindingNone, explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
+import {
+  isAudioBindingNone,
+  explicitVisualOwnerForAudioTrack,
+} from '@/lib/audioBinding';
+import {
+  collectSurgerySpans,
+  mapCloseRangePlayhead,
+  mapInsertPlayhead,
+  planCloseRange,
+  planInsertTime,
+} from '@/lib/timelineSurgery';
 import {
   deriveAudioAssetRelPath,
   measureServerRelativeAudioPath,
@@ -402,10 +412,18 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   /** Remove a timeline audio track (revokes blob URL; clears matching `audioTrackId` on clips). */
   removeAudioItem: (id: string) => void;
   /**
-   * Remove empty timeline time [gapStart, gapEnd): shift every top-level clip and audio
-   * track with startTime >= gapEnd left by (gapEnd - gapStart).
+   * Remove empty timeline time [rangeStart, rangeEnd): shift every top-level clip and
+   * unlinked audio track with startTime >= rangeEnd left by (rangeEnd - rangeStart).
+   * Linked audio follows its visual owner via binding sync. Returns false (no state
+   * change) when the range is invalid or any clip overlaps it.
    */
-  closeGap: (gapStart: number, gapEnd: number) => void;
+  closeTimelineRange: (rangeStart: number, rangeEnd: number) => boolean;
+  /**
+   * Insert `durationSec` empty seconds at `at`: shift every top-level clip and unlinked
+   * audio track with startTime >= `at` right by `durationSec`. Returns false (no state
+   * change) when invalid or when a clip spans the insertion point.
+   */
+  insertEmptyTimelineTime: (at: number, durationSec: number) => boolean;
   /** Move many scene clips in one undo step; reclamps exit_animation starts. */
   setSceneItemStartTimes: (updates: { id: ItemId; startTime: number }[]) => void;
   /** Move many audio clips in one undo step. */
@@ -1027,29 +1045,70 @@ export const useSceneStore = create<SceneStore>()(
         }
       }),
 
-      closeGap: (gapStart, gapEnd) => set((s) => {
-        if (
-          !Number.isFinite(gapStart) ||
-          !Number.isFinite(gapEnd) ||
-          !(gapEnd > gapStart)
-        ) {
-          return;
-        }
-        const delta = gapEnd - gapStart;
-        for (const it of s.items.values()) {
-          if (!isTopLevelItem(it)) continue;
-          if (it.startTime >= gapEnd) {
-            it.startTime = Math.max(0, it.startTime - delta);
+      /**
+       * Collect visual/audio spans for a time edit. All audio tracks participate in
+       * blocker detection; only unlinked tracks move directly (linked tracks follow
+       * their visual owner through binding sync so they never shift twice).
+       */
+      closeTimelineRange: (rangeStart, rangeEnd) => {
+        const state = get();
+        const { itemSpans, audioSpans } = collectSurgerySpans(
+          state.items,
+          state.audioItems,
+        );
+        const plan = planCloseRange(itemSpans, audioSpans, rangeStart, rangeEnd);
+        if (!plan.ok) return false;
+        const itemStarts = new Map(plan.itemUpdates.map((u) => [u.id, u.startTime]));
+        const audioStarts = new Map(plan.audioUpdates.map((u) => [u.id, u.startTime]));
+        const nextTime = mapCloseRangePlayhead(state.currentTime, rangeStart, rangeEnd);
+        set((s) => {
+          for (const [id, t] of itemStarts) {
+            const it = s.items.get(id);
+            if (it) it.startTime = Math.max(0, t);
           }
-        }
-        for (const a of s.audioItems) {
-          if (a.startTime >= gapEnd) {
-            a.startTime = Math.max(0, a.startTime - delta);
+          for (const [id, t] of audioStarts) {
+            // Skip linked tracks here; the binding sync below moves them with
+            // their (possibly shifted) visual owner exactly once.
+            if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
+            const track = s.audioItems.find((a) => a.id === id);
+            if (track) track.startTime = Math.max(0, t);
           }
-        }
-        clampEffectClipStarts(s.items);
-        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
-      }),
+          s.currentTime = nextTime;
+          clampEffectClipStarts(s.items);
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+        return true;
+      },
+
+      insertEmptyTimelineTime: (at, durationSec) => {
+        const state = get();
+        const { itemSpans, audioSpans } = collectSurgerySpans(
+          state.items,
+          state.audioItems,
+        );
+        const plan = planInsertTime(itemSpans, audioSpans, at, durationSec);
+        if (!plan.ok) return false;
+        const itemStarts = new Map(plan.itemUpdates.map((u) => [u.id, u.startTime]));
+        const audioStarts = new Map(plan.audioUpdates.map((u) => [u.id, u.startTime]));
+        const nextTime = mapInsertPlayhead(state.currentTime, at, durationSec);
+        set((s) => {
+          for (const [id, t] of itemStarts) {
+            const it = s.items.get(id);
+            if (it) it.startTime = Math.max(0, t);
+          }
+          for (const [id, t] of audioStarts) {
+            // Skip linked tracks here; the binding sync below moves them with
+            // their (possibly shifted) visual owner exactly once.
+            if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
+            const track = s.audioItems.find((a) => a.id === id);
+            if (track) track.startTime = Math.max(0, t);
+          }
+          s.currentTime = nextTime;
+          clampEffectClipStarts(s.items);
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+        return true;
+      },
 
       setSceneItemStartTimes: (updates) => set((s) => {
         for (const { id, startTime } of updates) {

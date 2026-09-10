@@ -1,4 +1,5 @@
 import type {
+  FrameDef,
   ItemId,
   SceneDefaults,
   SceneItem,
@@ -6,6 +7,7 @@ import type {
 import {
   AGENT_UI_ONLY_FIELDS,
   type AgentContextPayload,
+  type AgentFrameInfo,
   type MinimalSceneItem,
 } from './types';
 
@@ -22,6 +24,9 @@ interface BuildPayloadInput {
   defaults: SceneDefaults;
   currentTime: number;
   items: Map<ItemId, SceneItem> | Iterable<SceneItem>;
+  frames?: readonly FrameDef[];
+  startFrameId?: ItemId | null;
+  activeFrameId?: ItemId | null;
 }
 
 /**
@@ -39,5 +44,15 @@ export function buildContextPayload(input: BuildPayloadInput): AgentContextPaylo
     projectDefaults: { ...input.defaults },
     currentTimeSec: input.currentTime,
     existingItems: raw.map(stripUiFields),
+    frames: (input.frames ?? []).map(
+      (f): AgentFrameInfo => ({
+        id: f.id,
+        label: f.label,
+        col: f.col,
+        row: f.row,
+      }),
+    ),
+    startFrameId: input.startFrameId ?? null,
+    activeFrameId: input.activeFrameId ?? null,
   };
 }

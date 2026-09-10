@@ -20,7 +20,7 @@ import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
 import ItemList from '@/panels/ItemList';
 import FramesPanel from '@/panels/FramesPanel';
-import AddObjectToolbar from '@/panels/AddObjectToolbar';
+import AddObjectToolbar, { InsertAudioActions } from '@/panels/AddObjectToolbar';
 import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
@@ -32,9 +32,12 @@ import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import SceneTabsBar from '@/components/SceneTabsBar';
 
 const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
-const DEFAULT_TOOLBAR_WIDTH = 104;
+const INSERT_SIDEBAR_COLLAPSED_KEY = 'manim-timeline-insert-sidebar-collapsed';
+const DEFAULT_TOOLBAR_WIDTH = 216;
 const MIN_TOOLBAR_WIDTH = 64;
 const MAX_TOOLBAR_WIDTH = 360;
+const COLLAPSED_INSERT_WIDTH = 60;
+const MIN_EXPANDED_INSERT_WIDTH = 180;
 
 function readStoredToolbarWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_TOOLBAR_WIDTH;
@@ -46,6 +49,15 @@ function readStoredToolbarWidth(): number {
     return Math.max(MIN_TOOLBAR_WIDTH, Math.min(MAX_TOOLBAR_WIDTH, Math.round(n)));
   } catch {
     return DEFAULT_TOOLBAR_WIDTH;
+  }
+}
+
+function readStoredInsertCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(INSERT_SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
   }
 }
 
@@ -123,7 +135,24 @@ function isEditableTargetFocused(): boolean {
 export default function App() {
   const [timelineHeight, setTimelineHeight] = useState(220);
   const [toolbarWidth, setToolbarWidth] = useState(readStoredToolbarWidth);
+  const [insertCollapsed, setInsertCollapsed] = useState(readStoredInsertCollapsed);
   const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
+
+  const toggleInsertCollapsed = useCallback(() => {
+    setInsertCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(INSERT_SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  const insertSidebarWidth = insertCollapsed
+    ? COLLAPSED_INSERT_WIDTH
+    : Math.max(toolbarWidth, MIN_EXPANDED_INSERT_WIDTH);
   useAxesPreviewSync();
   const exportOpen = useSceneStore((s) => s.exportOpen);
   const setExportOpen = useSceneStore((s) => s.setExportOpen);
@@ -558,21 +587,29 @@ export default function App() {
 
         <div
           className="flex shrink-0 min-h-0 relative border-r border-slate-700 bg-slate-850/95"
-          style={{ width: toolbarWidth }}
+          style={{ width: insertSidebarWidth }}
         >
           <div className="min-w-0 flex-1 flex flex-col overflow-hidden">
-            <AddObjectToolbar />
+            <AddObjectToolbar
+              collapsed={insertCollapsed}
+              onToggleCollapsed={toggleInsertCollapsed}
+            />
+            <div className="shrink-0 border-t border-slate-700/80 px-2 py-2">
+              <InsertAudioActions collapsed={insertCollapsed} />
+            </div>
           </div>
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize add-objects toolbar"
-            title="Drag to resize toolbar"
-            onPointerDown={startToolbarWidthResize}
-            className="absolute top-0 right-0 bottom-0 w-3 -mr-1.5 z-20 cursor-col-resize flex justify-center touch-none group/seph"
-          >
-            <span className="w-px h-full bg-slate-600 group-hover/seph:bg-blue-400 group-active/seph:bg-blue-300 transition-colors" />
-          </div>
+          {!insertCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize insert sidebar"
+              title="Drag to resize insert sidebar"
+              onPointerDown={startToolbarWidthResize}
+              className="absolute top-0 right-0 bottom-0 w-3 -mr-1.5 z-20 cursor-col-resize flex justify-center touch-none group/seph"
+            >
+              <span className="w-px h-full bg-slate-600 group-hover/seph:bg-blue-400 group-active/seph:bg-blue-300 transition-colors" />
+            </div>
+          )}
         </div>
 
         {/* Center: Canvas */}

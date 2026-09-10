@@ -1162,3 +1162,180 @@ describe('validateAgentResponse', () => {
     expect(act.item.headArrow).toBe(false);
   });
 });
+
+describe('frameId validation', () => {
+  const frameCtx = {
+    frameIds: ['f1', 'f2'],
+    activeFrameId: 'f2',
+    startFrameId: 'f1',
+  };
+
+  it('stamps the active frame onto drawable CREATEs missing frameId', () => {
+    const map = new Map<string, SceneItem>();
+    const result = validateAgentResponse(
+      {
+        reply: 'add a line',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'tl9',
+              kind: 'textLine',
+              label: 'Title',
+              raw: 'hello $x$',
+              font: 'Alef',
+              startTime: 0,
+              duration: 2,
+            },
+          },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'textLine') {
+      throw new Error('expected textLine CREATE');
+    }
+    expect(act.item.frameId).toBe('f2');
+  });
+
+  it('keeps an explicit valid frameId on CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    const result = validateAgentResponse(
+      {
+        reply: 'add axes to frame 1',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'ax9',
+              kind: 'axes',
+              label: 'Axes',
+              frameId: 'f1',
+              xRange: [0, 10, 1],
+              yRange: [0, 10, 1],
+            },
+          },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'axes') {
+      throw new Error('expected axes CREATE');
+    }
+    expect(act.item.frameId).toBe('f1');
+  });
+
+  it('rejects CREATE with an unknown frameId', () => {
+    const map = new Map<string, SceneItem>();
+    const result = validateAgentResponse(
+      {
+        reply: 'bad frame',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'tl9',
+              kind: 'textLine',
+              label: 'Title',
+              raw: 'hello',
+              frameId: 'nope',
+            },
+          },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => /frameId "nope"/.test(e))).toBe(true);
+    }
+  });
+
+  it('rejects UPDATE that sets an unknown frameId', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'move frame',
+        actions: [
+          { action: 'UPDATE', itemId: 'tl1', updates: { frameId: 'nope' } },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => /frameId "nope"/.test(e))).toBe(true);
+    }
+  });
+
+  it('drops frameId on exit_animation CREATE instead of failing', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'exit with stray frame',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'ex9',
+              kind: 'exit_animation',
+              label: 'Exit',
+              startTime: 4,
+              duration: 1,
+              frameId: 'f1',
+              targets: [{ targetId: 'tl1', animStyle: 'fade_out' }],
+            },
+          },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'exit_animation') {
+      throw new Error('expected exit_animation CREATE');
+    }
+    expect('frameId' in act.item).toBe(false);
+  });
+
+  it('accepts blink_animation CREATE without frameId', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'blink',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'bl9',
+              kind: 'blink_animation',
+              label: 'Blink',
+              startTime: 1,
+              duration: 0.5,
+              repetitions: 1,
+              targets: [{ targetId: 'tl1', mode: 'scale' }],
+            },
+          },
+        ],
+      },
+      map,
+      frameCtx,
+    );
+    expect(result.ok).toBe(true);
+  });
+});
