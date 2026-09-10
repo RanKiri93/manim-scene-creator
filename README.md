@@ -11,6 +11,7 @@ This repository holds **Manim-related tooling** for Hebrew and mathematical vide
 | **`manim-timeline/`** | **Main application** — Vite + React 19, Zustand, Konva. See **[manim-timeline/README.md](manim-timeline/README.md)** for full documentation (features, export model, audio timeline, compound clips, dev setup, Tauri). |
 | **`measure_server.py`** | **FastAPI** service: LaTeX measurement for previews, optional **gTTS + Whisper** for the Audio panel, audio upload, Manim **`POST /api/render`** (MP4 or transparent **WebM** via `is_web_export`), **`GET /health`**. Run with **Uvicorn** alongside the Vite dev server. |
 | **`hebrew_math_line.py`**, **`hebrew_math_parser.py`**, … | Python modules used by Manim scenes and by the measure server for layout and styling. |
+| **`legacy/`** | Untracked predecessor / unrelated projects. See **`legacy/README.md`**. |
 
 ---
 

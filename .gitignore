@@ -14,3 +14,9 @@ render_debug/
 
 # Cursor debug logs
 .cursor/debug-*.log
+
+# Legacy / unrelated projects kept out of version control
+legacy/
+
+# Server debug dump (regenerated on each transcription)
+transcribe_debug_latest.json
