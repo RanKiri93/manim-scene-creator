@@ -11,7 +11,13 @@ import type {
 } from '@/types/scene';
 import type { ExportLeaf } from './flattenExport';
 import { effectiveStart, holdEnd } from '@/lib/time';
-import { sequentialAnimSecondsForSurroundingRect } from './groupPlaybackSpan';
+import {
+  sequentialAnimSecondsForBlink,
+  sequentialAnimSecondsForExit,
+  sequentialAnimSecondsForLeaf,
+  sequentialAnimSecondsForSurroundingRect,
+  sequentialAnimSecondsForTargetAnimation,
+} from './groupPlaybackSpan';
 import {
   type BoundAudioTailOpts,
   audioTailWaitAfterLeafPlayback,
@@ -144,7 +150,6 @@ export function clusterConcurrentVisualPlayback(
   flat: ExportLeaf[],
   items: SceneItem[],
   itemsMap: Map<ItemId, SceneItem>,
-  _audioItems: AudioTrackItem[] | undefined,
 ): VisualPlaybackCluster[] {
   const nodes: VisualNode[] = [];
   for (const leaf of flat) {
@@ -250,6 +255,65 @@ export function visualClusterWallSeconds(
     tMax = Math.max(tMax, end);
   }
   return Math.max(0, tMax - tMin);
+}
+
+export function visualClusterManimSeconds(
+  leaves: ExportLeaf[],
+  surroundingRects: SurroundingRectItem[],
+  exitClips: ExitAnimationItem[],
+  blinkClips: BlinkAnimationItem[],
+  targetAnimationClips: TargetAnimationItem[],
+  itemsMap: Map<ItemId, SceneItem>,
+  audioItems: AudioTrackItem[] | undefined,
+  tailOpts?: BoundAudioTailOpts,
+): number {
+  const starts = [
+    ...leaves.map((leaf) => effectiveStart(leaf, itemsMap)),
+    ...surroundingRects.map((sr) => effectiveStart(sr, itemsMap)),
+    ...exitClips.map((ex) => ex.startTime),
+    ...blinkClips.map((bl) => bl.startTime),
+    ...targetAnimationClips.map((ta) => ta.startTime),
+  ];
+  if (starts.length === 0) return 0;
+  const t0 = Math.min(...starts);
+  let sec = 0;
+  for (const leaf of leaves) {
+    const rel = Math.max(0, effectiveStart(leaf, itemsMap) - t0);
+    sec = Math.max(
+      sec,
+      rel + sequentialAnimSecondsForLeaf(leaf, itemsMap, audioItems, tailOpts),
+    );
+  }
+  for (const sr of surroundingRects) {
+    const rel = Math.max(0, effectiveStart(sr, itemsMap) - t0);
+    sec = Math.max(sec, rel + sequentialAnimSecondsForSurroundingRect(sr));
+  }
+  for (const ex of exitClips) {
+    sec = Math.max(
+      sec,
+      Math.max(0, ex.startTime - t0) + sequentialAnimSecondsForExit(ex),
+    );
+  }
+  for (const bl of blinkClips) {
+    sec = Math.max(
+      sec,
+      Math.max(0, bl.startTime - t0) + sequentialAnimSecondsForBlink(bl),
+    );
+  }
+  for (const ta of targetAnimationClips) {
+    sec = Math.max(
+      sec,
+      Math.max(0, ta.startTime - t0) + sequentialAnimSecondsForTargetAnimation(ta),
+    );
+  }
+  return Math.max(sec, visualClusterWallSeconds(
+    leaves,
+    surroundingRects,
+    exitClips,
+    blinkClips,
+    targetAnimationClips,
+    itemsMap,
+  ));
 }
 
 function fmtRt(sec: number): string {
@@ -443,6 +507,16 @@ function concurrentBranchForLeaf(
     const intro =
       leaf.introStyle === 'fade_in' ? `FadeIn(${varName})` : `Create(${varName})`;
     return `Succession(Wait(${wStr}), ${intro}, run_time=${rtStr})`;
+  }
+
+  if (leaf.kind === 'image') {
+    const varName = idToVarName.get(leaf.id)!;
+    const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
+    const rtStr = recorded
+      ? recorded.runTime.toFixed(6)
+      : Math.max(0.05, leaf.duration).toFixed(6);
+    const intro = `FadeIn(${varName}, run_time=${rtStr})`;
+    return `Succession(Wait(${wStr}), ${intro}${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
 
   return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
@@ -680,13 +754,15 @@ export function buildConcurrentVisualClusterPlay(
 
   const wall = Math.max(
     0.01,
-    visualClusterWallSeconds(
+    visualClusterManimSeconds(
       leaves,
       surroundingRects,
       exitClips,
       blinkClips,
       targetAnimationClips,
       itemsMap,
+      audioItems,
+      tailOpts,
     ),
   );
   const wallStr = wall.toFixed(4);

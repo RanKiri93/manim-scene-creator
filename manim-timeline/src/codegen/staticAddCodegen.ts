@@ -67,6 +67,8 @@ function staticAddExprsForLeaf(
     }
     case 'shape':
       return [idToVarName.get(leaf.id)!];
+    case 'image':
+      return [idToVarName.get(leaf.id)!];
     default:
       return [];
   }

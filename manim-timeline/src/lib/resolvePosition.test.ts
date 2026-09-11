@@ -8,6 +8,7 @@ import {
 import type {
   AxesItem,
   GraphDotItem,
+  ImageItem,
   MeasureResult,
   ShapeItem,
   SceneItem,
@@ -241,6 +242,84 @@ describe('resolvePositionOrAxesAnchor', () => {
     const bbAx = getItemSurroundBBox(axes, m);
     expect(bbDot.w).toBeCloseTo(bbAx.w);
     expect(bbDot.h).toBeCloseTo(bbAx.h);
+  });
+});
+
+function image(
+  id: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  posSteps: ImageItem['posSteps'],
+): ImageItem {
+  return {
+    kind: 'image',
+    id,
+    label: id,
+    layer: 0,
+    startTime: 0,
+    duration: 1,
+    x,
+    y,
+    scale: 1,
+    posSteps,
+    audioTrackId: null,
+    srcUrl: 'blob:test',
+    fileName: `${id}.png`,
+    mimeType: 'image/png',
+    width: w,
+    height: h,
+    opacity: 1,
+    rotationDeg: 0,
+  };
+}
+
+describe('getItemBBox image', () => {
+  it('uses width/height scaled by item.scale', () => {
+    const b = getItemBBox(image('i', 1, 2, 4, 2, [{ kind: 'absolute' }]));
+    expect(b.x).toBe(1);
+    expect(b.y).toBe(2);
+    expect(b.w).toBeCloseTo(4);
+    expect(b.h).toBeCloseTo(2);
+  });
+
+  it('scales with item.scale', () => {
+    const img = image('i', 0, 0, 4, 2, [{ kind: 'absolute' }]);
+    img.scale = 1.5;
+    const b = getItemBBox(img);
+    expect(b.w).toBeCloseTo(6);
+    expect(b.h).toBeCloseTo(3);
+  });
+});
+
+describe('resolvePosition image', () => {
+  it('drives next_to spacing from the image bbox', () => {
+    const ref = image('ref', 0, 0, 4, 2, [{ kind: 'absolute' }]);
+    const self = shape('s', 0, 0, 2, 2, [
+      { kind: 'absolute' },
+      {
+        kind: 'next_to',
+        refKind: 'image',
+        refId: 'ref',
+        dir: 'RIGHT',
+        buff: 0.5,
+        alignedEdge: null,
+        refSegmentIndex: null,
+        selfSegmentIndex: null,
+        bounds: null,
+      },
+    ]);
+    const p = resolvePosition(self, mapOf(ref, self));
+    // ref right edge at x=2, self half-width 1, buff 0.5 → center x=3.5.
+    expect(p.x).toBeCloseTo(3.5);
+    expect(p.y).toBeCloseTo(0);
+  });
+
+  it('places images with to_edge from their own bbox', () => {
+    const img = image('i', 0, 0, 4, 2, [{ kind: 'to_edge', edge: 'RIGHT', buff: 0.3 }]);
+    const p = resolvePosition(img, mapOf(img));
+    expect(p.x).toBeCloseTo(FRAME_W / 2 - 4 / 2 - 0.3);
   });
 });
 

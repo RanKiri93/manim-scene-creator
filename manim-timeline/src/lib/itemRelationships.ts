@@ -6,7 +6,7 @@ import { itemClipDisplayName } from '@/lib/itemDisplayName';
  *
  * Roles:
  * - `object` — drawable rows that become group headers (text, axes, graph
- *   overlays, shapes, and surrounding rects, which exits can target).
+ *   overlays, shapes, images, and surrounding rects, which exits can target).
  * - `effect` — clips that nest under the objects they target
  *   (`exit_animation`, `blink_animation`, `target_animation`).
  * - `global` — clips with no object scope (`camera_move`); always listed in

@@ -5,6 +5,7 @@ import type {
   BlinkAnimationItem,
   BlinkTargetSpec,
   FrameDef,
+  ImageItem,
   ItemId,
   SceneItem,
   TextLineItem,
@@ -224,6 +225,31 @@ export function textIntroFinished(
   if (isVisibleAtSceneStartItem(item) && time >= t0) return true;
   const animOnly = previewRunTime(item, items, audioItems);
   return time >= t0 + animOnly + segmentWaitTotal(item.segments);
+}
+
+/**
+ * Intro opacity multiplier `[0, 1]` for the Konva image preview.
+ *
+ * Mirrors export `FadeIn(image_N, run_time=item.duration)`: linear progress over
+ * `previewRunTime` (the image `duration`), reshaped by `manimSmoothProgress` to
+ * match Manim's default eased pacing. `0` before `effectiveStart`, `1` once the
+ * intro window ends or for `visibleAtSceneStart` items. The item's own
+ * `opacity` stays out — callers multiply `clampImageOpacity(item.opacity)` by
+ * this so the user-controlled final opacity remains the source of truth.
+ */
+export function imageIntroOpacity(
+  item: ImageItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  const t0 = effectiveStart(item, items);
+  if (time < t0) return 0;
+  if (isVisibleAtSceneStartItem(item)) return 1;
+  const dur = previewRunTime(item, items, audioItems);
+  if (!(dur > 0) || !Number.isFinite(dur)) return 1;
+  if (time >= t0 + dur) return 1;
+  return manimSmoothProgress((time - t0) / dur);
 }
 
 export function activeTextTransformForLine(

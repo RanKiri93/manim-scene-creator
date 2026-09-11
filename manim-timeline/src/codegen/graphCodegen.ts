@@ -385,6 +385,9 @@ export function resolveExitTargetsForExport(
   if (target.kind === 'shape') {
     return idToVarName.get(target.id) ?? null;
   }
+  if (target.kind === 'image') {
+    return idToVarName.get(target.id) ?? null;
+  }
   return null;
 }
 
@@ -687,7 +690,7 @@ export function generateGraphDotDef(
   let s = line;
   if (dot.label.trim()) {
     const lblVar = `${dVar}_lbl`;
-    s += `${pad}${lblVar} = Text(${pythonStringLiteral(dot.label.trim())}, font_size=18)\n`;
+    s += `${pad}${lblVar} = HebrewMathLine(${pythonStringLiteral(dot.label.trim())}, font_size=18, hebrew_font="Alef")\n`;
   }
   return s;
 }

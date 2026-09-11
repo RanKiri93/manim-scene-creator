@@ -18,6 +18,7 @@ import type {
   GraphAreaItem,
   SurroundingRectItem,
   ExitAnimStyle,
+  ImageItem,
 } from '@/types/scene';
 import { functionSeriesHasErrors, isVisibleAtSceneStartItem, pointSequenceHasErrors } from '@/types/scene';
 import { safeSceneClassName } from '@/lib/pythonIdent';
@@ -67,6 +68,12 @@ import {
   generateShapePos,
   generateShapePlay,
 } from './shapeCodegen';
+import {
+  generateImageDef,
+  generateImagePos,
+  generateImagePlay,
+  imageNeedsEmbeddedDataHelper,
+} from './imageCodegen';
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
@@ -79,7 +86,7 @@ import {
 import {
   buildConcurrentVisualClusterPlay,
   clusterConcurrentVisualPlayback,
-  visualClusterWallSeconds,
+  visualClusterManimSeconds,
 } from './leafConcurrentCodegen';
 import {
   anyReplacementFunctionSeries,
@@ -324,7 +331,12 @@ function validateNextToExportOrder(
   flat.forEach((leaf, i) => orderIndex.set(leaf.id, i));
 
   for (const it of flat) {
-    if (it.kind !== 'textLine' && it.kind !== 'axes' && it.kind !== 'shape') {
+    if (
+      it.kind !== 'textLine' &&
+      it.kind !== 'axes' &&
+      it.kind !== 'shape' &&
+      it.kind !== 'image'
+    ) {
       continue;
     }
     const ti = orderIndex.get(it.id);
@@ -341,7 +353,7 @@ function validateNextToExportOrder(
       const ri = orderIndex.get(step.refId);
       if (ri === undefined) {
         throw new Error(
-          `Positioning: "${it.label || it.id}" next_to references "${step.refId}", which is not exported as a top-level line/axes/shape.`,
+          `Positioning: "${it.label || it.id}" next_to references "${step.refId}", which is not exported as a top-level line/axes/shape/image.`,
         );
       }
       if (ri >= ti) {
@@ -448,6 +460,9 @@ function exportManimCodeInner(
   validateNextToExportOrder(flat, itemsMap, frameIdFor);
 
   const needsNumpy = flat.some(leafNeedsNumpy);
+  const needsEmbeddedImageData = flat.some(
+    (it): it is ImageItem => it.kind === 'image' && imageNeedsEmbeddedDataHelper(it),
+  );
 
   const base = options.fullFile ? 8 : 4;
   const prefix = options.defaults.exportNamePrefix;
@@ -457,6 +472,7 @@ function exportManimCodeInner(
   let lineNum = 0;
   let axesNum = 0;
   let shapeNum = 0;
+  let imageNum = 0;
   for (const it of flat) {
     if (it.kind === 'textLine') {
       lineNum += 1;
@@ -467,6 +483,9 @@ function exportManimCodeInner(
     } else if (it.kind === 'shape') {
       shapeNum += 1;
       idToVarName.set(it.id, pf(`shape_${shapeNum}`));
+    } else if (it.kind === 'image') {
+      imageNum += 1;
+      idToVarName.set(it.id, pf(`image_${imageNum}`));
     }
   }
 
@@ -567,6 +586,9 @@ function exportManimCodeInner(
     } else if (it.kind === 'shape') {
       const varName = idToVarName.get(it.id)!;
       defStr += generateShapeDef(it, varName, base);
+    } else if (it.kind === 'image') {
+      const varName = idToVarName.get(it.id)!;
+      defStr += generateImageDef(it, varName, base);
     }
   }
 
@@ -662,6 +684,23 @@ function exportManimCodeInner(
           );
         }
       }
+    } else if (it.kind === 'image') {
+      const varName = idToVarName.get(it.id)!;
+      posStr += generateImagePos(it, varName, base, idToVarName, itemsMap);
+      const srs = surroundByAnchor.get(it.id);
+      if (srs) {
+        for (const sr of srs) {
+          const sv = idToVarName.get(sr.id);
+          if (!sv) continue;
+          posStr += generateSurroundingRectPosBlock(
+            sr,
+            sv,
+            idToVarName,
+            itemsMap,
+            base,
+          );
+        }
+      }
     }
   }
 
@@ -673,7 +712,12 @@ function exportManimCodeInner(
     frameVars.set(frameId, set);
   };
   for (const it of flat) {
-    if (it.kind === 'textLine' || it.kind === 'axes' || it.kind === 'shape') {
+    if (
+      it.kind === 'textLine' ||
+      it.kind === 'axes' ||
+      it.kind === 'shape' ||
+      it.kind === 'image'
+    ) {
       addFrameVar(frameIdFor(it), idToVarName.get(it.id));
       continue;
     }
@@ -729,7 +773,6 @@ function exportManimCodeInner(
     flatPlayback,
     items,
     itemsMap,
-    options.audioItems,
   );
   const inVisualCluster = new Set<ItemId>();
   for (const c of visualClusters) {
@@ -1027,6 +1070,17 @@ function exportManimCodeInner(
         tailOpts,
       );
     }
+    if (it.kind === 'image') {
+      const varName = idToVarName.get(it.id)!;
+      return generateImagePlay(
+        it,
+        varName,
+        base,
+        itemsMap,
+        options.audioItems,
+        tailOpts,
+      );
+    }
     return '';
   };
 
@@ -1187,13 +1241,19 @@ function exportManimCodeInner(
 
     let animSec = 0;
     for (const vc of visualClustersInGroup) {
-      animSec += visualClusterWallSeconds(
+      const wallT = concurrentClusterWallTimelineEnd(vc, itemsMap);
+      const clusterTailCeil = nextTimelineEventAfter(wallT, playEvents);
+      animSec += visualClusterManimSeconds(
         vc.leaves,
         vc.surroundingRects,
         vc.exitClips,
         vc.blinkClips,
         vc.targetAnimationClips,
         itemsMap,
+        options.audioItems,
+        clusterTailCeil != null
+          ? { tailCeilingAbs: clusterTailCeil }
+          : undefined,
       );
     }
     for (const e of leaves) {
@@ -1279,6 +1339,9 @@ function exportManimCodeInner(
     '        return c\n';
   if (needsNumpy) {
     header += 'import numpy as np\n';
+  }
+  if (needsEmbeddedImageData) {
+    header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
 

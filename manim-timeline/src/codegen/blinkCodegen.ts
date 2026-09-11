@@ -132,6 +132,10 @@ function blinkRowAnimParts(
     return blinkGraphFieldParts(target, spec, idToVarName, forward, sf, inv, bc);
   }
 
+  if (target.kind === 'image' && usesColor(mode)) {
+    return null;
+  }
+
   const expr = resolveExitTargetsForExport(target, idToVarName, 'exit');
   if (!expr) return null;
   const restore = blinkRestoreColorExpr(target);

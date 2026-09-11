@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BlinkAnimationItem, SceneItem } from '@/types/scene';
-import { createTextLine, defaultSceneDefaults } from '@/store/factories';
+import { createImageItem, createTextLine, defaultSceneDefaults } from '@/store/factories';
 import { formatBlinkClipPlay } from './blinkCodegen';
 
 function mapOf(...items: SceneItem[]): Map<string, SceneItem> {
@@ -134,5 +134,65 @@ describe('formatBlinkClipPlay', () => {
     const idToVar = new Map<string, string>([['ln1', 'line_a']]);
     const code = formatBlinkClipPlay(blink, '', idToVar, items);
     expect(code).toContain('.animate.set_color(');
+  });
+
+  it('supports image scale blink', () => {
+    const img = createImageItem({
+      srcUrl: 'blob:img',
+      fileName: 'img.png',
+      mimeType: 'image/png',
+      width: 2,
+      height: 1,
+    });
+    img.id = 'img1';
+    const blink: BlinkAnimationItem = {
+      kind: 'blink_animation',
+      id: 'b_img',
+      label: '',
+      layer: 0,
+      startTime: 0,
+      duration: 0.6,
+      repetitions: 1,
+      targets: [{ targetId: 'img1', mode: 'scale', scaleFactor: 1.25 }],
+    };
+    const code = formatBlinkClipPlay(
+      blink,
+      '',
+      new Map([['img1', 'image_a']]),
+      mapOf(img, blink),
+    );
+
+    expect(code).toContain('image_a.animate.scale(1.250000)');
+    expect(code).toContain('image_a.animate.scale(0.800000)');
+    expect(code).toMatch(/run_time=0\.3000/);
+  });
+
+  it('does not emit color blink for images', () => {
+    const img = createImageItem({
+      srcUrl: 'blob:img',
+      fileName: 'img.png',
+      mimeType: 'image/png',
+      width: 2,
+      height: 1,
+    });
+    img.id = 'img1';
+    const blink: BlinkAnimationItem = {
+      kind: 'blink_animation',
+      id: 'b_img_color',
+      label: '',
+      layer: 0,
+      startTime: 0,
+      duration: 0.6,
+      repetitions: 1,
+      targets: [{ targetId: 'img1', mode: 'color', blinkColor: '#ff0000' }],
+    };
+    const code = formatBlinkClipPlay(
+      blink,
+      '',
+      new Map([['img1', 'image_a']]),
+      mapOf(img, blink),
+    );
+
+    expect(code).toBe('');
   });
 });

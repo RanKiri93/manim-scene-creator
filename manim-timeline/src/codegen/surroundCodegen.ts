@@ -152,7 +152,7 @@ export function generateSurroundingRectPosBlock(
   s += `${pad}${srVar} = SurroundingRectangle(${srVar}_tgt, buff=${item.buff.toFixed(4)}, color=${manimColor(item.color)}, stroke_width=${item.strokeWidth.toFixed(4)}${cr})\n`;
   if (item.labelText.trim()) {
     s +=
-      `${pad}${srVar}_lbl = Text(${pythonStringLiteral(item.labelText.trim())}, font_size=${Math.round(item.labelFontSize)})\n`;
+      `${pad}${srVar}_lbl = HebrewMathLine(${pythonStringLiteral(item.labelText.trim())}, font_size=${Math.round(item.labelFontSize)}, hebrew_font="Alef")\n`;
     s += `${pad}${srVar}_lbl.next_to(${srVar}, ${item.labelDir}, buff=0.12)\n`;
   }
   return s;

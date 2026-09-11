@@ -295,3 +295,139 @@ describe('packMtprojToBlob multi-scene', () => {
     }
   });
 });
+
+describe('image texture assets', () => {
+  const origFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  function imageItem(id: string, srcUrl: string, fileName = 'pic.png') {
+    return {
+      kind: 'image' as const,
+      id,
+      label: '',
+      layer: 0,
+      startTime: 0,
+      duration: 2,
+      x: 0,
+      y: 0,
+      scale: 1,
+      posSteps: [{ kind: 'absolute' as const }],
+      audioTrackId: null,
+      srcUrl,
+      fileName,
+      mimeType: 'image/png',
+      width: 3,
+      height: 2,
+      opacity: 1,
+      rotationDeg: 0,
+    };
+  }
+
+  it('packs a single-scene image to assets/textures and rehydrates to a blob URL', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(new Uint8Array([1, 2, 3, 4])),
+    ) as typeof fetch;
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = () => 'blob:img-roundtrip';
+    URL.revokeObjectURL = () => {};
+    try {
+      const project = minimalProject({
+        items: [imageItem('img1', 'https://example.com/pic.png')],
+      });
+      const blob = await packMtprojToBlob(project);
+      const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+      if (isMultiSceneProjectFile(out)) throw new Error('expected single scene');
+      const img = out.items[0];
+      if (img?.kind !== 'image') throw new Error('expected image item');
+      expect(img.assetRelPath).toBe('assets/textures/pic.png');
+      expect(img.srcUrl).toBe('blob:img-roundtrip');
+      expect(img.fileName).toBe('pic.png');
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
+
+  it('collects images from every multi-scene payload with unique paths', async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(new Uint8Array([5, 6, 7])),
+    ) as typeof fetch;
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    let seq = 0;
+    URL.createObjectURL = () => {
+      seq += 1;
+      return `blob:ms-img-${seq}`;
+    };
+    URL.revokeObjectURL = () => {};
+    try {
+      const f1 = defaultFrames();
+      const f2 = defaultFrames();
+      const multi: MultiSceneProjectFile = {
+        kind: MULTISCENE_PROJECT_KIND,
+        version: minimalProject().version,
+        savedAt: '2026-01-01T00:00:00.000Z',
+        measureConfig: {
+          url: 'http://127.0.0.1:8765',
+          enabled: true,
+          includePreview: false,
+        },
+        activeSceneId: 's1',
+        scenes: [
+          {
+            id: 's1',
+            name: 'One',
+            defaults: minimalProject().defaults,
+            frames: f1.frames,
+            startFrameId: f1.startFrameId,
+            items: [imageItem('img1', 'https://cdn.example/same.png')],
+          },
+          {
+            id: 's2',
+            name: 'Two',
+            defaults: minimalProject().defaults,
+            frames: f2.frames,
+            startFrameId: f2.startFrameId,
+            items: [imageItem('img2', 'https://cdn.example/same.png')],
+          },
+        ],
+      };
+      const blob = await packMtprojToBlob(multi);
+      const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+      if (!isMultiSceneProjectFile(out)) throw new Error('expected multi');
+      const i0 = out.scenes[0]!.items[0];
+      const i1 = out.scenes[1]!.items[0];
+      if (i0?.kind !== 'image' || i1?.kind !== 'image') {
+        throw new Error('expected image items');
+      }
+      expect(i0.srcUrl.startsWith('blob:')).toBe(true);
+      expect(i1.srcUrl.startsWith('blob:')).toBe(true);
+      expect(i0.assetRelPath).toMatch(/^assets\/textures\//);
+      expect(i1.assetRelPath).toMatch(/^assets\/textures\//);
+      expect(i0.assetRelPath).not.toBe(i1.assetRelPath);
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
+
+  it('fails load when a texture asset does not match its manifest MD5', () => {
+    const good = new Uint8Array([1, 2, 3]);
+    const bad = new Uint8Array([9, 9, 9]);
+    const manifest = {
+      bundleFormatVersion: MTPROJ_BUNDLE_FORMAT_VERSION,
+      assets: { 'assets/textures/pic.png': md5Lower(good) },
+    };
+    const state = minimalProject({ items: [imageItem('img1', 'assets/textures/pic.png')] });
+    const zipped = zipSync({
+      'manifest.json': strToU8(JSON.stringify(manifest)),
+      'state.json': strToU8(JSON.stringify(state)),
+      'assets/textures/pic.png': bad,
+    });
+    expect(() => parseMtprojFromUint8Array(zipped)).toThrow(MtprojUnpackError);
+  });
+});

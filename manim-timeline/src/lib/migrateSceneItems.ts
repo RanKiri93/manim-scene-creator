@@ -66,7 +66,7 @@ function normalizePosSteps(steps: PosStep[]): PosStep[] {
     if (step.kind !== 'next_to') return step;
     const refKind =
       (step as { refKind?: string }).refKind === 'graph' ? 'axes' : step.refKind;
-    const rk = refKind === 'line' || refKind === 'axes' || refKind === 'shape' ? refKind : 'line';
+    const rk = refKind === 'line' || refKind === 'axes' || refKind === 'shape' || refKind === 'image' ? refKind : 'line';
     return normalizeNextToPosStep({ ...step, refKind: rk });
   });
 }

@@ -16,6 +16,7 @@ import CameraMoveEditor from './CameraMoveEditor';
 import FrameAssignmentPanel from './FrameAssignmentPanel';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
+import ImageEditor from './ImageEditor';
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
@@ -165,6 +166,9 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
       break;
     case 'shape':
       body = <ShapeEditor item={item} />;
+      break;
+    case 'image':
+      body = <ImageEditor item={item} />;
       break;
     default:
       body = <p className="text-xs text-slate-500 p-4">Unknown item kind.</p>;

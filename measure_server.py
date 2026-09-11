@@ -92,6 +92,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from manim import config
+from manim.camera.camera import Camera
 from manim.mobject.mobject import Mobject
 
 try:
@@ -239,7 +240,9 @@ def mobject_to_cropped_png_base64(
     frame_w = float(config.frame_width)
     frame_h = float(config.frame_height)
 
-    img = mob.get_image()
+    # Manim 0.21's Mobject.get_image() calls Camera() without importing it.
+    # Pass an explicit camera so preview PNG rasterization still works.
+    img = mob.get_image(camera=Camera())
     pil_rgba = img.convert("RGBA")
     arr = np.asarray(pil_rgba, dtype=np.uint8).copy()
     hpx, wpx = arr.shape[0], arr.shape[1]

@@ -29,7 +29,8 @@ export function canBeSurroundTarget(item: SceneItem): boolean {
     item.kind === 'graphFunctionSeries' ||
     item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
-    item.kind === 'shape'
+    item.kind === 'shape' ||
+    item.kind === 'image'
   );
 }
 
@@ -50,7 +51,10 @@ export function canBeTargetAnimationTargetKind(
 ): boolean {
   switch (mode) {
     case 'scale':
+      return canBeExitTarget({ kind } as SceneItem);
     case 'color':
+      // Images have no recolorable stroke: scale-only blink/color targets exclude them.
+      if (kind === 'image') return false;
       return canBeExitTarget({ kind } as SceneItem);
     case 'move':
     case 'path':
@@ -58,11 +62,15 @@ export function canBeTargetAnimationTargetKind(
         kind === 'textLine' ||
         kind === 'axes' ||
         kind === 'shape' ||
+        kind === 'image' ||
         kind === 'surroundingRect'
       );
     case 'rotate':
       return (
-        kind === 'textLine' || kind === 'shape' || kind === 'surroundingRect'
+        kind === 'textLine' ||
+        kind === 'shape' ||
+        kind === 'image' ||
+        kind === 'surroundingRect'
       );
     default:
       return false;
@@ -163,7 +171,8 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
     item.kind === 'graphFunctionSeries' ||
     item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
-    item.kind === 'shape'
+    item.kind === 'shape' ||
+    item.kind === 'image'
   ) {
     return item.duration;
   }

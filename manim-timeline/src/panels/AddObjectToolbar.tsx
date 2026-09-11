@@ -162,6 +162,16 @@ function IconShape() {
   );
 }
 
+function IconImage() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <rect x="3.5" y="4.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="7" cy="8" r="1.3" fill="currentColor" />
+      <path d="M4 13.5l3.2-3.2 2.4 2.4 2-2 3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function IconGraphPlot() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -477,6 +487,14 @@ export default function AddObjectToolbar({
           onClick={actions.addShape}
         >
           <IconShape />
+        </ToolButton>
+        <ToolButton
+          collapsed={collapsed}
+          label="Image"
+          title="Image (PNG, JPG, GIF as still picture)"
+          onClick={actions.addImageViaPicker}
+        >
+          <IconImage />
         </ToolButton>
         <ToolButton
           collapsed={collapsed}

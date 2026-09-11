@@ -81,6 +81,10 @@ export function itemClipDisplayName(item: SceneItem): string {
       const t = item.shapeType;
       return item.label.trim() || `${t[0]!.toUpperCase()}${t.slice(1)}`;
     }
+    case 'image': {
+      const base = item.fileName.trim() || 'picture';
+      return `Image: ${trunc(base, 24)}`;
+    }
     default:
       return '?';
   }

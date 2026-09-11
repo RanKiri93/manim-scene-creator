@@ -103,6 +103,9 @@ export function getItemBBox(item: SceneItem): ItemBBox {
         w = 0.5;
         h = 0.5;
     }
+  } else if (item.kind === 'image') {
+    w = Number.isFinite(item.width) && item.width > 0 ? item.width : 3;
+    h = Number.isFinite(item.height) && item.height > 0 ? item.height : 2;
   } else {
     w = 0.5;
     h = 0.5;

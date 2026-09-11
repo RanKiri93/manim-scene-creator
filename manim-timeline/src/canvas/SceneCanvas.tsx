@@ -9,6 +9,7 @@ import {
 import GridLayer from './layers/GridLayer';
 import TextLineNode from './layers/TextLineNode';
 import ShapeNode from './layers/ShapeNode';
+import ImageNode from './layers/ImageNode';
 import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
@@ -22,6 +23,7 @@ import {
   exitPreviewForTarget,
   blinkPreviewForTarget,
   cameraOffsetAtTime,
+  imageIntroOpacity,
   targetAnimPreviewAccum,
   lerpHexColor,
   type ExitPreviewState,
@@ -44,6 +46,7 @@ import {
 } from '@/lib/frameGrid';
 import type {
   AxesItem,
+  ImageItem,
   ItemId,
   SceneItem,
   ShapeItem,
@@ -69,6 +72,7 @@ type CanvasEntry =
   | { kind: 'graph'; layer: number; graph: GraphLayerState }
   | { kind: 'text'; layer: number; item: TextLineItem }
   | { kind: 'shape'; layer: number; item: ShapeItem }
+  | { kind: 'image'; layer: number; item: ImageItem }
   | {
       kind: 'surround';
       layer: number;
@@ -261,6 +265,23 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     [itemsMap, currentTime, selectedIds],
   );
 
+  const visibleImages = useMemo(
+    () =>
+      Array.from(itemsMap.values())
+        .filter(
+          (it): it is ImageItem =>
+            it.kind === 'image' && isActiveAtTime(it, currentTime, itemsMap),
+        )
+        .sort((a, b) => {
+          if (a.layer !== b.layer) return a.layer - b.layer;
+          // Same layer: draw selected image last so its transformer handles sit on top.
+          const sa = selectedIds.has(a.id) ? 1 : 0;
+          const sb = selectedIds.has(b.id) ? 1 : 0;
+          return sa - sb;
+        }),
+    [itemsMap, currentTime, selectedIds],
+  );
+
   const surroundCanvasEntries = useMemo((): CanvasEntry[] => {
     const out: CanvasEntry[] = [];
     for (const it of itemsMap.values()) {
@@ -346,14 +367,22 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     for (const item of visibleShapes) {
       e.push({ kind: 'shape', layer: item.layer, item });
     }
+    for (const item of visibleImages) {
+      e.push({ kind: 'image', layer: item.layer, item });
+    }
     e.push(...surroundCanvasEntries);
     e.sort((a, b) => a.layer - b.layer);
     return e;
-  }, [graphLayers, visibleItems, visibleShapes, surroundCanvasEntries]);
+  }, [graphLayers, visibleItems, visibleShapes, visibleImages, surroundCanvasEntries]);
 
   const resolvedPositions = useResolvedPositions(visibleItems, itemsMap, currentTime);
   const resolvedShapePositions = useResolvedPositions(
     visibleShapes,
+    itemsMap,
+    currentTime,
+  );
+  const resolvedImagePositions = useResolvedPositions(
+    visibleImages,
     itemsMap,
     currentTime,
   );
@@ -823,6 +852,42 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   </PreviewWrap>
                 );
               }
+              if (entry.kind === 'image') {
+                const item = entry.item;
+                const selected = selectedIds.has(item.id);
+                const pos = resolvedImagePositions.get(item.id);
+                const bImg = blinkPreviewForTarget(item.id, currentTime, itemsMap);
+                const taImg = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
+                const fcImg = frameOffsetForItem(item);
+                const mx = (pos?.x ?? item.x) + fcImg.x;
+                const my = (pos?.y ?? item.y) + fcImg.y;
+                // Manim-smooth FadeIn over the image clip duration (export
+                // `FadeIn(image_N, run_time=item.duration)`); multiplies with
+                // exit fade inside PlaybackWrap, agent-preview dimming outside.
+                const introImg = imageIntroOpacity(item, currentTime, itemsMap, audioItems);
+                return (
+                  <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
+                    <PlaybackWrap
+                      exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
+                      blink={bImg}
+                      extraTaScale={taImg.scaleMul}
+                      rotationDeg={-taImg.rotDeg}
+                      scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
+                      baseOpacity={introImg}
+                    >
+                      <ImageNode
+                        item={item}
+                        canvasWidth={size.width}
+                        canvasHeight={size.height}
+                        isSelected={selected}
+                        resolvedX={mx}
+                        resolvedY={my}
+                        frameOffset={fcImg}
+                      />
+                    </PlaybackWrap>
+                  </PreviewWrap>
+                );
+              }
               const sr = entry.item;
               const bSr = blinkPreviewForTarget(sr.id, currentTime, itemsMap);
               const srTa = targetAnimPreviewAccum(sr.id, currentTime, itemsMap);
@@ -866,6 +931,7 @@ function PlaybackWrap({
   scaleAnchor,
   extraTaScale = 1,
   rotationDeg = 0,
+  baseOpacity = 1,
   children,
 }: {
   exit: ExitPreviewState | null;
@@ -876,9 +942,18 @@ function PlaybackWrap({
   extraTaScale?: number;
   /** Clockwise Konva rotation in degrees around `scaleAnchor` (typically `-ta.rotDeg`). */
   rotationDeg?: number;
+  /**
+   * Intro opacity multiplier (e.g. image FadeIn preview). Multiplied with the
+   * exit fade so intro and exit compose; default 1 (no intro).
+   */
+  baseOpacity?: number;
   children: React.ReactNode;
 }) {
-  const opacity = exit?.opacity ?? 1;
+  const base =
+    typeof baseOpacity === 'number' && Number.isFinite(baseOpacity)
+      ? Math.max(0, Math.min(1, baseOpacity))
+      : 1;
+  const opacity = Math.max(0, Math.min(1, (exit?.opacity ?? 1) * base));
   const taSc =
     typeof extraTaScale === 'number' &&
     Number.isFinite(extraTaScale) &&

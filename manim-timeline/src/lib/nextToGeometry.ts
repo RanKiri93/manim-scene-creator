@@ -182,6 +182,16 @@ export function alignBoxForItemAt(
     return { cx: mobX, cy: mobY, hw: w / 2, hh: h / 2 };
   }
 
+  if (item.kind === 'image') {
+    const w =
+      (Number.isFinite(item.width) && item.width > 0 ? item.width : 3) *
+      item.scale;
+    const h =
+      (Number.isFinite(item.height) && item.height > 0 ? item.height : 2) *
+      item.scale;
+    return { cx: mobX, cy: mobY, hw: w / 2, hh: h / 2 };
+  }
+
   return { cx: mobX, cy: mobY, hw: 0.25, hh: 0.25 };
 }
 

@@ -1,11 +1,15 @@
-import { useState, useMemo, useCallback, type ChangeEvent, type FormEvent } from 'react';
+import { useState, useMemo, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
   snapshotEditorToDiskPayload,
   useProjectScenesStore,
 } from '@/store/useProjectScenesStore';
 import { exportManimCode } from '@/codegen/manimExporter';
-import { exportMultiSceneCombinedPython } from '@/codegen/projectExporter';
+import { exportMultiSceneCombinedPython, type SceneExportInput } from '@/codegen/projectExporter';
+import {
+  imageNeedsExportPreparation,
+  prepareImageItemsForManimExport,
+} from '@/lib/imageExportAssets';
 import {
   exportAudioScriptToMarkdown,
   exportScriptToMarkdown,
@@ -92,18 +96,91 @@ export default function ExportPanel() {
   const [renderAllErr, setRenderAllErr] = useState<string | null>(null);
   const [renderAllProgress, setRenderAllProgress] = useState<RenderProgressState | null>(null);
 
-  const code = useMemo(
-    () => exportManimCode(items, { fullFile, defaults, frames, startFrameId, audioItems }),
-    [items, fullFile, defaults, frames, startFrameId, audioItems],
-  );
+  // Live `blob:`/`http(s):` images cannot go straight into Manim Python
+  // (codegen only accepts bundle paths or embedded data URLs), so prepare an
+  // export-only snapshot with those bytes inlined as data URLs. The store and
+  // persisted project are never touched — preparation clones items.
+  const [preparedExports, setPreparedExports] = useState<{
+    single: SceneItem[];
+    multi: SceneExportInput[];
+  } | null>(null);
+  const [needsImagePrep, setNeedsImagePrep] = useState(false);
+  const [preparingImages, setPreparingImages] = useState(false);
+  const [imagePrepError, setImagePrepError] = useState<string | null>(null);
 
-  const codeFullFile = useMemo(
-    () => exportManimCode(items, { fullFile: true, defaults, frames, startFrameId, audioItems }),
-    [items, defaults, frames, startFrameId, audioItems],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    const ps = useProjectScenesStore.getState();
+    ps.persistActiveIntoIdle();
+    const file = ps.toMultiSceneProjectFile();
+    const needsWork =
+      items.some(imageNeedsExportPreparation) ||
+      file.scenes.some((sc) => (sc.items ?? []).some(imageNeedsExportPreparation));
+    setNeedsImagePrep(needsWork);
+    if (!needsWork) {
+      setPreparedExports(null);
+      setImagePrepError(null);
+      setPreparingImages(false);
+      return;
+    }
+    // Retain previous code until the new snapshot is ready.
+    setPreparingImages(true);
+    void (async () => {
+      try {
+        const single = await prepareImageItemsForManimExport(items);
+        // Re-run if scene tabs changed mid-prep; that effect run owns the update.
+        const sig = sceneOrderSig;
+        const multi: SceneExportInput[] = [];
+        for (const sc of file.scenes) {
+          multi.push({
+            items: await prepareImageItemsForManimExport(sc.items ?? []),
+            defaults: sc.defaults,
+            frames: sc.frames,
+            startFrameId: sc.startFrameId,
+            audioItems: sc.audioItems,
+          });
+        }
+        if (cancelled) return;
+        if (useProjectScenesStore.getState().sceneIds.join('|') !== sig) return;
+        setPreparedExports({ single, multi });
+        setImagePrepError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setPreparedExports(null);
+        setImagePrepError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setPreparingImages(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [items, sceneOrderSig]);
+
+  const code = useMemo(() => {
+    if (imagePrepError) return `# EXPORT ERROR: ${imagePrepError}\n`;
+    if (needsImagePrep && !preparedExports) return '# Preparing image assets for export…\n';
+    return exportManimCode(preparedExports?.single ?? items, { fullFile, defaults, frames, startFrameId, audioItems });
+  }, [preparedExports, imagePrepError, needsImagePrep, items, fullFile, defaults, frames, startFrameId, audioItems]);
+
+  const codeFullFile = useMemo(() => {
+    if (imagePrepError) return `# EXPORT ERROR: ${imagePrepError}\n`;
+    if (needsImagePrep && !preparedExports) return '# Preparing image assets for export…\n';
+    return exportManimCode(preparedExports?.single ?? items, { fullFile: true, defaults, frames, startFrameId, audioItems });
+  }, [preparedExports, imagePrepError, needsImagePrep, items, defaults, frames, startFrameId, audioItems]);
 
   const combinedPython = useMemo(() => {
+    // Read via `void` so scene-tab add/remove/rename recomputes this memo even
+    // though the multi-scene file itself is read from the store below.
+    void sceneOrderSig;
+    if (imagePrepError) {
+      return `from manim import *\n\n# COMBINED EXPORT ERROR: ${imagePrepError}\n`;
+    }
+    if (needsImagePrep && !preparedExports) {
+      return 'from manim import *\n\n# Preparing image assets for export…\n';
+    }
     try {
+      if (preparedExports) return exportMultiSceneCombinedPython(preparedExports.multi);
       useProjectScenesStore.getState().persistActiveIntoIdle();
       const file = useProjectScenesStore.getState().toMultiSceneProjectFile();
       return exportMultiSceneCombinedPython(
@@ -119,7 +196,7 @@ export default function ExportPanel() {
       const msg = e instanceof Error ? e.message : String(e);
       return `from manim import *\n\n# COMBINED EXPORT ERROR: ${msg}\n`;
     }
-  }, [items, defaults, frames, startFrameId, audioItems, sceneOrderSig]);
+  }, [preparedExports, imagePrepError, needsImagePrep, sceneOrderSig]);
 
   const openRenderModal = useCallback(() => {
     setRenderSceneName(safeSceneClassName(defaults.sceneName ?? ''));
@@ -302,9 +379,18 @@ export default function ExportPanel() {
           percent: sceneBasePercent,
         });
         let masterPath: string | null = null;
+        // Inline live `blob:`/`http(s):` images as export-only data URLs so
+        // each scene's Python matches the Export panel preview.
+        let preparedSceneItems: SceneItem[] = sc.items ?? [];
         try {
+          setRenderAllProgress({
+            label: `Preparing image assets for scene ${sceneNo} of ${totalScenes}`,
+            detail: klass,
+            percent: sceneBasePercent,
+          });
+          preparedSceneItems = await prepareImageItemsForManimExport(sc.items ?? []);
           masterPath = await prepareSceneMasterAudio(measureUrl, {
-            items: sc.items,
+            items: preparedSceneItems,
             defaults: sc.defaults,
             frames: sc.frames,
             startFrameId: sc.startFrameId,
@@ -314,7 +400,7 @@ export default function ExportPanel() {
         } catch (mixErr) {
           throw mixErr;
         }
-        const py = exportManimCode(sc.items, {
+        const py = exportManimCode(preparedSceneItems, {
           fullFile: true,
           defaults: sc.defaults,
           frames: sc.frames,
@@ -426,12 +512,23 @@ export default function ExportPanel() {
         <button
           type="button"
           onClick={openRenderModal}
-          disabled={rendering}
+          disabled={rendering || preparingImages}
           className="px-2 py-1 text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+          title={preparingImages ? 'Preparing image assets for export…' : undefined}
         >
-          Render MP4
+          {preparingImages ? 'Preparing images…' : 'Render MP4'}
         </button>
       </div>
+      {preparingImages && (
+        <p className="text-[11px] text-slate-500" role="status">
+          Preparing image assets for export…
+        </p>
+      )}
+      {imagePrepError && (
+        <p className="text-[11px] text-red-400 whitespace-pre-wrap break-words">
+          Image export preparation failed: {imagePrepError}
+        </p>
+      )}
 
       <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
         <h4 className="text-xs font-semibold text-slate-200">Multi-scene render</h4>

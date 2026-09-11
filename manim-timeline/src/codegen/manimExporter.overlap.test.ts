@@ -7,6 +7,8 @@ import {
   createGraphPlot,
   createCameraMove,
   createFrame,
+  createGraphDotItem,
+  createImageItem,
   createShape,
   createSurroundingRect,
   createTextLine,
@@ -21,6 +23,20 @@ const seg = (text: string) =>
     bold: false,
     italic: false,
   }) as const;
+
+function createTestImage(startTime = 0) {
+  const img = createImageItem({
+    srcUrl: 'blob:test-image',
+    fileName: 'still.png',
+    mimeType: 'image/png',
+    width: 2,
+    height: 1,
+    startTime,
+  });
+  img.id = `img_${startTime}`;
+  img.assetRelPath = `assets/textures/still_${startTime}.png`;
+  return img;
+}
 
 describe('exportManimCode concurrent overlap (composable leaves)', () => {
   it('exports frame placement and camera move with MovingCameraScene', () => {
@@ -242,6 +258,138 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).not.toMatch(
       /Write\([^)]+\), run_time=[\d.]+\)\s*\n\s*self\.play\(Create\(sr_/,
     );
+  });
+
+  it('image leaf followed by a later line preserves the exact timeline wait', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.duration = 1.5;
+    const line = createTextLine(defaults, 3);
+    line.raw = 'Later';
+    line.segments = [seg('Later')];
+    line.duration = 1;
+
+    const code = exportManimCode([image, line], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('self.play(FadeIn(image_1), run_time=1.500000)');
+    // Timeline by hand: image consumes 0..1.5, line starts at 3.0, so wait = 1.5.
+    expect(code).toContain('self.wait(1.5000)');
+    expect(code.indexOf('self.wait(1.5000)')).toBeLessThan(code.indexOf('Write('));
+  });
+
+  it('rejects unbundled blob image paths instead of emitting a missing texture path', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.assetRelPath = undefined;
+    image.srcUrl = 'blob:temporary';
+
+    const code = exportManimCode([image], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('EXPORT ERROR');
+    expect(code).toContain('not bundled for Manim export');
+    expect(code).not.toContain('ImageMobject("assets/textures/');
+  });
+
+  it('merges overlapping image and shape into one AnimationGroup with staggered branches', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.duration = 2;
+    const shape = createShape(0.5);
+    shape.duration = 1.5;
+
+    const code = exportManimCode([image, shape], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('AnimationGroup(');
+    expect(code).toContain('Succession(Wait(0.0000), FadeIn(image_1, run_time=2.000000))');
+    expect(code).toContain('Succession(Wait(0.5000), Create(shape_1), run_time=1.500000)');
+    // The delayed image/shape cluster wall is 2.0s. The image branch's FadeIn keeps
+    // its full 2.0s run_time instead of sharing that branch run_time with Wait(rel).
+    expect(code).not.toContain('Succession(Wait(0.0000), FadeIn(image_1), run_time=2.000000)');
+    expect(code).toMatch(/run_time=2\.0000\)/);
+  });
+
+  it('does not compress a delayed concurrent image FadeIn into its relative wait', () => {
+    const defaults = defaultSceneDefaults();
+    const shape = createShape(0);
+    shape.duration = 2;
+    const image = createTestImage(0.5);
+    image.duration = 1.5;
+
+    const code = exportManimCode([shape, image], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    // Timeline by hand: image waits 0.5s relative to the cluster then fades for 1.5s.
+    // The branch must not put run_time=1.5 on the whole Succession (which would compress FadeIn to 1.0s).
+    expect(code).toContain('Succession(Wait(0.5000), FadeIn(image_1, run_time=1.500000))');
+    expect(code).not.toContain('Succession(Wait(0.5000), FadeIn(image_1), run_time=1.500000)');
+    expect(code).toMatch(/AnimationGroup\([\s\S]*run_time=2\.0000\)/);
+  });
+
+  it('does not compress an image bound-audio tail inside a concurrent cluster', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.duration = 1;
+    image.audioTrackId = 'narr';
+    const shape = createShape(0);
+    shape.duration = 1;
+
+    const code = exportManimCode([image, shape], {
+      fullFile: false,
+      defaults,
+      audioItems: [
+        {
+          id: 'narr',
+          text: 'audio',
+          audioUrl: '/assets/audio/narr.webm',
+          assetRelPath: 'assets/audio/narr.webm',
+          startTime: 0,
+          duration: 3,
+        },
+      ],
+    });
+
+    // Timeline by hand: image animation runs 1s, bound file lasts 3s, tail wait = 2s.
+    // The outer concurrent AnimationGroup must therefore consume 3s, not the 1s visual wall.
+    expect(code).toContain('FadeIn(image_1, run_time=1.000000), Wait(2.000000)');
+    expect(code).toMatch(/AnimationGroup\([\s\S]*run_time=3\.0000\)/);
+  });
+
+  it('uses HebrewMathLine for graph dot and surrounding-rectangle labels', () => {
+    const defaults = defaultSceneDefaults();
+    const ax = createAxes(defaults, 0);
+    const plot = createGraphPlot(ax.id, 0);
+    plot.fn.pyExpr = 'x';
+    const dot = createGraphDotItem(ax.id, 0);
+    dot.dot.label = 'נקודה';
+    const sr = createSurroundingRect([ax.id], 0);
+    sr.labelText = 'מסגרת';
+
+    const code = exportManimCode([ax, plot, dot, sr], {
+      fullFile: true,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('HebrewMathLine("מסגרת"');
+    expect(code).toContain('HebrewMathLine("נקודה"');
+    expect(code).not.toContain('Text(');
+    expect(code).not.toContain('Tex(');
+    expect(code).not.toContain('MathTex(');
   });
 
   it('surrounding rect on text line segments uses VGroup of submobjects', () => {
@@ -569,6 +717,51 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
 });
 
 describe('exportManimCode visibleAtSceneStart (static self.add)', () => {
+  it('prepends self.add for images and skips FadeIn when flag is set', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.visibleAtSceneStart = true;
+    image.duration = 2;
+
+    const code = exportManimCode([image], {
+      fullFile: false,
+      defaults,
+      audioItems: [],
+    });
+
+    expect(code).toContain('self.add(image_1)');
+    expect(code).not.toContain('self.play(FadeIn(image_1)');
+    // Scene-start images consume zero intro seconds; final hold padding covers 0..2.
+    expect(code).toContain('self.wait(2.0000)');
+  });
+
+  it('emits bound audio for a visible-at-scene-start image as timeline audio', () => {
+    const defaults = defaultSceneDefaults();
+    const image = createTestImage(0);
+    image.visibleAtSceneStart = true;
+    image.audioTrackId = 'img-audio';
+
+    const code = exportManimCode([image], {
+      fullFile: false,
+      defaults,
+      audioItems: [
+        {
+          id: 'img-audio',
+          text: 'audio',
+          audioUrl: '/assets/audio/img.webm',
+          assetRelPath: 'assets/audio/img.webm',
+          startTime: 0,
+          duration: 1.2,
+        },
+      ],
+    });
+
+    const sounds = code.match(/self\.add_sound\("assets\/audio\/img\.webm"/g) ?? [];
+    expect(sounds.length).toBe(1);
+    expect(code).toContain('self.add(image_1)');
+    expect(code).not.toContain('self.play(FadeIn(image_1)');
+  });
+
   it('prepends self.add for axes and skips Create(axes) when flag is set', () => {
     const defaults = defaultSceneDefaults();
     const ax = createAxes(defaults, 0);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { AudioTrackItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
-import { createBlinkAnimation, createCameraMove, createExitAnimation, createFrame, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
+import type { AudioTrackItem, ImageItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
+import { createBlinkAnimation, createCameraMove, createExitAnimation, createFrame, createImageItem, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
 import {
   activeTextTransformForLine,
   blinkPreviewForTarget,
   cameraOffsetAtTime,
   exitPreviewForTarget,
+  imageIntroOpacity,
   manimSmoothProgress,
   previewRunTime,
   targetAnimPreviewAccum,
@@ -109,6 +110,63 @@ describe('textIntroSegmentStates', () => {
     const duringSecond = textIntroSegmentStates(item, 1.75, items);
     expect(duringSecond[1]!.progress).toBeCloseTo(0.25);
     expect(duringSecond[1]!.visualProgress).toBeCloseTo(0.15625);
+  });
+});
+
+describe('imageIntroOpacity', () => {
+  function image(id: string, startTime = 0, duration = 2): ImageItem {
+    const item = createImageItem({
+      srcUrl: 'blob:test',
+      fileName: 'test.png',
+      mimeType: 'image/png',
+      width: 3,
+      height: 2,
+      startTime,
+    });
+    item.id = id;
+    item.duration = duration;
+    return item;
+  }
+
+  it('returns 0 before the image start time', () => {
+    const item = image('img1', 1);
+    const items = mapOf(item);
+    expect(imageIntroOpacity(item, 0.9, items)).toBe(0);
+    expect(imageIntroOpacity(item, 0, items)).toBe(0);
+  });
+
+  it('follows Manim-smooth easing over the image duration', () => {
+    const item = image('img1', 1, 2);
+    const items = mapOf(item);
+
+    // Quarter through the 2 s FadeIn: eased, not linear.
+    expect(imageIntroOpacity(item, 1.5, items)).toBeCloseTo(0.15625);
+    expect(imageIntroOpacity(item, 1.5, items)).toBeLessThan(0.25);
+
+    // Fixed easing point halfway through.
+    expect(imageIntroOpacity(item, 2, items)).toBeCloseTo(0.5);
+  });
+
+  it('returns 1 once the intro window ends', () => {
+    const item = image('img1', 1, 2);
+    const items = mapOf(item);
+    expect(imageIntroOpacity(item, 3, items)).toBe(1);
+    expect(imageIntroOpacity(item, 5, items)).toBe(1);
+  });
+
+  it('returns 1 immediately for visibleAtSceneStart images', () => {
+    const item = image('img1', 1, 2);
+    item.visibleAtSceneStart = true;
+    const items = mapOf(item);
+    expect(imageIntroOpacity(item, 1, items)).toBe(1);
+    expect(imageIntroOpacity(item, 2, items)).toBe(1);
+    expect(imageIntroOpacity(item, 5, items)).toBe(1);
+  });
+
+  it('uses the image duration as the preview run time', () => {
+    const item = image('img1', 1, 2);
+    const items = mapOf(item);
+    expect(previewRunTime(item, items)).toBeCloseTo(2);
   });
 });
 

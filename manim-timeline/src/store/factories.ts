@@ -15,6 +15,7 @@ import type {
   GraphPointSequenceItem,
   GraphAreaItem,
   ShapeItem,
+  ImageItem,
   ExitAnimationItem,
   BlinkAnimationItem,
   CameraMoveItem,
@@ -224,6 +225,42 @@ export function createSurroundingRect(
     labelDir: 'UP',
     labelFontSize: 22,
     introStyle: 'create',
+  };
+}
+
+export function createImageItem(
+  args: {
+    srcUrl: string;
+    fileName: string;
+    mimeType: string;
+    width: number;
+    height: number;
+    startTime?: number;
+  },
+): ImageItem {
+  const width =
+    Number.isFinite(args.width) && args.width > 0 ? args.width : 3;
+  const height =
+    Number.isFinite(args.height) && args.height > 0 ? args.height : 2;
+  return {
+    id: newId(),
+    kind: 'image',
+    label: '',
+    layer: 0,
+    startTime: Math.max(0, args.startTime ?? 0),
+    duration: 2,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    srcUrl: args.srcUrl,
+    fileName: args.fileName.trim() || 'image.png',
+    mimeType: args.mimeType.trim() || 'image/png',
+    width,
+    height,
+    opacity: 1,
+    rotationDeg: 0,
   };
 }
 

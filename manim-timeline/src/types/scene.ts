@@ -46,7 +46,7 @@ export type NextToBoundsMode = 'mobject' | 'ink';
 
 export interface PosStepNextTo {
   kind: 'next_to';
-  refKind: 'line' | 'axes' | 'shape';
+  refKind: 'line' | 'axes' | 'shape' | 'image';
   refId: ItemId | null;
   dir: ManimDirection;
   buff: number;
@@ -477,6 +477,31 @@ export interface ShapeItem extends SceneItemBase {
   fillColor: string | null;
   fillOpacity: number;
   introStyle: 'create' | 'fade_in';
+}
+
+/**
+ * Still picture imported from disk (PNG/JPG/GIF; GIF shows its first frame).
+ * `width`/`height` are Manim scene units before `scale`; `srcUrl` is a live
+ * `blob:`/`http(s):` URL while editing and becomes `assets/textures/...` in `.mtproj`.
+ */
+export interface ImageItem extends SceneItemBase {
+  kind: 'image';
+  /** Live display URL (`blob:`/`http(s):`) or virtual bundle path (`assets/textures/...`). */
+  srcUrl: string;
+  /** Pinned bundle path (set on `.mtproj` save/open); wins over `srcUrl` for export. */
+  assetRelPath?: string;
+  /** Original file name (for labels and stable bundle paths). */
+  fileName: string;
+  /** MIME type at import (e.g. `image/png`). */
+  mimeType: string;
+  /** Intrinsic size in Manim units, before `scale`. */
+  width: number;
+  /** Intrinsic size in Manim units, before `scale`. */
+  height: number;
+  /** Opacity in `[0, 1]` (Manim `set_opacity`, Konva `opacity`). */
+  opacity: number;
+  /** Degrees, CCW in Manim; canvas shows the same value as Konva CW rotation. */
+  rotationDeg: number;
 }
 
 export interface TextLineItem extends SceneItemBase {
@@ -1006,6 +1031,7 @@ export type SceneItem =
   | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem
+  | ImageItem
   | ExitAnimationItem
   | BlinkAnimationItem
   | TargetAnimationItem

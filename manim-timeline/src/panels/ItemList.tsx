@@ -243,6 +243,9 @@ export default function ItemList() {
     } else if (item.kind === 'shape') {
       kindBadge = 'bg-pink-600/30 text-pink-200';
       kindLetter = 'S';
+    } else if (item.kind === 'image') {
+      kindBadge = 'bg-stone-600/30 text-stone-200';
+      kindLetter = 'Img';
     }
 
     const timeLabel = `${item.startTime.toFixed(1)}s`;

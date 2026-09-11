@@ -139,6 +139,15 @@ export function sequentialAnimSecondsForLeaf(
       );
       return clock ?? Math.max(0.05, leaf.duration);
     }
+    case 'image': {
+      const clock = sceneClockSecForLeafBoundPlayback(
+        leaf,
+        itemsMap,
+        audioItems,
+        tailOpts,
+      );
+      return clock ?? Math.max(0.05, leaf.duration);
+    }
     default:
       return 0;
   }

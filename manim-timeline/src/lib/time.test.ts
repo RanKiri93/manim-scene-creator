@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { ExitAnimationItem, SceneItem, TextLineItem, BlinkAnimationItem } from '@/types/scene';
+import type { ExitAnimationItem, ImageItem, SceneItem, TextLineItem, BlinkAnimationItem } from '@/types/scene';
 import {
+  canBeBlinkTarget,
+  canBeExitTarget,
+  canBeSurroundTarget,
   effectiveEnd,
   holdEnd,
   isActiveAtTime,
@@ -52,6 +55,29 @@ function minimalExit(
     startTime,
     duration,
     targets: [{ targetId, animStyle: 'fade_out' }],
+  };
+}
+
+function minimalImage(id: string, startTime: number, duration: number): ImageItem {
+  return {
+    kind: 'image',
+    id,
+    label: '',
+    layer: 0,
+    startTime,
+    duration,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    srcUrl: 'blob:test',
+    fileName: 'pic.png',
+    mimeType: 'image/png',
+    width: 3,
+    height: 2,
+    opacity: 1,
+    rotationDeg: 0,
   };
 }
 
@@ -144,5 +170,41 @@ describe('canBeTargetAnimationTargetKind', () => {
 
   it('allows scale on graph overlays like blink targets', () => {
     expect(canBeTargetAnimationTargetKind('scale', 'graphPlot')).toBe(true);
+  });
+});
+
+describe('image items', () => {
+  it('uses duration for run/hold/span and stays active like other drawables', () => {
+    const img = minimalImage('img1', 2, 3);
+    const items = mapOf(img);
+    expect(runDuration(img, items)).toBe(3);
+    expect(holdEnd(img, items)).toBe(5);
+    expect(timelineSpanEnd(img, items)).toBe(5);
+    expect(isActiveAtTime(img, 1.99, items)).toBe(false);
+    expect(isActiveAtTime(img, 2, items)).toBe(true);
+    expect(effectiveEnd(img, items)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('extends through an exit clip end', () => {
+    const img = minimalImage('img1', 0, 2);
+    const exit = minimalExit('ex', 'img1', 2, 2);
+    const items = mapOf(img, exit);
+    expect(timelineSpanEnd(img, items)).toBe(4);
+    expect(effectiveEnd(img, items)).toBe(4);
+  });
+
+  it('can be an exit/surround/blink target', () => {
+    const img = minimalImage('img1', 0, 2);
+    expect(canBeSurroundTarget(img)).toBe(true);
+    expect(canBeExitTarget(img)).toBe(true);
+    expect(canBeBlinkTarget(img)).toBe(true);
+  });
+
+  it('allows scale/move/path/rotate target animations but not color', () => {
+    expect(canBeTargetAnimationTargetKind('scale', 'image')).toBe(true);
+    expect(canBeTargetAnimationTargetKind('move', 'image')).toBe(true);
+    expect(canBeTargetAnimationTargetKind('path', 'image')).toBe(true);
+    expect(canBeTargetAnimationTargetKind('rotate', 'image')).toBe(true);
+    expect(canBeTargetAnimationTargetKind('color', 'image')).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ export const DEFAULT_MATH_COLOR = '#00FFFF';
 
 export const MEASURE_SERVER_DEFAULT_URL = 'http://127.0.0.1:8765';
 
-export const PROJECT_VERSION = 40;
+export const PROJECT_VERSION = 41;
 
 /** Default narration cut fade (ms) when `SceneDefaults.audioCutFadeMs` is unset after migration. */
 export const DEFAULT_AUDIO_CUT_FADE_MS = 40;

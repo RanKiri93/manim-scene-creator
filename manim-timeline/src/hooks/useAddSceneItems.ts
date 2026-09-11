@@ -16,7 +16,13 @@ import {
   createCameraMove,
   createSurroundingRect,
   createShape,
+  createImageItem,
 } from '@/store/factories';
+import {
+  fitImageToManimSize,
+  guessImageMime,
+  isSupportedImageFile,
+} from '@/lib/imageAssetPath';
 import type { ItemId, SceneItem, TargetAnimationMode } from '@/types/scene';
 import {
   canBeExitTarget,
@@ -49,6 +55,20 @@ function frameIdForAxes(
 ): ItemId {
   const ax = itemsMap.get(axesId);
   return ax?.kind === 'axes' ? (ax.frameId ?? fallback) : fallback;
+}
+
+function loadImagePixelDimensions(url: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w > 0 && h > 0) resolve({ w, h });
+      else reject(new Error('Could not read image dimensions'));
+    };
+    img.onerror = () => reject(new Error('Could not read image file'));
+    img.src = url;
+  });
 }
 
 function firstFrameTargetIds(
@@ -103,6 +123,53 @@ export function useAddSceneItems() {
     addItem(item);
     select(item.id);
   }, [currentTime, addItem, select]);
+
+  const addImageFiles = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.from(files ?? []);
+      if (list.length === 0) return;
+      void (async () => {
+        for (const file of list) {
+          if (!isSupportedImageFile({ name: file.name, type: file.type })) {
+            continue;
+          }
+          const url = URL.createObjectURL(file);
+          try {
+            const dims = await loadImagePixelDimensions(url);
+            const size = fitImageToManimSize(dims.w, dims.h);
+            const item = createImageItem({
+              srcUrl: url,
+              fileName: file.name,
+              mimeType: file.type || guessImageMime(file.name),
+              width: size.width,
+              height: size.height,
+              startTime: useSceneStore.getState().currentTime,
+            });
+            addItem(item);
+            select(item.id);
+          } catch {
+            try {
+              URL.revokeObjectURL(url);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      })();
+    },
+    [addItem, select],
+  );
+
+  const addImageViaPicker = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif';
+    input.multiple = true;
+    input.onchange = () => {
+      if (input.files) addImageFiles(input.files);
+    };
+    input.click();
+  }, [addImageFiles]);
 
   const addGraphPlot = useCallback(() => {
     const axId = ensureAxesId();
@@ -343,6 +410,8 @@ export function useAddSceneItems() {
     addTextLine,
     addAxes,
     addShape,
+    addImageFiles,
+    addImageViaPicker,
     addGraphPlot,
     addGraphCurve,
     addGraphDot,

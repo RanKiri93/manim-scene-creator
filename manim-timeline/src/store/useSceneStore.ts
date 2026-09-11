@@ -206,6 +206,41 @@ function revokeAudioBlobUrls(tracks: AudioTrackItem[]) {
   }
 }
 
+/** Revoke every live `blob:` image URL in the map (used when replacing the scene). */
+function revokeImageBlobUrls(items: Map<ItemId, SceneItem>) {
+  for (const it of items.values()) {
+    if (it.kind !== 'image') continue;
+    if (typeof it.srcUrl === 'string' && it.srcUrl.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(it.srcUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+/**
+ * Revoke `url` only when no remaining image (other than `exceptId`) uses it.
+ * Duplicates share one blob URL, so unconditional revoke would blank siblings.
+ */
+function revokeImageBlobUrlIfOrphaned(
+  items: Map<ItemId, SceneItem>,
+  url: string,
+  exceptId?: ItemId,
+) {
+  if (typeof url !== 'string' || !url.startsWith('blob:')) return;
+  for (const [id, it] of items) {
+    if (id === exceptId) continue;
+    if (it.kind === 'image' && it.srcUrl === url) return;
+  }
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    /* ignore */
+  }
+}
+
 function cloneAudioBed(bed: AudioBed | null): AudioBed | undefined {
   if (!bed) return undefined;
   return {
@@ -270,6 +305,7 @@ function runLoadSceneDraft(
 ): void {
   revokeAudioBlobUrls(s.audioItems);
   revokeAudioBedBlobUrl(s.audioBed);
+  revokeImageBlobUrls(s.items);
   s.items = new Map();
   const migrated = migrateItemsToCurrentVersion(
     payload.items as SceneItem[],
@@ -794,6 +830,14 @@ export const useSceneStore = create<SceneStore>()(
       updateItem: (id, patch) => set((s) => {
         const item = s.items.get(id);
         if (!item) return;
+        const prevImageSrc =
+          item.kind === 'image' &&
+          patch &&
+          typeof patch === 'object' &&
+          'srcUrl' in patch &&
+          typeof (patch as { srcUrl?: unknown }).srcUrl === 'string'
+            ? item.srcUrl
+            : null;
         if (
           item.kind === 'shape' &&
           patch &&
@@ -809,6 +853,13 @@ export const useSceneStore = create<SceneStore>()(
           typeof patch === 'object' &&
           'audioTrackId' in patch;
         Object.assign(item, patch);
+        if (
+          prevImageSrc != null &&
+          item.kind === 'image' &&
+          item.srcUrl !== prevImageSrc
+        ) {
+          revokeImageBlobUrlIfOrphaned(s.items, prevImageSrc, id);
+        }
         if (audioPatch && 'audioTrackId' in item) {
           dedupeExclusiveAudioOwner(s.items, id, item.audioTrackId);
         }
@@ -834,6 +885,9 @@ export const useSceneStore = create<SceneStore>()(
       }),
 
       removeItem: (id) => set((s) => {
+        const doomed = s.items.get(id);
+        const doomedImageSrc =
+          doomed?.kind === 'image' ? doomed.srcUrl : null;
         for (const [eid, ex] of [...s.items.entries()]) {
           if (
             ex.kind === 'exit_animation' &&
@@ -884,6 +938,9 @@ export const useSceneStore = create<SceneStore>()(
         s.items.delete(id);
         s.selectedIds.delete(id);
         if (s.inspectedId === id) s.inspectedId = null;
+        if (doomedImageSrc != null) {
+          revokeImageBlobUrlIfOrphaned(s.items, doomedImageSrc, id);
+        }
         if (s.polylinePointCaptureId === id) s.polylinePointCaptureId = null;
         if (
           s.targetAnimationPathCapture?.clipId === id ||
@@ -915,7 +972,8 @@ export const useSceneStore = create<SceneStore>()(
           src.kind === 'graphFunctionSeries' ||
           src.kind === 'graphPointSequence' ||
           src.kind === 'graphArea' ||
-          src.kind === 'shape'
+          src.kind === 'shape' ||
+          src.kind === 'image'
         ) {
           const clone = structuredClone(src) as SceneItem;
           clone.id = crypto.randomUUID().slice(0, 12);
@@ -980,7 +1038,7 @@ export const useSceneStore = create<SceneStore>()(
         const clone = structuredClone(src) as SceneItem;
         clone.id = crypto.randomUUID().slice(0, 12);
         clone.label = src.label + ' (copy)';
-        if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape') {
+        if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape' || clone.kind === 'image') {
           clone.startTime = src.startTime + src.duration;
         }
         if (clone.kind === 'axes') {

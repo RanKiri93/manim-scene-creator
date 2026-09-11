@@ -1,5 +1,6 @@
 import {
   getAudioBoundaries,
+  isVisibleAtSceneStartItem,
   type TextLineItem,
   type ItemId,
   type SceneItem,
@@ -14,6 +15,7 @@ import {
   type GraphPointSequenceItem,
   type GraphAreaItem,
   type ShapeItem,
+  type ImageItem,
 } from '@/types/scene';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
 import { isAudioBindingNone } from '@/lib/audioBinding';
@@ -135,7 +137,8 @@ export type ExportLeafWithAudio =
   | GraphFunctionSeriesItem
   | GraphPointSequenceItem
   | GraphAreaItem
-  | ShapeItem;
+  | ShapeItem
+  | ImageItem;
 
 /**
  * Native Manim audio export: path + run_time from Whisper boundaries when applicable.
@@ -155,6 +158,7 @@ export function listUnboundAudioTracksForExport(
   const earlyBoundById = new Map<string, AudioTrackItem>();
 
   for (const leaf of flat) {
+    if (isVisibleAtSceneStartItem(leaf)) continue;
     const t = findAudioTrackForLeaf(leaf, itemsMap, audioItems);
     if (!t) continue;
     boundIds.add(t.id);
