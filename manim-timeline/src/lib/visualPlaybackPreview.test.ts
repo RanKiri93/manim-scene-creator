@@ -6,6 +6,7 @@ import {
   blinkPreviewForTarget,
   cameraOffsetAtTime,
   exitPreviewForTarget,
+  manimSmoothProgress,
   previewRunTime,
   targetAnimPreviewAccum,
   textIntroSegmentStates,
@@ -70,6 +71,71 @@ describe('textIntroSegmentStates', () => {
     expect(states[0]!.progress).toBeCloseTo(0.5);
     expect(states[1]!.progress).toBe(0);
   });
+
+  it('exposes eased visual progress while raw timing progress stays linear', () => {
+    const item = line('line1', 1);
+    const items = mapOf(item);
+
+    // First segment animates over [1, 2): raw progress is linear in time.
+    const quarter = textIntroSegmentStates(item, 1.25, items);
+    expect(quarter[0]!.progress).toBeCloseTo(0.25);
+    expect(quarter[0]!.visualProgress).toBeCloseTo(0.15625);
+    expect(quarter[0]!.visualProgress).toBeLessThan(quarter[0]!.progress);
+    expect(quarter[1]!.progress).toBe(0);
+
+    // Fixed points of the easing are exact.
+    const half = textIntroSegmentStates(item, 1.5, items);
+    expect(half[0]!.progress).toBeCloseTo(0.5);
+    expect(half[0]!.visualProgress).toBeCloseTo(0.5);
+  });
+
+  it('holds the next segment through the full anim plus wait window', () => {
+    const item = line('line1', 0);
+    item.segments = [
+      { text: 'a', isMath: false, color: '#ffffff', bold: false, italic: false, waitAfterSec: 0.5 },
+      { text: 'b', isMath: false, color: '#ffffff', bold: false, italic: false },
+    ];
+    const items = mapOf(item);
+
+    // Segment 0 animates over [0, 1), then its 0.5 s wait: segment 1 is
+    // still hidden at t = 1.25 even though segment 0 is fully revealed.
+    const duringWait = textIntroSegmentStates(item, 1.25, items);
+    expect(duringWait[0]!.progress).toBe(1);
+    expect(duringWait[0]!.visualProgress).toBe(1);
+    expect(duringWait[1]!.progress).toBe(0);
+    expect(duringWait[1]!.visible).toBe(false);
+
+    // Segment 1 starts at t = 1.5 with eased visual progress.
+    const duringSecond = textIntroSegmentStates(item, 1.75, items);
+    expect(duringSecond[1]!.progress).toBeCloseTo(0.25);
+    expect(duringSecond[1]!.visualProgress).toBeCloseTo(0.15625);
+  });
+});
+
+describe('manimSmoothProgress', () => {
+  it('fixes 0, 0.5, and 1 like Manim smooth easing', () => {
+    expect(manimSmoothProgress(0)).toBe(0);
+    expect(manimSmoothProgress(0.5)).toBeCloseTo(0.5);
+    expect(manimSmoothProgress(1)).toBe(1);
+  });
+
+  it('eases in-out: slower than linear early, faster than linear late', () => {
+    expect(manimSmoothProgress(0.25)).toBeCloseTo(0.15625);
+    expect(manimSmoothProgress(0.25)).toBeLessThan(0.25);
+    expect(manimSmoothProgress(0.75)).toBeCloseTo(0.84375);
+    expect(manimSmoothProgress(0.75)).toBeGreaterThan(0.75);
+  });
+
+  it('is monotonic and clamps out-of-range input', () => {
+    let prev = -Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const v = manimSmoothProgress(i / 20);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+    expect(manimSmoothProgress(-0.5)).toBe(0);
+    expect(manimSmoothProgress(1.5)).toBe(1);
+  });
 });
 
 describe('cameraOffsetAtTime', () => {
@@ -104,6 +170,29 @@ describe('activeTextTransformForLine', () => {
     expect(sourceState?.progress).toBeCloseTo(0.5);
     expect(targetState?.source.id).toBe(src.id);
     expect(activeTextTransformForLine(src, 5.1, items)).toBeNull();
+  });
+
+  it('exposes eased visual progress without changing the active window', () => {
+    const src = line('src', 0);
+    const target = line('target', 3);
+    target.animStyle = 'transform';
+    target.transformConfig = {
+      sourceLineId: src.id,
+      segmentPairs: { 0: 0 },
+      unmappedSourceBehavior: 'fade_out',
+      unmappedTargetBehavior: 'write',
+    };
+    const items = mapOf(src, target);
+
+    // Quarter through the 2 s transform: raw progress stays linear.
+    const early = activeTextTransformForLine(src, 3.5, items);
+    expect(early?.progress).toBeCloseTo(0.25);
+    expect(early?.visualProgress).toBeCloseTo(manimSmoothProgress(0.25));
+    expect(early?.visualProgress).toBeLessThan(early!.progress);
+
+    // Active window is unchanged: inside at the end edge, null past it.
+    expect(activeTextTransformForLine(src, 4, items)?.visualProgress).toBeCloseTo(0.5);
+    expect(activeTextTransformForLine(src, 5, items)).toBeNull();
   });
 });
 

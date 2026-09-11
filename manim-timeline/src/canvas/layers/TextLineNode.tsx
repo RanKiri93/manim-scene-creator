@@ -239,53 +239,68 @@ export default function TextLineNode({
   const offX = hasMeasure ? item.measure!.offsetInkX * pxPerUnitX : 0;
   const offY = hasMeasure ? -item.measure!.offsetInkY * pxPerUnitY : 0;
 
-  // Load preview image
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  // Load preview image. The last loaded image stays visible while a new URL
+  // loads and clears only when the URL is removed (same visible behavior as
+  // before) — derived during render so no synchronous setState-in-effect
+  // reset is needed (`react-hooks/set-state-in-effect`).
+  const [loadedImg, setLoadedImg] = useState<HTMLImageElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    if (!item.previewDataUrl) {
-      setImg(null);
-      return;
-    }
+    const url = item.previewDataUrl;
+    if (!url) return;
+    let cancelled = false;
     const el = new window.Image();
     el.onload = () => {
+      if (cancelled) return;
       imgRef.current = el;
-      setImg(el);
+      setLoadedImg(el);
     };
-    el.src = item.previewDataUrl;
+    el.src = url;
     return () => {
+      cancelled = true;
       el.onload = null;
     };
   }, [item.previewDataUrl]);
+  const img = item.previewDataUrl ? loadedImg : null;
 
-  const [tintedImg, setTintedImg] = useState<HTMLImageElement | null>(null);
   const blinkTintColor = blinkPreview?.blinkColor ?? null;
+  const [loadedTint, setLoadedTint] = useState<{
+    img: HTMLImageElement;
+    color: string;
+    el: HTMLImageElement;
+  } | null>(null);
 
   useEffect(() => {
-    if (!img || !blinkTintColor) {
-      setTintedImg(null);
-      return;
-    }
+    if (!img || !blinkTintColor) return;
+    const src = img;
+    const color = blinkTintColor;
+    let cancelled = false;
     const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
+    canvas.width = src.naturalWidth;
+    canvas.height = src.naturalHeight;
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setTintedImg(null);
-      return;
-    }
-    ctx.drawImage(img, 0, 0);
+    if (!ctx) return;
+    ctx.drawImage(src, 0, 0);
     ctx.globalCompositeOperation = 'source-in';
-    ctx.fillStyle = blinkTintColor;
+    ctx.fillStyle = color;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const el = new window.Image();
-    el.onload = () => setTintedImg(el);
+    el.onload = () => {
+      if (!cancelled) setLoadedTint({ img: src, color, el });
+    };
     el.src = canvas.toDataURL('image/png');
     return () => {
+      cancelled = true;
       el.onload = null;
     };
   }, [img, blinkTintColor]);
+  // A tint only applies to the exact image + color it was rendered from; any
+  // change reads as "no tint" until the new tint loads (same as before).
+  const tintedImg =
+    loadedTint && loadedTint.img === img && loadedTint.color === blinkTintColor
+      ? loadedTint.el
+      : null;
 
   const displayLabel = item.label || item.raw.slice(0, 30) || '(empty line)';
 
@@ -319,7 +334,7 @@ export default function TextLineNode({
       return null;
     }
 
-    const p = transformPreview.progress;
+    const p = transformPreview.visualProgress;
     const isSource = item.id === transformPreview.source.id;
     const sourcePosX = (transformPreview.sourceResolvedX / FRAME_W + 0.5) * canvasWidth;
     const sourcePosY = (0.5 - transformPreview.sourceResolvedY / FRAME_H) * canvasHeight;
@@ -360,7 +375,7 @@ export default function TextLineNode({
             rect,
             `seg-${state.index}`,
             state.opacity,
-            fade ? 1 : state.progress,
+            fade ? 1 : state.visualProgress,
             revealDirection,
           );
         })}
@@ -375,7 +390,7 @@ export default function TextLineNode({
     if ((transformPreview.target.transformConfig?.mode ?? 'segments') !== 'segments') {
       return null;
     }
-    const p = transformPreview.progress;
+    const p = transformPreview.visualProgress;
     const isSource = item.id === transformPreview.source.id;
     const tc = transformPreview.target.transformConfig;
     if (!tc) return null;

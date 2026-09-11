@@ -32,7 +32,14 @@ import { cameraTargetPoint, frameCenterById } from '@/lib/frameGrid';
 
 export interface TextSegmentPreviewState {
   index: number;
+  /** Raw linear timing progress (segment start/end times and waits unchanged). */
   progress: number;
+  /**
+   * Eased visual progress for canvas rendering only (`manimSmoothProgress`
+   * applied to `progress`). Matches Manim's default eased `Write`/`FadeIn`
+   * pacing while keeping timing aligned with export.
+   */
+  visualProgress: number;
   opacity: number;
   visible: boolean;
 }
@@ -40,7 +47,10 @@ export interface TextSegmentPreviewState {
 export interface TextTransformPreviewState {
   source: TextLineItem;
   target: TextLineItem;
+  /** Raw linear timing progress (active window unchanged). */
   progress: number;
+  /** Eased visual progress for canvas rendering only (see above). */
+  visualProgress: number;
 }
 
 export interface ExitPreviewState {
@@ -57,6 +67,21 @@ function clamp01(x: number): number {
 
 function positiveDuration(sec: number): number {
   return Number.isFinite(sec) && sec > 0 ? sec : 0.01;
+}
+
+/**
+ * Visual-only easing approximating Manim's default `smooth` rate function
+ * (ease-in-out through the fixed points 0, 0.5, 1) used by `Write`, `FadeIn`,
+ * and `ReplacementTransform` when export passes no explicit `rate_func`
+ * (see `src/codegen/lineCodegen.ts`).
+ *
+ * This must never feed timing math (`previewRunTime`, segment windows,
+ * `sequentialAnimSecondsForLeaf`): it only reshapes how far the canvas has
+ * drawn/faded/morphed within an already-timed segment.
+ */
+export function manimSmoothProgress(p: number): number {
+  const t = clamp01(p);
+  return t * t * (3 - 2 * t);
 }
 
 export function cameraOffsetAtTime(
@@ -147,11 +172,12 @@ export function textIntroSegmentStates(
   if (isVisibleAtSceneStartItem(item) && time >= t0) {
     const n = item.segments.length;
     if (n === 0) {
-      return [{ index: 0, progress: 1, opacity: 1, visible: true }];
+      return [{ index: 0, progress: 1, visualProgress: 1, opacity: 1, visible: true }];
     }
     return item.segments.map((_, i) => ({
       index: i,
       progress: 1,
+      visualProgress: 1,
       opacity: 1,
       visible: true,
     }));
@@ -159,7 +185,7 @@ export function textIntroSegmentStates(
   const n = item.segments.length;
   if (n === 0) {
     const p = clamp01((time - effectiveStart(item, items)) / previewRunTime(item, items, audioItems));
-    return [{ index: 0, progress: p, opacity: p, visible: p > 0 }];
+    return [{ index: 0, progress: p, visualProgress: manimSmoothProgress(p), opacity: manimSmoothProgress(p), visible: p > 0 }];
   }
 
   const localT = time - effectiveStart(item, items);
@@ -175,10 +201,12 @@ export function textIntroSegmentStates(
     } else if (localT >= cursor) {
       progress = clamp01((localT - cursor) / anim);
     }
+    const visualProgress = manimSmoothProgress(progress);
     out.push({
       index: i,
       progress,
-      opacity: fade ? progress : progress > 0 ? 1 : 0,
+      visualProgress,
+      opacity: fade ? visualProgress : progress > 0 ? 1 : 0,
       visible: progress > 0,
     });
     cursor += anim + Math.max(0, item.segments[i]?.waitAfterSec ?? 0);
@@ -219,10 +247,12 @@ export function activeTextTransformForLine(
     if (time < start || time >= start + dur) continue;
     if (start < bestStart) continue;
     bestStart = start;
+    const progress = clamp01((time - start) / dur);
     best = {
       source,
       target: it,
-      progress: clamp01((time - start) / dur),
+      progress,
+      visualProgress: manimSmoothProgress(progress),
     };
   }
   return best;
