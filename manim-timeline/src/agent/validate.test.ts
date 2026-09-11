@@ -1163,6 +1163,497 @@ describe('validateAgentResponse', () => {
   });
 });
 
+describe('expression pair normalization', () => {
+  it('repairs ^ and derives the missing dialect on graphCurve CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'add curve',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'c1',
+              kind: 'graphCurve',
+              axesId: 'ax1',
+              curve: {
+                jsXExpr: 't^2',
+                jsYExpr: 'Math.sin(t)',
+                pyYExpr: 'np.sin(t)',
+              },
+              tDomain: [0, 6.28],
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'graphCurve') {
+      throw new Error('expected graphCurve CREATE');
+    }
+    expect(act.item.curve.jsXExpr).toBe('t**2');
+    expect(act.item.curve.pyXExpr).toBe('t**2');
+    expect(act.item.curve.jsYExpr).toBe('Math.sin(t)');
+    expect(act.item.curve.pyYExpr).toBe('np.sin(t)');
+  });
+
+  it('rejects graphCurve CREATE with a coordinate missing both dialects', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'bad curve',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'c1',
+              kind: 'graphCurve',
+              axesId: 'ax1',
+              curve: { jsXExpr: 't', pyXExpr: 't' },
+              tDomain: [0, 1],
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => /y\(t\)/.test(e))).toBe(true);
+    }
+  });
+
+  it('repairs ^ and derives the missing dialect on graphPointSequence CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'add sequence',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'ps1',
+              kind: 'graphPointSequence',
+              axesId: 'ax1',
+              jsXExpr: 'n',
+              pyXExpr: 'n',
+              jsYExpr: 'n^2',
+              nMin: 1,
+              nMax: 5,
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'graphPointSequence') {
+      throw new Error('expected graphPointSequence CREATE');
+    }
+    expect(act.item.jsYExpr).toBe('n**2');
+    expect(act.item.pyYExpr).toBe('n**2');
+  });
+
+  it('repairs ^ and derives the missing dialect on target_animation parametricPath CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'move along path',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'ta1',
+              kind: 'target_animation',
+              label: 'path move',
+              mode: 'path',
+              startTime: 1,
+              duration: 1.5,
+              targets: [
+                {
+                  targetId: 'tl1',
+                  pathKind: 'parametric',
+                  parametricPath: {
+                    jsXExpr: 't^2',
+                    jsYExpr: 'Math.sin(t)',
+                    pyYExpr: 'np.sin(t)',
+                    tMin: 0,
+                    tMax: 6.28,
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'target_animation') {
+      throw new Error('expected target_animation CREATE');
+    }
+    const pp = act.item.targets[0]!.parametricPath!;
+    expect(pp.jsXExpr).toBe('t**2');
+    expect(pp.pyXExpr).toBe('t**2');
+    expect(pp.jsYExpr).toBe('Math.sin(t)');
+    expect(pp.pyYExpr).toBe('np.sin(t)');
+  });
+
+  it('keeps 0 defaults for wholly missing TA parametric axes', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    const result = validateAgentResponse(
+      {
+        reply: 'path with defaults',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'ta1',
+              kind: 'target_animation',
+              label: 'path',
+              mode: 'path',
+              startTime: 1,
+              duration: 1,
+              targets: [
+                {
+                  targetId: 'tl1',
+                  pathKind: 'parametric',
+                  parametricPath: { tMin: 0, tMax: 1 },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'target_animation') {
+      throw new Error('expected target_animation CREATE');
+    }
+    const pp = act.item.targets[0]!.parametricPath!;
+    expect(pp.jsXExpr).toBe('0');
+    expect(pp.pyXExpr).toBe('0');
+    expect(pp.jsYExpr).toBe('0');
+    expect(pp.pyYExpr).toBe('0');
+  });
+});
+
+describe('expression pair UPDATE normalization', () => {
+  it('repairs graphPlot fn UPDATE without dropping sibling fields', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    map.set('p1', {
+      id: 'p1',
+      kind: 'graphPlot',
+      label: 'plot',
+      layer: 0,
+      startTime: 0,
+      duration: 2,
+      x: 0,
+      y: 0,
+      scale: 1,
+      posSteps: [{ kind: 'absolute' }],
+      audioTrackId: null,
+      axesId: 'ax1',
+      fn: { id: 'p1_fn', jsExpr: 'x', pyExpr: 'x', color: '#3b82f6', label: '' },
+      xDomain: null,
+      strokeWidth: 2,
+    });
+    const result = validateAgentResponse(
+      {
+        reply: 'square it',
+        actions: [
+          {
+            action: 'UPDATE',
+            itemId: 'p1',
+            updates: { fn: { jsExpr: 'x^2', color: '#ff0000' } },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const fn = (act.updates as Record<string, unknown>).fn as Record<
+      string,
+      unknown
+    >;
+    expect(fn.jsExpr).toBe('x**2');
+    expect(fn.pyExpr).toBe('x**2');
+    expect(fn.color).toBe('#ff0000');
+  });
+
+  it('repairs graphCurve UPDATE without dropping sibling curve fields', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    map.set('c1', {
+      id: 'c1',
+      kind: 'graphCurve',
+      label: 'curve',
+      layer: 0,
+      startTime: 0,
+      duration: 2,
+      x: 0,
+      y: 0,
+      scale: 1,
+      posSteps: [{ kind: 'absolute' }],
+      audioTrackId: null,
+      axesId: 'ax1',
+      curve: {
+        id: 'c1_curve',
+        jsXExpr: 't',
+        jsYExpr: 't',
+        pyXExpr: 't',
+        pyYExpr: 't',
+        color: '#3b82f6',
+        label: '',
+      },
+      tDomain: [0, 6.28],
+      strokeWidth: 2,
+    });
+    const result = validateAgentResponse(
+      {
+        reply: 'retarget x',
+        actions: [
+          {
+            action: 'UPDATE',
+            itemId: 'c1',
+            updates: { curve: { jsXExpr: 't^2', color: '#ff0000' } },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const updates = act.updates as Record<string, unknown>;
+    const curve = updates.curve as Record<string, unknown>;
+    expect(curve.jsXExpr).toBe('t**2');
+    expect(curve.pyXExpr).toBe('t**2');
+    expect(curve.color).toBe('#ff0000');
+  });
+
+  it('folds top-level coordinate aliases into curve on UPDATE', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    map.set('c1', {
+      id: 'c1',
+      kind: 'graphCurve',
+      label: 'curve',
+      layer: 0,
+      startTime: 0,
+      duration: 2,
+      x: 0,
+      y: 0,
+      scale: 1,
+      posSteps: [{ kind: 'absolute' }],
+      audioTrackId: null,
+      axesId: 'ax1',
+      curve: {
+        id: 'c1_curve',
+        jsXExpr: 't',
+        jsYExpr: 't',
+        pyXExpr: 't',
+        pyYExpr: 't',
+        color: '#3b82f6',
+        label: '',
+      },
+      tDomain: [0, 6.28],
+      strokeWidth: 2,
+    });
+    const result = validateAgentResponse(
+      {
+        reply: 'retarget x',
+        actions: [
+          {
+            action: 'UPDATE',
+            itemId: 'c1',
+            updates: { jsXExpr: 't^2' },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const updates = act.updates as Record<string, unknown>;
+    const curve = updates.curve as Record<string, unknown>;
+    expect(curve.jsXExpr).toBe('t**2');
+    expect(curve.pyXExpr).toBe('t**2');
+    expect('jsXExpr' in updates).toBe(false);
+  });
+
+  it('repairs target_animation parametricPath UPDATE preserving sibling row fields', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('tl1', textLine('tl1'));
+    map.set('ta1', {
+      id: 'ta1',
+      kind: 'target_animation',
+      label: 'path',
+      layer: 0,
+      startTime: 1,
+      duration: 1.5,
+      mode: 'path',
+      targets: [
+        {
+          targetId: 'tl1',
+          pathKind: 'parametric',
+          parametricPath: {
+            jsXExpr: 't',
+            jsYExpr: 't',
+            pyXExpr: 't',
+            pyYExpr: 't',
+            tMin: 0,
+            tMax: 6.28,
+          },
+        },
+      ],
+    });
+    const result = validateAgentResponse(
+      {
+        reply: 'steepen path',
+        actions: [
+          {
+            action: 'UPDATE',
+            itemId: 'ta1',
+            updates: {
+              targets: [
+                {
+                  targetId: 'tl1',
+                  pathKind: 'parametric',
+                  parametricPath: { jsXExpr: 't^2' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const targets = (act.updates as Record<string, unknown>).targets as Record<
+      string,
+      unknown
+    >[];
+    const pp = (targets[0]! as Record<string, unknown>)
+      .parametricPath as Record<string, unknown>;
+    expect(pp.jsXExpr).toBe('t**2');
+    expect(pp.pyXExpr).toBe('t**2');
+    // Untouched axes stay absent here; commit deep-merges the row over the
+    // stored one so the y(t) pair survives (covered in commit.test.ts).
+    expect('jsYExpr' in pp).toBe(false);
+    expect(targets[0]!.pathKind).toBe('parametric');
+  });
+
+  it('repairs graphPointSequence axis UPDATE', () => {
+    const map = new Map<string, SceneItem>();
+    map.set('ax1', axes('ax1'));
+    map.set('ps1', {
+      id: 'ps1',
+      kind: 'graphPointSequence',
+      label: 'seq',
+      layer: 0,
+      startTime: 0,
+      duration: 5,
+      x: 0,
+      y: 0,
+      scale: 1,
+      posSteps: [{ kind: 'absolute' }],
+      audioTrackId: null,
+      axesId: 'ax1',
+      jsXExpr: 'n',
+      jsYExpr: '0',
+      pyXExpr: 'n',
+      pyYExpr: '0',
+      nMin: 1,
+      nMax: 5,
+      mode: 'accumulation',
+      defaults: {
+        color: '#3b82f6',
+        pointRadius: 0.08,
+        animDuration: 1,
+        waitAfter: 0.3,
+      },
+      perN: {},
+    });
+    const result = validateAgentResponse(
+      {
+        reply: 'parabola',
+        actions: [
+          {
+            action: 'UPDATE',
+            itemId: 'ps1',
+            updates: { jsYExpr: 'n^2' },
+          },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const updates = act.updates as Record<string, unknown>;
+    expect(updates.jsYExpr).toBe('n**2');
+    expect(updates.pyYExpr).toBe('n**2');
+    expect(updates.jsXExpr).toBeUndefined();
+  });
+});
+
+describe('allowed kind boundary', () => {
+  it('rejects graphArea CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    const result = validateAgentResponse(
+      {
+        reply: 'add area',
+        actions: [
+          { action: 'CREATE', item: { id: 'a1', kind: 'graphArea' } },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects graphField CREATE', () => {
+    const map = new Map<string, SceneItem>();
+    const result = validateAgentResponse(
+      {
+        reply: 'add field',
+        actions: [
+          { action: 'CREATE', item: { id: 'f1', kind: 'graphField' } },
+        ],
+      },
+      map,
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe('frameId validation', () => {
   const frameCtx = {
     frameIds: ['f1', 'f2'],

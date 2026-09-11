@@ -16,12 +16,8 @@ import AudioBindingSelect from './AudioBindingSelect';
 import PointSequenceIndividualPanel from './PointSequenceIndividualPanel';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
-import { GraphFieldHelpIcon } from './GraphFieldExpressionHelp';
-
-const CURVE_JS_HELP =
-  'JavaScript preview: use variable n (integer index). Use Math.sin/Math.cos; ** for power.';
-const CURVE_PY_HELP =
-  'Python export: NumPy as np; variable n. Use ** for power (never ^).';
+import MathExpressionEditor from './MathExpressionEditor';
+import { SEQ_N_PROFILE } from './mathExpressionPresets';
 
 interface PointSequenceEditorProps {
   item: GraphPointSequenceItem;
@@ -95,59 +91,25 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
 
   const graphContent = (
     <div className="flex flex-col gap-3">
-      <div className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
-        <div className="text-xs text-slate-400 mb-1">Coordinates (variable: n)</div>
-        <p className="mt-2 text-[11px] leading-snug text-slate-500">
-          JavaScript drives the canvas preview; Python (NumPy) drives export. One point per
-          integer n in [n_min, n_max].
-        </p>
-
-        <div className="mt-3 text-xs font-medium text-slate-300">x(n)</div>
-        <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
-          <span>Preview (JavaScript)</span>
-          <GraphFieldHelpIcon title={CURVE_JS_HELP} label="Help: JS x(n)" />
+      <div className="flex flex-col gap-2">
+        <div className="text-xs text-slate-400">
+          Coordinates — one point per integer n in [n_min, n_max]
         </div>
-        <input
-          type="text"
-          value={item.jsXExpr}
-          onChange={(e) => set({ jsXExpr: e.target.value })}
-          placeholder="JS: n"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
+        <MathExpressionEditor
+          label="x(n)"
+          jsExpr={item.jsXExpr}
+          pyExpr={item.pyXExpr}
+          onChange={(p) => set({ jsXExpr: p.jsExpr, pyXExpr: p.pyExpr })}
+          profile={SEQ_N_PROFILE}
+          dialogTitle="Point sequence x(n) — expression helper"
         />
-        <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
-          <span>Export (Python)</span>
-          <GraphFieldHelpIcon title={CURVE_PY_HELP} label="Help: Py x(n)" />
-        </div>
-        <input
-          type="text"
-          value={item.pyXExpr}
-          onChange={(e) => set({ pyXExpr: e.target.value })}
-          placeholder="Python: n"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-        />
-
-        <div className="mt-3 text-xs font-medium text-slate-300">y(n)</div>
-        <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
-          <span>Preview (JavaScript)</span>
-          <GraphFieldHelpIcon title={CURVE_JS_HELP} label="Help: JS y(n)" />
-        </div>
-        <input
-          type="text"
-          value={item.jsYExpr}
-          onChange={(e) => set({ jsYExpr: e.target.value })}
-          placeholder="JS: 0"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-        />
-        <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
-          <span>Export (Python)</span>
-          <GraphFieldHelpIcon title={CURVE_PY_HELP} label="Help: Py y(n)" />
-        </div>
-        <input
-          type="text"
-          value={item.pyYExpr}
-          onChange={(e) => set({ pyYExpr: e.target.value })}
-          placeholder="Python: 0"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
+        <MathExpressionEditor
+          label="y(n)"
+          jsExpr={item.jsYExpr}
+          pyExpr={item.pyYExpr}
+          onChange={(p) => set({ jsYExpr: p.jsExpr, pyYExpr: p.pyExpr })}
+          profile={SEQ_N_PROFILE}
+          dialogTitle="Point sequence y(n) — expression helper"
         />
       </div>
 

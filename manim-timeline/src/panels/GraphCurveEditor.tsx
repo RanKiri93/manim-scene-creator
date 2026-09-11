@@ -6,13 +6,9 @@ import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
 import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
-import { GraphFieldHelpIcon } from './GraphFieldExpressionHelp';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
-
-const CURVE_JS_HELP =
-  'JavaScript preview formulas use variable `t`. Use "**" for power and Math.sin/Math.cos/Math.exp as needed.';
-const CURVE_PY_HELP =
-  'Python export uses NumPy as `np` with variable `t`. Use "**" for power (never "^").';
+import MathExpressionEditor from './MathExpressionEditor';
+import { PARAM_T_PROFILE } from './mathExpressionPresets';
 
 const LINE_STYLES: FunctionLineStyle[] = ['solid', 'dashed', 'dotted'];
 
@@ -32,14 +28,19 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
   const curve = item.curve;
   const patchCurve = (p: Partial<typeof curve>) =>
     set({ curve: { ...curve, ...p } });
-  const patchCurveExprs = useCallback(
-    (p: {
-      jsXExpr?: string;
-      jsYExpr?: string;
-      pyXExpr?: string;
-      pyYExpr?: string;
-    }) => {
-      updateItem(item.id, { curve: { ...curve, ...p } });
+  const patchXExprs = useCallback(
+    (p: { jsExpr: string; pyExpr: string }) => {
+      updateItem(item.id, {
+        curve: { ...curve, jsXExpr: p.jsExpr, pyXExpr: p.pyExpr },
+      });
+    },
+    [item.id, updateItem, curve],
+  );
+  const patchYExprs = useCallback(
+    (p: { jsExpr: string; pyExpr: string }) => {
+      updateItem(item.id, {
+        curve: { ...curve, jsYExpr: p.jsExpr, pyYExpr: p.pyExpr },
+      });
     },
     [item.id, updateItem, curve],
   );
@@ -103,52 +104,21 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
         </p>
 
         <div className="mt-3 flex flex-col gap-2">
-          <span className="text-xs font-medium text-slate-300">x(t)</span>
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span>Preview (JavaScript)</span>
-            <GraphFieldHelpIcon title={CURVE_JS_HELP} label="Help: JS x(t)" />
-          </div>
-          <input
-            type="text"
-            value={curve.jsXExpr}
-            onChange={(e) => patchCurveExprs({ jsXExpr: e.target.value })}
-            placeholder="JS: Math.cos(t)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
+          <MathExpressionEditor
+            label="x(t)"
+            jsExpr={curve.jsXExpr}
+            pyExpr={curve.pyXExpr}
+            onChange={patchXExprs}
+            profile={PARAM_T_PROFILE}
+            dialogTitle="Curve x(t) — expression helper"
           />
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span>Export (Python)</span>
-            <GraphFieldHelpIcon title={CURVE_PY_HELP} label="Help: Py x(t)" />
-          </div>
-          <input
-            type="text"
-            value={curve.pyXExpr}
-            onChange={(e) => patchCurveExprs({ pyXExpr: e.target.value })}
-            placeholder="Python: np.cos(t)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-          />
-
-          <span className="text-xs font-medium text-slate-300 mt-2">y(t)</span>
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span>Preview (JavaScript)</span>
-            <GraphFieldHelpIcon title={CURVE_JS_HELP} label="Help: JS y(t)" />
-          </div>
-          <input
-            type="text"
-            value={curve.jsYExpr}
-            onChange={(e) => patchCurveExprs({ jsYExpr: e.target.value })}
-            placeholder="JS: Math.sin(t)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-          />
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <span>Export (Python)</span>
-            <GraphFieldHelpIcon title={CURVE_PY_HELP} label="Help: Py y(t)" />
-          </div>
-          <input
-            type="text"
-            value={curve.pyYExpr}
-            onChange={(e) => patchCurveExprs({ pyYExpr: e.target.value })}
-            placeholder="Python: np.sin(t)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
+          <MathExpressionEditor
+            label="y(t)"
+            jsExpr={curve.jsYExpr}
+            pyExpr={curve.pyYExpr}
+            onChange={patchYExprs}
+            profile={PARAM_T_PROFILE}
+            dialogTitle="Curve y(t) — expression helper"
           />
         </div>
       </div>

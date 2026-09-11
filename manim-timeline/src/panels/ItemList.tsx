@@ -151,6 +151,51 @@ export default function ItemList() {
                 return `Rect → ${joined}`;
               })()
             : itemClipDisplayName(item);
+    // Axes-attachment chip (option 1): every graph overlay row names the
+    // axes it is anchored to via its existing `axesId`. Missing/stale ids
+    // render a warning chip instead of crashing.
+    const axesChip = (() => {
+      switch (item.kind) {
+        case 'graphPlot':
+        case 'graphCurve':
+        case 'graphDot':
+        case 'graphField':
+        case 'graphFunctionSeries':
+        case 'graphPointSequence':
+        case 'graphArea':
+          break;
+        default:
+          return null;
+      }
+      const ax = itemsMap.get(item.axesId);
+      if (!ax || ax.kind !== 'axes') {
+        return (
+          <span
+            className="shrink-0 truncate max-w-[140px] rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
+            title={`Referenced axes "${item.axesId}" is missing — pick another axes in the graph editor.`}
+            dir="auto"
+          >
+            Axes missing
+          </span>
+        );
+      }
+      const axesName = itemClipDisplayName(ax);
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            select(ax.id);
+          }}
+          className="shrink-0 truncate max-w-[140px] rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-200 hover:bg-emerald-600/35 transition-colors"
+          title={`Attached to axes: ${axesName} (${ax.id}) — click to select it.`}
+          dir="auto"
+        >
+          Axes: {axesName}
+        </button>
+      );
+    })();
+
     let kindBadge = 'bg-slate-600/30 text-slate-300';
     let kindLetter = '?';
     if (item.kind === 'textLine') {
@@ -220,6 +265,7 @@ export default function ItemList() {
         <span className="flex-1 truncate text-slate-300" dir="auto">
           {opts?.title ?? label}
         </span>
+        {axesChip}
         {opts?.trailing}
         <span className="text-slate-500 font-mono text-[10px] shrink-0">{timeLabel}</span>
 

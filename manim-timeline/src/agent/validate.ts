@@ -758,6 +758,53 @@ function resolvePointSequenceAxisFromPatch(
   };
 }
 
+/**
+ * Coerce per-axis x(t)/y(t) expressions from a graphCurve UPDATE patch.
+ * Reads `curve.*` first, then top-level coordinate keys/aliases (which CREATE
+ * also accepts); top-level hits are folded into `curve` by the caller.
+ * Returns null when the patch does not touch that axis.
+ */
+function resolveCurveAxisFromPatch(
+  patch: Record<string, unknown>,
+  curve: Record<string, unknown> | null,
+  axis: 'x' | 'y',
+  errors: string[],
+  axisPrefix: string,
+): { jsExpr: string; pyExpr: string } | null {
+  const jsKey = axis === 'x' ? 'jsXExpr' : 'jsYExpr';
+  const pyKey = axis === 'x' ? 'pyXExpr' : 'pyYExpr';
+  const aliasKeys =
+    axis === 'x' ? ['exprX', 'xExpr'] : ['exprY', 'yExpr'];
+  const hasAxis =
+    (curve &&
+      (jsKey in curve ||
+        pyKey in curve ||
+        aliasKeys.some((k) => k in curve))) ||
+    jsKey in patch ||
+    pyKey in patch ||
+    aliasKeys.some((k) => k in patch);
+  if (!hasAxis) return null;
+
+  let js =
+    (curve && (pickStr(curve, jsKey) || pickStrAny(curve, aliasKeys))) ||
+    pickStr(patch, jsKey) ||
+    pickStrAny(patch, aliasKeys);
+  let py =
+    (curve && pickStr(curve, pyKey)) || pickStr(patch, pyKey);
+  if (js && !py) py = toPyExpr(js);
+  if (py && !js) js = toJsExpr(py);
+  if (!js || !py) {
+    errors.push(
+      `${axisPrefix}: ${axis}(t) needs ${jsKey} / ${pyKey} (or aliases ${aliasKeys.join(', ')}) — provide at least one dialect per coordinate.`,
+    );
+    return null;
+  }
+  return {
+    jsExpr: js.replace(/\^/g, '**'),
+    pyExpr: py.replace(/\^/g, '**'),
+  };
+}
+
 function normalizeUpdates(
   updates: Partial<SceneItem>,
   targetKind: string,
@@ -855,6 +902,110 @@ function normalizeUpdates(
       next.jsYExpr = yPair.jsExpr;
       next.pyYExpr = yPair.pyExpr;
     }
+  }
+  if (targetKind === 'graphPlot') {
+    // Repair `fn` expression updates the same way CREATE does (`^` → `**`,
+    // alias rescue, single-dialect derivation) without touching sibling
+    // fields like `color`. Untouched when the patch carries no expressions
+    // so color-only updates never invent a sine default.
+    const fnRaw = patch.fn;
+    if (typeof fnRaw === 'string' && fnRaw.trim()) {
+      const { jsExpr, pyExpr } = resolveFnExprs({ fn: fnRaw });
+      next.fn = { jsExpr, pyExpr };
+    } else if (fnRaw && typeof fnRaw === 'object' && !Array.isArray(fnRaw)) {
+      const fr = fnRaw as Record<string, unknown>;
+      const exprKeys = [
+        'jsExpr',
+        'jsExpression',
+        'pyExpr',
+        'pyExpression',
+        'expr',
+        'expression',
+        'formula',
+        'function',
+        'equation',
+      ];
+      const touchesExpr =
+        exprKeys.some(
+          (k) => typeof fr[k] === 'string' && (fr[k] as string).trim(),
+        ) ||
+        exprKeys.some(
+          (k) => typeof patch[k] === 'string' && (patch[k] as string).trim(),
+        );
+      if (touchesExpr) {
+        const { jsExpr, pyExpr } = resolveFnExprs({ ...patch, fn: fr });
+        next.fn = { ...fr, jsExpr, pyExpr };
+      }
+    }
+  }
+  if (targetKind === 'graphCurve') {
+    // Repair `curve` coordinate updates (`^` → `**`, single-dialect
+    // derivation). Top-level coordinate keys are folded into `curve`
+    // (CREATE accepts them there); unrelated `curve` fields pass through
+    // and commit deep-merges the result over the stored curve.
+    const curveRaw = patch.curve;
+    const curveRec =
+      curveRaw && typeof curveRaw === 'object' && !Array.isArray(curveRaw)
+        ? (curveRaw as Record<string, unknown>)
+        : null;
+    const upPrefix = `${prefix}.updates`;
+    const xPair = resolveCurveAxisFromPatch(
+      patch,
+      curveRec,
+      'x',
+      errors,
+      upPrefix,
+    );
+    const yPair = resolveCurveAxisFromPatch(
+      patch,
+      curveRec,
+      'y',
+      errors,
+      upPrefix,
+    );
+    if (xPair || yPair) {
+      const mergedCurve: Record<string, unknown> = { ...(curveRec ?? {}) };
+      if (xPair) {
+        mergedCurve.jsXExpr = xPair.jsExpr;
+        mergedCurve.pyXExpr = xPair.pyExpr;
+        for (const k of ['jsXExpr', 'pyXExpr', 'exprX', 'xExpr']) {
+          delete (next as Record<string, unknown>)[k];
+        }
+      }
+      if (yPair) {
+        mergedCurve.jsYExpr = yPair.jsExpr;
+        mergedCurve.pyYExpr = yPair.pyExpr;
+        for (const k of ['jsYExpr', 'pyYExpr', 'exprY', 'yExpr']) {
+          delete (next as Record<string, unknown>)[k];
+        }
+      }
+      next.curve = mergedCurve;
+    }
+  }
+  if (targetKind === 'target_animation' && Array.isArray(patch.targets)) {
+    // Repair `parametricPath` expressions inside UPDATE rows (`^` → `**`,
+    // single-dialect derivation). Rows and all non-expression fields pass
+    // through untouched; axes the patch does not mention are left alone.
+    next.targets = (patch.targets as unknown[]).map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+      const r = row as Record<string, unknown>;
+      const pp = r.parametricPath;
+      if (!pp || typeof pp !== 'object' || Array.isArray(pp)) return r;
+      const ppr = pp as Record<string, unknown>;
+      const nextPP: Record<string, unknown> = { ...ppr };
+      let touched = false;
+      for (const [jsK, pyK] of [
+        ['jsXExpr', 'pyXExpr'],
+        ['jsYExpr', 'pyYExpr'],
+      ] as const) {
+        const pair = repairParametricAxis(ppr[jsK], ppr[pyK]);
+        if (!pair) continue;
+        nextPP[jsK] = pair.jsExpr;
+        nextPP[pyK] = pair.pyExpr;
+        touched = true;
+      }
+      return touched ? { ...r, parametricPath: nextPP } : r;
+    });
   }
   if ('visibleAtSceneStart' in patch) {
     if (patch.visibleAtSceneStart === true) {
@@ -1343,6 +1494,27 @@ function toJsExpr(src: string): string {
     .replace(/\bnp\.(\w+)/g, 'Math.$1')
     .replace(/\^\^TEMP\^\^/g, '**')
     .replace(/\^/g, '**');
+}
+
+/**
+ * Repair one `x(t)`/`y(t)`-style expression axis shared by graphCurve
+ * coordinates and target_animation parametric paths: `^` → `**` on both
+ * dialects plus single-dialect derivation. Returns null when neither side
+ * carries content, so partial UPDATEs never invent expressions.
+ */
+function repairParametricAxis(
+  jsRaw: unknown,
+  pyRaw: unknown,
+): { jsExpr: string; pyExpr: string } | null {
+  const js = typeof jsRaw === 'string' && jsRaw.trim() ? jsRaw.trim() : '';
+  const py = typeof pyRaw === 'string' && pyRaw.trim() ? pyRaw.trim() : '';
+  if (!js && !py) return null;
+  const outJs = js || toJsExpr(py);
+  const outPy = py || toPyExpr(js);
+  return {
+    jsExpr: outJs.replace(/\^/g, '**'),
+    pyExpr: outPy.replace(/\^/g, '**'),
+  };
 }
 
 /**
@@ -1969,23 +2141,16 @@ function normalizeTargetAnimation(
         const tMin = Number(rec.tMin);
         const tMax = Number(rec.tMax);
         if (Number.isFinite(tMin) && Number.isFinite(tMax)) {
+          // Same rescue as every other expression pair: `^` → `**` plus
+          // single-dialect derivation. Both-missing axes keep the '0'
+          // default so path rows without expressions still validate.
+          const xPair = repairParametricAxis(rec.jsXExpr, rec.pyXExpr);
+          const yPair = repairParametricAxis(rec.jsYExpr, rec.pyYExpr);
           row.parametricPath = {
-            jsXExpr:
-              typeof rec.jsXExpr === 'string' && rec.jsXExpr.trim()
-                ? rec.jsXExpr.trim()
-                : '0',
-            jsYExpr:
-              typeof rec.jsYExpr === 'string' && rec.jsYExpr.trim()
-                ? rec.jsYExpr.trim()
-                : '0',
-            pyXExpr:
-              typeof rec.pyXExpr === 'string' && rec.pyXExpr.trim()
-                ? rec.pyXExpr.trim()
-                : '0',
-            pyYExpr:
-              typeof rec.pyYExpr === 'string' && rec.pyYExpr.trim()
-                ? rec.pyYExpr.trim()
-                : '0',
+            jsXExpr: xPair?.jsExpr ?? '0',
+            jsYExpr: yPair?.jsExpr ?? '0',
+            pyXExpr: xPair?.pyExpr ?? '0',
+            pyYExpr: yPair?.pyExpr ?? '0',
             tMin,
             tMax,
             samples: Math.max(2, Math.round(asNum(rec.samples, 80))),

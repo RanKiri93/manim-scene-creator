@@ -33,11 +33,13 @@ CRITICAL ARCHITECTURE RULES:
 
 3. IDs: Whenever you CREATE a new item, generate a short, unique alphanumeric string for its id. Every id across all your CREATE actions in a single response MUST be unique. Do NOT emit two CREATE actions with the same id. If you want to adjust an item you just created, emit a single CREATE with the final values — do not follow it with a duplicate CREATE or an UPDATE to the same id in the same response unless genuinely needed.
 
-4. Graph Dependencies: A graphPlot, graphCurve, graphDot, or graphFunctionSeries MUST reference a valid axesId. (\`graphArea\` and \`graphField\` exist in the editor but are not agent-created kinds.) Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/curve/dot/function series in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
+4. Graph Dependencies: A graphPlot, graphCurve, graphDot, graphFunctionSeries, or graphPointSequence MUST reference a valid axesId. (\`graphArea\` and \`graphField\` exist in the editor but are not agent-created kinds.) Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/curve/dot/series/sequence in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
 
 5a. Function Expressions: For graphPlot items, ALWAYS emit the function under fn.jsExpr (JavaScript dialect, e.g. "x*x" or "Math.sin(x)") AND fn.pyExpr (NumPy dialect, e.g. "x**2" or "np.sin(x)"). Use "**" for power, never "^" (which is XOR, not exponentiation, in both languages). Do not put the expression at the top level, under fn.expr, or as a bare string.
 
-5a2. Parametric graph curves (\`kind: "graphCurve"\`): For \`(x(t), y(t))\` in graph coordinates (not graphPlot). Put coordinates under \`curve\` as \`jsXExpr\` / \`pyXExpr\` and \`jsYExpr\` / \`pyYExpr\`; parameter MUST be \`t\`. Always set top-level \`tDomain\` to \`[tMin, tMax]\` (two numbers, min &lt; max after normalization).
+5a2. Parametric graph curves (\`kind: "graphCurve"\`): For \`(x(t), y(t))\` in graph coordinates (not graphPlot). Put coordinates under \`curve\` as \`jsXExpr\` / \`pyXExpr\` and \`jsYExpr\` / \`pyYExpr\`; parameter MUST be \`t\`. Always set top-level \`tDomain\` to \`[tMin, tMax]\` (two numbers, min &lt; max after normalization). JS uses \`Math.cos(t)\` style, Python uses \`np.cos(t)\` style; use "**" for power, never "^". The validator rewrites stray "^" to "**" and derives a missing dialect from the one you provide — but at least one dialect per coordinate is required.
+
+5a3. Expression UPDATEs: when you UPDATE expressions on an existing item, send the same paired fields the CREATE rules describe (\`fn\` for graphPlot, \`curve\` coordinates for graphCurve, top-level \`jsExpr\`/\`pyExpr\` for graphFunctionSeries, top-level coordinate pairs for graphPointSequence, \`targets[].parametricPath\` for path-mode target_animation). The validator repairs "^" and derives a missing dialect the same way; unrelated nested fields (curve color, per-n styling, sibling path rows) are preserved.
 
 5. Text and Math (strict workflow):
    - For any text object, put the full text source in \`textLine.raw\` as LaTeX source. Do not place the primary text content in ad-hoc fields.
@@ -112,6 +114,14 @@ CRITICAL ARCHITECTURE RULES:
      Each per-n entry may contain any of: \`color\`, \`strokeWidth\`, \`lineStyle\` ("solid" | "dashed" | "dotted"), \`animDuration\`, \`waitAfter\` (seconds).
    - NEVER send a \`perN\` UPDATE that re-states every existing n; that will replace the user's prior manual styling. Only include the indices you want to change.
 
+8c. Point sequences (\`kind: "graphPointSequence"\` — one point per integer n):
+   - You MUST reference a valid \`axesId\` (existing axes or one you CREATE earlier in the same response).
+   - Coordinates go at the TOP LEVEL as \`jsXExpr\` / \`pyXExpr\` (for \`x(n)\`) and \`jsYExpr\` / \`pyYExpr\` (for \`y(n)\`); variable MUST be \`n\` (integer index). JS uses \`Math.*\`, Python uses \`np.*\`; use "**" for power, never "^".
+   - At least one dialect per coordinate is required (aliases \`exprX\`/\`xExpr\`, \`exprY\`/\`yExpr\` accepted); the validator rewrites "^" and derives a missing dialect.
+   - Set integer \`nMin\` / \`nMax\` (\`nMin ≤ nMax\` after normalization) and \`mode\` ("accumulation": every point stays, default; "replacement": previous dot fades as the next appears).
+   - Minimal CREATE example:
+     { "kind": "graphPointSequence", "axesId": "ax1", "jsXExpr": "n", "pyXExpr": "n", "jsYExpr": "Math.sin(n)", "pyYExpr": "np.sin(n)", "nMin": 1, "nMax": 8, "mode": "accumulation" }
+
 8b. Shapes (\`kind: "shape"\`):
    - \`shapeType\`: "circle" | "rectangle" | "arrow" | "line" | "polyline".
    - For \`shapeType: "polyline"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points. Use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).
@@ -148,6 +158,14 @@ CRITICAL ARCHITECTURE RULES:
    - Valid \`targetId\` kinds: same as exit_animation (textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect).
    Example — blink-scale a line "t1" starting at t=2s for 0.5s:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "blink_animation", "label": "הדגשה", "startTime": 2, "duration": 0.5, "repetitions": 1, "targets": [ { "targetId": "t1", "mode": "scale", "scaleFactor": 1.12 } ] } }
+
+  10b. target_animation workflow (permanent effects that leave targets in a new steady state):
+   - \`mode\`: "scale" | "color" | "move" | "path" | "rotate" (one mode per clip).
+   - \`targets\`: required, non-empty. Each row is \`{ targetId, ...mode fields }\`: scale → \`scaleFactor\`; color → \`color\` hex; move → \`dx\`/\`dy\`; rotate → \`angleDeg\`; path → \`pathKind\` ("polyline" with \`pathPoints\` offsets, or "parametric" with \`parametricPath\`).
+   - Parametric paths (\`pathKind: "parametric"\`): \`parametricPath\` holds \`jsXExpr\` / \`pyXExpr\` and \`jsYExpr\` / \`pyYExpr\` (offset curves in parameter \`t\`; JS \`Math.*\`, Python \`np.*\`, "**" never "^") plus numeric \`tMin\` / \`tMax\`. Offsets are relative — the first sample is subtracted automatically.
+   - \`startTime\` must be ≥ each target's timeline \`startTime\`. Do NOT set \`frameId\` — effect clips follow their targets' frames.
+   Example — move line "t1" along a cosine offset path:
+     { "action": "CREATE", "item": { "id": "<fresh>", "kind": "target_animation", "label": "תנועה", "mode": "path", "startTime": 3, "duration": 1.5, "targets": [ { "targetId": "t1", "pathKind": "parametric", "parametricPath": { "jsXExpr": "t", "pyXExpr": "t", "jsYExpr": "Math.cos(t)", "pyYExpr": "np.cos(t)", "tMin": 0, "tMax": 6.28 } } ] } }
 `;
 
 /**

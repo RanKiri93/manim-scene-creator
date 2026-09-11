@@ -8,6 +8,8 @@ import type {
   PointSequenceDefaults,
   PointSequencePerN,
   SceneItem,
+  TargetAnimationItem,
+  TargetAnimationTargetSpec,
   TextLineItem,
 } from '@/types/scene';
 import { parseSegments } from '@/codegen/texUtils';
@@ -85,6 +87,15 @@ function applyUpdate(id: string, updates: Partial<SceneItem>): void {
     const merged = mergeGraphCurveUpdates(
       existing as GraphCurveItem,
       updates as Partial<GraphCurveItem>,
+    );
+    s.updateItem(id, merged as never);
+    return;
+  }
+
+  if (existing.kind === 'target_animation') {
+    const merged = mergeTargetAnimationUpdates(
+      existing as TargetAnimationItem,
+      updates as Partial<TargetAnimationItem>,
     );
     s.updateItem(id, merged as never);
     return;
@@ -173,5 +184,46 @@ function mergeGraphCurveUpdates(
       ...patch.curve,
     };
   }
+  return out;
+}
+
+/**
+ * Deep-merge an UPDATE patch for a `target_animation` item so a partial row
+ * (e.g. only `parametricPath.jsXExpr`) never wipes sibling rows or sibling
+ * fields. Rows are matched by `targetId`; each patch row spreads over the
+ * stored row, and a patch `parametricPath` spreads over the stored one, so
+ * the untouched `y(t)` axis and mode fields survive. Rows without a
+ * `targetId` (or with an unknown one) pass through unchanged.
+ *
+ * Returns a new patch object (never mutates `existing` or `patch`).
+ */
+function mergeTargetAnimationUpdates(
+  existing: TargetAnimationItem,
+  patch: Partial<TargetAnimationItem>,
+): Partial<TargetAnimationItem> {
+  const out: Partial<TargetAnimationItem> = { ...patch };
+  if (!Array.isArray(patch.targets)) return out;
+  const byTargetId = new Map<string, TargetAnimationTargetSpec>();
+  for (const row of existing.targets ?? []) {
+    if (row && typeof row.targetId === 'string') byTargetId.set(row.targetId, row);
+  }
+  out.targets = (patch.targets as TargetAnimationTargetSpec[]).map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const prev =
+      typeof row.targetId === 'string'
+        ? byTargetId.get(row.targetId)
+        : undefined;
+    if (!prev) return row;
+    const merged: TargetAnimationTargetSpec = { ...prev, ...row };
+    if (
+      row.parametricPath &&
+      typeof row.parametricPath === 'object' &&
+      prev.parametricPath &&
+      typeof prev.parametricPath === 'object'
+    ) {
+      merged.parametricPath = { ...prev.parametricPath, ...row.parametricPath };
+    }
+    return merged;
+  });
   return out;
 }

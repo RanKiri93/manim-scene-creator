@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useSceneStore } from '@/store/useSceneStore';
-import type { GraphFunctionSeriesItem } from '@/types/scene';
+import type {
+  GraphFunctionSeriesItem,
+  TargetAnimationItem,
+} from '@/types/scene';
 import { commitActions } from './commit';
 
 function makeAxes(id: string) {
@@ -170,5 +173,68 @@ describe('commitActions — graphFunctionSeries deep-merge', () => {
     expect(fs.nMax).toBe(6);
     expect(fs.mode).toBe('replacement');
     expect(fs.perN['3']).toEqual({ color: '#00FF00' });
+  });
+});
+
+describe('commitActions — target_animation row merge', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  function makePathTa(id: string) {
+    useSceneStore.getState().addItem({
+      id,
+      kind: 'target_animation',
+      label: 'path',
+      layer: 0,
+      startTime: 1,
+      duration: 1.5,
+      mode: 'path',
+      targets: [
+        {
+          targetId: 'tl1',
+          pathKind: 'parametric',
+          parametricPath: {
+            jsXExpr: 't',
+            jsYExpr: 'Math.sin(t)',
+            pyXExpr: 't',
+            pyYExpr: 'np.sin(t)',
+            tMin: 0,
+            tMax: 6.28,
+          },
+        },
+      ],
+    });
+  }
+
+  it('merges a partial parametricPath UPDATE preserving the sibling axis', () => {
+    makePathTa('ta1');
+
+    commitActions([
+      {
+        action: 'UPDATE',
+        itemId: 'ta1',
+        updates: {
+          targets: [
+            {
+              targetId: 'tl1',
+              parametricPath: { jsXExpr: 't**2', pyXExpr: 't**2' },
+            },
+          ],
+        },
+      } as never,
+    ]);
+
+    const ta = useSceneStore.getState().items.get('ta1') as TargetAnimationItem;
+    expect(ta.targets).toHaveLength(1);
+    expect(ta.targets[0]!.pathKind).toBe('parametric');
+    expect(ta.targets[0]!.parametricPath).toMatchObject({
+      jsXExpr: 't**2',
+      pyXExpr: 't**2',
+      jsYExpr: 'Math.sin(t)',
+      pyYExpr: 'np.sin(t)',
+      tMin: 0,
+      tMax: 6.28,
+    });
   });
 });

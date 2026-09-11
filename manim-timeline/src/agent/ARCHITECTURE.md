@@ -352,6 +352,14 @@ And finally, `^` is always rewritten to `**` on both dialects because `^` means 
 
 **`graphFunctionSeries`** uses `resolveGraphFunctionSeriesExprs` instead: top-level `jsExpr` / `pyExpr` (plus the same string aliases), optional single-dialect derivation via `toPyExpr` / `toJsExpr`, and **no default expression** — wholly missing expressions fail validation.
 
+**Other expression contexts** (same `^` → `**` rescue and single-dialect derivation everywhere):
+
+- **`graphCurve`** — `resolveParametricCoordinateExprs` reads `curve.jsXExpr` / `pyXExpr` / `jsYExpr` / `pyYExpr` (plus top-level and `exprX`/`xExpr` aliases); at least one dialect per coordinate is required, otherwise validation fails. Parameter is always `t`.
+- **`graphPointSequence`** — `resolvePointSequenceCoordinateExprs` reads top-level `jsXExpr` / `pyXExpr` / `jsYExpr` / `pyYExpr` (plus `exprX`/`xExpr` aliases); same one-dialect-per-axis strictness. Variable is always `n`.
+- **`target_animation` parametric paths** — `normalizeTargetAnimation` runs `repairParametricAxis` per axis (`^` → `**`, derive the missing dialect); axes missing both dialects keep the `'0'` default so path rows without expressions still validate.
+
+**UPDATE parity** (`normalizeUpdates`): expression patches are repaired with the same rules — `graphPlot.fn` via `resolveFnExprs` (alias rescue included; color-only `fn` patches are left alone so no sine default is invented), `graphCurve.curve` via `resolveCurveAxisFromPatch` (top-level coordinate aliases are folded into `curve`), top-level `jsExpr`/`pyExpr` for `graphFunctionSeries`, per-axis pairs for `graphPointSequence`, and per-row `parametricPath` axes for `target_animation`. Unrelated nested fields always pass through, and `commit.ts` deep-merges `graphFunctionSeries` (`perN`, `defaults`), `graphPointSequence` (`perN`, `defaults`), `graphCurve` (`curve`), and `target_animation` (rows matched by `targetId`, `parametricPath` merged per row) so partial patches never wipe sibling state.
+
 ### 7.5 `frameId` validation
 
 `validateAgentResponse(raw, currentItems, frameCtx)` takes an optional live frame context (`frameIds`, `activeFrameId`, `startFrameId` from `useSceneStore` at request time). When present:
@@ -375,14 +383,18 @@ Current rules:
    - `kind: "absolute"` positions the item at screen centre — almost never the right choice. Use `to_edge` or `next_to` for any directional request (top/bottom/left/right/upper section etc.).
    - Hebrew phrasing for edges ("חלק עליון", "בחלק העליון") must map to `{kind:"to_edge", edge:"UP", buff:0.5}`, **not** `kind:"absolute"`.
 3. Unique alphanumeric `id`s; no duplicate CREATE ids in one response.
-4. `graphPlot` / `graphDot` / `graphFunctionSeries` **MUST** have a valid `axesId`. (`graphArea` / `graphField` are not agent-created.)
+4. `graphPlot` / `graphCurve` / `graphDot` / `graphFunctionSeries` / `graphPointSequence` **MUST** have a valid `axesId`. (`graphArea` / `graphField` are not agent-created.)
 5. **textLine strict workflow** — all rules apply to CREATE:
    - Put the full LaTeX source in `raw`. Do **not** put Hebrew text in `\text{…}`.
    - Math fragments must be written in `$…$`.
    - Omit `segments` (or emit `segments: []`) — the app derives them automatically from `raw`.
    - Copy `projectDefaults.font` into `font`. If `projectDefaults.font` is empty, default to `"Alef"`. Never use `"Arial"` or other non-Hebrew fonts.
    - **Two-step rule for CREATE only**: do not include segment styling (color/bold/italic) in the same response as the CREATE. Style in a later turn after the user approves.
-   - 5a. `graphPlot` functions **MUST** use `fn.jsExpr` (JS) and `fn.pyExpr` (NumPy). Power is `**`, never `^`.
+    - 5a. `graphPlot` functions **MUST** use `fn.jsExpr` (JS) and `fn.pyExpr` (NumPy). Power is `**`, never `^`.
+    - 5a2. `graphCurve` coordinates live under `curve` (`jsXExpr`/`pyXExpr`, `jsYExpr`/`pyYExpr`, parameter `t`) plus top-level `tDomain`; same `**` rule.
+    - 5a3. Expression UPDATEs use the CREATE field shapes; the validator repairs `^` and derives missing dialects, and `commit.ts` preserves unrelated nested fields.
+    - 8c. `graphPointSequence` coordinates live at the top level (`jsXExpr`/`pyXExpr`, `jsYExpr`/`pyYExpr`, variable `n`) plus integer `nMin`/`nMax` and `mode`.
+    - 10b. `target_animation` CREATEs carry `mode` plus per-row mode fields; parametric paths use `parametricPath` (`jsXExpr`/`pyXExpr`, `jsYExpr`/`pyYExpr`, `tMin`/`tMax`) with the same `**` rule.
    - 5b. **Styling a word/phrase in an existing textLine** (UPDATE, one step):
      1. Insert `||` in `raw` around the target word: `"סדרות|| פונקציות..."` (the `||` is a segment boundary marker — invisible in the render). Math segments (`$…$`) are natural boundaries; no `||` needed around them.
      2. In the same UPDATE, include `segments` with the correct per-segment `color`/`bold`/`italic`. Preserve existing `text` and `isMath` values — only change style fields.

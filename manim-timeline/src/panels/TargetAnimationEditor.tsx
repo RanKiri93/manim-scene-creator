@@ -25,6 +25,8 @@ import {
 } from '@/codegen/blinkCodegen';
 import { defaultTargetAnimationRow } from '@/store/factories';
 import MathSubobjectPicker from './MathSubobjectPicker';
+import MathExpressionEditor from './MathExpressionEditor';
+import { PATH_T_PROFILE } from './mathExpressionPresets';
 
 function defaultParametricPath() {
   return {
@@ -397,70 +399,40 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                           Values are offsets and the first sample is subtracted automatically.
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <label className="text-[10px] text-slate-500">
-                            Preview x(t)
-                            <input
-                              value={(row.parametricPath ?? defaultParametricPath()).jsXExpr}
-                              onChange={(e) =>
-                                patchRow(index, {
-                                  pathKind: 'parametric',
-                                  parametricPath: {
-                                    ...(row.parametricPath ?? defaultParametricPath()),
-                                    jsXExpr: e.target.value,
-                                  },
-                                })
-                              }
-                              className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
-                            />
-                          </label>
-                          <label className="text-[10px] text-slate-500">
-                            Preview y(t)
-                            <input
-                              value={(row.parametricPath ?? defaultParametricPath()).jsYExpr}
-                              onChange={(e) =>
-                                patchRow(index, {
-                                  pathKind: 'parametric',
-                                  parametricPath: {
-                                    ...(row.parametricPath ?? defaultParametricPath()),
-                                    jsYExpr: e.target.value,
-                                  },
-                                })
-                              }
-                              className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
-                            />
-                          </label>
-                          <label className="text-[10px] text-slate-500">
-                            Export x(t)
-                            <input
-                              value={(row.parametricPath ?? defaultParametricPath()).pyXExpr}
-                              onChange={(e) =>
-                                patchRow(index, {
-                                  pathKind: 'parametric',
-                                  parametricPath: {
-                                    ...(row.parametricPath ?? defaultParametricPath()),
-                                    pyXExpr: e.target.value,
-                                  },
-                                })
-                              }
-                              className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
-                            />
-                          </label>
-                          <label className="text-[10px] text-slate-500">
-                            Export y(t)
-                            <input
-                              value={(row.parametricPath ?? defaultParametricPath()).pyYExpr}
-                              onChange={(e) =>
-                                patchRow(index, {
-                                  pathKind: 'parametric',
-                                  parametricPath: {
-                                    ...(row.parametricPath ?? defaultParametricPath()),
-                                    pyYExpr: e.target.value,
-                                  },
-                                })
-                              }
-                              className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
-                            />
-                          </label>
+                          <MathExpressionEditor
+                            label="x(t) offset"
+                            jsExpr={(row.parametricPath ?? defaultParametricPath()).jsXExpr}
+                            pyExpr={(row.parametricPath ?? defaultParametricPath()).pyXExpr}
+                            onChange={(p) =>
+                              patchRow(index, {
+                                pathKind: 'parametric',
+                                parametricPath: {
+                                  ...(row.parametricPath ?? defaultParametricPath()),
+                                  jsXExpr: p.jsExpr,
+                                  pyXExpr: p.pyExpr,
+                                },
+                              })
+                            }
+                            profile={PATH_T_PROFILE}
+                            dialogTitle="Path x(t) — expression helper"
+                          />
+                          <MathExpressionEditor
+                            label="y(t) offset"
+                            jsExpr={(row.parametricPath ?? defaultParametricPath()).jsYExpr}
+                            pyExpr={(row.parametricPath ?? defaultParametricPath()).pyYExpr}
+                            onChange={(p) =>
+                              patchRow(index, {
+                                pathKind: 'parametric',
+                                parametricPath: {
+                                  ...(row.parametricPath ?? defaultParametricPath()),
+                                  jsYExpr: p.jsExpr,
+                                  pyYExpr: p.pyExpr,
+                                },
+                              })
+                            }
+                            profile={PATH_T_PROFILE}
+                            dialogTitle="Path y(t) — expression helper"
+                          />
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <NumberInput

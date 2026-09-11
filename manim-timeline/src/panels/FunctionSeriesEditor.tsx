@@ -19,6 +19,8 @@ import AudioBindingSelect from './AudioBindingSelect';
 import FunctionSeriesIndividualPanel from './FunctionSeriesIndividualPanel';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import MathExpressionEditor from './MathExpressionEditor';
+import { SERIES_NX_PROFILE } from './mathExpressionPresets';
 
 interface FunctionSeriesEditorProps {
   item: GraphFunctionSeriesItem;
@@ -122,30 +124,14 @@ export default function FunctionSeriesEditor({
 
   const graphContent = (
     <div className="flex flex-col gap-3">
-      <div className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
-        <div className="text-xs text-slate-400 mb-1">Formula (variables: n, x)</div>
-        <p className="mt-2 text-[11px] leading-snug text-slate-500">
-          JavaScript drives canvas preview; Python (NumPy) drives export. One
-          curve per integer <code className="text-slate-400">n</code> in
-          [n_min, n_max].
-        </p>
-        <div className="mt-2 text-xs text-slate-400">Preview (JavaScript)</div>
-        <input
-          type="text"
-          value={item.jsExpr}
-          onChange={(e) => set({ jsExpr: e.target.value })}
-          placeholder="JS: Math.sin(n * x)"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-        />
-        <div className="mt-2 text-xs text-slate-400">Export (Python)</div>
-        <input
-          type="text"
-          value={item.pyExpr}
-          onChange={(e) => set({ pyExpr: e.target.value })}
-          placeholder="Python: np.sin(n * x)"
-          className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-        />
-      </div>
+      <MathExpressionEditor
+        label="Formula f(n, x) — one curve per integer n in [n_min, n_max]"
+        jsExpr={item.jsExpr}
+        pyExpr={item.pyExpr}
+        onChange={(p) => set({ jsExpr: p.jsExpr, pyExpr: p.pyExpr })}
+        profile={SERIES_NX_PROFILE}
+        dialogTitle="Function series — expression helper"
+      />
 
       <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
         <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">

@@ -1,6 +1,6 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { Group, Rect, Line, Circle, Text, Ellipse, Arrow } from 'react-konva';
+import { Group, Rect, Line, Circle, Text, Ellipse, Arrow, Image as KonvaImage } from 'react-konva';
 import type {
   AxesItem,
   GraphAreaCurveSource,
@@ -39,6 +39,7 @@ import {
   exitPreviewForTarget,
   type ExitPreviewState,
 } from '@/lib/visualPlaybackPreview';
+import { axesRasterGeometry } from '@/lib/axesRasterPreview';
 
 function evalGraphY(jsExpr: string, x: number): number | null {
   try {
@@ -244,6 +245,57 @@ export default function GraphNode({
       pxPerUnitY,
     ],
   );
+
+  // Manim-rasterized axes image: only used once the axes Create has completed
+  // and the cached raster matches the current visual settings.
+  // Missing/stale/loading rasters fall back to the fast vector preview below.
+  // The loaded image is keyed by its data URL so a removed or replaced URL
+  // reads as "no image" without a synchronous setState-in-effect reset
+  // (see `react-hooks/set-state-in-effect`).
+  const axesRasterUrl =
+    typeof axes.axisPreviewDataUrl === 'string' &&
+    axes.axisPreviewDataUrl.trim()
+      ? axes.axisPreviewDataUrl
+      : null;
+  const [loadedRaster, setLoadedRaster] = useState<{
+    url: string;
+    img: HTMLImageElement;
+  } | null>(null);
+  useEffect(() => {
+    if (!axesRasterUrl) return;
+    let cancelled = false;
+    const el = new window.Image();
+    el.onload = () => {
+      if (!cancelled) setLoadedRaster({ url: axesRasterUrl, img: el });
+    };
+    el.onerror = () => {
+      if (!cancelled)
+        setLoadedRaster((cur) => (cur?.url === axesRasterUrl ? null : cur));
+    };
+    el.src = axesRasterUrl;
+    return () => {
+      cancelled = true;
+      el.onload = null;
+      el.onerror = null;
+    };
+  }, [axesRasterUrl]);
+  const axesRasterImg =
+    loadedRaster && loadedRaster.url === axesRasterUrl
+      ? loadedRaster.img
+      : null;
+
+  const axesRasterGeom = useMemo(
+    () =>
+      axesRasterGeometry({
+        axes,
+        time: currentTime,
+        itemsMap,
+        pxPerUnitX,
+        pxPerUnitY,
+      }),
+    [axes, currentTime, itemsMap, pxPerUnitX, pxPerUnitY],
+  );
+  const useAxesRaster = axesRasterGeom != null && axesRasterImg != null;
 
   const plotPolyline = (jsExpr: string, xLo: number, xHi: number): number[] => {
     const points: number[] = [];
@@ -492,6 +544,17 @@ export default function GraphNode({
         onClick={placement ? onAxesClick : undefined}
       />
 
+      {useAxesRaster && axesRasterGeom && axesRasterImg ? (
+        <KonvaImage
+          image={axesRasterImg}
+          x={axesRasterGeom.x}
+          y={axesRasterGeom.y}
+          width={axesRasterGeom.width}
+          height={axesRasterGeom.height}
+          listening={false}
+        />
+      ) : (
+        <>
       {axesPreviewSpec.xAxisPoints.length >= 4 ? (
         axes.includeTip ? (
           <Arrow
@@ -615,6 +678,8 @@ export default function GraphNode({
           />
         ) : null}
       </Group>
+        </>
+      )}
 
       {axesPreviewSpec.revealHead ? (
         <Circle

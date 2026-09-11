@@ -13,6 +13,7 @@ import ColorPicker from '@/components/ColorPicker';
 import AxesIdSelect from './AxesIdSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import MathExpressionEditor from './MathExpressionEditor';
 
 interface GraphAreaEditorProps {
   item: GraphAreaItem;
@@ -141,22 +142,15 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           )}
         </select>
       ) : (
-        <>
-          <input
-            type="text"
-            value={src.jsExpr}
-            onChange={(e) => onChange({ ...src, jsExpr: e.target.value })}
-            placeholder="JS y(x)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono text-slate-300"
-          />
-          <input
-            type="text"
-            value={src.pyExpr}
-            onChange={(e) => onChange({ ...src, pyExpr: e.target.value })}
-            placeholder="Python y(x)"
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono text-slate-300"
-          />
-        </>
+        <MathExpressionEditor
+          label="Boundary expression y(x)"
+          jsExpr={src.jsExpr}
+          pyExpr={src.pyExpr}
+          onChange={(p) => onChange({ ...src, ...p })}
+          jsPlaceholder="JS y(x)"
+          pyPlaceholder="Python y(x)"
+          dialogTitle={`${label} — expression helper`}
+        />
       )}
     </div>
   );

@@ -53,10 +53,12 @@ const GEMINI_RESPONSE_SCHEMA = {
             description:
               'Required for CREATE only. Full scene item with `id`, `kind`, and any kind-specific fields.\n' +
               'IMPORTANT:\n' +
-              '• When `kind` is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
+              '• When `kind` is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", or "graphPointSequence", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
               '• When `kind` is "graphPlot", the function goes under `fn` as `{ jsExpr, pyExpr, color, label }`. `jsExpr` is a JavaScript expression (e.g. "x*x" or "Math.sin(x)"), `pyExpr` is its NumPy equivalent (e.g. "x**2" or "np.sin(x)"). NEVER put the expression under `fn.expr` or as a bare string — always use `jsExpr` and `pyExpr` with the correct dialect. Use "**" (not "^") for power.\n' +
               '• When `kind` is "graphCurve", coordinates go under `curve` as `{ jsXExpr, pyXExpr, jsYExpr, pyYExpr, color, label }` with parameter `t`. Also set top-level `tDomain: [tMin, tMax]` (two numbers). Use "**" (not "^") for power.\n' +
               '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement"). Vector/slope fields (`graphField`) and filled regions (`graphArea`) are not agent-created — use the editor UI.\n' +
+              '• When `kind` is "graphPointSequence", put coordinates at the TOP LEVEL as `jsXExpr` / `pyXExpr` (for x(n)) and `jsYExpr` / `pyYExpr` (for y(n)) with variable `n` (integer index). Set integer `nMin`, `nMax`, and `mode` ("accumulation" | "replacement"). Use "**" (not "^") for power.\n' +
+              '• When `kind` is "target_animation" with `mode: "path"` and a row `pathKind: "parametric"`, put offset curves under that row as `parametricPath: { jsXExpr, pyXExpr, jsYExpr, pyYExpr, tMin, tMax }` with parameter `t` (JS `Math.*`, Python `np.*`, "**" never "^"). Never set `frameId` on target_animation (it follows its targets).\n' +
               '• Set `frameId` on new drawable items (text, axes, graphs, shapes) to the payload `activeFrameId`, or to another frame id from the payload `frames` catalog when the user names a different frame. Never set `frameId` on exit_animation / blink_animation / target_animation (they follow their targets).\n',
             properties: {
               id: { type: 'string' },
@@ -67,7 +69,7 @@ const GEMINI_RESPONSE_SCHEMA = {
               axesId: {
                 type: 'string',
                 description:
-                  'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", or "graphFunctionSeries". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
+                  'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", or "graphPointSequence". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
               },
               frameId: {
                 type: 'string',
@@ -98,10 +100,26 @@ const GEMINI_RESPONSE_SCHEMA = {
                 description:
                   'REQUIRED when kind is "graphCurve". Parametric x(t), y(t) in graph coordinates.',
                 properties: {
-                  jsXExpr: { type: 'string' },
-                  pyXExpr: { type: 'string' },
-                  jsYExpr: { type: 'string' },
-                  pyYExpr: { type: 'string' },
+                  jsXExpr: {
+                    type: 'string',
+                    description:
+                      'JavaScript expression for x(t) with parameter `t`. Example: "Math.cos(t)". Use "**" for power (NEVER "^").',
+                  },
+                  pyXExpr: {
+                    type: 'string',
+                    description:
+                      'NumPy expression for x(t) with parameter `t`. Example: "np.cos(t)". Use "**" for power (NEVER "^").',
+                  },
+                  jsYExpr: {
+                    type: 'string',
+                    description:
+                      'JavaScript expression for y(t) with parameter `t`. Example: "Math.sin(t)". Use "**" for power (NEVER "^").',
+                  },
+                  pyYExpr: {
+                    type: 'string',
+                    description:
+                      'NumPy expression for y(t) with parameter `t`. Example: "np.sin(t)". Use "**" for power (NEVER "^").',
+                  },
                   color: { type: 'string' },
                   label: { type: 'string' },
                 },
@@ -127,21 +145,49 @@ const GEMINI_RESPONSE_SCHEMA = {
                 description:
                   'Top-level NumPy expression for kind="graphFunctionSeries". References both `n` and `x`. Example: "np.sin(n * x)" or "x**n / n".',
               },
+              jsXExpr: {
+                type: 'string',
+                description:
+                  'Top-level JavaScript expression for kind="graphPointSequence": x(n) with variable `n` (integer index). Example: "n" or "Math.cos(n)". Use "**" for power (NEVER "^").',
+              },
+              pyXExpr: {
+                type: 'string',
+                description:
+                  'Top-level NumPy expression for kind="graphPointSequence": x(n) with variable `n` (integer index). Example: "n" or "np.cos(n)". Use "**" for power (NEVER "^").',
+              },
+              jsYExpr: {
+                type: 'string',
+                description:
+                  'Top-level JavaScript expression for kind="graphPointSequence": y(n) with variable `n` (integer index). Example: "0" or "Math.sin(n)". Use "**" for power (NEVER "^").',
+              },
+              pyYExpr: {
+                type: 'string',
+                description:
+                  'Top-level NumPy expression for kind="graphPointSequence": y(n) with variable `n` (integer index). Example: "0" or "np.sin(n)". Use "**" for power (NEVER "^").',
+              },
               nMin: {
                 type: 'integer',
                 description:
-                  'Smallest integer index n in the family (inclusive). Required for kind="graphFunctionSeries".',
+                  'Smallest integer index n (inclusive). Required for kind="graphFunctionSeries" (curve family) and kind="graphPointSequence" (point family).',
               },
               nMax: {
                 type: 'integer',
                 description:
-                  'Largest integer index n in the family (inclusive). Required for kind="graphFunctionSeries". Must satisfy nMax ≥ nMin after normalization.',
+                  'Largest integer index n (inclusive). Required for kind="graphFunctionSeries" and kind="graphPointSequence". Must satisfy nMax ≥ nMin after normalization.',
               },
               mode: {
                 type: 'string',
-                enum: ['accumulation', 'replacement'],
+                enum: [
+                  'accumulation',
+                  'replacement',
+                  'scale',
+                  'color',
+                  'move',
+                  'path',
+                  'rotate',
+                ],
                 description:
-                  'For kind="graphFunctionSeries": "accumulation" draws each curve on top of the previous ones; "replacement" transforms the previous curve into the next (ideal for convergence animations).',
+                  'For kind="graphFunctionSeries" or "graphPointSequence": "accumulation" keeps every curve/point on screen; "replacement" morphs/fades the previous into the next. For kind="target_animation": the effect mode — "scale" | "color" | "move" | "path" | "rotate" (one per clip).',
               },
               displayMode: {
                 type: 'string',
@@ -265,7 +311,7 @@ const GEMINI_RESPONSE_SCHEMA = {
               targets: {
                 type: 'array',
                 description:
-                  'For exit_animation: each row removes one target (animStyle). For blink_animation: each row pulses a target (mode, optional scaleFactor, blinkColor, segmentIndices on textLine). At least one entry.',
+                  'For exit_animation: each row removes one target (animStyle). For blink_animation: each row pulses a target (mode, optional scaleFactor, blinkColor, segmentIndices on textLine). For target_animation: each row retargets one item — include the fields for the clip mode (scale → scaleFactor; color → color; move → dx/dy; rotate → angleDeg; path → pathKind + pathPoints or parametricPath). At least one entry.',
                 items: {
                   type: 'object',
                   required: ['targetId'],
@@ -288,11 +334,81 @@ const GEMINI_RESPONSE_SCHEMA = {
                     },
                     scaleFactor: {
                       type: 'number',
-                      description: 'blink_animation: peak scale (>1).',
+                      description:
+                        'blink_animation: peak scale (>1). target_animation with mode="scale": final scale factor.',
                     },
                     blinkColor: {
                       type: 'string',
                       description: 'blink_animation: CSS hex.',
+                    },
+                    color: {
+                      type: 'string',
+                      description:
+                        'target_animation with mode="color": final CSS hex color.',
+                    },
+                    dx: {
+                      type: 'number',
+                      description:
+                        'target_animation with mode="move": final x offset in Manim scene units.',
+                    },
+                    dy: {
+                      type: 'number',
+                      description:
+                        'target_animation with mode="move": final y offset in Manim scene units.',
+                    },
+                    angleDeg: {
+                      type: 'number',
+                      description:
+                        'target_animation with mode="rotate": final rotation in degrees (CCW positive).',
+                    },
+                    pathKind: {
+                      type: 'string',
+                      enum: ['polyline', 'parametric'],
+                      description:
+                        'target_animation with mode="path": "polyline" uses pathPoints offsets; "parametric" uses parametricPath offsets.',
+                    },
+                    pathPoints: {
+                      type: 'array',
+                      description:
+                        'target_animation path row with pathKind="polyline": ≥2 offset points { x, y } from the anchor at clip start.',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          x: { type: 'number' },
+                          y: { type: 'number' },
+                        },
+                        required: ['x', 'y'],
+                      },
+                    },
+                    parametricPath: {
+                      type: 'object',
+                      description:
+                        'target_animation path row with pathKind="parametric": offset curves x(t), y(t) in parameter `t` (first sample subtracted automatically).',
+                      properties: {
+                        jsXExpr: {
+                          type: 'string',
+                          description:
+                            'JavaScript offset x(t). Example: "t" or "Math.cos(t)". Use "**" (NEVER "^").',
+                        },
+                        pyXExpr: {
+                          type: 'string',
+                          description:
+                            'NumPy offset x(t). Example: "t" or "np.cos(t)". Use "**" (NEVER "^").',
+                        },
+                        jsYExpr: {
+                          type: 'string',
+                          description:
+                            'JavaScript offset y(t). Example: "Math.sin(t)". Use "**" (NEVER "^").',
+                        },
+                        pyYExpr: {
+                          type: 'string',
+                          description:
+                            'NumPy offset y(t). Example: "np.sin(t)". Use "**" (NEVER "^").',
+                        },
+                        tMin: { type: 'number' },
+                        tMax: { type: 'number' },
+                        samples: { type: 'integer' },
+                      },
                     },
                     segmentIndices: {
                       type: 'array',
@@ -331,7 +447,7 @@ const GEMINI_RESPONSE_SCHEMA = {
           updates: {
             type: 'object',
             description:
-              'Required for UPDATE only. Partial patch of fields to change on the target item. For graphFunctionSeries, include only the perN entries you want to change — the app deep-merges your patch with the existing dictionary so other indices are never dropped.',
+              'Required for UPDATE only. Partial patch of fields to change on the target item. For graphFunctionSeries, include only the perN entries you want to change — the app deep-merges your patch with the existing dictionary so other indices are never dropped. Expression fields use the same paired shapes as CREATE (fn for graphPlot, curve coordinates for graphCurve, jsExpr/pyExpr for graphFunctionSeries, coordinate pairs for graphPointSequence, targets[].parametricPath for path-mode target_animation); the app rewrites "^" to "**" and derives a missing dialect.',
           },
         },
       },

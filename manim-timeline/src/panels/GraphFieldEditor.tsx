@@ -12,15 +12,12 @@ import AxesIdSelect from './AxesIdSelect';
 import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
+import { GraphFieldHelpIcon } from './GraphFieldExpressionHelp';
+import MathExpressionEditor from './MathExpressionEditor';
 import {
-  GRAPH_FIELD_SECTION_HELP,
-  GRAPH_FIELD_JS_HELP,
-  GRAPH_FIELD_PY_HELP,
-  GraphFieldHelpIcon,
-  GraphFieldPresetRow,
-  SLOPE_FIELD_PRESETS,
-  VECTOR_FIELD_PRESETS,
-} from './GraphFieldExpressionHelp';
+  FIELD_XY_PROFILE,
+  VECTOR_XY_PRESETS,
+} from './mathExpressionPresets';
 
 interface GraphFieldEditorProps {
   item: GraphFieldItem;
@@ -68,14 +65,11 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
       <div className="text-xs text-slate-400 flex items-center gap-1.5">
         <span>Field expressions</span>
         <GraphFieldHelpIcon
-          title={GRAPH_FIELD_SECTION_HELP}
+          title={FIELD_XY_PROFILE.sectionHelp}
           label="Help: two expression boxes (preview vs export)"
         />
       </div>
       <div className="flex flex-col gap-2">
-        <p className="text-[11px] leading-snug text-slate-500">
-          JavaScript drives the canvas preview; Python (NumPy) drives export.
-        </p>
         <label className="text-xs text-slate-400">
           Mode
           <select
@@ -93,59 +87,48 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
 
         {item.fieldMode === 'vector' && (
           <>
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>P(x, y) — preview (JavaScript)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_JS_HELP} label="Help: JavaScript P" />
+            <MathExpressionEditor
+              label="P(x, y)"
+              jsExpr={item.jsExprP ?? '1'}
+              pyExpr={item.pyExprP ?? '1'}
+              onChange={(p) => set({ jsExprP: p.jsExpr, pyExprP: p.pyExpr })}
+              profile={FIELD_XY_PROFILE}
+              dialogTitle="Field P(x, y) — expression helper"
+            />
+            <MathExpressionEditor
+              label="Q(x, y)"
+              jsExpr={item.jsExprQ ?? '0'}
+              pyExpr={item.pyExprQ ?? '0'}
+              onChange={(p) => set({ jsExprQ: p.jsExpr, pyExprQ: p.pyExpr })}
+              profile={FIELD_XY_PROFILE}
+              dialogTitle="Field Q(x, y) — expression helper"
+            />
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] text-slate-500">
+                Insert both P and Q (JS + Python) for a common field:
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {VECTOR_XY_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    title={`Insert: ${p.label}`}
+                    className="rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-300 hover:border-slate-500 hover:bg-slate-700"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      set({
+                        jsExprP: p.jsP,
+                        pyExprP: p.pyP,
+                        jsExprQ: p.jsQ,
+                        pyExprQ: p.pyQ,
+                      });
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <input
-              type="text"
-              value={item.jsExprP ?? '1'}
-              onChange={(e) => set({ jsExprP: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>P(x, y) — export (Python)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_PY_HELP} label="Help: Python P" />
-            </div>
-            <input
-              type="text"
-              value={item.pyExprP ?? '1'}
-              onChange={(e) => set({ pyExprP: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>Q(x, y) — preview (JavaScript)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_JS_HELP} label="Help: JavaScript Q" />
-            </div>
-            <input
-              type="text"
-              value={item.jsExprQ ?? '0'}
-              onChange={(e) => set({ jsExprQ: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>Q(x, y) — export (Python)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_PY_HELP} label="Help: Python Q" />
-            </div>
-            <input
-              type="text"
-              value={item.pyExprQ ?? '0'}
-              onChange={(e) => set({ pyExprQ: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <GraphFieldPresetRow
-              hint="Insert both P and Q (JS + Python) for a common field:"
-              presets={VECTOR_FIELD_PRESETS}
-              onPick={(i) => {
-                const p = VECTOR_FIELD_PRESETS[i]!;
-                set({
-                  jsExprP: p.jsP,
-                  pyExprP: p.pyP,
-                  jsExprQ: p.jsQ,
-                  pyExprQ: p.pyQ,
-                });
-              }}
-            />
           </>
         )}
 
@@ -158,33 +141,15 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
               min={0.05}
               step={0.05}
             />
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>f(x, y) = dy/dx — preview (JavaScript)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_JS_HELP} label="Help: JavaScript slope" />
-            </div>
-            <input
-              type="text"
-              value={item.jsExprSlope ?? '0'}
-              onChange={(e) => set({ jsExprSlope: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <div className="flex items-center gap-1 text-xs text-slate-400">
-              <span>f(x, y) = dy/dx — export (Python)</span>
-              <GraphFieldHelpIcon title={GRAPH_FIELD_PY_HELP} label="Help: Python slope" />
-            </div>
-            <input
-              type="text"
-              value={item.pyExprSlope ?? '0'}
-              onChange={(e) => set({ pyExprSlope: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono"
-            />
-            <GraphFieldPresetRow
-              hint="Insert the same formula in both boxes (JS + NumPy):"
-              presets={SLOPE_FIELD_PRESETS}
-              onPick={(i) => {
-                const p = SLOPE_FIELD_PRESETS[i]!;
-                set({ jsExprSlope: p.js, pyExprSlope: p.py });
-              }}
+            <MathExpressionEditor
+              label="f(x, y) = dy/dx"
+              jsExpr={item.jsExprSlope ?? '0'}
+              pyExpr={item.pyExprSlope ?? '0'}
+              onChange={(p) =>
+                set({ jsExprSlope: p.jsExpr, pyExprSlope: p.pyExpr })
+              }
+              profile={FIELD_XY_PROFILE}
+              dialogTitle="Slope f(x, y) — expression helper"
             />
           </>
         )}
