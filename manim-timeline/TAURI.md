@@ -25,6 +25,26 @@ then **Rust is not installed** or **Cargo is not on your PATH** (e.g. new termin
 
 **Windows icon:** `tauri-build` expects **`src-tauri/icons/icon.ico`** for the `.exe` resource. If you see `icons/icon.ico not found`, add that file (e.g. `npx tauri icon your.png` or keep the repo’s generated `icons/icon.ico`).
 
+### Windows startup: `EBUSY` watching a Rust executable
+
+If startup fails with `EBUSY: resource busy or locked, watch` on an executable under
+`src-tauri/target/`, Vite is trying to watch a locked Rust build artifact.
+`vite.config.ts` excludes `**/src-tauri/**` from Vite's watcher; Tauri watches Rust
+sources independently, while frontend hot reload remains enabled. After applying
+this configuration, close the previous launcher terminals and rerun `Start.bat`.
+This watcher error does not require `cargo clean`.
+
+### Switching between Windows and Fedora
+
+Keep dependencies and build artifacts local to each OS: install JavaScript dependencies
+with `npm ci` from `manim-timeline/`, and let Cargo rebuild the desktop shell locally.
+Do not copy or sync `node_modules/` or `src-tauri/target/` between machines. Both are
+already Git-ignored; that does not exclude them from OneDrive folder synchronization.
+If Tauri reports a missing generated permission file at an old project path after
+moving or copying the folder, run `cargo clean --manifest-path src-tauri/Cargo.toml`
+from `manim-timeline/`, then restart. The locked-file watcher error above can surface
+on Windows even when the same source configuration worked on Fedora.
+
 ## Phase 1 — PyInstaller
 
 - **Entry:** `../sidecar_main.py` (repo root `ManimStuff/`) imports `measure_server:app` and runs Uvicorn on `127.0.0.1:8765`.

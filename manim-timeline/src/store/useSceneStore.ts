@@ -22,6 +22,7 @@ import type {
   AudioBedKind,
   GraphFunctionSeriesItem,
   GraphPointSequenceItem,
+  CameraMoveItem,
 } from '@/types/scene';
 import {
   boundaryTimeToSeconds,
@@ -134,6 +135,7 @@ import {
 } from '@/lib/frameGrid';
 import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
 import { migrateSceneDefaultsToV39 } from '@/lib/migrateProjectToV39';
+import { validateCameraMove } from '@/lib/camera';
 import { normalizeTransformMapping } from '@/lib/transformMapping';
 import {
   applyTimeShiftToFragment,
@@ -392,12 +394,14 @@ interface UiSlice {
   polylinePointCaptureId: ItemId | null;
   /** When set, plain-canvas clicks append relative offsets to a target_animation path row. */
   targetAnimationPathCapture: TargetAnimationPathCapture | null;
+  cameraObjectFitPadding: number;
   setExportOpen: (open: boolean) => void;
   setAudioMode: (mode: AudioPanelMode | null) => void;
   setAgentOpen: (open: boolean) => void;
   setActiveFrameId: (id: ItemId | null) => void;
   setPolylinePointCaptureId: (id: ItemId | null) => void;
   setTargetAnimationPathCapture: (capture: TargetAnimationPathCapture | null) => void;
+  setCameraObjectFitPadding: (padding: number) => void;
 }
 
 // ── Scene data slice ──
@@ -435,6 +439,7 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   removeFrame: (id: ItemId) => void;
   setStartFrame: (id: ItemId) => void;
   addItem: (item: SceneItem) => void;
+  addCameraMoveClip: (item: CameraMoveItem) => void;
   updateItem: <K extends SceneItem['kind']>(
     id: ItemId,
     patch: Partial<Extract<SceneItem, { kind: K }>>,
@@ -666,6 +671,7 @@ export const useSceneStore = create<SceneStore>()(
       activeFrameId: INITIAL_FRAME_CONFIG.startFrameId,
       polylinePointCaptureId: null,
       targetAnimationPathCapture: null,
+      cameraObjectFitPadding: 0.3,
       setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
       setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
       setAgentOpen: (open) => set((s) => { s.agentOpen = open; }),
@@ -682,6 +688,12 @@ export const useSceneStore = create<SceneStore>()(
         set((s) => {
           s.targetAnimationPathCapture = capture;
           if (capture != null) s.polylinePointCaptureId = null;
+        }),
+      setCameraObjectFitPadding: (padding) =>
+        set((s) => {
+          s.cameraObjectFitPadding = Number.isFinite(padding)
+            ? Math.max(0, padding)
+            : 0.3;
         }),
 
       // ── Playhead ──
@@ -807,6 +819,7 @@ export const useSceneStore = create<SceneStore>()(
         }),
 
       addItem: (item) => set((s) => {
+        if (item.kind === 'camera_move' && validateCameraMove(item, s.frames).length > 0) return;
         if (isFrameDrawable(item)) {
           const frameOwned = item as SceneItem & { frameId?: ItemId };
           frameOwned.frameId =
@@ -827,9 +840,24 @@ export const useSceneStore = create<SceneStore>()(
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
       }),
 
+      addCameraMoveClip: (item) => set((s) => {
+        if (validateCameraMove(item, s.frames).length > 0) return;
+        s.items.set(item.id, item);
+        s.selectedIds = new Set([item.id]);
+        s.inspectedId = item.id;
+        s.polylinePointCaptureId = null;
+        s.targetAnimationPathCapture = null;
+        clampEffectClipStarts(s.items);
+        syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+      }),
+
       updateItem: (id, patch) => set((s) => {
         const item = s.items.get(id);
         if (!item) return;
+        if (item.kind === 'camera_move') {
+          const candidate = { ...item, ...patch } as CameraMoveItem;
+          if (validateCameraMove(candidate, s.frames).length > 0) return;
+        }
         const prevImageSrc =
           item.kind === 'image' &&
           patch &&
@@ -1056,6 +1084,7 @@ export const useSceneStore = create<SceneStore>()(
       moveItem: (id, newStartTime) => set((s) => {
         const item = s.items.get(id);
         if (!item) return;
+        if (item.kind === 'camera_move' && !Number.isFinite(newStartTime)) return;
         let t = Math.max(0, newStartTime);
         if (
           item.kind === 'exit_animation' ||
@@ -1172,6 +1201,7 @@ export const useSceneStore = create<SceneStore>()(
         for (const { id, startTime } of updates) {
           const item = s.items.get(id);
           if (!item || !isTopLevelItem(item)) continue;
+          if (!Number.isFinite(startTime) || startTime < 0) continue;
           item.startTime = Math.max(0, startTime);
         }
         clampEffectClipStarts(s.items);
@@ -1228,6 +1258,7 @@ export const useSceneStore = create<SceneStore>()(
       resizeItem: (id, newDuration) => set((s) => {
         const item = s.items.get(id);
         if (!item) return;
+        if (item.kind === 'camera_move' && !Number.isFinite(newDuration)) return;
         if (item.kind === 'textLine') {
           const w = segmentWaitTotal(item.segments);
           const base = Math.max(0.01, newDuration - w);
@@ -2039,5 +2070,5 @@ export const useSceneStore = create<SceneStore>()(
   ),
 );
 if (typeof window !== 'undefined') {
-  (window as any).useSceneStore = useSceneStore;
+  (window as unknown as Window & { useSceneStore: typeof useSceneStore }).useSceneStore = useSceneStore;
 }

@@ -8,6 +8,7 @@ import type {
   TargetAnimationItem,
   TextLineItem,
 } from '@/types/scene';
+import { FRAME_W } from '@/lib/constants';
 import {
   buildObjectPanelModel,
   itemPanelRole,
@@ -124,6 +125,7 @@ function camFor(id: string, startTime: number): CameraMoveItem {
     startTime,
     duration: 1,
     targetFrameId: 'frame-1',
+    targetWidth: FRAME_W,
   };
 }
 

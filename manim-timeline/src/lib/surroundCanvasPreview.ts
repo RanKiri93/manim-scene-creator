@@ -14,7 +14,7 @@ import type {
   TextLineItem,
 } from '@/types/scene';
 
-function textLineSurroundCenterAndHalfExtents(
+export function textLineSurroundCenterAndHalfExtents(
   line: TextLineItem,
   resolvedCenter: { x: number; y: number },
   bb: { w: number; h: number },
@@ -22,8 +22,8 @@ function textLineSurroundCenterAndHalfExtents(
   const m = line.measure;
   if (m && m.widthInk > 0) {
     return {
-      cx: resolvedCenter.x + m.offsetInkX,
-      cy: resolvedCenter.y + m.offsetInkY,
+      cx: resolvedCenter.x + m.offsetInkX * line.scale,
+      cy: resolvedCenter.y + m.offsetInkY * line.scale,
       hw: bb.w / 2,
       hh: bb.h / 2,
     };

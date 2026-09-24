@@ -29,7 +29,11 @@ import {
   textBlinkUsesWholeObjectScale,
 } from '@/lib/blinkTextTargets';
 import { canBeTargetAnimationTarget } from '@/lib/time';
-import { cameraTargetPoint, frameCenterById } from '@/lib/frameGrid';
+import {
+  cameraPoseAtTime,
+  cameraPoseFromSchedule,
+  type CameraSchedule,
+} from '@/lib/camera';
 
 export interface TextSegmentPreviewState {
   index: number;
@@ -91,30 +95,22 @@ export function cameraOffsetAtTime(
   frames: readonly FrameDef[],
   startFrameId: ItemId,
 ): { x: number; y: number } {
-  let current = frameCenterById(frames, startFrameId);
-  const clips = Array.from(items.values())
-    .filter((it) => it.kind === 'camera_move')
-    .sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-  for (const clip of clips) {
-    const target = cameraTargetPoint(
-      frames,
-      clip.targetFrameId,
-      clip.offsetX ?? 0,
-      clip.offsetY ?? 0,
-    );
-    if (time < clip.startTime) break;
-    const dur = positiveDuration(clip.duration);
-    if (time >= clip.startTime + dur) {
-      current = target;
-      continue;
-    }
-    const t = clamp01((time - clip.startTime) / dur);
-    return {
-      x: current.x + (target.x - current.x) * t,
-      y: current.y + (target.y - current.y) * t,
-    };
-  }
-  return current;
+  const pose = cameraPoseAtTime(time, items, frames, startFrameId);
+  return { x: pose.x, y: pose.y };
+}
+
+export function cameraPosePreviewAtTime(
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  frames: readonly FrameDef[],
+  startFrameId: ItemId,
+  excludedIds?: ReadonlySet<ItemId>,
+) {
+  return cameraPoseAtTime(time, items, frames, startFrameId, excludedIds);
+}
+
+export function cameraPosePreviewFromSchedule(time: number, schedule: CameraSchedule) {
+  return cameraPoseFromSchedule(time, schedule);
 }
 
 function isExportLeafWithAudio(item: SceneItem): item is ExportLeafWithAudio {

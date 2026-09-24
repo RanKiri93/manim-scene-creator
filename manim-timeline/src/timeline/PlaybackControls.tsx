@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback, useEffect, type CSSProperties } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { functionSeriesHasErrors, pointSequenceHasErrors } from '@/types/scene';
+import { resolveCameraSchedule } from '@/lib/camera';
 import { kickTimelineAudioSyncNow } from './timelineAudioController';
 import TimelineSurgeryDialog from './TimelineSurgeryDialog';
 
@@ -16,6 +17,8 @@ export default function PlaybackControls() {
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
   const itemsMap = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
   const audioItemCount = useSceneStore((s) => s.audioItems.length);
@@ -29,7 +32,7 @@ export default function PlaybackControls() {
 
   const [surgeryDialogOpen, setSurgeryDialogOpen] = useState(false);
 
-  const duration = useMemo(() => getSceneDuration(), [getSceneDuration, itemsMap]);
+  const duration = useMemo(() => getSceneDuration(), [getSceneDuration]);
 
   // Global playback is locked while any function series or point sequence has validation errors
   const fsErrorLabels = useMemo(() => {
@@ -44,9 +47,18 @@ export default function PlaybackControls() {
     }
     return labels;
   }, [itemsMap]);
-  const playbackLocked = fsErrorLabels.length > 0;
+  const cameraErrorLabels = useMemo(
+    () => resolveCameraSchedule(itemsMap, frames, startFrameId).diagnostics.map((diagnostic) => {
+      const item = itemsMap.get(diagnostic.clipId);
+      const name = item && item.kind === 'camera_move' ? item.label.trim() || `#${item.id.slice(0, 4)} (camera)` : `#${diagnostic.clipId.slice(0, 4)} (camera)`;
+      return `${name}: ${diagnostic.message}`;
+    }),
+    [itemsMap, frames, startFrameId],
+  );
+  const playbackLocked = fsErrorLabels.length > 0 || cameraErrorLabels.length > 0;
+  const lockedLabel = [...fsErrorLabels, ...cameraErrorLabels].join('; ');
   const lockedTitle = playbackLocked
-    ? `ינעל עד לתיקון שגיאה בטור הפונקציות או רצף נקודות (${fsErrorLabels.join(', ')})`
+    ? `Playback locked: ${lockedLabel}`
     : undefined;
 
   // If a validation error is introduced while playback is running (e.g. the user
@@ -152,6 +164,11 @@ export default function PlaybackControls() {
       <span className="text-xs text-slate-400 font-mono min-w-[100px]">
         {formatTime(currentTime)} / {formatTime(duration || 0)}
       </span>
+      {cameraErrorLabels.length > 0 ? (
+        <span className="text-[10px] text-rose-300 max-w-[28rem] truncate" title={cameraErrorLabels.join('\n')}>
+          Camera: {cameraErrorLabels.join('; ')}
+        </span>
+      ) : null}
 
       {/* Scrubber */}
       <input

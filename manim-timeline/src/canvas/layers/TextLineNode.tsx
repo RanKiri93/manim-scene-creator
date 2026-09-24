@@ -9,6 +9,7 @@ import type {
 } from '@/types/scene';
 import { resolveTextBlinkPieces } from '@/lib/blinkTextTargets';
 import { useDragSnap } from '@/canvas/hooks/useDragSnap';
+import type { TextSnapContext } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
   textIntroFinished,
@@ -37,6 +38,7 @@ interface TextLineNodeProps {
   audioItems: AudioTrackItem[];
   transformPreview: TextTransformLinePreview | null;
   blinkPreview: BlinkPreviewState | null;
+  textSnap?: TextSnapContext;
 }
 
 interface ImageGeometry {
@@ -209,6 +211,7 @@ export default function TextLineNode({
   audioItems,
   transformPreview,
   blinkPreview,
+  textSnap,
 }: TextLineNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -222,6 +225,7 @@ export default function TextLineNode({
     itemId: item.id,
     posSteps: item.posSteps,
     canvasToManim,
+    textSnap,
   });
 
   // Manim → canvas position using resolved coordinates
@@ -236,8 +240,8 @@ export default function TextLineNode({
   const pxH = mH * pxPerUnitY * item.scale;
 
   // Ink offset correction
-  const offX = hasMeasure ? item.measure!.offsetInkX * pxPerUnitX : 0;
-  const offY = hasMeasure ? -item.measure!.offsetInkY * pxPerUnitY : 0;
+  const offX = hasMeasure ? item.measure!.offsetInkX * pxPerUnitX * item.scale : 0;
+  const offY = hasMeasure ? -item.measure!.offsetInkY * pxPerUnitY * item.scale : 0;
 
   // Load preview image. The last loaded image stays visible while a new URL
   // loads and clears only when the URL is removed (same visible behavior as

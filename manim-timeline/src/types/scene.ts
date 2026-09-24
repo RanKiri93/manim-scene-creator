@@ -403,6 +403,7 @@ export interface CameraMoveItem {
   startTime: number;
   duration: number;
   targetFrameId: ItemId;
+  targetWidth: number;
   offsetX?: number;
   offsetY?: number;
 }
@@ -506,6 +507,8 @@ export interface ImageItem extends SceneItemBase {
 
 export interface TextLineItem extends SceneItemBase {
   kind: 'textLine';
+  /** Gap used by editor-only text snapping, in Manim units. Defaults to 0.3. */
+  snapBuffer?: number;
   raw: string;
   font: string;
   fontSize: number;

@@ -2,6 +2,7 @@ import type {
   AudioTrackItem,
   ExitAnimationItem,
   BlinkAnimationItem,
+  CameraMoveItem,
   TargetAnimationItem,
   ExitAnimStyle,
   ItemId,
@@ -13,6 +14,7 @@ import type { ExportLeaf } from './flattenExport';
 import { effectiveStart, holdEnd } from '@/lib/time';
 import {
   sequentialAnimSecondsForBlink,
+  sequentialAnimSecondsForCameraMove,
   sequentialAnimSecondsForExit,
   sequentialAnimSecondsForLeaf,
   sequentialAnimSecondsForSurroundingRect,
@@ -48,6 +50,8 @@ import {
 } from './targetAnimationCodegen';
 import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
 import { pointSequenceConcurrentBranch } from './pointSequenceCodegen';
+import type { CameraTransitionSegment } from '@/lib/camera';
+import { formatConcurrentCameraBranch } from './cameraCodegen';
 
 const MANIM_DEFAULT_PLAY_SEC = 1;
 
@@ -96,12 +100,19 @@ function targetAnimationClipInterval(
   return { start: ta.startTime, end: ta.startTime + ta.duration };
 }
 
+function cameraClipInterval(
+  camera: CameraMoveItem,
+): { start: number; end: number } {
+  return { start: camera.startTime, end: camera.startTime + camera.duration };
+}
+
 export type VisualPlaybackCluster = {
   leaves: ExportLeaf[];
   surroundingRects: SurroundingRectItem[];
   exitClips: ExitAnimationItem[];
   blinkClips: BlinkAnimationItem[];
   targetAnimationClips: TargetAnimationItem[];
+  cameraClips: CameraMoveItem[];
 };
 
 type VisualNode =
@@ -109,7 +120,8 @@ type VisualNode =
   | { kind: 'sr'; sr: SurroundingRectItem }
   | { kind: 'exit'; exit: ExitAnimationItem }
   | { kind: 'blink'; blink: BlinkAnimationItem }
-  | { kind: 'ta'; ta: TargetAnimationItem };
+  | { kind: 'ta'; ta: TargetAnimationItem }
+  | { kind: 'camera'; camera: CameraMoveItem };
 
 function nodePlaybackInterval(
   node: VisualNode,
@@ -119,6 +131,7 @@ function nodePlaybackInterval(
   if (node.kind === 'sr') return surroundingRectIntroInterval(node.sr, itemsMap);
   if (node.kind === 'exit') return exitClipInterval(node.exit);
   if (node.kind === 'blink') return blinkClipInterval(node.blink);
+  if (node.kind === 'camera') return cameraClipInterval(node.camera);
   return targetAnimationClipInterval(node.ta);
 }
 
@@ -150,6 +163,7 @@ export function clusterConcurrentVisualPlayback(
   flat: ExportLeaf[],
   items: SceneItem[],
   itemsMap: Map<ItemId, SceneItem>,
+  cameraClips: readonly CameraMoveItem[] = [],
 ): VisualPlaybackCluster[] {
   const nodes: VisualNode[] = [];
   for (const leaf of flat) {
@@ -172,6 +186,29 @@ export function clusterConcurrentVisualPlayback(
     ) {
       nodes.push({ kind: 'ta', ta: it });
     }
+  }
+  for (const camera of cameraClips) {
+    nodes.push({ kind: 'camera', camera });
+  }
+  for (const it of items) {
+    if (
+      it.kind !== 'target_animation' ||
+      !targetAnimationClipHasActiveTargets(it) ||
+      it.mode !== 'path'
+    ) {
+      continue;
+    }
+    const pathInterval = targetAnimationClipInterval(it);
+    const overlapsCamera = cameraClips.some((camera) => {
+      const cameraInterval = cameraClipInterval(camera);
+      return intervalsOverlap(
+        pathInterval.start,
+        pathInterval.end,
+        cameraInterval.start,
+        cameraInterval.end,
+      );
+    });
+    if (overlapsCamera) nodes.push({ kind: 'ta', ta: it });
   }
   const n = nodes.length;
   if (n < 2) return [];
@@ -201,12 +238,14 @@ export function clusterConcurrentVisualPlayback(
     const exitClips: ExitAnimationItem[] = [];
     const blinkClips: BlinkAnimationItem[] = [];
     const targetAnimationClips: TargetAnimationItem[] = [];
+    const clusteredCameraClips: CameraMoveItem[] = [];
     for (const node of bucket) {
       if (node.kind === 'leaf') leaves.push(node.leaf);
       else if (node.kind === 'sr') surroundingRects.push(node.sr);
       else if (node.kind === 'exit') exitClips.push(node.exit);
       else if (node.kind === 'blink') blinkClips.push(node.blink);
-      else targetAnimationClips.push(node.ta);
+      else if (node.kind === 'ta') targetAnimationClips.push(node.ta);
+      else clusteredCameraClips.push(node.camera);
     }
     out.push({
       leaves,
@@ -214,6 +253,7 @@ export function clusterConcurrentVisualPlayback(
       exitClips,
       blinkClips,
       targetAnimationClips,
+      cameraClips: clusteredCameraClips,
     });
   }
   return out;
@@ -226,6 +266,7 @@ export function visualClusterWallSeconds(
   blinkClips: BlinkAnimationItem[],
   targetAnimationClips: TargetAnimationItem[],
   itemsMap: Map<ItemId, SceneItem>,
+  cameraClips: readonly CameraMoveItem[] = [],
 ): number {
   let tMin = Infinity;
   let tMax = -Infinity;
@@ -254,6 +295,11 @@ export function visualClusterWallSeconds(
     tMin = Math.min(tMin, start);
     tMax = Math.max(tMax, end);
   }
+  for (const camera of cameraClips) {
+    const { start, end } = cameraClipInterval(camera);
+    tMin = Math.min(tMin, start);
+    tMax = Math.max(tMax, end);
+  }
   return Math.max(0, tMax - tMin);
 }
 
@@ -264,6 +310,7 @@ export function visualClusterManimSeconds(
   blinkClips: BlinkAnimationItem[],
   targetAnimationClips: TargetAnimationItem[],
   itemsMap: Map<ItemId, SceneItem>,
+  cameraClips: readonly CameraMoveItem[],
   audioItems: AudioTrackItem[] | undefined,
   tailOpts?: BoundAudioTailOpts,
 ): number {
@@ -273,6 +320,7 @@ export function visualClusterManimSeconds(
     ...exitClips.map((ex) => ex.startTime),
     ...blinkClips.map((bl) => bl.startTime),
     ...targetAnimationClips.map((ta) => ta.startTime),
+    ...cameraClips.map((camera) => camera.startTime),
   ];
   if (starts.length === 0) return 0;
   const t0 = Math.min(...starts);
@@ -306,6 +354,12 @@ export function visualClusterManimSeconds(
       Math.max(0, ta.startTime - t0) + sequentialAnimSecondsForTargetAnimation(ta),
     );
   }
+  for (const camera of cameraClips) {
+    sec = Math.max(
+      sec,
+      Math.max(0, camera.startTime - t0) + sequentialAnimSecondsForCameraMove(camera),
+    );
+  }
   return Math.max(sec, visualClusterWallSeconds(
     leaves,
     surroundingRects,
@@ -313,6 +367,7 @@ export function visualClusterManimSeconds(
     blinkClips,
     targetAnimationClips,
     itemsMap,
+    cameraClips,
   ));
 }
 
@@ -611,7 +666,8 @@ type VisualParticipant =
   | { kind: 'sr'; sr: SurroundingRectItem; t: number; key: string }
   | { kind: 'exit'; exit: ExitAnimationItem; t: number; key: string }
   | { kind: 'blink'; blink: BlinkAnimationItem; t: number; key: string }
-  | { kind: 'ta'; ta: TargetAnimationItem; t: number; key: string };
+  | { kind: 'ta'; ta: TargetAnimationItem; t: number; key: string }
+  | { kind: 'camera'; camera: CameraMoveItem; t: number; key: string };
 
 function sortedVisualParticipants(
   leaves: ExportLeaf[],
@@ -619,6 +675,7 @@ function sortedVisualParticipants(
   exitClips: ExitAnimationItem[],
   blinkClips: BlinkAnimationItem[],
   targetAnimationClips: TargetAnimationItem[],
+  cameraClips: readonly CameraMoveItem[],
   itemsMap: Map<ItemId, SceneItem>,
 ): VisualParticipant[] {
   const out: VisualParticipant[] = [];
@@ -662,6 +719,17 @@ function sortedVisualParticipants(
       key: ta.id,
     });
   }
+  if (cameraClips.length > 0) {
+    const earliest = cameraClips.reduce((current, camera) =>
+      camera.startTime < current.startTime ? camera : current,
+    );
+    out.push({
+      kind: 'camera',
+      camera: earliest,
+      t: earliest.startTime,
+      key: '__camera_schedule__',
+    });
+  }
   out.sort((a, b) => a.t - b.t || a.key.localeCompare(b.key));
   return out;
 }
@@ -672,6 +740,8 @@ export function buildConcurrentVisualClusterPlay(
   exitClips: ExitAnimationItem[],
   blinkClips: BlinkAnimationItem[],
   targetAnimationClips: TargetAnimationItem[],
+  cameraClips: readonly CameraMoveItem[],
+  cameraSegments: readonly CameraTransitionSegment[],
   playPad: string,
   _baseIndent: number,
   idToVarName: Map<ItemId, string>,
@@ -685,6 +755,7 @@ export function buildConcurrentVisualClusterPlay(
     exitClips,
     blinkClips,
     targetAnimationClips,
+    cameraClips,
     itemsMap,
   );
   if (parts.length === 0) return '';
@@ -744,6 +815,9 @@ export function buildConcurrentVisualClusterPlay(
         itemsMap,
       );
     }
+    if (p.kind === 'camera') {
+      return formatConcurrentCameraBranch(cameraSegments, t0, playPad).trimEnd();
+    }
     return concurrentBranchForTargetAnimationClip(
       p.ta,
       rel,
@@ -761,6 +835,7 @@ export function buildConcurrentVisualClusterPlay(
       blinkClips,
       targetAnimationClips,
       itemsMap,
+      cameraClips,
       audioItems,
       tailOpts,
     ),

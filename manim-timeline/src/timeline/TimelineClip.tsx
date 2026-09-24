@@ -1,8 +1,9 @@
-import { useRef, useCallback, type ReactNode } from 'react';
+import { useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
   type PreviewOp,
   usePreviewMergedItems,
+  usePreviewOps,
 } from '@/agent/previewSelectors';
 import type {
   GraphFunctionSeriesItem,
@@ -28,6 +29,11 @@ import {
   textLineAnimOnlyDuration,
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { cameraMovesFromItems, resolveCameraSchedule } from '@/lib/camera';
+import {
+  cameraClipPresentation,
+  cameraPreviewDeletedIds,
+} from './cameraClipPresentation';
 import {
   audioTrackLabel,
   isAudioBindingNone,
@@ -85,7 +91,10 @@ export default function TimelineClip({
   const updateItem = useSceneStore((s) => s.updateItem);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
   const itemsMap = usePreviewMergedItems();
+  const previewOps = usePreviewOps();
 
   const dragRef = useRef<{
     startX: number;
@@ -120,6 +129,16 @@ export default function TimelineClip({
   const left = (item.startTime - viewStart) * pxPerSecond;
   const barDuration = runDuration(item, itemsMap);
   const width = Math.max(barDuration * pxPerSecond, 16);
+  const cameraPresentation = useMemo(() => {
+    if (item.kind !== 'camera_move') return null;
+    const deleted = cameraPreviewDeletedIds(previewOps);
+    const schedule = resolveCameraSchedule(
+      cameraMovesFromItems(itemsMap, deleted),
+      frames,
+      startFrameId,
+    );
+    return cameraClipPresentation(item, schedule);
+  }, [item, previewOps, itemsMap, frames, startFrameId]);
 
   const label = (() => {
     const s = itemClipDisplayName(item);
@@ -167,6 +186,11 @@ export default function TimelineClip({
         );
       }
       if (audioDisabled) parts.push('Audio: disabled');
+    }
+    if (cameraPresentation?.overridden && cameraPresentation.winnerLabel && cameraPresentation.overrideStart != null) {
+      parts.push(`Overridden by ${cameraPresentation.winnerLabel} at ${cameraPresentation.overrideStart.toFixed(2)}s`);
+    } else if (cameraPresentation?.superseded && cameraPresentation.winnerLabel) {
+      parts.push(`Superseded by ${cameraPresentation.winnerLabel} at the same start time`);
     }
     return parts.join('\n');
   })();
@@ -278,7 +302,7 @@ export default function TimelineClip({
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [item.id, item, itemsMap, pxPerSecond, resizeItem],
+    [item, itemsMap, pxPerSecond, resizeItem],
   );
 
   const onMouseDownWaitResize = useCallback(
@@ -803,6 +827,19 @@ export default function TimelineClip({
       {segmentWaitStripes}
       {functionSeriesStripes}
       {pointSequenceStripes}
+      {cameraPresentation && (cameraPresentation.overridden || cameraPresentation.superseded) ? (
+        <div
+          className="absolute inset-y-0 z-[5] pointer-events-none bg-amber-300/15 border-r-2 border-amber-200/80"
+          style={{
+            left: cameraPresentation.superseded
+              ? 0
+              : Math.max(0, (cameraPresentation.overrideStart ?? item.startTime) - item.startTime) * pxPerSecond,
+            width: cameraPresentation.superseded
+              ? '100%'
+              : Math.max(2, (cameraPresentation.effectiveEnd - (cameraPresentation.overrideStart ?? item.startTime)) * pxPerSecond),
+          }}
+        />
+      ) : null}
       <div className="pointer-events-none relative z-[6] flex min-h-5 min-w-0 flex-1 items-center gap-1 px-1.5">
         <span className="min-w-0 flex-1 truncate drop-shadow-sm">{label}</span>
         {explicitAudioTrack !== undefined ? (

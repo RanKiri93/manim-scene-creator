@@ -6,6 +6,7 @@ import type {
   AxesItem,
   ExitAnimationItem,
   TextLineItem,
+  CameraMoveItem,
 } from '@/types/scene';
 
 function minimalLine(id: string, startTime: number): TextLineItem {
@@ -65,6 +66,19 @@ function exitFor(id: string, targetId: string, startTime: number): ExitAnimation
     startTime,
     duration: 1,
     targets: [{ targetId, animStyle: 'fade_out' }],
+  };
+}
+
+function camera(id: string, startTime: number): CameraMoveItem {
+  return {
+    kind: 'camera_move',
+    id,
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 1,
+    targetFrameId: 'frame-1',
+    targetWidth: 4.5,
   };
 }
 
@@ -163,6 +177,18 @@ describe('useSceneStore timeline surgery', () => {
     expect(startOf('l1')).toBe(0);
     expect(audioStartOf('a1')).toBe(0);
     expect(startOf('l2')).toBe(7);
+  });
+
+  it('shifts later camera clips without changing target or width', () => {
+    useSceneStore.setState((s) => {
+      s.items.set('cam', camera('cam', 6));
+    });
+    expect(useSceneStore.getState().insertEmptyTimelineTime(4, 2)).toBe(true);
+    expect(useSceneStore.getState().items.get('cam')).toMatchObject({
+      startTime: 8,
+      targetFrameId: 'frame-1',
+      targetWidth: 4.5,
+    });
   });
 
   it('word boundaries and audio metadata survive a move', () => {

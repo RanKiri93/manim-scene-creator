@@ -5,7 +5,8 @@ import {
   fragmentEarliestStart,
   applyTimeShiftToFragment,
 } from '@/lib/projectFragment';
-import type { AudioTrackItem, SceneItem } from '@/types/scene';
+import type { AudioTrackItem, CameraMoveItem, SceneItem } from '@/types/scene';
+import { FRAME_W } from '@/lib/constants';
 
 function axes(id: string): SceneItem {
   return {
@@ -115,6 +116,19 @@ describe('collectCodegenIdsFromItems', () => {
   });
 });
 
+function camera(id: string, startTime: number): CameraMoveItem {
+  return {
+    kind: 'camera_move',
+    id,
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 1,
+    targetFrameId: 'frame-2',
+    targetWidth: 4.5,
+  };
+}
+
 describe('fragment time shift', () => {
   it('computes earliest start and shifts', () => {
     const items = [axes('a')] as SceneItem[];
@@ -132,5 +146,15 @@ describe('fragment time shift', () => {
     applyTimeShiftToFragment(items, audio, 10);
     expect(items[0]!.startTime).toBe(15);
     expect(audio[0]!.startTime).toBe(13);
+  });
+
+  it('shifts camera time while preserving width and explicit target', () => {
+    const items = [camera('cam', 5)] as SceneItem[];
+    applyTimeShiftToFragment(items, [], 10);
+    const moved = items[0] as CameraMoveItem;
+    expect(moved.startTime).toBe(15);
+    expect(moved.targetFrameId).toBe('frame-2');
+    expect(moved.targetWidth).toBe(4.5);
+    expect(FRAME_W).toBeGreaterThan(4.5);
   });
 });

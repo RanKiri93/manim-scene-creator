@@ -1,8 +1,13 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { createFrame } from '@/store/factories';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { CameraMoveItem, FrameDef } from '@/types/scene';
 import { frameAtCell, frameDisplayName } from '@/lib/frameGrid';
+import { cameraMovesFromItems, resolveCameraSchedule } from '@/lib/camera';
+import { FRAME_W } from '@/lib/constants';
+import { usePreviewMergedItems, usePreviewOps } from '@/agent/previewSelectors';
+import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { useCameraRegionSelection } from '@/canvas/hooks/useCameraRegionSelection';
 
 interface CameraMoveEditorProps {
   item: CameraMoveItem;
@@ -17,6 +22,30 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
   const addFrame = useSceneStore((s) => s.addFrame);
   const updateItem = useSceneStore((s) => s.updateItem);
   const setActiveFrameId = useSceneStore((s) => s.setActiveFrameId);
+  const cameraObjectFitPadding = useSceneStore((s) => s.cameraObjectFitPadding);
+  const setCameraObjectFitPadding = useSceneStore((s) => s.setCameraObjectFitPadding);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const itemsMap = usePreviewMergedItems();
+  const previewOps = usePreviewOps();
+  const deletedCameraIds = useMemo(
+    () => new Set([...previewOps].filter(([, op]) => op === 'delete').map(([id]) => id)),
+    [previewOps],
+  );
+  const schedule = useMemo(
+    () => resolveCameraSchedule(
+      cameraMovesFromItems(itemsMap, deletedCameraIds),
+      frames,
+      startFrameId,
+    ),
+    [itemsMap, deletedCameraIds, frames, startFrameId],
+  );
+  const ownSegment = schedule.segments.find((segment) => segment.clip.id === item.id);
+  const selectedIds = useSceneStore((s) => s.selectedIds);
+  const hasObjectSelection = [...selectedIds].some((id) => {
+    const target = itemsMap.get(id);
+    return target && ['axes', 'shape', 'image', 'textLine'].includes(target.kind);
+  });
+  const { requestCameraObjectFit } = useCameraRegionSelection();
   const targetFrame = frames.find((f) => f.id === item.targetFrameId) ?? frames[0];
 
   const set = useCallback(
@@ -70,7 +99,7 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
           />
         </label>
         <label>
-          <span className="block text-slate-400 mb-1">Duration</span>
+          <span className="block text-slate-400 mb-1">Duration (seconds)</span>
           <input
             type="number"
             step="0.1"
@@ -81,6 +110,40 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
           />
         </label>
       </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label>
+          <span className="block text-slate-400 mb-1">Target width</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0.01"
+            value={item.targetWidth ?? FRAME_W}
+            onChange={(e) => set({ targetWidth: Math.max(0.01, Number(e.target.value) || FRAME_W) })}
+            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          />
+        </label>
+        <label>
+          <span className="block text-slate-400 mb-1">Object fit padding</span>
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            value={cameraObjectFitPadding}
+            onChange={(e) => setCameraObjectFitPadding(Number(e.target.value))}
+            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        disabled={!hasObjectSelection}
+        onClick={() => requestCameraObjectFit(item.id)}
+        className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+      >
+        Fit selected object
+      </button>
+      <div className="text-[10px] text-slate-500">Full frame width: {FRAME_W.toFixed(2)} Manim units</div>
 
       <label>
         <span className="block text-slate-400 mb-1">Target frame</span>
@@ -142,6 +205,16 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
           />
         </label>
       </div>
+
+      {ownSegment?.overriddenBy ? (
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+          Overridden by {itemClipDisplayName(ownSegment.overriddenBy)} at {ownSegment.overriddenBy.startTime.toFixed(2)}s
+        </div>
+      ) : ownSegment?.supersededByEqualStart ? (
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+          Superseded by {itemClipDisplayName(ownSegment.supersededByEqualStart)} at the same start time
+        </div>
+      ) : null}
 
       <label>
         <span className="block text-slate-400 mb-1">Layer</span>

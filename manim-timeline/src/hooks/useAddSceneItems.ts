@@ -33,6 +33,9 @@ import {
   canBeTargetAnimationTarget,
 } from '@/lib/time';
 import { sameFrameTargets, targetCandidateFrameId } from '@/lib/targetScope';
+import { logicalCameraFrameAtTime, resolveCameraSchedule } from '@/lib/camera';
+import { FRAME_W } from '@/lib/constants';
+import { useCameraRegionSelection } from '@/canvas/hooks/useCameraRegionSelection';
 
 function pickDefaultAxesId(
   itemsMap: Map<ItemId, SceneItem>,
@@ -91,10 +94,15 @@ export function useAddSceneItems() {
   const select = useSceneStore((s) => s.select);
   const removeItem = useSceneStore((s) => s.removeItem);
   const addItem = useSceneStore((s) => s.addItem);
+  const addCameraMoveClipAtomic = useSceneStore((s) => s.addCameraMoveClip);
   const defaults = useSceneStore((s) => s.defaults);
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const activeFrameId = useSceneStore((s) => s.activeFrameId);
   const setAudioMode = useSceneStore((s) => s.setAudioMode);
+  const {
+    requestCameraRegionSelection,
+    requestCameraObjectFit,
+  } = useCameraRegionSelection();
 
   const ensureAxesId = useCallback((): string => {
     let axId = pickDefaultAxesId(itemsMap, selectedIds);
@@ -390,9 +398,24 @@ export function useAddSceneItems() {
   const addCameraMoveClip = useCallback(() => {
     const targetFrameId = activeFrameId ?? startFrameId;
     const clip = createCameraMove(targetFrameId, currentTime, 1);
-    addItem(clip);
-    select(clip.id);
-  }, [activeFrameId, startFrameId, currentTime, addItem, select]);
+    addCameraMoveClipAtomic(clip);
+  }, [activeFrameId, startFrameId, currentTime, addCameraMoveClipAtomic]);
+
+  const addCameraFrameReturn = useCallback(() => {
+    const state = useSceneStore.getState();
+    const schedule = resolveCameraSchedule(state.items, state.frames, state.startFrameId);
+    const targetFrameId = logicalCameraFrameAtTime(state.currentTime, schedule);
+    const clip = createCameraMove(targetFrameId, state.currentTime, 1);
+    clip.label = 'Zoom to frame';
+    clip.offsetX = 0;
+    clip.offsetY = 0;
+    clip.targetWidth = FRAME_W;
+    addCameraMoveClipAtomic(clip);
+  }, [addCameraMoveClipAtomic]);
+
+  const fitSelectedCameraObject = useCallback(() => {
+    requestCameraObjectFit(null);
+  }, [requestCameraObjectFit]);
 
   const openAudioRecording = useCallback(() => {
     setAudioMode('record');
@@ -423,6 +446,9 @@ export function useAddSceneItems() {
     addBlinkAnimationClip,
     addTargetAnimationClip,
     addCameraMoveClip,
+    addCameraFrameReturn,
+    beginCameraRegionSelection: requestCameraRegionSelection,
+    fitSelectedCameraObject,
     addSurroundingRectClip,
     openAudioRecording,
     openAudioUpload,

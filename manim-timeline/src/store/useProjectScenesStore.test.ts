@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { newId } from '@/lib/ids';
-import { PROJECT_VERSION } from '@/lib/constants';
+import { FRAME_W, PROJECT_VERSION } from '@/lib/constants';
 import type { MultiSceneProjectFile, ProjectSceneFile } from '@/types/scene';
 import { MULTISCENE_PROJECT_KIND } from '@/types/scene';
-import { defaultFrames, defaultSceneDefaults, createTextLine } from '@/store/factories';
+import { createCameraMove, defaultFrames, defaultSceneDefaults, createTextLine } from '@/store/factories';
 import { useSceneStore } from '@/store/useSceneStore';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import { legacyProjectFileToMultiScene } from '@/lib/multisceneNormalize';
@@ -50,13 +50,19 @@ function buildTwoSceneProject(): MultiSceneProjectFile {
   const l2 = createTextLine(d2, 0);
   l2.frameId = f2.startFrameId;
   l2.raw = 'beta-marker';
+  const cam1 = createCameraMove(f1.startFrameId, 2, 1);
+  cam1.id = 'camera-one';
+  cam1.targetWidth = 4.5;
+  const cam2 = createCameraMove(f2.startFrameId, 3, 1);
+  cam2.id = 'camera-two';
+  cam2.targetWidth = FRAME_W;
   const sc1: ProjectSceneFile = {
     id: sid1,
     name: 'Tab1',
     defaults: d1,
     frames: f1.frames,
     startFrameId: f1.startFrameId,
-    items: [l1],
+    items: [l1, cam1],
     audioItems: undefined,
   };
   const sc2: ProjectSceneFile = {
@@ -65,7 +71,7 @@ function buildTwoSceneProject(): MultiSceneProjectFile {
     defaults: d2,
     frames: f2.frames,
     startFrameId: f2.startFrameId,
-    items: [l2],
+    items: [l2, cam2],
     audioItems: undefined,
   };
   return {
@@ -102,10 +108,12 @@ describe('useProjectScenesStore', () => {
     useProjectScenesStore.getState().loadFromNormalizedMulti(multi);
     const firstLine = useSceneStore.getState().items.values().next().value as { raw: string };
     expect(firstLine.raw).toBe('alpha-marker');
+    expect(useSceneStore.getState().items.get('camera-one')).toMatchObject({ startTime: 2, targetWidth: 4.5 });
 
     useProjectScenesStore.getState().switchToScene(sid2);
     const secondLine = useSceneStore.getState().items.values().next().value as { raw: string };
     expect(secondLine.raw).toBe('beta-marker');
+    expect(useSceneStore.getState().items.get('camera-two')).toMatchObject({ startTime: 3, targetWidth: FRAME_W });
 
     useProjectScenesStore.getState().switchToScene(sid1);
     const back = useSceneStore.getState().items.values().next().value as { raw: string };

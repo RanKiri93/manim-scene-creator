@@ -4,6 +4,7 @@ import SparkMD5 from 'spark-md5';
 import type { AudioTrackItem, MultiSceneProjectFile, ProjectFile, ProjectFragmentFile } from '@/types/scene';
 import { isMultiSceneProjectFile, MULTISCENE_PROJECT_KIND } from '@/types/scene';
 import { defaultFrames } from '@/store/factories';
+import { FRAME_W } from '@/lib/constants';
 import {
   parseMtprojFromUint8Array,
   packMtprojToBlob,
@@ -247,7 +248,16 @@ describe('packMtprojToBlob multi-scene', () => {
             defaults: minimalProject().defaults,
             frames: f1.frames,
             startFrameId: f1.startFrameId,
-            items: [],
+            items: [{
+              kind: 'camera_move',
+              id: 'cam-a',
+              label: '',
+              layer: 0,
+              startTime: 2,
+              duration: 1,
+              targetFrameId: f1.startFrameId,
+              targetWidth: 4.5,
+            }],
             audioItems: [
               {
                 id: 'track-a',
@@ -264,7 +274,16 @@ describe('packMtprojToBlob multi-scene', () => {
             defaults: minimalProject().defaults,
             frames: f2.frames,
             startFrameId: f2.startFrameId,
-            items: [],
+            items: [{
+              kind: 'camera_move',
+              id: 'cam-b',
+              label: '',
+              layer: 0,
+              startTime: 3,
+              duration: 1,
+              targetFrameId: f2.startFrameId,
+              targetWidth: FRAME_W,
+            }],
             audioItems: [
               {
                 id: 'track-b',
@@ -289,6 +308,8 @@ describe('packMtprojToBlob multi-scene', () => {
       expect(a0.assetRelPath).toMatch(/^assets\/audio\//);
       expect(a1.assetRelPath).toMatch(/^assets\/audio\//);
       expect(a0.assetRelPath).not.toBe(a1.assetRelPath);
+      expect(out.scenes[0]!.items[0]).toMatchObject({ id: 'cam-a', startTime: 2, targetWidth: 4.5 });
+      expect(out.scenes[1]!.items[0]).toMatchObject({ id: 'cam-b', startTime: 3, targetWidth: FRAME_W });
     } finally {
       URL.createObjectURL = origCreate;
       URL.revokeObjectURL = origRevoke;

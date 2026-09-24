@@ -1,4 +1,5 @@
 import { FRAME_W, FRAME_H } from '@/lib/constants';
+import type { CameraPose } from '@/lib/camera';
 
 /** Canvas pixel position for a Manim-space point (matches GraphNode / TextLineNode). */
 export function manimToCanvas(
@@ -44,5 +45,51 @@ export function anchoredScalePoint(
   return {
     x: ax + s * (px - ax),
     y: ay + s * (py - ay),
+  };
+}
+
+export interface CanvasViewportTransform {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+export function cameraViewportTransform(
+  pose: CameraPose,
+  canvasWidth: number,
+  canvasHeight: number,
+): CanvasViewportTransform {
+  const scale = FRAME_W / pose.width;
+  return {
+    x: canvasWidth / 2 - pose.x * canvasWidth / pose.width,
+    y: canvasHeight / 2 + pose.y * canvasHeight / (pose.width * FRAME_H / FRAME_W),
+    scale,
+  };
+}
+
+export function worldToCanvasPoint(
+  world: { x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number,
+  transform: CanvasViewportTransform,
+): { x: number; y: number } {
+  const base = manimToCanvas(world.x, world.y, canvasWidth, canvasHeight);
+  return {
+    x: transform.x + base.x * transform.scale,
+    y: transform.y + base.y * transform.scale,
+  };
+}
+
+export function canvasToWorldPoint(
+  canvas: { x: number; y: number },
+  canvasWidth: number,
+  canvasHeight: number,
+  transform: CanvasViewportTransform,
+): { x: number; y: number } {
+  const baseX = (canvas.x - transform.x) / transform.scale;
+  const baseY = (canvas.y - transform.y) / transform.scale;
+  return {
+    x: (baseX / canvasWidth - 0.5) * FRAME_W,
+    y: (0.5 - baseY / canvasHeight) * FRAME_H,
   };
 }

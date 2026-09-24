@@ -101,6 +101,85 @@ function parametricPathSetupLines(
   ];
 }
 
+export function delayedTargetPathHelperSource(indentLevel = 0): string {
+  const pad = ' '.repeat(indentLevel);
+  const inner = ' '.repeat(indentLevel + 4);
+  const body = ' '.repeat(indentLevel + 8);
+  return (
+    `class _DelayedPathGroup(Animation):\n` +
+    `${inner}def __init__(self, rows, run_time=1.0):\n` +
+    `${body}super().__init__(rows[0][0], run_time=run_time, rate_func=linear, remover=False)\n` +
+    `${body}self.path_rows = rows\n` +
+    `${body}self.inner_animation = None\n` +
+    `${inner}def begin(self):\n` +
+    `${body}animations = []\n` +
+    `${body}for anchor, points, targets, parametric in self.path_rows:\n` +
+    `${body}    if parametric is None:\n` +
+    `${body}        path = VMobject().set_points_as_corners([\n` +
+    `${body}            anchor.get_center() + point[0] * RIGHT + point[1] * UP\n` +
+    `${body}            for point in points\n` +
+    `${body}        ])\n` +
+    `${body}    else:\n` +
+    `${body}        fx, fy, t_min, t_max = parametric\n` +
+    `${body}        path = ParametricFunction(\n` +
+    `${body}            lambda t, anchor=anchor, fx=fx, fy=fy: anchor.get_center() + fx(t) * RIGHT + fy(t) * UP,\n` +
+    `${body}            t_range=[t_min, t_max],\n` +
+    `${body}        )\n` +
+    `${body}    animations.extend(MoveAlongPath(target, path) for target in targets)\n` +
+    `${body}self.inner_animation = AnimationGroup(*animations, lag_ratio=0) if animations else None\n` +
+    `${body}if self.inner_animation is not None:\n` +
+    `${body}    self.inner_animation.begin()\n` +
+    `${inner}def interpolate_mobject(self, alpha):\n` +
+    `${body}if self.inner_animation is not None:\n` +
+    `${body}    self.inner_animation.interpolate_mobject(alpha)\n` +
+    `${inner}def finish(self):\n` +
+    `${body}if self.inner_animation is not None:\n` +
+    `${body}    self.inner_animation.finish()\n` +
+    `${pad}\n`
+  );
+}
+
+function delayedPathRows(
+  clip: TargetAnimationItem,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string[] {
+  const rows: string[] = [];
+  for (const row of clip.targets) {
+    const target = itemsMap.get(row.targetId);
+    const anchor = target ? firstTargetMobExprForPath(target, idToVarName) : null;
+    if (!anchor) continue;
+    const targets = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, '_unused')
+      .map((part) => part.match(/MoveAlongPath\(([^,]+),\s*_unused\)/)?.[1]?.trim())
+      .filter((value): value is string => !!value);
+    if (targets.length === 0) continue;
+    if (row.pathKind === 'parametric') {
+      const spec = row.parametricPath;
+      if (!spec) continue;
+      const px = oneLinePyExpr(spec.pyXExpr, '0');
+      const py = oneLinePyExpr(spec.pyYExpr, '0');
+      const t0 = Number.isFinite(spec.tMin) ? spec.tMin : 0;
+      const t1 = Number.isFinite(spec.tMax) ? spec.tMax : 1;
+      if (Math.abs(t1 - t0) < 1e-9) continue;
+      rows.push(
+        `(${anchor}, [], [${targets.join(', ')}], ` +
+          `((lambda t: (${px}) - (${px})(${t0.toFixed(6)})), ` +
+          `(lambda t: (${py}) - (${py})(${t0.toFixed(6)})), ` +
+          `${t0.toFixed(6)}, ${t1.toFixed(6)}))`,
+      );
+      continue;
+    }
+    const points = row.pathPoints ?? [];
+    if (points.length < 2) continue;
+    rows.push(
+      `(${anchor}, [${points
+        .map((point) => `(${point.x.toFixed(6)}, ${point.y.toFixed(6)})`)
+        .join(', ')}], [${targets.join(', ')}], None)`,
+    );
+  }
+  return rows;
+}
+
 function firstTargetMobExprForPath(
   target: SceneItem,
   idToVarName: Map<ItemId, string>,
@@ -402,7 +481,11 @@ export function buildTargetAnimationConcurrentSuccessionInner(
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
 ): string | null {
-  if (clip.mode === 'path') return null;
+  if (clip.mode === 'path') {
+    const rows = delayedPathRows(clip, idToVarName, itemsMap);
+    if (rows.length === 0) return null;
+    return `_DelayedPathGroup([${rows.join(', ')}], run_time=${Math.max(0.05, clip.duration).toFixed(6)})`;
+  }
   const { setup, innerPlayArg } = buildTargetAnimationPlayBlock(
     clip,
     '',

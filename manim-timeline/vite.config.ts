@@ -8,6 +8,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      // Tauri watches Rust sources itself; its build artifacts can be locked on Windows.
+      ignored: ['**/src-tauri/**'],
+    },
   },
   resolve: {
     alias: { '@': '/src' },

@@ -1,5 +1,6 @@
 import type { ItemId, SceneItem } from '@/types/scene';
 import { effectiveStart } from '@/lib/time';
+import { FRAME_W } from '@/lib/constants';
 
 function trunc(s: string, max: number): string {
   const t = s.trim();
@@ -29,7 +30,9 @@ export function itemClipDisplayName(item: SceneItem): string {
     return 'Target animation';
   }
   if (item.kind === 'camera_move') {
-    return item.label.trim() || 'Camera pan';
+    if (item.label.trim()) return item.label.trim();
+    if (Math.abs((item.targetWidth ?? FRAME_W) - FRAME_W) <= 1e-6) return 'Zoom to frame';
+    return 'Zoom to region';
   }
   if ('label' in item && item.label?.trim()) {
     return item.label.trim();

@@ -415,6 +415,7 @@ export default function AddObjectToolbar({
     if (it) selectedItems.push(it);
   }
   const hasSelection = selectedItems.length > 0;
+  const hasCameraFitTarget = selectedItems.length === 1 && ['axes', 'shape', 'image', 'textLine'].includes(selectedItems[0]!.kind);
   const hasExitTarget = selectedItems.some((it) => canBeExitTarget(it));
   const hasBlinkTarget = selectedItems.some((it) => canBeBlinkTarget(it));
   const compatibleModes = new Set<TargetAnimationMode>();
@@ -659,6 +660,32 @@ export default function AddObjectToolbar({
             label="Camera pan"
             title="Camera pan to frame"
             onClick={actions.addCameraMoveClip}
+          >
+            <IconCameraMove />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Zoom region"
+            title="Drag a region on the canvas to create a 1-second zoom"
+            onClick={actions.beginCameraRegionSelection}
+          >
+            <IconCameraMove />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Fit object"
+            title="Fit one selected measured object"
+            onClick={actions.fitSelectedCameraObject}
+            active={hasCameraFitTarget}
+            dimmed={hasSelection && !hasCameraFitTarget}
+          >
+            <IconCameraMove />
+          </ToolButton>
+          <ToolButton
+            collapsed={collapsed}
+            label="Zoom frame"
+            title="Create an independent 1-second return to the full logical frame"
+            onClick={actions.addCameraFrameReturn}
           >
             <IconCameraMove />
           </ToolButton>

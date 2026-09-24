@@ -1,7 +1,7 @@
 ---
 description: "Implementer for the in-app AI Copilot (manim-timeline/src/agent): response schemas, validate.ts normalizers, system prompt, provider adapters (OpenAI/Anthropic/Gemini), preview/commit flow. Use when allowing new kinds for the Copilot, fixing model hallucinations, or changing providers."
 mode: all
-model: openai/gpt-5.4-mini
+model: openai/gpt-6-luna
 reasoningEffort: medium
 temperature: 0.2
 color: "#ec4899"

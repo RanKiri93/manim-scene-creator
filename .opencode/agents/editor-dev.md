@@ -1,7 +1,7 @@
 ---
 description: Frontend implementer for the React/Zustand/Konva editor (manim-timeline/src panels, canvas, timeline, store, lib, services). Use for UI, store, preview, and project-file work. Not for src/codegen or the Python server.
 mode: all
-model: openai/gpt-5.4-mini
+model: openai/gpt-6-luna
 reasoningEffort: medium
 temperature: 0.2
 color: "#22c55e"

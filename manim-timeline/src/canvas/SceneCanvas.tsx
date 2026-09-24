@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
-import { Stage, Layer, Group, Rect, Text } from 'react-konva';
+import { Stage, Layer, Group, Rect, Text, Line as KonvaLine } from 'react-konva';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
   usePreviewMergedItems,
@@ -22,7 +22,7 @@ import {
   activeTextTransformForLine,
   exitPreviewForTarget,
   blinkPreviewForTarget,
-  cameraOffsetAtTime,
+  cameraPosePreviewAtTime,
   imageIntroOpacity,
   targetAnimPreviewAccum,
   lerpHexColor,
@@ -37,7 +37,12 @@ import {
 } from '@/lib/graphPreview';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { surroundPreviewBBoxManim } from '@/lib/surroundCanvasPreview';
-import { manimToCanvas, surroundBBoxCanvasCenter } from '@/lib/canvasManimCoords';
+import {
+  canvasToWorldPoint,
+  cameraViewportTransform,
+  manimToCanvas,
+  surroundBBoxCanvasCenter,
+} from '@/lib/canvasManimCoords';
 import {
   frameCenter,
   frameCenterById,
@@ -53,6 +58,44 @@ import type {
   SurroundingRectItem,
   TextLineItem,
 } from '@/types/scene';
+import { measuredInkBox, type SnapBox, type TextSnapGuide } from '@/lib/textSnap';
+import { effectiveSnapPixelsPerUnit } from './hooks/useDragSnap';
+import {
+  logicalCameraFrameAtTime,
+  resolveCameraSchedule,
+  type CameraPose,
+} from '@/lib/camera';
+import { fitCameraObjectSnapshot } from '@/lib/cameraBounds';
+import {
+  CAMERA_FIT_REQUEST_EVENT,
+  CAMERA_REGION_REQUEST_EVENT,
+  cameraCaptureContextUnchanged,
+  cameraRegionBoundsFromDrag,
+  type CameraFitRequestEventDetail,
+} from './hooks/useCameraRegionSelection';
+import { createCameraMove } from '@/store/factories';
+import { useProjectScenesStore } from '@/store/useProjectScenesStore';
+
+type CameraAuthoringContext = {
+  time: number;
+  frameIds: string;
+  startFrameId: ItemId;
+  sceneId: string | null;
+};
+
+type RegionCaptureState = {
+  context: CameraAuthoringContext;
+  start: { x: number; y: number } | null;
+  current: { x: number; y: number } | null;
+};
+
+type FitPreviewState = {
+  context: CameraAuthoringContext;
+  bounds: { left: number; right: number; bottom: number; top: number };
+  destination: CameraPose;
+  targetFrameId: ItemId;
+  cameraId: string | null;
+};
 
 type SceneCanvasProps = {
   onFrameRectChange?: (rect: DOMRect) => void;
@@ -150,12 +193,18 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const [showAxes, setShowAxes] = useState(true);
   const [renderLikePreview, setRenderLikePreview] = useState(false);
   const [boardView, setBoardView] = useState(false);
+  const [snapText, setSnapText] = useState(true);
+  const [snapGuides, setSnapGuides] = useState<{ itemId: ItemId; guides: TextSnapGuide[] } | null>(null);
   const [gridDivisions, setGridDivisions] = useState(16);
   // Editor-only viewport. 'follow' tracks the camera (start frame + camera_move
   // clips); 'free' lets the user pan around / jump to a frame while paused. This
   // never affects export.
   const [viewMode, setViewMode] = useState<'follow' | 'free'>('follow');
   const [freeOffset, setFreeOffset] = useState({ x: 0, y: 0 });
+  const [freeWidth, setFreeWidth] = useState(FRAME_W);
+  const [cameraAuthoringError, setCameraAuthoringError] = useState<string | null>(null);
+  const [regionCapture, setRegionCapture] = useState<RegionCaptureState | null>(null);
+  const [fitPreview, setFitPreview] = useState<FitPreviewState | null>(null);
   const panRef = useRef<{
     active: boolean;
     startX: number;
@@ -166,10 +215,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
   const currentTime = useSceneStore((s) => s.currentTime);
   const isPlaying = useSceneStore((s) => s.isPlaying);
+  const activeSceneId = useProjectScenesStore((s) => s.activeSceneId);
   const audioItems = useSceneStore((s) => s.audioItems);
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
+  const cameraObjectFitPadding = useSceneStore((s) => s.cameraObjectFitPadding);
   const itemsMap = usePreviewMergedItems();
+  const committedItems = useSceneStore((s) => s.items);
   const previewOps = usePreviewOps();
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const clearSelection = useSceneStore((s) => s.clearSelection);
@@ -179,23 +231,23 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   );
   const updateItem = useSceneStore((s) => s.updateItem);
   const select = useSceneStore((s) => s.select);
-  const cameraOffset = useMemo(
-    () => cameraOffsetAtTime(currentTime, itemsMap, frames, startFrameId),
-    [currentTime, itemsMap, frames, startFrameId],
+  const deletedPreviewIds = useMemo(
+    () => new Set([...previewOps].filter(([, op]) => op === 'delete').map(([id]) => id)),
+    [previewOps],
   );
-  // During playback (or in follow mode) the viewport tracks the camera; when
-  // paused in free mode it uses the manually-panned / view-frame offset.
-  const effectiveOffset = useMemo(
-    () =>
-      isPlaying || viewMode === 'follow' ? cameraOffset : freeOffset,
-    [isPlaying, viewMode, cameraOffset, freeOffset],
+  const cameraPose = useMemo(
+    () => cameraPosePreviewAtTime(currentTime, itemsMap, frames, startFrameId, deletedPreviewIds),
+    [currentTime, itemsMap, frames, startFrameId, deletedPreviewIds],
   );
-  const cameraPx = useMemo(
-    () => ({
-      x: (-effectiveOffset.x / FRAME_W) * size.width,
-      y: (effectiveOffset.y / FRAME_H) * size.height,
-    }),
-    [effectiveOffset.x, effectiveOffset.y, size.width, size.height],
+  const effectiveCameraPose = useMemo(
+    () => isPlaying || viewMode === 'follow'
+      ? cameraPose
+      : { x: freeOffset.x, y: freeOffset.y, width: freeWidth },
+    [isPlaying, viewMode, cameraPose, freeOffset, freeWidth],
+  );
+  const followTransform = useMemo(
+    () => cameraViewportTransform(effectiveCameraPose, size.width, size.height),
+    [effectiveCameraPose, size.width, size.height],
   );
   const frameOffsetForItem = useCallback(
     (item: SceneItem) =>
@@ -204,7 +256,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   );
   const boardTransform = useMemo(() => {
     if (!boardView || frames.length === 0) {
-      return { x: cameraPx.x, y: cameraPx.y, scale: 1 };
+      return followTransform;
     }
     const boxes = frames.map((f) => {
       const c = frameCenter(f);
@@ -232,7 +284,137 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       y: size.height / 2 - scale * base.y,
       scale,
     };
-  }, [boardView, frames, cameraPx.x, cameraPx.y, size.width, size.height]);
+  }, [boardView, frames, size.width, size.height, followTransform]);
+  const contentTransform = boardView ? boardTransform : followTransform;
+  const authoringContext = useMemo<CameraAuthoringContext>(() => ({
+    time: currentTime,
+    frameIds: frames.map((frame) => frame.id).join('|'),
+    startFrameId,
+    sceneId: activeSceneId,
+  }), [currentTime, frames, startFrameId, activeSceneId]);
+
+  const addCameraMoveClip = useSceneStore((s) => s.addCameraMoveClip);
+  const cancelCameraAuthoring = useCallback(() => {
+    setRegionCapture(null);
+    setFitPreview(null);
+  }, []);
+
+  const applyFitPreview = useCallback(() => {
+    if (!fitPreview) return;
+    if (!cameraCaptureContextUnchanged(fitPreview.context, authoringContext)) {
+      setCameraAuthoringError('Camera fit cancelled because scene, time, or frames changed.');
+      cancelCameraAuthoring();
+      return;
+    }
+    const center = frameCenterById(frames, fitPreview.targetFrameId);
+    const patch = {
+      targetFrameId: fitPreview.targetFrameId,
+      targetWidth: fitPreview.destination.width,
+      offsetX: fitPreview.destination.x - center.x,
+      offsetY: fitPreview.destination.y - center.y,
+    };
+    if (fitPreview.cameraId) {
+      updateItem(fitPreview.cameraId, patch);
+    } else {
+      const clip = createCameraMove(fitPreview.targetFrameId, fitPreview.context.time, 1);
+      clip.label = 'Zoom to object';
+      Object.assign(clip, patch);
+      addCameraMoveClip(clip);
+    }
+    setFitPreview(null);
+    setCameraAuthoringError(null);
+  }, [fitPreview, authoringContext, frames, updateItem, addCameraMoveClip, cancelCameraAuthoring]);
+
+  useEffect(() => {
+    const onRegionRequest = () => {
+      if (isPlaying) {
+        setCameraAuthoringError('Pause playback before capturing a camera region.');
+        return;
+      }
+      if (boardView) {
+        setCameraAuthoringError('Leave Board view before capturing a camera region.');
+        return;
+      }
+      if (targetAnimationPathCapture || polylinePointCaptureId) {
+        setCameraAuthoringError('Finish or cancel the active canvas capture first.');
+        return;
+      }
+      setCameraAuthoringError(null);
+      setFitPreview(null);
+      setViewMode('follow');
+      setRegionCapture({ context: authoringContext, start: null, current: null });
+    };
+    const onFitRequest = (event: Event) => {
+      const detail = (event as CustomEvent<CameraFitRequestEventDetail>).detail;
+      const objectIds = [...selectedIds].filter((id) => {
+        const item = itemsMap.get(id);
+        return item && ['axes', 'shape', 'image', 'textLine'].includes(item.kind);
+      });
+      if (objectIds.length !== 1) {
+        setCameraAuthoringError('Select exactly one measured object to fit.');
+        return;
+      }
+      const result = fitCameraObjectSnapshot(
+        objectIds[0]!,
+        itemsMap,
+        frames,
+        startFrameId,
+        currentTime,
+        cameraObjectFitPadding,
+      );
+      if (!result.ok) {
+        setCameraAuthoringError(result.reason);
+        return;
+      }
+      const cameraId = detail?.cameraId && itemsMap.get(detail.cameraId)?.kind === 'camera_move'
+        ? detail.cameraId
+        : null;
+      if (detail?.cameraId && !cameraId) {
+        setCameraAuthoringError('Camera clip to refit was not found.');
+        return;
+      }
+      setCameraAuthoringError(null);
+      setRegionCapture(null);
+      setFitPreview({
+        context: authoringContext,
+        bounds: result.viewport,
+        destination: result.destination,
+        targetFrameId: result.targetFrameId!,
+        cameraId,
+      });
+    };
+    window.addEventListener(CAMERA_REGION_REQUEST_EVENT, onRegionRequest);
+    window.addEventListener(CAMERA_FIT_REQUEST_EVENT, onFitRequest);
+    return () => {
+      window.removeEventListener(CAMERA_REGION_REQUEST_EVENT, onRegionRequest);
+      window.removeEventListener(CAMERA_FIT_REQUEST_EVENT, onFitRequest);
+    };
+  }, [isPlaying, boardView, targetAnimationPathCapture, polylinePointCaptureId, authoringContext, selectedIds, itemsMap, frames, startFrameId, currentTime, cameraObjectFitPadding]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (!regionCapture && !fitPreview) return;
+      cancelCameraAuthoring();
+      setCameraAuthoringError('Camera capture cancelled.');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [regionCapture, fitPreview, cancelCameraAuthoring]);
+
+  useEffect(() => {
+    if (!regionCapture && !fitPreview) return;
+    const viewChanged = Boolean(regionCapture && (boardView || isPlaying || viewMode !== 'follow'));
+    const contextChanged = !cameraCaptureContextUnchanged((regionCapture ?? fitPreview)!.context, authoringContext);
+    if (!viewChanged && !contextChanged) return;
+    const timer = window.setTimeout(() => {
+      cancelCameraAuthoring();
+      setCameraAuthoringError(viewChanged
+        ? 'Camera capture cancelled because the view or playback changed.'
+        : 'Camera capture cancelled because scene, time, or frames changed.');
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [regionCapture, fitPreview, authoringContext, boardView, isPlaying, viewMode, cancelCameraAuthoring]);
 
   const visibleItems = useMemo(
     () =>
@@ -387,6 +569,65 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     currentTime,
   );
 
+  const snapBoxes = useMemo(() => {
+    const boxes: SnapBox[] = [];
+    for (const item of committedItems.values()) {
+      if (!isActiveAtTime(item, currentTime, committedItems)) continue;
+      if (item.kind !== 'textLine' && item.kind !== 'shape' && item.kind !== 'image' && item.kind !== 'axes') continue;
+      const ta = targetAnimPreviewAccum(item.id, currentTime, committedItems);
+      if (Math.abs(ta.dx) + Math.abs(ta.dy) > 1e-6 || Math.abs(ta.scaleMul - 1) > 1e-6 || Math.abs(ta.rotDeg) > 1e-6) continue;
+      const p = resolvePosition(item, committedItems);
+      const frame = frameOffsetForItem(item);
+      const x = p.x + frame.x;
+      const y = p.y + frame.y;
+      if (item.kind === 'textLine') {
+        const b = measuredInkBox(item.id, x, y, item.measure, item.scale);
+        if (b) boxes.push(b);
+      } else if (item.kind === 'axes') {
+        const w = (item.xRange[1] - item.xRange[0]) * item.scaleX;
+        const h = (item.yRange[1] - item.yRange[0]) * item.scaleY;
+        boxes.push({ id: item.id, left: x - w / 2, right: x + w / 2, bottom: y - h / 2, top: y + h / 2 });
+      } else if (item.kind === 'image') {
+        const w = item.width * item.scale;
+        const h = item.height * item.scale;
+        const a = (item.rotationDeg * Math.PI) / 180;
+        const hw = (Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a))) / 2;
+        const hh = (Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a))) / 2;
+        boxes.push({ id: item.id, left: x - hw, right: x + hw, bottom: y - hh, top: y + hh });
+      } else {
+        const angle = (item.rotationDeg * Math.PI) / 180;
+        const localPoints = item.shapeType === 'polyline'
+          ? item.points.map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
+          : item.shapeType === 'line' || item.shapeType === 'arrow'
+            ? [
+                { x: -item.endX * item.scale / 2, y: item.endY * item.scale / 2 },
+                { x: item.endX * item.scale / 2, y: -item.endY * item.scale / 2 },
+              ]
+            : (() => {
+                const hw = (item.shapeType === 'circle' ? item.radius : item.width / 2) * item.scale;
+                const hh = (item.shapeType === 'circle' ? item.radius : item.height / 2) * item.scale;
+                return [{ x: -hw, y: -hh }, { x: -hw, y: hh }, { x: hw, y: -hh }, { x: hw, y: hh }];
+              })();
+        const rotated = localPoints.map((point) => ({
+          x: x + point.x * Math.cos(angle) - point.y * Math.sin(angle),
+          y: y + point.x * Math.sin(angle) + point.y * Math.cos(angle),
+        }));
+        if (rotated.length) {
+          boxes.push({
+            id: item.id,
+            left: Math.min(...rotated.map((p) => p.x)),
+            right: Math.max(...rotated.map((p) => p.x)),
+            bottom: Math.min(...rotated.map((p) => p.y)),
+            top: Math.max(...rotated.map((p) => p.y)),
+          });
+        }
+      }
+    }
+    return boxes;
+  }, [committedItems, currentTime, frameOffsetForItem]);
+
+  const snapFrameScale = contentTransform.scale;
+
   const updateSize = useCallback(() => {
     if (!containerRef.current) return;
     const w = containerRef.current.clientWidth;
@@ -408,7 +649,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-2">
-      <div className="flex items-center gap-3 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
         <label className="flex items-center gap-1 cursor-pointer">
           <input
             type="checkbox"
@@ -426,6 +667,18 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             className="accent-blue-500"
           />
           Axes
+        </label>
+        <label className="flex items-center gap-1 cursor-pointer" title="Snap visible text edges to nearby objects and frame edges. Hold Alt while dragging to bypass. Snapping places text but does not attach it.">
+          <input
+            type="checkbox"
+            checked={snapText}
+            onChange={(e) => {
+              setSnapText(e.target.checked);
+              if (!e.target.checked) setSnapGuides(null);
+            }}
+            className="accent-blue-500"
+          />
+          Snap text
         </label>
         <label className="flex items-center gap-1 cursor-pointer">
           <input
@@ -449,8 +702,11 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           <span className="text-slate-500">View</span>
           <button
             type="button"
-            onClick={() => setViewMode('follow')}
-            title="Follow the camera (start frame + camera pans)"
+            onClick={() => {
+              setViewMode('follow');
+              setCameraAuthoringError(null);
+            }}
+            title="Follow the authored camera"
             className={`rounded border px-2 py-0.5 transition-colors ${
               viewMode === 'follow'
                 ? 'border-blue-500 bg-blue-600/30 text-blue-200'
@@ -465,6 +721,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               const f = frames.find((fr) => fr.id === e.target.value);
               if (!f) return;
               setFreeOffset(frameCenter(f));
+              setFreeWidth(FRAME_W);
               setViewMode('free');
             }}
             title="Jump the preview to a frame (does not change export)"
@@ -481,6 +738,16 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             <span className="text-amber-300/80">Free view · drag/scroll to pan</span>
           )}
         </div>
+        {fitPreview ? (
+          <div className="flex items-center gap-2 rounded border border-amber-400/50 bg-amber-500/10 px-2 py-1 text-amber-200">
+            <span>Object fit preview</span>
+            <button type="button" onClick={applyFitPreview} className="rounded bg-emerald-600 px-2 py-0.5 text-white">Apply</button>
+            <button type="button" onClick={cancelCameraAuthoring} className="rounded bg-slate-700 px-2 py-0.5">Cancel</button>
+          </div>
+        ) : null}
+        {cameraAuthoringError ? (
+          <span className="text-rose-300">{cameraAuthoringError}</span>
+        ) : null}
         <label className="flex items-center gap-1 cursor-pointer">
           Divisions
           <input
@@ -500,27 +767,36 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       <div
         ref={containerRef}
         className="w-full h-full flex-1 min-h-0 rounded-lg overflow-hidden border border-slate-700 bg-black flex items-center justify-center"
-        style={{ cursor: !isPlaying && !boardView ? 'grab' : 'default' }}
+        style={{ cursor: regionCapture ? 'crosshair' : !isPlaying && !boardView ? 'grab' : 'default' }}
       >
         <Stage
           width={size.width}
           height={size.height}
           onMouseDown={(e) => {
+            const stage = e.target.getStage();
+            const pos = stage?.getPointerPosition();
+            if (regionCapture && stage && pos) {
+              if (e.target !== stage) return;
+              setRegionCapture((current) => current ? { ...current, start: pos, current: pos } : null);
+              return;
+            }
             if (isPlaying || boardView) return;
             if (targetAnimationPathCapture || polylinePointCaptureId) return;
-            const stage = e.target.getStage();
-            if (!stage || e.target !== stage) return;
-            const pos = stage.getPointerPosition();
-            if (!pos) return;
+            if (!stage || e.target !== stage || !pos) return;
             panRef.current = {
               active: true,
               startX: pos.x,
               startY: pos.y,
-              startOffset: effectiveOffset,
+              startOffset: { x: effectiveCameraPose.x, y: effectiveCameraPose.y },
             };
             didPanRef.current = false;
           }}
           onMouseMove={(e) => {
+            if (regionCapture?.start) {
+              const pos = e.target.getStage()?.getPointerPosition();
+              if (pos) setRegionCapture((current) => current ? { ...current, current: pos } : null);
+              return;
+            }
             const p = panRef.current;
             if (!p?.active) return;
             const pos = e.target.getStage()?.getPointerPosition();
@@ -528,28 +804,69 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             const dxPx = pos.x - p.startX;
             const dyPx = pos.y - p.startY;
             if (Math.abs(dxPx) + Math.abs(dyPx) > 2) didPanRef.current = true;
+            setFreeWidth(effectiveCameraPose.width);
             setViewMode('free');
             setFreeOffset({
-              x: p.startOffset.x - (dxPx * FRAME_W) / size.width,
-              y: p.startOffset.y + (dyPx * FRAME_H) / size.height,
+              x: p.startOffset.x - (dxPx * effectiveCameraPose.width) / size.width,
+              y: p.startOffset.y + (dyPx * effectiveCameraPose.width * FRAME_H / FRAME_W) / size.height,
             });
           }}
           onMouseUp={() => {
+            if (regionCapture?.start && regionCapture.current) {
+              const capture = regionCapture;
+              if (!cameraCaptureContextUnchanged(capture.context, authoringContext)) {
+                setCameraAuthoringError('Camera region cancelled because scene, time, or frames changed.');
+                setRegionCapture(null);
+                return;
+              }
+              const captureStart = capture.start!;
+              const captureEnd = capture.current!;
+              const start = canvasToWorldPoint(captureStart, size.width, size.height, contentTransform);
+              const end = canvasToWorldPoint(captureEnd, size.width, size.height, contentTransform);
+              const fit = cameraRegionBoundsFromDrag(start, end);
+              setRegionCapture(null);
+              if (!fit.ok) {
+                setCameraAuthoringError(fit.reason);
+                return;
+              }
+              const schedule = resolveCameraSchedule(
+                itemsMap,
+                frames,
+                startFrameId,
+                deletedPreviewIds,
+              );
+              const targetFrameId = logicalCameraFrameAtTime(capture.context.time, schedule);
+              const center = frameCenterById(frames, targetFrameId);
+              const clip = createCameraMove(targetFrameId, capture.context.time, 1);
+              clip.label = 'Zoom to region';
+              clip.targetWidth = fit.destination.width;
+              clip.offsetX = fit.destination.x - center.x;
+              clip.offsetY = fit.destination.y - center.y;
+              addCameraMoveClip(clip);
+              setCameraAuthoringError(null);
+              return;
+            }
             if (panRef.current) panRef.current.active = false;
           }}
           onMouseLeave={() => {
+            if (regionCapture?.start) {
+              setRegionCapture(null);
+              setCameraAuthoringError('Camera region cancelled after pointer loss.');
+            }
             if (panRef.current) panRef.current.active = false;
           }}
           onWheel={(e) => {
             if (isPlaying || boardView) return;
             e.evt.preventDefault();
+            setFreeWidth(effectiveCameraPose.width);
             setViewMode('free');
             setFreeOffset({
-              x: effectiveOffset.x + (e.evt.deltaX * FRAME_W) / size.width,
-              y: effectiveOffset.y - (e.evt.deltaY * FRAME_H) / size.height,
+              x: effectiveCameraPose.x + (e.evt.deltaX * effectiveCameraPose.width) / size.width,
+              y: effectiveCameraPose.y - (e.evt.deltaY * effectiveCameraPose.width * FRAME_H / FRAME_W) / size.height,
             });
           }}
           onClick={(e) => {
+            if (regionCapture) return;
             const stage = e.target.getStage();
             if (targetAnimationPathCapture && stage) {
               const pos = stage.getPointerPosition();
@@ -558,10 +875,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const row = clip.targets[targetAnimationPathCapture.rowIndex];
                 const target = row ? itemsMap.get(row.targetId) : undefined;
                 if (row && target && (row.pathKind ?? 'polyline') === 'polyline') {
-                  const abs = {
-                    x: (pos.x / size.width - 0.5) * FRAME_W + effectiveOffset.x,
-                    y: (0.5 - pos.y / size.height) * FRAME_H + effectiveOffset.y,
-                  };
+                  const abs = canvasToWorldPoint(pos, size.width, size.height, contentTransform);
                   const base = resolvePosition(target, itemsMap);
                   const ta = targetAnimPreviewAccum(
                     target.id,
@@ -604,10 +918,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 Math.abs(raw.rotationDeg) < 1e-6 &&
                 Math.abs(raw.scale - 1) < 1e-6
               ) {
-                const abs = {
-                  x: (pos.x / size.width - 0.5) * FRAME_W + effectiveOffset.x,
-                  y: (0.5 - pos.y / size.height) * FRAME_H + effectiveOffset.y,
-                };
+                  const abs = canvasToWorldPoint(pos, size.width, size.height, contentTransform);
                 const anchorBase = resolvePosition(raw, itemsMap);
                 const tad = targetAnimPreviewAccum(raw.id, currentTime, itemsMap);
                 const fc = frameOffsetForItem(raw);
@@ -640,10 +951,11 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           </Layer>
           <Layer>
             <Group
-              x={boardTransform.x}
-              y={boardTransform.y}
-              scaleX={boardTransform.scale}
-              scaleY={boardTransform.scale}
+              x={contentTransform.x}
+              y={contentTransform.y}
+              scaleX={contentTransform.scale}
+              scaleY={contentTransform.scale}
+              listening={!regionCapture}
             >
             {boardView &&
               frames.map((frame) => {
@@ -679,6 +991,50 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   </Group>
                 );
               })}
+            {fitPreview ? (() => {
+              const topLeft = manimToCanvas(fitPreview.bounds.left, fitPreview.bounds.top, size.width, size.height);
+              const bottomRight = manimToCanvas(fitPreview.bounds.right, fitPreview.bounds.bottom, size.width, size.height);
+              return (
+                <Rect
+                  x={topLeft.x}
+                  y={topLeft.y}
+                  width={bottomRight.x - topLeft.x}
+                  height={bottomRight.y - topLeft.y}
+                  stroke="#fbbf24"
+                  strokeWidth={3}
+                  dash={[10, 6]}
+                  listening={false}
+                />
+              );
+            })() : null}
+            {regionCapture?.start && regionCapture.current ? (() => {
+              const startWorld = canvasToWorldPoint(regionCapture.start, size.width, size.height, contentTransform);
+              const endWorld = canvasToWorldPoint(regionCapture.current, size.width, size.height, contentTransform);
+              const draftFit = cameraRegionBoundsFromDrag(startWorld, endWorld);
+              const draftBounds = draftFit.ok
+                ? draftFit.viewport
+                : {
+                    left: Math.min(startWorld.x, endWorld.x),
+                    right: Math.max(startWorld.x, endWorld.x),
+                    bottom: Math.min(startWorld.y, endWorld.y),
+                    top: Math.max(startWorld.y, endWorld.y),
+                  };
+              const start = manimToCanvas(draftBounds.left, draftBounds.top, size.width, size.height);
+              const end = manimToCanvas(draftBounds.right, draftBounds.bottom, size.width, size.height);
+              return (
+                <Rect
+                  x={Math.min(start.x, end.x)}
+                  y={Math.min(start.y, end.y)}
+                  width={Math.abs(end.x - start.x)}
+                  height={Math.abs(end.y - start.y)}
+                  fill="#38bdf822"
+                  stroke="#38bdf6"
+                  strokeWidth={2}
+                  dash={[8, 5]}
+                  listening={false}
+                />
+              );
+            })() : null}
             {canvasEntries.map((entry) => {
               if (entry.kind === 'graph') {
                 const layer = entry.graph;
@@ -754,6 +1110,31 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   blinkText && !blinkText.applyOuterBlinkScale
                     ? { ...blinkText, scaleMultiplier: 1 }
                     : blinkText;
+                const itemFrameId = 'frameId' in item && item.frameId ? item.frameId : startFrameId;
+                const snapTargets = snapBoxes.filter((box) => {
+                  if (box.id === item.id) return false;
+                  const target = committedItems.get(box.id);
+                  const targetFrameId = target && 'frameId' in target && target.frameId ? target.frameId : startFrameId;
+                  return targetFrameId === itemFrameId;
+                });
+                const textSnapContext = {
+                  enabled: snapText && !isPlaying && !transformPreview && !blinkText && !exitPreviewForTarget(item.id, currentTime, itemsMap) &&
+                    Math.abs(taTxt.dx) < 1e-6 && Math.abs(taTxt.dy) < 1e-6 &&
+                    Math.abs(taTxt.scaleMul - 1) < 1e-6 && Math.abs(taTxt.rotDeg) < 1e-6,
+                  frameOffset: fcTxt,
+                  frameCenter: frameCenterById(frames, itemFrameId),
+                  ink: item.measure && item.measure.widthInk > 0
+                    ? { left: item.scale * item.measure.inkLeftX, right: item.scale * item.measure.inkRightX, bottom: item.scale * item.measure.inkBottomY, top: item.scale * item.measure.inkTopY }
+                    : null,
+                  targets: snapTargets,
+                  pxPerUnitX: effectiveSnapPixelsPerUnit(size.width / FRAME_W, snapFrameScale),
+                  pxPerUnitY: effectiveSnapPixelsPerUnit(size.height / FRAME_H, snapFrameScale),
+                  buffer: Number.isFinite(item.snapBuffer) ? Math.max(0, item.snapBuffer!) : 0.3,
+                  canvasWidth: size.width,
+                  canvasHeight: size.height,
+                  onGuides: (guides: TextSnapGuide[]) => setSnapGuides(guides.length ? { itemId: item.id, guides } : null),
+                  isTargetValid: (id: string) => committedItems.has(id),
+                };
                 const mx = (pos?.x ?? item.x) + fcTxt.x;
                 const my = (pos?.y ?? item.y) + fcTxt.y;
                 const localToWorld = (target: SceneItem, p: { x: number; y: number }) => {
@@ -803,6 +1184,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         audioItems={audioItems}
                         transformPreview={transformWorld}
                         blinkPreview={blinkText}
+                        textSnap={textSnapContext}
                       />
                     </PlaybackWrap>
                   </PreviewWrap>
@@ -915,6 +1297,20 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     />
                   </PlaybackWrap>
                 </PreviewWrap>
+              );
+            })}
+            {snapGuides?.guides.map((guide, index) => {
+              const a = guide.axis === 'x'
+                ? manimToCanvas(guide.value, guide.from, size.width, size.height)
+                : manimToCanvas(guide.from, guide.value, size.width, size.height);
+              const b = guide.axis === 'x'
+                ? manimToCanvas(guide.value, guide.to, size.width, size.height)
+                : manimToCanvas(guide.to, guide.value, size.width, size.height);
+              return (
+                <Group key={`${guide.targetId}-${guide.axis}-${index}`} listening={false}>
+                  <KonvaLine points={[a.x, a.y, b.x, b.y]} stroke="#38bdf8" strokeWidth={1.5} dash={[5, 4]} />
+                  <Text x={a.x + 4} y={a.y + 3} text={`${guide.label}`} fill="#7dd3fc" fontSize={12} />
+                </Group>
               );
             })}
             </Group>

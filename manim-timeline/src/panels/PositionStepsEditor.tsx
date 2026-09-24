@@ -55,9 +55,11 @@ interface PositionStepsEditorProps {
   steps: PosStep[];
   onChange: (steps: PosStep[]) => void;
   currentItemId: ItemId;
+  snapBuffer?: number;
+  onSnapBufferChange?: (value: number) => void;
 }
 
-export default function PositionStepsEditor({ steps, onChange, currentItemId }: PositionStepsEditorProps) {
+export default function PositionStepsEditor({ steps, onChange, currentItemId, snapBuffer, onSnapBufferChange }: PositionStepsEditorProps) {
   const itemsMap = useSceneStore((s) => s.items);
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
@@ -138,6 +140,12 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId }: 
 
   return (
     <div className="flex flex-col gap-2">
+      {snapBuffer !== undefined && onSnapBufferChange && (
+        <div className="flex items-center justify-between gap-2 rounded border border-slate-700 bg-slate-800/40 px-2 py-1.5">
+          <span className="text-xs text-slate-400">Snap gap (Manim units)</span>
+          <NumberInput label="" value={snapBuffer} onChange={onSnapBufferChange} step={0.1} min={0} />
+        </div>
+      )}
       {steps.map((step, i) => (
         <div key={i} className="flex flex-col gap-1.5 p-2 rounded bg-slate-800/60 border border-slate-700">
           {/* Header: kind selector + controls */}

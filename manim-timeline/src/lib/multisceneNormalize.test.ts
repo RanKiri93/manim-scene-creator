@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROJECT_VERSION } from '@/lib/constants';
+import { FRAME_W, PROJECT_VERSION } from '@/lib/constants';
 import type { MultiSceneProjectFile, ProjectFile } from '@/types/scene';
 import { MULTISCENE_PROJECT_KIND, isMultiSceneProjectFile } from '@/types/scene';
 import {
@@ -8,7 +8,7 @@ import {
   normalizeAnyDiskProjectToMulti,
 } from '@/lib/multisceneNormalize';
 import type { SceneItem } from '@/types/scene';
-import { defaultFrames } from '@/store/factories';
+import { createCameraMove, defaultFrames } from '@/store/factories';
 
 function legacySingleScene(overrides: Partial<ProjectFile> = {}): ProjectFile {
   const frameConfig = defaultFrames();
@@ -93,6 +93,8 @@ describe('multisceneNormalize', () => {
 
   it('migrateMultiSceneProjectsInPlace runs item migrations for every scene', () => {
     const frameConfig = defaultFrames();
+    const legacyCamera = { ...createCameraMove(frameConfig.startFrameId, 4, 2), id: 'legacy-camera' } as SceneItem & { targetWidth?: number };
+    delete legacyCamera.targetWidth;
     const multi: MultiSceneProjectFile = {
       kind: MULTISCENE_PROJECT_KIND,
       version: PROJECT_VERSION - 10,
@@ -106,11 +108,13 @@ describe('multisceneNormalize', () => {
           defaults: legacySingleScene().defaults,
           frames: frameConfig.frames,
           startFrameId: frameConfig.startFrameId,
-          items: [] as SceneItem[],
+          items: [legacyCamera] as SceneItem[],
         },
       ],
     };
     migrateMultiSceneProjectsInPlace(multi);
-    expect(Array.isArray(multi.scenes[0]!.items)).toBe(true);
+    const migrated = multi.scenes[0]!.items[0]!;
+    expect(migrated.kind).toBe('camera_move');
+    if (migrated.kind === 'camera_move') expect(migrated.targetWidth).toBe(FRAME_W);
   });
 });

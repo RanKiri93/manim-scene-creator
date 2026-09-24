@@ -475,6 +475,8 @@ export default function LineEditor({ item }: LineEditorProps) {
           steps={item.posSteps}
           onChange={(s) => set({ posSteps: s })}
           currentItemId={item.id}
+          snapBuffer={item.snapBuffer ?? 0.3}
+          onSnapBufferChange={(snapBuffer) => set({ snapBuffer: Math.max(0, snapBuffer) })}
         />
       </div>
     </div>

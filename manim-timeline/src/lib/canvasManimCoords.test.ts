@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchoredScalePoint,
+  cameraViewportTransform,
+  canvasToWorldPoint,
   manimToCanvas,
+  worldToCanvasPoint,
   surroundBBoxCanvasCenter,
 } from './canvasManimCoords';
 
@@ -24,6 +27,38 @@ describe('surroundBBoxCanvasCenter', () => {
     const cMidY = (manimToCanvas(0, 1, 800, 450).y + manimToCanvas(0, -1, 800, 450).y) / 2;
     expect(c.x).toBeCloseTo(cMidX);
     expect(c.y).toBeCloseTo(cMidY);
+  });
+});
+
+describe('camera viewport coordinates', () => {
+  it.each([
+    { width: 14.222222222222221, x: 0, y: 0 },
+    { width: 7.111111111111111, x: 14.222222222222221, y: -8 },
+    { width: 28.444444444444443, x: -14.222222222222221, y: 16 },
+  ])('round-trips world to screen to world at camera width $width', (pose) => {
+    const transform = cameraViewportTransform(pose, 960, 540);
+    const world = { x: pose.x + 2.25, y: pose.y - 1.5 };
+    const canvas = worldToCanvasPoint(world, 960, 540, transform);
+    const back = canvasToWorldPoint(canvas, 960, 540, transform);
+    expect(back.x).toBeCloseTo(world.x);
+    expect(back.y).toBeCloseTo(world.y);
+  });
+
+  it('composes a panned camera across non-origin frame rows and columns', () => {
+    const pose = { x: 14.222222222222221, y: -8, width: 9 };
+    const transform = cameraViewportTransform(pose, 1200, 675);
+    const canvas = worldToCanvasPoint({ x: 20, y: -10 }, 1200, 675, transform);
+    expect(canvasToWorldPoint(canvas, 1200, 675, transform)).toEqual({ x: 20, y: -10 });
+  });
+
+  it('round-trips through a resized letterboxed stage', () => {
+    const pose = { x: 3, y: -2, width: 6 };
+    const transform = cameraViewportTransform(pose, 641, 361);
+    const world = { x: -4, y: 2.5 };
+    const canvas = worldToCanvasPoint(world, 641, 361, transform);
+    const back = canvasToWorldPoint(canvas, 641, 361, transform);
+    expect(back.x).toBeCloseTo(world.x);
+    expect(back.y).toBeCloseTo(world.y);
   });
 });
 

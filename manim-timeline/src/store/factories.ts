@@ -3,6 +3,7 @@ import {
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
   DEFAULT_MATH_COLOR,
+  FRAME_W,
 } from '@/lib/constants';
 import type {
   TextLineItem,
@@ -46,6 +47,7 @@ export function createTextLine(
   return {
     id: newId(),
     kind: 'textLine',
+    snapBuffer: 0.3,
     label: '',
     layer: 0,
     startTime,
@@ -143,6 +145,7 @@ export function createCameraMove(
     startTime,
     duration: Math.max(0.05, duration),
     targetFrameId,
+    targetWidth: FRAME_W,
     offsetX: 0,
     offsetY: 0,
   };

@@ -5,6 +5,7 @@ import {
   activeTextTransformForLine,
   blinkPreviewForTarget,
   cameraOffsetAtTime,
+  cameraPosePreviewAtTime,
   exitPreviewForTarget,
   imageIntroOpacity,
   manimSmoothProgress,
@@ -207,6 +208,35 @@ describe('cameraOffsetAtTime', () => {
     expect(cameraOffsetAtTime(0, items, [home, right], home.id).y).toBeCloseTo(0);
     expect(cameraOffsetAtTime(3, items, [home, right], home.id).x).toBeCloseTo(7.111111);
     expect(cameraOffsetAtTime(4.5, items, [home, right], home.id).x).toBeCloseTo(14.222222);
+  });
+});
+
+describe('camera pose preview', () => {
+  it('delegates interruption to the shared later-start schedule', () => {
+    const home = createFrame(0, 0, 'Home');
+    const right = createFrame(1, 0, 'Right');
+    const a = createCameraMove(right.id, 0, 10);
+    a.id = 'a';
+    a.targetWidth = 4;
+    const b = createCameraMove(home.id, 2, 1);
+    b.id = 'b';
+    b.targetWidth = 8;
+    const items = mapOf(a, b);
+    const sampled = cameraPosePreviewAtTime(2, items, [home, right], home.id);
+    expect(cameraPosePreviewAtTime(2.5, items, [home, right], home.id).width).toBeLessThan(sampled.width);
+    expect(cameraPosePreviewAtTime(2.5, items, [home, right], home.id).width).toBeGreaterThan(8);
+    expect(cameraPosePreviewAtTime(9, items, [home, right], home.id).width).toBeCloseTo(8);
+  });
+
+  it('excludes delete-marked camera clips at the preview boundary', () => {
+    const home = createFrame(0, 0, 'Home');
+    const right = createFrame(1, 0, 'Right');
+    const deleted = createCameraMove(right.id, 0, 1);
+    deleted.id = 'deleted';
+    const items = mapOf(deleted);
+    const pose = cameraPosePreviewAtTime(1, items, [home, right], home.id, new Set(['deleted']));
+    expect(pose.x).toBe(0);
+    expect(pose.width).toBeCloseTo(14.222222222222221);
   });
 });
 

@@ -1,8 +1,8 @@
 ---
 description: Manim codegen engineer. Owns manim-timeline/src/codegen and src/lib/time.ts. Use for any change to emitted Python, timing, add_sound alignment, AnimationGroup clustering, exits, or function-series export.
 mode: all
-model: openai/gpt-5.5
-reasoningEffort: high
+model: openai/gpt-6-luna
+reasoningEffort: medium
 temperature: 0.1
 color: "#f59e0b"
 permission:

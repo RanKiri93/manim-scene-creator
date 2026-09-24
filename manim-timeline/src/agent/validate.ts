@@ -1169,6 +1169,7 @@ function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
   return {
     ...base,
     kind: 'textLine',
+    snapBuffer: 0.3,
     raw: texSource,
     font: asStr(raw.font, DEFAULT_FONT),
     fontSize: asNum(raw.fontSize, DEFAULT_FONT_SIZE),
