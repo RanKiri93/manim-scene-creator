@@ -17,6 +17,7 @@ import {
   type BlinkPreviewState,
   type TextTransformPreviewState,
 } from '@/lib/visualPlaybackPreview';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 export interface TextTransformLinePreview extends TextTransformPreviewState {
   sourceResolvedX: number;
@@ -655,7 +656,7 @@ export default function TextLineNode({
         y={-pxH / 2 + offY}
         width={pxW}
         height={pxH}
-        stroke={isSelected ? '#3b82f6' : !draggable ? '#d97706' : '#64748b'}
+        stroke={isSelected ? CANVAS_CHROME.selection : !draggable ? CANVAS_CHROME.locked : CANVAS_CHROME.idleOutline}
         strokeWidth={isSelected ? 2 : 1}
         dash={!draggable ? [6, 3] : isSelected ? undefined : [4, 4]}
         cornerRadius={2}
@@ -673,7 +674,7 @@ export default function TextLineNode({
           y={-pxH / 2 + offY + 2}
           text={displayLabel}
           fontSize={11}
-          fill="#94a3b8"
+          fill={CANVAS_CHROME.label}
           width={pxW - 8}
           ellipsis
           wrap="none"

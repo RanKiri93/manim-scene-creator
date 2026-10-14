@@ -7,6 +7,7 @@ import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { clampImageOpacity } from '@/lib/imageAssetPath';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 const TRANSFORMER_ANCHORS = [
   'top-left',
@@ -197,10 +198,10 @@ export default function ImageNode({
           y={-h / 2}
           width={w}
           height={h}
-          stroke={loadError ? '#f87171' : '#64748b'}
+          stroke={loadError ? CANVAS_CHROME.error : CANVAS_CHROME.idleOutline}
           strokeWidth={1.5}
           dash={[6, 4]}
-          fill="rgba(100,116,139,0.15)"
+          fill={CANVAS_CHROME.placeholderFill}
         />
         <Text
           x={-w / 2}
@@ -209,7 +210,7 @@ export default function ImageNode({
           align="center"
           text={loadError ? 'Image missing' : 'Loading…'}
           fontSize={12}
-          fill={loadError ? '#fca5a5' : '#94a3b8'}
+          fill={loadError ? CANVAS_CHROME.error : CANVAS_CHROME.label}
           listening={false}
         />
       </Group>
@@ -238,7 +239,7 @@ export default function ImageNode({
           y={-h / 2 - 4}
           width={w + 8}
           height={h + 8}
-          stroke={isSelected ? '#3b82f6' : 'transparent'}
+          stroke={isSelected ? CANVAS_CHROME.selection : 'transparent'}
           strokeWidth={isSelected ? 2 : 0}
           listening={false}
         />
@@ -249,10 +250,10 @@ export default function ImageNode({
           rotateEnabled
           enabledAnchors={[...TRANSFORMER_ANCHORS]}
           padding={6}
-          borderStroke="#3b82f6"
+          borderStroke={CANVAS_CHROME.selection}
           borderStrokeWidth={1}
-          anchorFill="#93c5fd"
-          anchorStroke="#1d4ed8"
+          anchorFill={CANVAS_CHROME.handleFill}
+          anchorStroke={CANVAS_CHROME.handleStroke}
           anchorSize={8}
           boundBoxFunc={(oldBox, newBox) => {
             if (newBox.width < 8 || newBox.height < 8) return oldBox;

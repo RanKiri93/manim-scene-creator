@@ -141,10 +141,13 @@ field), `AudioPanel`, `BackgroundBedPopup`, `AudioClipEditPopup`, `TimelineSurge
 Properties / Copilot switch (driven by the store's `agentOpen`). Dialog main actions are the
 yellow primary; mode toggles mark the active option with a `highlight/50` inset ring.
 
-Remaining:
-1. Konva selection and handle colors in `src/canvas/layers` and `SceneCanvas.tsx` via `THEME`.
-   Only editor chrome (selection boxes, handles, snap guides, hover outlines). Never change
-   colors that preview Manim output (item colors, default axes/plot colors).
+Also done: Konva editor chrome (selection and locked outlines, transformer handles, grid, frame
+outlines, snap guides, region capture, placeholders, the axes grip) via `CANVAS_CHROME` in
+`src/lib/theme.ts`. Colors that preview Manim output stay literal (item colors, default shape
+and curve strokes, field colormaps, reveal-head rims, projection guides).
+
+The migration is complete. New UI starts from `@/components/ui` and these tokens; new canvas
+chrome takes its colors from `CANVAS_CHROME`.
 
 Before starting a batch, check `git status` on its files: do not restyle a file with someone
 else's uncommitted work in it.

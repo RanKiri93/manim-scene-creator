@@ -34,6 +34,30 @@ export const KIND_COLORS = {
 
 export type KindColorGroup = keyof typeof KIND_COLORS;
 
+/**
+ * Editor-only marks drawn on the Konva stage: selection, handles, grid, frame outlines, guides.
+ * Never use these for colors that preview Manim output (item colors, default axes/plot colors).
+ * Konva accepts 8-digit hex, so translucent variants append an alpha byte.
+ */
+export const CANVAS_CHROME = {
+  selection: THEME.highlight,
+  /** Locked / preview-only (amber in the old palette). */
+  locked: THEME.warn,
+  idleOutline: `${THEME.chalkFaint}99`,
+  error: THEME.danger,
+  label: THEME.chalkDim,
+  gridMinor: THEME.chalkFaint,
+  gridMajor: THEME.chalkDim,
+  guide: THEME.highlight,
+  regionFill: `${THEME.highlight}22`,
+  placeholderFill: `${THEME.chalkFaint}26`,
+  handleFill: THEME.chalk,
+  handleStroke: THEME.ink,
+  gripFill: THEME.panel,
+  gripIdle: THEME.rule,
+  gripLines: THEME.chalkDim,
+} as const;
+
 /** Exhaustive: adding a `SceneItem` kind is a type error until it is given a color group here. */
 export const ITEM_COLOR_GROUP: Record<SceneItem['kind'], KindColorGroup> = {
   textLine: 'text',

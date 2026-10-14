@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import css from '../index.css?raw';
-import { KIND_COLORS, THEME, itemKindColor } from './theme';
+import { CANVAS_CHROME, KIND_COLORS, THEME, itemKindColor } from './theme';
 
 function cssColor(name: string): string | undefined {
   const m = css.match(new RegExp(`--color-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`));
@@ -47,6 +47,14 @@ describe('theme tokens', () => {
   it('clip labels (highlight ink) are readable on every kind color', () => {
     for (const color of Object.values(KIND_COLORS)) {
       expect(contrast(THEME.highlightInk, color)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('canvas chrome is built only from theme tokens (optionally with an alpha byte)', () => {
+    const tokens = new Set<string>(Object.values(THEME));
+    for (const [key, value] of Object.entries(CANVAS_CHROME)) {
+      expect(value, key).toMatch(/^#[0-9a-f]{6}([0-9a-f]{2})?$/);
+      expect(tokens.has(value.slice(0, 7)), `${key} uses a THEME color`).toBe(true);
     }
   });
 

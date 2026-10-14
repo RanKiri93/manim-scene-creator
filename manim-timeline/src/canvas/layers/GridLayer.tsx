@@ -1,5 +1,6 @@
 import { Line } from 'react-konva';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 interface GridLayerProps {
   canvasWidth: number;
@@ -33,7 +34,7 @@ export default function GridLayer({
         <Line
           key={`gv-${i}`}
           points={[x, 0, x, canvasHeight]}
-          stroke="#94a3b8"
+          stroke={CANVAS_CHROME.gridMinor}
           strokeWidth={0.75}
           opacity={0.45}
           listening={false}
@@ -46,7 +47,7 @@ export default function GridLayer({
         <Line
           key={`gh-${i}`}
           points={[0, y, canvasWidth, y]}
-          stroke="#94a3b8"
+          stroke={CANVAS_CHROME.gridMinor}
           strokeWidth={0.75}
           opacity={0.45}
           listening={false}
@@ -60,7 +61,7 @@ export default function GridLayer({
       <Line
         key="axis-h"
         points={[0, cy, canvasWidth, cy]}
-        stroke="#cbd5e1"
+        stroke={CANVAS_CHROME.gridMajor}
         strokeWidth={1}
         opacity={0.85}
         listening={false}
@@ -68,7 +69,7 @@ export default function GridLayer({
       <Line
         key="axis-v"
         points={[cx, 0, cx, canvasHeight]}
-        stroke="#cbd5e1"
+        stroke={CANVAS_CHROME.gridMajor}
         strokeWidth={1}
         opacity={0.85}
         listening={false}
@@ -83,7 +84,7 @@ export default function GridLayer({
         <Line
           key={`tick-x-${u}`}
           points={[tx, cy - 4, tx, cy + 4]}
-          stroke="#94a3b8"
+          stroke={CANVAS_CHROME.gridMinor}
           strokeWidth={1}
           opacity={0.75}
           listening={false}
@@ -97,7 +98,7 @@ export default function GridLayer({
         <Line
           key={`tick-y-${u}`}
           points={[cx - 4, ty, cx + 4, ty]}
-          stroke="#94a3b8"
+          stroke={CANVAS_CHROME.gridMinor}
           strokeWidth={1}
           opacity={0.75}
           listening={false}

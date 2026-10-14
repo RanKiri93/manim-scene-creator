@@ -42,6 +42,7 @@ import {
 } from '@/lib/visualPlaybackPreview';
 import { axesRasterCoordinateGeometry, axesRasterGeometry, axesRasterLocalToGraph, axesVectorOverlayOffset, axesOverlayPoint } from '@/lib/axesRasterPreview';
 import { resolveGraphDotPosition } from '@/lib/graphMotion';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 function evalGraphY(jsExpr: string, x: number): number | null {
   try {
@@ -549,10 +550,10 @@ export default function GraphNode({
           hideEditorChrome
             ? 'transparent'
             : isSelected
-              ? '#3b82f6'
+              ? CANVAS_CHROME.selection
               : !draggable
-                ? '#d97706'
-                : '#475569'
+                ? CANVAS_CHROME.locked
+                : CANVAS_CHROME.idleOutline
         }
         strokeWidth={hideEditorChrome ? 0 : isSelected ? 2 : 1}
         dash={hideEditorChrome ? undefined : !draggable ? [6, 3] : undefined}
@@ -706,7 +707,7 @@ export default function GraphNode({
           radius={4}
           stroke="#ffffff"
           strokeWidth={1.5}
-          fill="#fbbf24"
+          fill={CANVAS_CHROME.selection}
           listening={false}
         />
       ) : null}
@@ -942,7 +943,7 @@ export default function GraphNode({
                   y={o.ly - 10}
                   text="⚠"
                   fontSize={18}
-                  fill="#fca5a5"
+                  fill={CANVAS_CHROME.error}
                   listening={false}
                 />
               </Group>
@@ -1002,7 +1003,7 @@ export default function GraphNode({
                   y={o.ly - 10}
                   text="⚠"
                   fontSize={18}
-                  fill="#fca5a5"
+                  fill={CANVAS_CHROME.error}
                   listening={false}
                 />
               </Group>
@@ -1084,7 +1085,7 @@ export default function GraphNode({
                 />
               )}
               {dotPreview.coordinateLabel && <Text x={dotPreview.coordinateLabel.x} y={dotPreview.coordinateLabel.y} text={dotPreview.coordinateLabel.text} fontSize={dotPreview.coordinateLabel.fontSize} fill={dotPreview.coordinateLabel.fill} width={dotPreview.coordinateLabel.width} align={dotPreview.coordinateLabel.align} direction={dotPreview.coordinateLabel.direction} listening={false} />}
-              {motion.error && <Text x={dotPreview.x + 8} y={dotPreview.y - 18} text="⚠ invalid graph motion" fontSize={9} fill="#fca5a5" listening={false} />}
+              {motion.error && <Text x={dotPreview.x + 8} y={dotPreview.y - 18} text="⚠ invalid graph motion" fontSize={11} fill={CANVAS_CHROME.error} listening={false} />}
             </Group>
             </GraphPlaybackWrap>
           );
@@ -1097,8 +1098,8 @@ export default function GraphNode({
           x={-axW / 2 + 4}
           y={-axH / 2 + 4}
           text="Click to place seed"
-          fontSize={10}
-          fill="#38bdf8"
+          fontSize={11}
+          fill={CANVAS_CHROME.guide}
           listening={false}
         />
       )}
@@ -1119,28 +1120,28 @@ export default function GraphNode({
             y={-12}
             width={24}
             height={24}
-            fill="#1e293b"
-            stroke={isSelected ? '#60a5fa' : '#64748b'}
+            fill={CANVAS_CHROME.gripFill}
+            stroke={isSelected ? CANVAS_CHROME.selection : CANVAS_CHROME.gripIdle}
             strokeWidth={1}
             cornerRadius={4}
           />
           <Line
             points={[-7, -4, 7, -4]}
-            stroke="#94a3b8"
+            stroke={CANVAS_CHROME.gripLines}
             strokeWidth={1.5}
             lineCap="round"
             listening={false}
           />
           <Line
             points={[-7, 0, 7, 0]}
-            stroke="#94a3b8"
+            stroke={CANVAS_CHROME.gripLines}
             strokeWidth={1.5}
             lineCap="round"
             listening={false}
           />
           <Line
             points={[-7, 4, 7, 4]}
-            stroke="#94a3b8"
+            stroke={CANVAS_CHROME.gripLines}
             strokeWidth={1.5}
             lineCap="round"
             listening={false}

@@ -63,7 +63,7 @@ All paths are relative to `src/agent/`.
 | `providers/index.ts` | `getProvider(cfg)` factory. |
 | `validate.test.ts` / `serialize.test.ts` | Vitest coverage for the agent-side invariants. |
 
-`AgentPanel` is mounted from `App.tsx` via a `FloatingPanel`, toggled by the `agentOpen` UI slice on `useSceneStore`.
+`AgentPanel` is mounted inside the right-hand dock (`panels/PropertyPanel.tsx`) while the `agentOpen` UI slice on `useSceneStore` is set; the header's Copilot button and the dock's Properties / Copilot switch both toggle that slice.
 
 ---
 

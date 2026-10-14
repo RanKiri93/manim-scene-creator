@@ -76,6 +76,7 @@ import {
 } from './hooks/useCameraRegionSelection';
 import { createCameraMove } from '@/store/factories';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 type CameraAuthoringContext = {
   time: number;
@@ -956,7 +957,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       y={topLeft.y}
                       width={frameSize.w}
                       height={frameSize.h}
-                      stroke={frame.id === startFrameId ? '#fbbf24' : '#64748b'}
+                      stroke={frame.id === startFrameId ? CANVAS_CHROME.selection : CANVAS_CHROME.idleOutline}
                       strokeWidth={frame.id === startFrameId ? 3 : 2}
                       dash={[10, 6]}
                     />
@@ -964,7 +965,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       x={topLeft.x + 8}
                       y={topLeft.y + 8}
                       text={`${frameDisplayName(frame, frames)} (${frame.col}, ${frame.row})`}
-                      fill="#cbd5e1"
+                      fill={CANVAS_CHROME.label}
                       fontSize={18}
                     />
                   </Group>
@@ -979,7 +980,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   y={topLeft.y}
                   width={bottomRight.x - topLeft.x}
                   height={bottomRight.y - topLeft.y}
-                  stroke="#fbbf24"
+                  stroke={CANVAS_CHROME.locked}
                   strokeWidth={3}
                   dash={[10, 6]}
                   listening={false}
@@ -1006,8 +1007,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   y={Math.min(start.y, end.y)}
                   width={Math.abs(end.x - start.x)}
                   height={Math.abs(end.y - start.y)}
-                  fill="#38bdf822"
-                  stroke="#38bdf6"
+                  fill={CANVAS_CHROME.regionFill}
+                  stroke={CANVAS_CHROME.guide}
                   strokeWidth={2}
                   dash={[8, 5]}
                   listening={false}
@@ -1287,8 +1288,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 : manimToCanvas(guide.to, guide.value, size.width, size.height);
               return (
                 <Group key={`${guide.targetId}-${guide.axis}-${index}`} listening={false}>
-                  <KonvaLine points={[a.x, a.y, b.x, b.y]} stroke="#38bdf8" strokeWidth={1.5} dash={[5, 4]} />
-                  <Text x={a.x + 4} y={a.y + 3} text={`${guide.label}`} fill="#7dd3fc" fontSize={12} />
+                  <KonvaLine points={[a.x, a.y, b.x, b.y]} stroke={CANVAS_CHROME.guide} strokeWidth={1.5} dash={[5, 4]} />
+                  <Text x={a.x + 4} y={a.y + 3} text={`${guide.label}`} fill={CANVAS_CHROME.guide} fontSize={12} />
                 </Group>
               );
             })}

@@ -13,6 +13,7 @@ import { isFreelyDraggable } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import { useSceneStore } from '@/store/useSceneStore';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
+import { CANVAS_CHROME } from '@/lib/theme';
 
 const TRANSFORMER_ANCHORS = [
   'top-left',
@@ -427,7 +428,7 @@ export default function ShapeNode({
             return (
               <Rect
                 {...box}
-                stroke={isSelected ? '#3b82f6' : 'transparent'}
+                stroke={isSelected ? CANVAS_CHROME.selection : 'transparent'}
                 strokeWidth={isSelected ? 2 : 0}
                 dash={[4, 4]}
                 listening={false}
@@ -440,7 +441,7 @@ export default function ShapeNode({
             y={-rh}
             width={rh * 2}
             height={rh * 2}
-            stroke={isSelected ? '#3b82f6' : 'transparent'}
+            stroke={isSelected ? CANVAS_CHROME.selection : 'transparent'}
             strokeWidth={isSelected ? 2 : 0}
             listening={false}
           />
@@ -452,10 +453,10 @@ export default function ShapeNode({
           rotateEnabled
           enabledAnchors={[...TRANSFORMER_ANCHORS]}
           padding={6}
-          borderStroke="#3b82f6"
+          borderStroke={CANVAS_CHROME.selection}
           borderStrokeWidth={1}
-          anchorFill="#93c5fd"
-          anchorStroke="#1d4ed8"
+          anchorFill={CANVAS_CHROME.handleFill}
+          anchorStroke={CANVAS_CHROME.handleStroke}
           anchorSize={8}
           boundBoxFunc={(oldBox, newBox) => {
             if (newBox.width < 8 || newBox.height < 8) return oldBox;
