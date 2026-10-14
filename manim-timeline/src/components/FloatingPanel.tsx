@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { CloseIcon, IconButton } from '@/components/ui';
 
 export type FloatingPanelSize = { w: number; h: number };
 
@@ -74,30 +75,29 @@ export default function FloatingPanel({
 
   return (
     <div
-      className="fixed z-50 flex flex-col bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden"
+      role="dialog"
+      aria-label={title}
+      className="fixed z-50 flex flex-col overflow-hidden rounded-pop border border-rule bg-panel shadow-[0_18px_48px_rgb(0_0_0/0.55)]"
       style={{ left: pos.x, top: pos.y, width: w, height: h }}
     >
       <div
-        className="flex items-center gap-2 px-2 py-2 border-b border-slate-700 bg-slate-800 shrink-0 cursor-grab active:cursor-grabbing select-none touch-none"
+        className="flex shrink-0 cursor-grab touch-none items-center gap-2 border-b border-rule py-2 pr-2 pl-4 select-none active:cursor-grabbing"
         onPointerDown={onDragHandlePointerDown}
         role="presentation"
       >
-        <span className="text-xs font-semibold text-slate-200 flex-1 truncate">{title}</span>
-        <button
-          type="button"
+        <span className="flex-1 truncate font-display text-title font-medium text-chalk">{title}</span>
+        <IconButton
+          label={`Close ${title}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onClose();
           }}
-          className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700 text-lg leading-none"
-          title="Close"
-          aria-label={`Close ${title}`}
         >
-          ×
-        </button>
+          <CloseIcon />
+        </IconButton>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3">{children}</div>
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4 text-ctl text-chalk">{children}</div>
     </div>
   );
 }

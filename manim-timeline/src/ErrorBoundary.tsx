@@ -25,18 +25,18 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 p-6 font-mono text-sm">
-          <h1 className="text-lg text-red-400 mb-2">Something went wrong</h1>
-          <p className="text-slate-400 mb-4">
+        <div className="min-h-screen bg-ink text-chalk p-6 font-mono text-body">
+          <h1 className="text-lg text-danger mb-2">Something went wrong</h1>
+          <p className="text-chalk-dim mb-4">
             The UI crashed while rendering. Open the browser developer console (F12) for the full
             stack trace.
           </p>
-          <pre className="bg-slate-950 border border-slate-700 rounded p-3 overflow-auto text-xs text-red-300 whitespace-pre-wrap">
+          <pre className="bg-ink border border-rule rounded-ctl p-3 overflow-auto text-ctl text-danger whitespace-pre-wrap">
             {this.state.error.message}
           </pre>
           <button
             type="button"
-            className="mt-4 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs"
+            className="mt-4 px-3 py-1.5 bg-raised hover:bg-rule rounded-ctl text-ctl"
             onClick={() => this.setState({ error: null })}
           >
             Try again

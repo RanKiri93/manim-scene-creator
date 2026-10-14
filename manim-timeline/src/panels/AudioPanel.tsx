@@ -48,16 +48,16 @@ function LangToggle(props: {
   const { lang, setLang, disabled, label = 'Language' } = props;
   return (
     <div className="flex items-center gap-3">
-      <span className="text-slate-400 shrink-0">{label}</span>
-      <div className="flex rounded border border-slate-600 overflow-hidden">
+      <span className="text-chalk-dim shrink-0">{label}</span>
+      <div className="flex rounded-ctl border border-rule overflow-hidden">
         <button
           type="button"
           disabled={disabled}
           onClick={() => setLang('iw')}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`px-3 py-1.5 text-ctl font-medium transition-colors ${
             lang === 'iw'
-              ? 'bg-blue-600 text-white'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              ? 'bg-raised text-chalk ring-1 ring-highlight/50 ring-inset'
+              : 'bg-raised text-chalk-dim hover:text-chalk'
           } disabled:opacity-50`}
         >
           Hebrew (iw)
@@ -66,10 +66,10 @@ function LangToggle(props: {
           type="button"
           disabled={disabled}
           onClick={() => setLang('en')}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-slate-600 ${
+          className={`px-3 py-1.5 text-ctl font-medium transition-colors border-l border-rule ${
             lang === 'en'
-              ? 'bg-blue-600 text-white'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+              ? 'bg-raised text-chalk ring-1 ring-highlight/50 ring-inset'
+              : 'bg-raised text-chalk-dim hover:text-chalk'
           } disabled:opacity-50`}
         >
           English (en)
@@ -226,16 +226,16 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
 
   if (mode === 'tts') {
     return (
-      <div className="flex flex-col gap-3 text-xs text-slate-300">
+      <div className="flex flex-col gap-3 text-ctl text-chalk-dim">
         <label className="flex flex-col gap-1">
-          <span className="text-slate-400">Script</span>
+          <span className="text-chalk-dim">Script</span>
           <textarea
             value={script}
             onChange={(e) => setScript(e.target.value)}
             rows={8}
             spellCheck={false}
             disabled={loading}
-            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-ctl border border-rule bg-ink px-2 py-2 text-chalk placeholder:text-chalk-faint focus:border-chalk-faint disabled:opacity-50"
             placeholder="Text to synthesize…"
           />
         </label>
@@ -244,12 +244,12 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           type="button"
           disabled={loading || !script.trim()}
           onClick={() => void handleGenerate()}
-          className="rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 w-fit"
+          className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-2 text-ctl disabled:cursor-not-allowed disabled:opacity-50 w-fit"
         >
           {loading ? 'Generating…' : 'Generate Audio Track'}
         </button>
         {error && (
-          <p className="rounded border border-red-900/60 bg-red-950/40 px-2 py-1.5 text-red-300">
+          <p className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-1.5 text-danger">
             {error}
           </p>
         )}
@@ -259,8 +259,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
 
   if (mode === 'upload') {
     return (
-      <div className="flex flex-col gap-3 text-xs text-slate-300">
-        <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+      <div className="flex flex-col gap-3 text-ctl text-chalk-dim">
+        <label className="flex items-start gap-2 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
           <input
             type="checkbox"
             checked={useScript}
@@ -269,8 +269,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
             className="mt-0.5"
           />
           <span className="flex flex-col gap-0.5">
-            <span className="text-slate-300">Use script for transcription</span>
-            <span className="text-[10px] leading-snug text-slate-500">
+            <span className="text-chalk-dim">Use script for transcription</span>
+            <span className="text-meta leading-snug text-chalk-faint">
               When enabled, the script below is aligned to Whisper word timings. When off, raw
               Whisper transcription is used and the clip keeps a generic label.
             </span>
@@ -278,23 +278,23 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         </label>
         {useScript && (
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Script for guided transcription</span>
+            <span className="text-chalk-dim">Script for guided transcription</span>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={6}
               spellCheck={false}
               disabled={loading}
-              className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-ctl border border-rule bg-ink px-2 py-2 text-chalk placeholder:text-chalk-faint focus:border-chalk-faint disabled:opacity-50"
               placeholder="Narration for this recording…"
             />
           </label>
         )}
         {useScript && (
-          <p className="text-[10px] text-slate-500 leading-snug">
-            Wrap math in <code className="text-slate-400">$...$</code> for one bookmark per
+          <p className="text-meta text-chalk-faint leading-snug">
+            Wrap math in <code className="text-chalk-dim">$...$</code> for one bookmark per
             formula, e.g.{' '}
-            <span dir="rtl" className="text-slate-400">
+            <span dir="rtl" className="text-chalk-dim">
               נגדיר את הפונקציה $f(x)=x^2$ ואז נגזור
             </span>
             .
@@ -318,13 +318,13 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
             type="button"
             disabled={loading}
             onClick={() => fileInputRef.current?.click()}
-            className="rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 w-fit"
+            className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-2 text-ctl disabled:cursor-not-allowed disabled:opacity-50 w-fit"
           >
             Choose audio file…
           </button>
         ) : (
-          <div className="flex flex-col gap-2 rounded border border-slate-600 bg-slate-900/80 p-3">
-            <span className="text-slate-400 text-[11px]">Preview</span>
+          <div className="flex flex-col gap-2 rounded-ctl border border-rule bg-ink/80 p-3">
+            <span className="text-chalk-dim text-meta">Preview</span>
             <audio
               ref={previewAudioRef}
               controls
@@ -336,7 +336,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
                 type="button"
                 disabled={loading}
                 onClick={() => void approveUpload()}
-                className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-1.5 text-ctl disabled:opacity-50"
               >
                 {loading ? 'Uploading…' : 'Add to timeline'}
               </button>
@@ -344,7 +344,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
                 type="button"
                 disabled={loading}
                 onClick={clearPendingPreview}
-                className="rounded bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+                className="rounded-ctl bg-raised px-3 py-1.5 text-ctl font-medium text-chalk hover:bg-rule disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -352,7 +352,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           </div>
         )}
         {error && (
-          <p className="rounded border border-red-900/60 bg-red-950/40 px-2 py-1.5 text-red-300">
+          <p className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-1.5 text-danger">
             {error}
           </p>
         )}
@@ -361,8 +361,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3 text-xs text-slate-300">
-      <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+    <div className="flex flex-col gap-3 text-ctl text-chalk-dim">
+      <label className="flex items-start gap-2 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
         <input
           type="checkbox"
           checked={useScript}
@@ -371,8 +371,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           className="mt-0.5"
         />
         <span className="flex flex-col gap-0.5">
-          <span className="text-slate-300">Use script for transcription</span>
-          <span className="text-[10px] leading-snug text-slate-500">
+          <span className="text-chalk-dim">Use script for transcription</span>
+          <span className="text-meta leading-snug text-chalk-faint">
             When enabled, the script below is aligned to Whisper word timings after recording.
             When off, raw Whisper transcription is used and the clip keeps a generic label.
           </span>
@@ -380,23 +380,23 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
       </label>
       {useScript && (
         <label className="flex flex-col gap-1">
-          <span className="text-slate-400">Script to read while recording</span>
+          <span className="text-chalk-dim">Script to read while recording</span>
           <textarea
             value={script}
             onChange={(e) => setScript(e.target.value)}
             rows={6}
             spellCheck={false}
             disabled={loading && !isRecording}
-            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-2 text-slate-200 placeholder:text-slate-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-ctl border border-rule bg-ink px-2 py-2 text-chalk placeholder:text-chalk-faint focus:border-chalk-faint disabled:opacity-50"
             placeholder="Script to read while recording…"
           />
         </label>
       )}
       {useScript && (
-        <p className="text-[10px] text-slate-500 leading-snug">
-          Wrap math in <code className="text-slate-400">$...$</code> for one bookmark per formula,
+        <p className="text-meta text-chalk-faint leading-snug">
+          Wrap math in <code className="text-chalk-dim">$...$</code> for one bookmark per formula,
           e.g.{' '}
-          <span dir="rtl" className="text-slate-400">
+          <span dir="rtl" className="text-chalk-dim">
             נגדיר את הפונקציה $f(x)=x^2$ ואז נגזור
           </span>
           .
@@ -408,7 +408,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         disabled={loading && !isRecording}
         label="Transcription"
       />
-      <label className="flex items-start gap-2 rounded border border-slate-700 bg-slate-900/60 px-2 py-2">
+      <label className="flex items-start gap-2 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
         <input
           type="checkbox"
           checked={browserProcessingEnabled}
@@ -417,8 +417,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           className="mt-0.5"
         />
         <span className="flex flex-col gap-0.5">
-          <span className="text-slate-300">Browser mic processing</span>
-          <span className="text-[10px] leading-snug text-slate-500">
+          <span className="text-chalk-dim">Browser mic processing</span>
+          <span className="text-meta leading-snug text-chalk-faint">
             Off (recommended): captures a raw, untouched signal for consistent takes — auto-gain,
             noise suppression, and echo cancellation are disabled so every recording sounds the
             same, then the cleanup chain is applied on import. Turn on only if your raw mic input
@@ -431,17 +431,17 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           type="button"
           disabled={loading && !isRecording}
           onClick={() => void handleRecordToggle()}
-          className={`rounded px-3 py-2 text-xs font-medium w-fit disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`rounded-ctl px-3 py-2 text-ctl font-medium w-fit disabled:cursor-not-allowed disabled:opacity-50 ${
             isRecording
-              ? 'bg-red-600 text-white hover:bg-red-500'
-              : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+              ? 'bg-danger/10 text-chalk hover:bg-danger/10'
+              : 'bg-raised text-chalk hover:bg-rule'
           }`}
         >
           {isRecording ? 'Stop recording' : 'Record mic'}
         </button>
       ) : (
-        <div className="flex flex-col gap-2 rounded border border-slate-600 bg-slate-900/80 p-3">
-          <span className="text-slate-400 text-[11px]">Preview</span>
+        <div className="flex flex-col gap-2 rounded-ctl border border-rule bg-ink/80 p-3">
+          <span className="text-chalk-dim text-meta">Preview</span>
           <audio
             ref={previewAudioRef}
             controls
@@ -453,7 +453,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
               type="button"
               disabled={loading}
               onClick={() => void approveUpload()}
-              className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+              className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-1.5 text-ctl disabled:opacity-50"
             >
               {loading ? 'Uploading…' : 'Add to timeline'}
             </button>
@@ -461,7 +461,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
               type="button"
               disabled={loading}
               onClick={clearPendingPreview}
-              className="rounded bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+              className="rounded-ctl bg-raised px-3 py-1.5 text-ctl font-medium text-chalk hover:bg-rule disabled:opacity-50"
             >
               Discard
             </button>
@@ -469,7 +469,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         </div>
       )}
       {error && (
-        <p className="rounded border border-red-900/60 bg-red-950/40 px-2 py-1.5 text-red-300">
+        <p className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-1.5 text-danger">
           {error}
         </p>
       )}

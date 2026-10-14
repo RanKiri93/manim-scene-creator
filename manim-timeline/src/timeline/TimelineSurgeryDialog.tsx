@@ -84,15 +84,15 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
   };
 
   const tabClass = (active: boolean) =>
-    `rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+    `rounded-ctl px-2.5 py-1 text-meta font-medium transition-colors ${
       active
-        ? 'bg-blue-600 text-white'
-        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+        ? 'bg-raised text-chalk ring-1 ring-highlight/50 ring-inset'
+        : 'bg-raised text-chalk-dim hover:bg-rule'
     }`;
 
   return (
     <div
-      className="absolute left-3 right-3 top-full z-50 mt-1 max-h-[min(320px,55vh)] overflow-y-auto rounded-lg border border-slate-600 bg-slate-900 p-3 text-left shadow-xl"
+      className="absolute left-3 right-3 top-full z-50 mt-1 max-h-[min(320px,55vh)] overflow-y-auto rounded-pop border border-rule bg-ink p-3 text-left shadow-xl"
       role="dialog"
       aria-label="Timeline time edit"
     >
@@ -107,10 +107,10 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
 
       {mode === 'close' ? (
         <div>
-          <p className="mb-2 text-[11px] leading-snug text-slate-400">
-            Removes time <span className="text-slate-300">[start, end)</span>. Every visual clip
-            and narration clip starting at or after <span className="text-slate-300">end</span>{' '}
-            moves left by <span className="text-slate-300">end − start</span>. Only empty time can
+          <p className="mb-2 text-meta leading-snug text-chalk-dim">
+            Removes time <span className="text-chalk-dim">[start, end)</span>. Every visual clip
+            and narration clip starting at or after <span className="text-chalk-dim">end</span>{' '}
+            moves left by <span className="text-chalk-dim">end − start</span>. Only empty time can
             be removed — overlapping clips block the edit. The playhead inside the range jumps to
             its start.
           </p>
@@ -121,7 +121,7 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
               <button
                 type="button"
                 onClick={() => setCloseStart(currentTime)}
-                className="rounded-md bg-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-600"
+                className="rounded-ctl bg-raised px-2 py-1 text-meta text-chalk hover:bg-rule"
                 title="Set start to the playhead"
               >
                 Start = playhead
@@ -132,7 +132,7 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
                 onClick={() => {
                   if (nextAfterCloseStart != null) setCloseEnd(nextAfterCloseStart);
                 }}
-                className="rounded-md bg-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-ctl bg-raised px-2 py-1 text-meta text-chalk hover:bg-rule disabled:cursor-not-allowed disabled:opacity-40"
                 title="Set end to the next clip start after start"
               >
                 End = next clip
@@ -142,9 +142,9 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
         </div>
       ) : (
         <div>
-          <p className="mb-2 text-[11px] leading-snug text-slate-400">
-            Opens <span className="text-slate-300">duration</span> seconds of empty time at{' '}
-            <span className="text-slate-300">point</span>. Every visual clip and narration clip
+          <p className="mb-2 text-meta leading-snug text-chalk-dim">
+            Opens <span className="text-chalk-dim">duration</span> seconds of empty time at{' '}
+            <span className="text-chalk-dim">point</span>. Every visual clip and narration clip
             starting at or after the point moves right. A clip spanning the point blocks the edit.
             The playhead after the point shifts right with the timeline.
           </p>
@@ -154,7 +154,7 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
             <button
               type="button"
               onClick={() => setInsertAt(currentTime)}
-              className="rounded-md bg-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-600"
+              className="rounded-ctl bg-raised px-2 py-1 text-meta text-chalk hover:bg-rule"
               title="Set point to the playhead"
             >
               Point = playhead
@@ -163,26 +163,26 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
         </div>
       )}
 
-      <div className="mt-2 min-h-[20px] text-[11px] leading-snug">
+      <div className="mt-2 min-h-[20px] text-meta leading-snug">
         {plan.ok ? (
-          <p className="text-emerald-300/95">
+          <p className="text-kind-axes">
             {mode === 'close'
               ? `Will move ${movedVisualCount} visual ${plural(movedVisualCount, 'clip', 'clips')} and ${movedAudioCount} audio ${plural(movedAudioCount, 'clip', 'clips')} left by ${fmt(closePlan.delta)}.`
               : `Will move ${movedVisualCount} visual ${plural(movedVisualCount, 'clip', 'clips')} and ${movedAudioCount} audio ${plural(movedAudioCount, 'clip', 'clips')} right by ${fmt(insertDuration)}.`}{' '}
-            <span className="text-slate-400">Linked audio follows its visual clip.</span>
+            <span className="text-chalk-dim">Linked audio follows its visual clip.</span>
           </p>
         ) : (
           <div>
-            {plan.error ? <p className="text-amber-300/95">{plan.error}</p> : null}
+            {plan.error ? <p className="text-warn">{plan.error}</p> : null}
             {plan.blockers.length > 0 ? (
-              <ul className="mt-1 max-h-24 list-none overflow-y-auto pl-0 text-slate-300">
+              <ul className="mt-1 max-h-24 list-none overflow-y-auto pl-0 text-chalk-dim">
                 {plan.blockers.slice(0, 6).map((b) => (
-                  <li key={`${b.kind}-${b.id}`} className="truncate font-mono text-[10px]">
+                  <li key={`${b.kind}-${b.id}`} className="truncate font-mono text-meta">
                     {b.kind === 'item' ? 'Visual' : 'Audio'} · {b.label} · {fmt(b.start)}–{fmt(b.end)}
                   </li>
                 ))}
                 {plan.blockers.length > 6 ? (
-                  <li className="font-mono text-[10px] text-slate-400">
+                  <li className="font-mono text-meta text-chalk-dim">
                     …and {plan.blockers.length - 6} more
                   </li>
                 ) : null}
@@ -190,7 +190,7 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
             ) : null}
           </div>
         )}
-        {applyError ? <p className="mt-1 text-red-300/95">{applyError}</p> : null}
+        {applyError ? <p className="mt-1 text-danger">{applyError}</p> : null}
       </div>
 
       <div className="mt-2 flex gap-2">
@@ -198,14 +198,14 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
           type="button"
           onClick={apply}
           disabled={!plan.ok}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-1.5 text-ctl disabled:cursor-not-allowed disabled:opacity-40"
         >
           {mode === 'close' ? 'Close range' : 'Insert time'}
         </button>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md bg-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-600"
+          className="rounded-ctl bg-raised px-3 py-1.5 text-ctl text-chalk hover:bg-rule"
         >
           Cancel
         </button>

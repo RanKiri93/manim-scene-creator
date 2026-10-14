@@ -135,12 +135,16 @@ The editors were converted with a token codemod, so many still hand-roll inputs 
 classes (`bg-raised border border-rule rounded-ctl …`). That is acceptable; when you next edit
 one of those controls for another reason, replace it with the matching ui primitive.
 
-Remaining, in planned order:
-1. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
-   from the header), `AudioPanel`, `AgentPanel` (moves into the dock), `AudioClipEditPopup`,
-   `TimelineSurgeryDialog`, `BackgroundBedPopup`, other modals. Copilot then joins the
-   inspector dock as a second segment ("Properties / Copilot").
-2. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
+Also done: the floating-panel frame (`FloatingPanel`), `ExportPanel` (now holds the Manim class
+field), `AudioPanel`, `BackgroundBedPopup`, `AudioClipEditPopup`, `TimelineSurgeryDialog`,
+`ErrorBoundary`, and `AgentPanel`, which now lives in the dock as the "Copilot" half of the
+Properties / Copilot switch (driven by the store's `agentOpen`). Dialog main actions are the
+yellow primary; mode toggles mark the active option with a `highlight/50` inset ring.
+
+Remaining:
+1. Konva selection and handle colors in `src/canvas/layers` and `SceneCanvas.tsx` via `THEME`.
+   Only editor chrome (selection boxes, handles, snap guides, hover outlines). Never change
+   colors that preview Manim output (item colors, default axes/plot colors).
 
 Before starting a batch, check `git status` on its files: do not restyle a file with someone
 else's uncommitted work in it.

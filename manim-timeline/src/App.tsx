@@ -15,7 +15,6 @@ import {
   writeProjectToHandle,
 } from '@/lib/projectIO';
 import type { FragmentTimeMode } from '@/lib/projectFragment';
-import { safeSceneClassName } from '@/lib/pythonIdent';
 import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
 import ItemList from '@/panels/ItemList';
@@ -25,12 +24,11 @@ import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
 import FloatingPanel from '@/components/FloatingPanel';
-import AgentPanel from '@/agent/AgentPanel';
 import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
 import { useSceneUndoRedo } from '@/hooks/useSceneUndoRedo';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import SceneTabsBar from '@/components/SceneTabsBar';
-import { Button, IconButton, RedoIcon, TextInput, UndoIcon } from '@/components/ui';
+import { Button, IconButton, RedoIcon, UndoIcon } from '@/components/ui';
 
 const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
 const INSERT_SIDEBAR_COLLAPSED_KEY = 'manim-timeline-insert-sidebar-collapsed';
@@ -209,8 +207,6 @@ export default function App() {
     [toolbarWidth],
   );
   const importFragment = useSceneStore((s) => s.importFragment);
-  const defaults = useSceneStore((s) => s.defaults);
-  const setDefaults = useSceneStore((s) => s.setDefaults);
   const { canUndo, canRedo, undo, redo } = useSceneUndoRedo();
 
   useEffect(() => {
@@ -489,20 +485,6 @@ export default function App() {
         <div className="flex h-full min-w-0 flex-1 items-stretch">
           <SceneTabsBar />
         </div>
-        <label
-          className="flex shrink-0 items-center gap-2 text-ctl whitespace-nowrap text-chalk-dim"
-          title={`Python class name for this scene in the exported file: ${safeSceneClassName(defaults.sceneName)}`}
-        >
-          Manim class
-          <TextInput
-            code
-            size="sm"
-            className="w-28"
-            value={defaults.sceneName}
-            onChange={(e) => setDefaults({ sceneName: e.target.value })}
-            placeholder="Scene1"
-          />
-        </label>
         <div className="flex shrink-0 items-center gap-1 border-l border-rule pl-3">
           <IconButton label="Undo" title="Undo (Ctrl+Z, ⌘+Z)" onClick={undo} disabled={!canUndo}>
             <UndoIcon />
@@ -539,7 +521,7 @@ export default function App() {
             variant="ghost"
             pressed={agentOpen}
             onClick={() => setAgentOpen(!agentOpen)}
-            title="Open the AI Copilot"
+            title="Show the AI Copilot in the side panel"
           >
             Copilot
           </Button>
@@ -609,15 +591,6 @@ export default function App() {
             defaultSize={{ w: 360, h: 440 }}
           >
             <AudioPanel mode={audioMode} />
-          </FloatingPanel>
-        )}
-        {agentOpen && (
-          <FloatingPanel
-            title="AI Copilot"
-            onClose={() => setAgentOpen(false)}
-            defaultSize={{ w: 400, h: 560 }}
-          >
-            <AgentPanel />
           </FloatingPanel>
         )}
       </div>

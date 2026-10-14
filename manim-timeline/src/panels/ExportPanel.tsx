@@ -20,6 +20,7 @@ import {
 } from '@/services/measureClient';
 import { prepareSceneMasterAudio } from '@/lib/audioRenderHelpers';
 import { safeSceneClassName } from '@/lib/pythonIdent';
+import { Field, TextInput } from '@/components/ui';
 import type { SceneItem } from '@/types/scene';
 import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
 import { graphFollowExportBlock } from '@/lib/exportReadiness';
@@ -44,22 +45,22 @@ function clampPercent(n: number): number {
 function RenderProgressBar({ progress }: { progress: RenderProgressState }) {
   const percent = progress.percent == null ? null : clampPercent(progress.percent);
   return (
-    <div className="rounded border border-slate-700 bg-slate-950/70 p-2 flex flex-col gap-1">
-      <div className="flex items-center gap-2 text-[10px]">
-        <span className="text-slate-300 flex-1">{progress.label}</span>
-        <span className="text-slate-500 font-mono">
+    <div className="rounded-ctl border border-rule bg-ink/70 p-2 flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-meta">
+        <span className="text-chalk-dim flex-1">{progress.label}</span>
+        <span className="text-chalk-faint font-mono">
           {percent == null ? 'working' : `${percent}%`}
         </span>
       </div>
       {progress.detail && (
-        <p className="text-[10px] text-slate-500 leading-relaxed">{progress.detail}</p>
+        <p className="text-meta text-chalk-faint leading-relaxed">{progress.detail}</p>
       )}
-      <div className="h-2 rounded bg-slate-800 overflow-hidden">
+      <div className="h-2 rounded-ctl bg-raised overflow-hidden">
         {percent == null ? (
-          <div className="h-full w-1/2 rounded bg-emerald-500/70 animate-pulse" />
+          <div className="h-full w-1/2 rounded-ctl bg-highlight animate-pulse" />
         ) : (
           <div
-            className="h-full rounded bg-emerald-500 transition-[width] duration-300"
+            className="h-full rounded-ctl bg-highlight transition-[width] duration-300"
             style={{ width: `${percent}%` }}
           />
         )}
@@ -76,6 +77,7 @@ export default function ExportPanel() {
     [itemsMap],
   );
   const defaults = useSceneStore((s) => s.defaults);
+  const setDefaults = useSceneStore((s) => s.setDefaults);
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const audioItems = useSceneStore((s) => s.audioItems);
@@ -487,28 +489,41 @@ export default function ExportPanel() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3">
-        <h3 className="text-sm font-semibold text-slate-200 flex-1">Manim Export</h3>
-        <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
+      <Field
+        label="Manim class for this scene"
+        hint={`Exported as class ${safeSceneClassName(defaults.sceneName ?? '')}.`}
+        className="mb-2"
+      >
+        <TextInput
+          code
+          size="sm"
+          value={defaults.sceneName}
+          onChange={(e) => setDefaults({ sceneName: e.target.value })}
+          placeholder="Scene1"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-2 [&>button]:whitespace-nowrap">
+        <h3 className="m-0 w-full font-display text-title font-medium text-chalk">Manim code</h3>
+        <label className="flex items-center gap-1 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={fullFile}
             onChange={(e) => setFullFile(e.target.checked)}
-            className="accent-blue-500"
+            className="accent-highlight"
           />
           Full file
         </label>
         <button
           type="button"
           onClick={handleDownloadScript}
-          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
+          className="px-2 py-1 text-ctl bg-raised hover:bg-rule text-chalk rounded-ctl transition-colors"
         >
           Download Script (.md)
         </button>
         <button
           type="button"
           onClick={handleDownloadAudioScript}
-          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
+          className="px-2 py-1 text-ctl bg-raised hover:bg-rule text-chalk rounded-ctl transition-colors"
         >
           Download Audio Script (.md)
         </button>
@@ -517,7 +532,7 @@ export default function ExportPanel() {
           onClick={handleCopy}
           disabled={!!graphFollowBlock}
           title={graphFollowBlock ?? 'Copy generated Manim code'}
-          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 rounded transition-colors"
+          className="px-2 py-1 text-ctl bg-raised hover:bg-rule disabled:opacity-50 disabled:cursor-not-allowed text-chalk rounded-ctl transition-colors"
         >
           {copied ? 'Copied!' : 'Copy'}
         </button>
@@ -525,27 +540,27 @@ export default function ExportPanel() {
           type="button"
           onClick={openRenderModal}
           disabled={rendering || preparingImages || !!graphFollowBlock}
-          className="px-2 py-1 text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+          className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 px-2 py-1 text-ctl disabled:opacity-50 rounded-ctl transition-colors"
           title={preparingImages ? 'Preparing image assets for export…' : undefined}
         >
           {preparingImages ? 'Preparing images…' : 'Render MP4'}
         </button>
       </div>
-      {graphFollowBlock && <p className="text-[11px] text-amber-300" role="alert">{graphFollowBlock}</p>}
+      {graphFollowBlock && <p className="text-meta text-warn" role="alert">{graphFollowBlock}</p>}
       {preparingImages && (
-        <p className="text-[11px] text-slate-500" role="status">
+        <p className="text-meta text-chalk-faint" role="status">
           Preparing image assets for export…
         </p>
       )}
       {imagePrepError && (
-        <p className="text-[11px] text-red-400 whitespace-pre-wrap break-words">
+        <p className="text-meta text-danger whitespace-pre-wrap break-words">
           Image export preparation failed: {imagePrepError}
         </p>
       )}
 
-      <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
-        <h4 className="text-xs font-semibold text-slate-200">Multi-scene render</h4>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
+      <div className="rounded-ctl border border-rule bg-ink/50 p-3 flex flex-col gap-2">
+        <h4 className="text-ctl font-semibold text-chalk">Multi-scene render</h4>
+        <p className="text-meta text-chalk-faint leading-relaxed">
           Renders each scene tab in order, then merges MP4s via the measure server. Quality matches the Render MP4 modal
           (default medium until changed).
         </p>
@@ -553,36 +568,36 @@ export default function ExportPanel() {
           type="button"
           onClick={() => void renderFullProjectSequential()}
           disabled={renderAllBusy || rendering}
-          className="self-start px-2 py-1 text-xs bg-teal-800 hover:bg-teal-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+          className="self-start px-2 py-1 text-ctl bg-raised hover:bg-rule disabled:opacity-50 text-chalk rounded-ctl transition-colors"
         >
           {renderAllBusy ? 'Rendering all…' : 'Render all scenes → full_project.mp4'}
         </button>
         {renderAllProgress && <RenderProgressBar progress={renderAllProgress} />}
         {renderAllErr && (
-          <p className="text-[10px] text-red-400 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+          <p className="text-meta text-danger whitespace-pre-wrap break-words max-h-24 overflow-auto">
             {renderAllErr}
           </p>
         )}
       </div>
 
-      <details className="rounded border border-slate-700 bg-slate-900/40 p-2">
-        <summary className="cursor-pointer text-xs text-slate-300 select-none">
+      <details className="rounded-ctl border border-rule bg-ink/40 p-2">
+        <summary className="cursor-pointer text-ctl text-chalk-dim select-none">
           Combined Python export (all scenes, one file)
         </summary>
-        <pre className="mt-2 bg-slate-950 border border-slate-700 rounded p-2 text-[10px] text-slate-300 font-mono overflow-auto max-h-[30vh] whitespace-pre">
+        <pre className="mt-2 bg-ink border border-rule rounded-ctl p-2 text-meta text-chalk-dim font-mono overflow-auto max-h-[30vh] whitespace-pre">
           {combinedPython}
         </pre>
       </details>
 
-      <div className="rounded border border-slate-700 bg-slate-900/50 p-3 flex flex-col gap-2">
-        <h4 className="text-xs font-semibold text-slate-200">Merge MP4s</h4>
-        <p className="text-[10px] text-slate-500 leading-relaxed">
+      <div className="rounded-ctl border border-rule bg-ink/50 p-3 flex flex-col gap-2">
+        <h4 className="text-ctl font-semibold text-chalk">Merge MP4s</h4>
+        <p className="text-meta text-chalk-faint leading-relaxed">
           Join rendered clips end-to-end. The measure server runs{' '}
-          <span className="font-mono text-slate-400">ffmpeg</span> — it must be installed and on{' '}
-          <span className="font-mono text-slate-400">PATH</span> for the server process. File order is the order you
+          <span className="font-mono text-chalk-dim">ffmpeg</span> — it must be installed and on{' '}
+          <span className="font-mono text-chalk-dim">PATH</span> for the server process. File order is the order you
           select (same as listed in the file picker).
         </p>
-        <label className="flex flex-col gap-1 text-xs text-slate-400">
+        <label className="flex flex-col gap-1 text-ctl text-chalk-dim">
           <span>Videos (.mp4)</span>
           <input
             type="file"
@@ -590,16 +605,16 @@ export default function ExportPanel() {
             multiple
             disabled={merging}
             onChange={onMergeFilesChange}
-            className="text-[11px] text-slate-300 file:mr-2 file:rounded file:border-0 file:bg-slate-700 file:px-2 file:py-1 file:text-xs"
+            className="text-meta text-chalk-dim file:mr-2 file:rounded-ctl file:border-0 file:bg-raised file:px-2 file:py-1 file:text-ctl"
           />
         </label>
         {mergeFiles.length > 0 && (
-          <p className="text-[10px] text-slate-500">
+          <p className="text-meta text-chalk-faint">
             {mergeFiles.length} file{mergeFiles.length === 1 ? '' : 's'} selected
           </p>
         )}
         {mergeError && (
-          <p className="text-[10px] text-red-400 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+          <p className="text-meta text-danger whitespace-pre-wrap break-words max-h-24 overflow-auto">
             {mergeError}
           </p>
         )}
@@ -607,7 +622,7 @@ export default function ExportPanel() {
           type="button"
           onClick={handleMergeMp4s}
           disabled={merging || mergeFiles.length < 2}
-          className="self-start px-2 py-1 text-xs bg-indigo-800 hover:bg-indigo-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
+          className="self-start px-2 py-1 text-ctl bg-raised hover:bg-rule disabled:opacity-50 text-chalk rounded-ctl transition-colors"
         >
           {merging ? 'Merging…' : 'Download merged.mp4'}
         </button>
@@ -615,41 +630,41 @@ export default function ExportPanel() {
 
       {renderModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4"
           role="presentation"
           onClick={() => !rendering && setRenderModalOpen(false)}
         >
           <form
-            className="bg-slate-900 border border-slate-600 rounded-lg p-4 w-full max-w-md shadow-xl flex flex-col gap-3"
+            className="bg-ink border border-rule rounded-pop p-4 w-full max-w-md shadow-xl flex flex-col gap-3"
             role="dialog"
             aria-labelledby="render-mp4-title"
             onClick={(ev) => ev.stopPropagation()}
             onSubmit={handleRenderSubmit}
           >
-            <h4 id="render-mp4-title" className="text-sm font-semibold text-slate-100">
+            <h4 id="render-mp4-title" className="text-body font-semibold text-chalk">
               Render MP4 (measure server)
             </h4>
-            <p className="text-xs text-slate-400">
-              Uses <span className="font-mono text-slate-300">{measureUrl}</span> — full-file export is sent to Manim.
+            <p className="text-ctl text-chalk-dim">
+              Uses <span className="font-mono text-chalk-dim">{measureUrl}</span> — full-file export is sent to Manim.
             </p>
-            <label className="flex flex-col gap-1 text-xs text-slate-300">
+            <label className="flex flex-col gap-1 text-ctl text-chalk-dim">
               Scene class name
               <input
                 type="text"
                 value={renderSceneName}
                 onChange={(e) => setRenderSceneName(e.target.value)}
                 disabled={rendering}
-                className="bg-slate-950 border border-slate-600 rounded px-2 py-1 text-slate-200 font-mono"
+                className="bg-ink border border-rule rounded-ctl px-2 py-1 text-chalk font-mono"
                 required
               />
             </label>
-            <label className="flex flex-col gap-1 text-xs text-slate-300">
+            <label className="flex flex-col gap-1 text-ctl text-chalk-dim">
               Quality
               <select
                 value={renderQuality}
                 onChange={(e) => setRenderQuality(e.target.value)}
                 disabled={rendering}
-                className="bg-slate-950 border border-slate-600 rounded px-2 py-1 text-slate-200"
+                className="bg-ink border border-rule rounded-ctl px-2 py-1 text-chalk"
               >
                 {RENDER_QUALITIES.map((q) => (
                   <option key={q.value} value={q.value}>
@@ -658,18 +673,18 @@ export default function ExportPanel() {
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
               <input
                 type="checkbox"
                 checked={openAfterRender}
                 onChange={(e) => setOpenAfterRender(e.target.checked)}
                 disabled={rendering}
-                className="accent-blue-500"
+                className="accent-highlight"
               />
               Open file after render? (new tab)
             </label>
             {renderError && (
-              <p className="text-xs text-red-400 whitespace-pre-wrap break-words max-h-32 overflow-auto">
+              <p className="text-ctl text-danger whitespace-pre-wrap break-words max-h-32 overflow-auto">
                 {renderError}
               </p>
             )}
@@ -678,7 +693,7 @@ export default function ExportPanel() {
               <button
                 type="button"
                 onClick={() => !rendering && setRenderModalOpen(false)}
-                className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded"
+                className="px-3 py-1 text-ctl bg-raised hover:bg-rule text-chalk rounded-ctl"
                 disabled={rendering}
               >
                 Cancel
@@ -686,7 +701,7 @@ export default function ExportPanel() {
               <button
                 type="submit"
                 disabled={rendering}
-                className="px-3 py-1 text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-slate-100 rounded"
+                className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 px-3 py-1 text-ctl disabled:opacity-50 rounded-ctl"
               >
                 {rendering ? 'Rendering…' : 'Start render'}
               </button>
@@ -695,7 +710,7 @@ export default function ExportPanel() {
         </div>
       )}
 
-      <pre className="bg-slate-950 border border-slate-700 rounded p-3 text-xs text-slate-300 font-mono overflow-auto max-h-[50vh] whitespace-pre">
+      <pre className="bg-ink border border-rule rounded-ctl p-3 text-ctl text-chalk-dim font-mono overflow-auto max-h-[50vh] whitespace-pre">
         {code || '# Add items to see generated code.'}
       </pre>
     </div>

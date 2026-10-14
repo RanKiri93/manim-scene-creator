@@ -122,14 +122,14 @@ export function BackgroundBedEditor() {
   };
 
   return (
-    <div className="flex flex-col gap-3 text-xs text-slate-300 p-1">
-      <p className="text-[10px] text-slate-500 leading-snug">
+    <div className="flex flex-col gap-3 text-ctl text-chalk-dim p-1">
+      <p className="text-meta text-chalk-faint leading-snug">
         Post-production background bed: looped under narration at export. Spans the full scene on
         the Bed lane. Not audible in timeline preview yet.
       </p>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">Cut fade default (ms)</span>
+        <span className="text-chalk-dim">Cut fade default (ms)</span>
         <input
           type="number"
           min={0}
@@ -137,28 +137,28 @@ export function BackgroundBedEditor() {
           step={5}
           value={cutFadeMs}
           onChange={(e) => setCutFadeDefault(Number(e.target.value))}
-          className="w-24 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-200"
+          className="w-24 rounded-ctl border border-rule bg-ink px-2 py-1 text-chalk"
           title="Fade-in/out at narration cut boundaries during export"
         />
-        <span className="text-[10px] text-slate-500">Typical: 20–80 ms.</span>
+        <span className="text-meta text-chalk-faint">Typical: 20–80 ms.</span>
       </label>
 
       {audioBed ? (
-        <div className="rounded border border-slate-600 bg-slate-900/70 p-2 flex flex-col gap-2">
+        <div className="rounded-ctl border border-rule bg-ink/70 p-2 flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-slate-300">Active: {bedKindLabel(audioBed.kind)}</span>
+            <span className="text-chalk-dim">Active: {bedKindLabel(audioBed.kind)}</span>
             <button
               type="button"
               disabled={busy}
               onClick={() => removeAudioBed()}
-              className="rounded bg-slate-700 px-2 py-1 text-[10px] text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+              className="rounded-ctl bg-raised px-2 py-1 text-meta text-chalk hover:bg-rule disabled:opacity-50"
             >
               Remove
             </button>
           </div>
           <audio controls src={audioBed.audioUrl} className="w-full h-8" />
           <label className="flex items-center gap-2">
-            <span className="text-slate-400 shrink-0">Mix gain (dB)</span>
+            <span className="text-chalk-dim shrink-0">Mix gain (dB)</span>
             <input
               type="range"
               min={-48}
@@ -168,12 +168,12 @@ export function BackgroundBedEditor() {
               onChange={(e) => setAudioBedGain(Number(e.target.value))}
               className="flex-1"
             />
-            <span className="font-mono text-[10px] w-8 text-right">{audioBed.gainDb}</span>
+            <span className="font-mono text-meta w-8 text-right">{audioBed.gainDb}</span>
           </label>
         </div>
       ) : null}
 
-      <div className="flex rounded border border-slate-600 overflow-hidden text-[10px]">
+      <div className="flex rounded-ctl border border-rule overflow-hidden text-meta">
         {(
           [
             ['upload', 'Upload'],
@@ -188,8 +188,8 @@ export function BackgroundBedEditor() {
             onClick={() => setSourceTab(id)}
             className={`flex-1 px-2 py-1.5 font-medium transition-colors ${
               sourceTab === id
-                ? 'bg-indigo-700 text-white'
-                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-raised text-chalk ring-1 ring-highlight/50 ring-inset'
+                : 'bg-raised text-chalk-dim hover:text-chalk'
             } disabled:opacity-50`}
           >
             {label}
@@ -210,7 +210,7 @@ export function BackgroundBedEditor() {
             type="button"
             disabled={busy || recording}
             onClick={() => bedFileRef.current?.click()}
-            className="rounded bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-600 disabled:opacity-50 w-fit"
+            className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-1.5 text-ctl disabled:opacity-50 w-fit"
           >
             {busy ? 'Uploading…' : 'Choose music file…'}
           </button>
@@ -219,17 +219,17 @@ export function BackgroundBedEditor() {
 
       {sourceTab === 'record' ? (
         <div className="flex flex-col gap-2">
-          <p className="text-[10px] text-slate-500">
+          <p className="text-meta text-chalk-faint">
             Record 30–60 s of room silence for a natural noise floor under cuts.
           </p>
           <button
             type="button"
             disabled={busy}
             onClick={() => (recording ? stopRoomToneRecording() : void startRoomToneRecording())}
-            className={`rounded px-3 py-1.5 text-xs font-medium disabled:opacity-50 w-fit ${
+            className={`rounded-ctl px-3 py-1.5 text-ctl font-medium disabled:opacity-50 w-fit ${
               recording
-                ? 'bg-red-600 text-white hover:bg-red-500'
-                : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                ? 'bg-danger/10 text-chalk hover:bg-danger/10'
+                : 'bg-raised text-chalk hover:bg-rule'
             }`}
           >
             {recording ? 'Stop recording' : 'Record room tone'}
@@ -240,11 +240,11 @@ export function BackgroundBedEditor() {
       {sourceTab === 'noise' ? (
         <div className="flex flex-col gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Color</span>
+            <span className="text-chalk-dim">Color</span>
             <select
               value={noiseColor}
               onChange={(e) => setNoiseColor(e.target.value as BedNoiseColor)}
-              className="rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-200"
+              className="rounded-ctl border border-rule bg-ink px-2 py-1 text-chalk"
             >
               <option value="pink">Pink (room-like)</option>
               <option value="brown">Brown (deeper)</option>
@@ -252,7 +252,7 @@ export function BackgroundBedEditor() {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Clip length (s)</span>
+            <span className="text-chalk-dim">Clip length (s)</span>
             <input
               type="number"
               min={1}
@@ -260,11 +260,11 @@ export function BackgroundBedEditor() {
               step={1}
               value={noiseDuration}
               onChange={(e) => setNoiseDuration(Number(e.target.value))}
-              className="w-20 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-200"
+              className="w-20 rounded-ctl border border-rule bg-ink px-2 py-1 text-chalk"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Source level (dB)</span>
+            <span className="text-chalk-dim">Source level (dB)</span>
             <input
               type="number"
               min={-80}
@@ -272,14 +272,14 @@ export function BackgroundBedEditor() {
               step={1}
               value={noiseLevelDb}
               onChange={(e) => setNoiseLevelDb(Number(e.target.value))}
-              className="w-20 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-slate-200"
+              className="w-20 rounded-ctl border border-rule bg-ink px-2 py-1 text-chalk"
             />
           </label>
           <button
             type="button"
             disabled={busy || recording}
             onClick={() => void onGenerateNoise()}
-            className="rounded bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-600 disabled:opacity-50 w-fit"
+            className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl px-3 py-1.5 text-ctl disabled:opacity-50 w-fit"
           >
             {busy ? 'Generating…' : 'Generate noise bed'}
           </button>
@@ -287,7 +287,7 @@ export function BackgroundBedEditor() {
       ) : null}
 
       {error ? (
-        <p className="rounded border border-red-900/60 bg-red-950/40 px-2 py-1.5 text-red-300">
+        <p className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-1.5 text-danger">
           {error}
         </p>
       ) : null}

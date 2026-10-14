@@ -63,16 +63,16 @@ export default function AgentPanel() {
   const empty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-full text-xs text-slate-200">
-      <div className="flex items-center gap-2 pb-2 mb-2 border-b border-slate-700 shrink-0">
-        <span className="text-[11px] uppercase tracking-wide text-slate-400 truncate">
+    <div className="flex flex-col h-full text-ctl text-chalk">
+      <div className="flex items-center gap-2 pb-2 mb-2 border-b border-rule shrink-0">
+        <span className="text-meta text-chalk-dim truncate">
           {provider} · <span className="font-mono">{model || 'default'}</span>
         </span>
         <div className="flex-1" />
         <button
           type="button"
           onClick={() => setScriptOpen((v) => !v)}
-          className="px-2 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 transition-colors"
+          className="px-2 py-1 text-meta rounded-ctl bg-raised hover:bg-rule transition-colors"
         >
           {scriptOpen ? 'Hide script' : 'Script'}
         </button>
@@ -80,7 +80,7 @@ export default function AgentPanel() {
           type="button"
           onClick={newChat}
           disabled={empty && status !== 'error'}
-          className="px-2 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="px-2 py-1 text-meta rounded-ctl bg-raised hover:bg-rule disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           title="Start a new conversation"
         >
           New chat
@@ -88,7 +88,7 @@ export default function AgentPanel() {
         <button
           type="button"
           onClick={() => setSettingsOpen((v) => !v)}
-          className="px-2 py-1 text-[11px] rounded bg-slate-700 hover:bg-slate-600 transition-colors"
+          className="px-2 py-1 text-meta rounded-ctl bg-raised hover:bg-rule transition-colors"
         >
           {settingsOpen ? 'Hide' : 'Settings'}
         </button>
@@ -122,7 +122,7 @@ export default function AgentPanel() {
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-3 pr-1"
       >
         {empty && (
-          <div className="text-slate-400 text-[11px] italic px-1 py-4 leading-relaxed">
+          <div className="text-chalk-dim text-meta italic px-1 py-4 leading-relaxed">
             Start a conversation with the Copilot, request scene edits, or open
             Script to Timeline to paste a lesson script. Proposals only change
             the scene after you click <b>Approve</b>.
@@ -145,14 +145,14 @@ export default function AgentPanel() {
           ),
         )}
         {loading && (
-          <div className="flex items-center gap-2 px-1 py-1 text-slate-400">
-            <span className="inline-block w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse" />
+          <div className="flex items-center gap-2 px-1 py-1 text-chalk-dim">
+            <span className="inline-block w-2 h-2 rounded-full bg-raised animate-pulse" />
             Thinking…
           </div>
         )}
       </div>
 
-      <div className="pt-2 mt-2 border-t border-slate-700 shrink-0 flex flex-col gap-1">
+      <div className="pt-2 mt-2 border-t border-rule shrink-0 flex flex-col gap-1">
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -171,14 +171,14 @@ export default function AgentPanel() {
           rows={3}
           spellCheck={false}
           disabled={loading}
-          className="w-full resize-none bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-slate-100 focus:outline-none focus:border-blue-500 disabled:opacity-50"
+          className="w-full resize-none bg-raised border border-rule rounded-ctl px-2 py-1.5 text-chalk focus:border-chalk-faint disabled:opacity-50"
         />
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onSubmit}
             disabled={loading || !prompt.trim()}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+            className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed rounded-ctl transition-colors"
           >
             {loading ? 'Sending…' : 'Send'}
           </button>
@@ -186,7 +186,7 @@ export default function AgentPanel() {
             <button
               type="button"
               onClick={cancelRequest}
-              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+              className="px-3 py-1.5 bg-raised hover:bg-rule rounded-ctl transition-colors"
             >
               Cancel
             </button>
@@ -213,12 +213,12 @@ function ScriptToTimelineBlock({
   onClear,
 }: ScriptToTimelineBlockProps) {
   return (
-    <div className="flex flex-col gap-2 p-2 mb-2 rounded border border-fuchsia-900/60 bg-fuchsia-950/20 shrink-0">
+    <div className="flex flex-col gap-2 p-2 mb-2 rounded-ctl border border-rule bg-ink/40 shrink-0">
       <div>
-        <div className="text-[11px] uppercase tracking-wide text-fuchsia-200">
+        <div className="text-meta text-chalk">
           Script to Timeline
         </div>
-        <p className="mt-0.5 text-[11px] text-slate-400 leading-relaxed">
+        <p className="mt-0.5 text-meta text-chalk-dim leading-relaxed">
           Paste a Hebrew lesson script. The Copilot will propose timeline items;
           nothing changes until you approve.
         </p>
@@ -229,7 +229,7 @@ function ScriptToTimelineBlock({
         rows={8}
         spellCheck={false}
         disabled={loading}
-        className="w-full resize-none bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-100 focus:outline-none focus:border-fuchsia-500 disabled:opacity-50"
+        className="w-full resize-none bg-ink border border-rule rounded-ctl px-2 py-1.5 text-chalk focus:border-chalk-faint disabled:opacity-50"
         placeholder={'כותרת: משפט ערך הביניים\n\nנאמר ש־$f$ רציפה בקטע $[a,b]$...'}
       />
       <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ function ScriptToTimelineBlock({
           type="button"
           onClick={onSubmit}
           disabled={loading || !value.trim()}
-          className="px-3 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+          className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed rounded-ctl transition-colors"
         >
           {loading ? 'Sending...' : 'Propose timeline'}
         </button>
@@ -245,7 +245,7 @@ function ScriptToTimelineBlock({
           type="button"
           onClick={onClear}
           disabled={loading || !value}
-          className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-colors"
+          className="px-3 py-1.5 bg-raised hover:bg-rule disabled:opacity-40 disabled:cursor-not-allowed rounded-ctl transition-colors"
         >
           Clear
         </button>
@@ -257,7 +257,7 @@ function ScriptToTimelineBlock({
 function UserBubble({ message }: { message: AgentChatMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[88%] px-3 py-2 rounded-lg bg-blue-600/80 text-white whitespace-pre-wrap break-words">
+      <div className="max-w-[88%] px-3 py-2 rounded-pop bg-raised text-chalk whitespace-pre-wrap break-words">
         {message.content}
       </div>
     </div>
@@ -291,37 +291,37 @@ function AssistantBubble({
   const superseded = hasActions && message.actionsStatus === 'superseded';
 
   const borderClass = hasErr
-    ? 'border-red-700 bg-red-950/50'
+    ? 'border-danger/50 bg-danger/10'
     : pending
-      ? 'border-fuchsia-500/60 bg-fuchsia-950/20'
+      ? 'border-warn/45 bg-warn/5'
       : approved
-        ? 'border-emerald-700/60 bg-emerald-950/20'
+        ? 'border-kind-axes/50 bg-kind-axes/10'
         : rejected || superseded
-          ? 'border-slate-700 bg-slate-800/40'
-          : 'border-slate-700 bg-slate-800/60';
+          ? 'border-rule bg-ink/40'
+          : 'border-rule bg-raised';
 
   return (
     <div className="flex justify-start">
       <div
-        className={`max-w-[92%] w-full px-3 py-2 rounded-lg border ${borderClass} flex flex-col gap-2`}
+        className={`max-w-[92%] w-full px-3 py-2 rounded-pop border ${borderClass} flex flex-col gap-2`}
       >
         {showThinking && message.thinking && (
-          <details className="text-[11px] text-slate-400">
-            <summary className="cursor-pointer select-none hover:text-slate-200">
+          <details className="text-meta text-chalk-dim">
+            <summary className="cursor-pointer select-none hover:text-chalk">
               Thinking…
             </summary>
-            <div className="mt-1 pl-2 border-l border-slate-700 whitespace-pre-wrap text-slate-400 leading-relaxed">
+            <div className="mt-1 pl-2 border-l border-rule whitespace-pre-wrap text-chalk-dim leading-relaxed">
               {message.thinking}
             </div>
           </details>
         )}
 
-        <div className="whitespace-pre-wrap break-words text-slate-100 leading-relaxed">
+        <div className="whitespace-pre-wrap break-words text-chalk leading-relaxed">
           {message.content}
         </div>
 
         {hasErr && (
-          <ul className="list-disc pl-4 space-y-0.5 text-red-200 text-[11px]">
+          <ul className="list-disc pl-4 space-y-0.5 text-danger text-meta">
             {message.error!.map((e, i) => (
               <li key={i} className="break-words">
                 {e}
@@ -330,11 +330,11 @@ function AssistantBubble({
           </ul>
         )}
 
-        {cameraSummaries.length > 0 && <div className="rounded bg-slate-950/50 px-2 py-1 text-[11px] text-sky-200">{cameraSummaries.map(({ clip, displayName, frameLabel, overrideLabel, overrideTime, returnStart, returnEnd, targetWidth }) => <div key={clip.id} dir="auto"><bdi dir="auto">{displayName}</bdi> → <bdi dir="auto">{frameLabel}</bdi>: <bdi dir="auto">{clip.startTime.toFixed(2)}–{(clip.startTime + clip.duration).toFixed(2)}s</bdi>, <bdi dir="auto">{clip.duration.toFixed(2)}s transition</bdi>, <bdi dir="auto">width {targetWidth.toFixed(2)} ({(clip.offsetX ?? 0).toFixed(2)}, {(clip.offsetY ?? 0).toFixed(2)})</bdi>{returnStart !== null && returnEnd !== null ? <>; full-frame return <bdi dir="auto">{returnStart.toFixed(2)}–{returnEnd.toFixed(2)}s</bdi></> : null}{overrideLabel ? <>; overridden by <bdi dir="auto">{overrideLabel}</bdi> at <bdi dir="auto">{overrideTime!.toFixed(2)}s</bdi></> : null}</div>)}</div>}
+        {cameraSummaries.length > 0 && <div className="rounded-ctl bg-ink/50 px-2 py-1 text-meta text-chalk">{cameraSummaries.map(({ clip, displayName, frameLabel, overrideLabel, overrideTime, returnStart, returnEnd, targetWidth }) => <div key={clip.id} dir="auto"><bdi dir="auto">{displayName}</bdi> → <bdi dir="auto">{frameLabel}</bdi>: <bdi dir="auto">{clip.startTime.toFixed(2)}–{(clip.startTime + clip.duration).toFixed(2)}s</bdi>, <bdi dir="auto">{clip.duration.toFixed(2)}s transition</bdi>, <bdi dir="auto">width {targetWidth.toFixed(2)} ({(clip.offsetX ?? 0).toFixed(2)}, {(clip.offsetY ?? 0).toFixed(2)})</bdi>{returnStart !== null && returnEnd !== null ? <>; full-frame return <bdi dir="auto">{returnStart.toFixed(2)}–{returnEnd.toFixed(2)}s</bdi></> : null}{overrideLabel ? <>; overridden by <bdi dir="auto">{overrideLabel}</bdi> at <bdi dir="auto">{overrideTime!.toFixed(2)}s</bdi></> : null}</div>)}</div>}
 
         {hasActions && (
           <div className="flex flex-col gap-1">
-            <ul className="flex flex-col gap-0.5 font-mono text-[11px] text-slate-200 max-h-40 overflow-y-auto pr-1">
+            <ul className="flex flex-col gap-0.5 font-mono text-meta text-chalk max-h-40 overflow-y-auto pr-1">
               {message.actions!.map((a, i) => (
                 <ActionRow key={i} action={a} dim={!pending} />
               ))}
@@ -344,14 +344,14 @@ function AssistantBubble({
                 <button
                   type="button"
                   onClick={onApprove}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 rounded transition-colors"
+                  className="bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 px-3 py-1 rounded-ctl transition-colors"
                 >
                   Approve
                 </button>
                 <button
                   type="button"
                   onClick={onReject}
-                  className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+                  className="px-3 py-1 bg-raised hover:bg-rule rounded-ctl transition-colors"
                 >
                   Reject
                 </button>
@@ -377,7 +377,7 @@ function AssistantBubble({
             <button
               type="button"
               onClick={onRetry}
-              className="px-3 py-1 bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+              className="px-3 py-1 bg-raised hover:bg-rule rounded-ctl transition-colors"
             >
               Retry
             </button>
@@ -397,13 +397,13 @@ function StatusPill({
 }) {
   const toneClass =
     tone === 'emerald'
-      ? 'bg-emerald-900/60 text-emerald-200 border-emerald-700'
+      ? 'bg-kind-axes/10 text-kind-axes border-kind-axes/50'
       : tone === 'amber'
-        ? 'bg-amber-900/40 text-amber-200 border-amber-700/60'
-        : 'bg-slate-800 text-slate-300 border-slate-600';
+        ? 'bg-warn/10 text-warn border-warn/45'
+        : 'bg-raised text-chalk-dim border-rule';
   return (
     <span
-      className={`self-start mt-1 inline-block px-2 py-0.5 text-[10px] rounded border ${toneClass}`}
+      className={`self-start mt-1 inline-block px-2 py-0.5 text-meta rounded-ctl border ${toneClass}`}
     >
       {label}
     </span>
@@ -415,9 +415,9 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
   if (action.action === 'CREATE') {
     const it = action.item as { id: string; kind: string; label?: string };
     return (
-      <li className={`text-fuchsia-200 ${dimClass}`}>
-        <span className="text-fuchsia-400">CREATE</span> {it.kind}{' '}
-        <code className="text-slate-300"><bdi dir="auto">{it.id}</bdi></code>
+      <li className={`text-chalk ${dimClass}`}>
+        <span className="text-chalk">CREATE</span> {it.kind}{' '}
+        <code className="text-chalk-dim"><bdi dir="auto">{it.id}</bdi></code>
         {it.label ? <> “<bdi dir="auto">{it.label}</bdi>”</> : ''}
       </li>
     );
@@ -426,14 +426,14 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
     const keys = Object.keys(action.updates ?? {}).slice(0, 6).join(', ');
     const detail = summarizeUpdateDetails(action.updates);
     return (
-      <li className={`text-amber-200 ${dimClass} flex flex-col gap-0.5`}>
+      <li className={`text-warn ${dimClass} flex flex-col gap-0.5`}>
         <div>
-          <span className="text-amber-400">UPDATE</span>{' '}
-          <code className="text-slate-300"><bdi dir="auto">{action.itemId}</bdi></code>{' '}
-          <span className="text-slate-400">{`{${keys}}`}</span>
+          <span className="text-warn">UPDATE</span>{' '}
+          <code className="text-chalk-dim"><bdi dir="auto">{action.itemId}</bdi></code>{' '}
+          <span className="text-chalk-dim">{`{${keys}}`}</span>
         </div>
         {detail.length > 0 && (
-          <div className="text-[10px] text-amber-100/90">
+          <div className="text-meta text-warn">
             {detail.join(' | ')}
           </div>
         )}
@@ -441,9 +441,9 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
     );
   }
   return (
-    <li className={`text-red-200 ${dimClass}`}>
-      <span className="text-red-400">DELETE</span>{' '}
-      <code className="text-slate-300"><bdi dir="auto">{action.itemId}</bdi></code>
+    <li className={`text-danger ${dimClass}`}>
+      <span className="text-danger">DELETE</span>{' '}
+      <code className="text-chalk-dim"><bdi dir="auto">{action.itemId}</bdi></code>
     </li>
   );
 }
@@ -520,17 +520,17 @@ function SettingsBlock({
   onUpdate,
 }: SettingsBlockProps) {
   return (
-    <div className="flex flex-col gap-2 p-2 mb-2 rounded border border-slate-700 bg-slate-850 shrink-0">
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+    <div className="flex flex-col gap-2 p-2 mb-2 rounded-ctl border border-rule bg-raised shrink-0">
+      <div className="text-meta text-chalk-dim">
         Settings
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">Provider</span>
+        <span className="text-chalk-dim">Provider</span>
         <select
           value={provider}
           onChange={(e) => onProvider(e.target.value as ProviderId)}
-          className="bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          className="bg-raised border border-rule rounded-ctl px-2 py-1"
         >
           {PROVIDER_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
@@ -541,25 +541,25 @@ function SettingsBlock({
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">Model</span>
+        <span className="text-chalk-dim">Model</span>
         <input
           type="text"
           value={model}
           onChange={(e) => onUpdate({ model: e.target.value })}
           spellCheck={false}
-          className="bg-slate-800 border border-slate-600 rounded px-2 py-1 font-mono"
+          className="bg-raised border border-rule rounded-ctl px-2 py-1 font-mono"
         />
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">API key</span>
+        <span className="text-chalk-dim">API key</span>
         <input
           type="password"
           value={apiKey}
           onChange={(e) => onUpdate({ apiKey: e.target.value })}
           spellCheck={false}
           autoComplete="off"
-          className="bg-slate-800 border border-slate-600 rounded px-2 py-1 font-mono"
+          className="bg-raised border border-rule rounded-ctl px-2 py-1 font-mono"
           placeholder={
             provider === 'anthropic'
               ? 'sk-ant-…'
@@ -568,14 +568,14 @@ function SettingsBlock({
                 : 'sk-…'
           }
         />
-        <span className="text-[10px] text-slate-500">
+        <span className="text-meta text-chalk-faint">
           Stored in browser localStorage. Never leaves your machine except to
           the provider you selected.
         </span>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">
+        <span className="text-chalk-dim">
           Base URL {provider === 'anthropic' ? '(ignored)' : '(optional)'}
         </span>
         <input
@@ -583,7 +583,7 @@ function SettingsBlock({
           value={baseUrl}
           onChange={(e) => onUpdate({ baseUrl: e.target.value })}
           spellCheck={false}
-          className="bg-slate-800 border border-slate-600 rounded px-2 py-1 font-mono"
+          className="bg-raised border border-rule rounded-ctl px-2 py-1 font-mono"
           placeholder={
             provider === 'openai'
               ? 'https://api.openai.com/v1 (default)'
@@ -602,18 +602,18 @@ function SettingsBlock({
           type="checkbox"
           checked={showThinking}
           onChange={(e) => onUpdate({ showThinking: e.target.checked })}
-          className="accent-fuchsia-500"
+          className="accent-highlight"
         />
-        <span className="text-slate-300">
+        <span className="text-chalk-dim">
           Show agent thinking{' '}
-          <span className="text-slate-500">
+          <span className="text-chalk-faint">
             (when the provider supports it)
           </span>
         </span>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-slate-400">
+        <span className="text-chalk-dim">
           Custom rules (appended to system prompt)
         </span>
         <textarea
@@ -621,7 +621,7 @@ function SettingsBlock({
           onChange={(e) => onUpdate({ customRules: e.target.value })}
           rows={3}
           spellCheck={false}
-          className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-[11px]"
+          className="bg-raised border border-rule rounded-ctl px-2 py-1 text-meta"
           placeholder="e.g. Always add a 0.3s wait after Hebrew text lines."
         />
       </label>
