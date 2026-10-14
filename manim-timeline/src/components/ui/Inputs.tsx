@@ -37,19 +37,31 @@ function WithUnit({ unit, children }: { unit?: string; children: ReactNode }) {
 interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   size?: ControlSize;
   unit?: string;
+  /** Identifiers and expressions: monospace, always left-to-right, no spellcheck. */
+  code?: boolean;
 }
 
 /** Single-line text. Hebrew-capable: defaults to `dir="auto"`. */
-export function TextInput({ size = 'md', unit, className, dir = 'auto', type = 'text', ...rest }: TextInputProps) {
+export function TextInput({
+  size = 'md',
+  unit,
+  code = false,
+  className,
+  dir = 'auto',
+  spellCheck,
+  type = 'text',
+  ...rest
+}: TextInputProps) {
   const attrs = useFieldAttrs(rest);
   return (
     <WithUnit unit={unit}>
       <input
         type={type}
-        dir={dir}
         {...rest}
         {...attrs}
-        className={cx(fieldSurface, fieldHeight[size], 'px-2', unit && 'pr-7', className)}
+        dir={code ? 'ltr' : dir}
+        spellCheck={code ? false : spellCheck}
+        className={cx(fieldSurface, fieldHeight[size], 'px-2', code && 'font-mono', unit && 'pr-7', className)}
       />
     </WithUnit>
   );
@@ -204,9 +216,10 @@ interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'typ
 }
 
 /** Checkbox with its label. The whole row is the hit target. */
-export function Checkbox({ checked, onChange, children, className, disabled, ...rest }: CheckboxProps) {
+export function Checkbox({ checked, onChange, children, className, disabled, title, ...rest }: CheckboxProps) {
   return (
     <label
+      title={title}
       className={cx(
         'inline-flex items-center gap-2 text-ctl select-none',
         disabled ? 'cursor-not-allowed text-chalk-faint' : 'cursor-pointer text-chalk',

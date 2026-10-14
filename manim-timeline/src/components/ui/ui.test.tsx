@@ -61,7 +61,8 @@ describe('Field', () => {
     );
     const id = out.match(/<label for="([^"]+)"/)?.[1];
     expect(id).toBeTruthy();
-    expect(out).toContain(`<input type="text" dir="auto" id="${id}"`);
+    expect(out).toMatch(new RegExp(`<input [^>]*id="${id}"`));
+    expect(out).toContain('dir="auto"');
     const noteId = out.match(/<p id="([^"]+)"/)?.[1];
     expect(out).toContain(`aria-describedby="${noteId}"`);
   });
@@ -91,6 +92,19 @@ describe('inputs', () => {
     expect(out).toContain('dir="ltr"');
     expect(out).toMatch(/spellcheck="false"/i);
     expect(out).toContain('font-mono');
+  });
+
+  it('TextInput in code mode is left-to-right monospace without spellcheck', () => {
+    const out = html(<TextInput code dir="rtl" value="Scene1" onChange={noop} />);
+    expect(out).toContain('dir="ltr"');
+    expect(out).toMatch(/spellcheck="false"/i);
+    expect(out).toContain('font-mono');
+  });
+
+  it('Button pressed state is exposed and styled', () => {
+    const out = html(<Button variant="ghost" pressed>Copilot</Button>);
+    expect(out).toContain('aria-pressed="true"');
+    expect(out).toContain('bg-raised');
   });
 
   it('Select keeps native options', () => {

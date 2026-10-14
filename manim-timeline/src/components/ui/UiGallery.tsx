@@ -17,34 +17,12 @@ import {
   TextArea,
   TextInput,
 } from './index';
+import { CloseIcon, DuplicateIcon, GridIcon, UndoIcon } from './icons';
 
 /**
  * Dev-only reference sheet for the Chalkboard primitives, opened at `/#ui-gallery` while
  * `npm run dev` is running. Not part of production builds (see main.tsx).
  */
-
-const UndoIcon = () => (
-  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-    <path d="M5 4 2.5 6.5 5 9" />
-    <path d="M2.8 6.5H10a3.5 3.5 0 0 1 0 7H7" />
-  </svg>
-);
-const DuplicateIcon = () => (
-  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
-    <rect x="4.5" y="4.5" width="9" height="9" rx="1.5" />
-    <path d="M2.5 11V3.5a1 1 0 0 1 1-1H11" />
-  </svg>
-);
-const DeleteIcon = () => (
-  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-    <path d="M4 4l8 8M12 4l-8 8" />
-  </svg>
-);
-const GridIcon = () => (
-  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3">
-    <path d="M2 5.5h12M2 10.5h12M5.5 2v12M10.5 2v12" />
-  </svg>
-);
 
 const KINDS: { kind: SceneItem['kind']; name: string }[] = [
   { kind: 'textLine', name: 'Text line' },
@@ -191,7 +169,7 @@ export default function UiGallery() {
                   <DuplicateIcon />
                 </IconButton>
                 <IconButton label="Delete item" size="sm" danger>
-                  <DeleteIcon />
+                  <CloseIcon />
                 </IconButton>
                 <IconButton label="Show grid" pressed={grid} onClick={() => setGrid((g) => !g)}>
                   <GridIcon />

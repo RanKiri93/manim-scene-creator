@@ -30,6 +30,7 @@ import { useAxesPreviewSync } from '@/services/axisPreviewHooks';
 import { useSceneUndoRedo } from '@/hooks/useSceneUndoRedo';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import SceneTabsBar from '@/components/SceneTabsBar';
+import { Button, IconButton, RedoIcon, TextInput, UndoIcon } from '@/components/ui';
 
 const TOOLBAR_WIDTH_STORAGE_KEY = 'manim-timeline-add-toolbar-width';
 const INSERT_SIDEBAR_COLLAPSED_KEY = 'manim-timeline-insert-sidebar-collapsed';
@@ -467,120 +468,91 @@ export default function App() {
     (activeTauriPath ? fileBasename(activeTauriPath) : null);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
-      {/* Top bar */}
-      <header className="flex items-center gap-3 px-4 py-2 bg-slate-800 border-b border-slate-700 shrink-0">
-        <h1 className="text-sm font-bold tracking-tight text-blue-400 shrink-0">Manim Timeline</h1>
-        <span
-          className={`text-xs max-w-[min(200px,28vw)] truncate shrink-0 font-mono ${
-            isDirty ? 'text-amber-300' : 'text-slate-500'
-          }`}
-          title={
-            `${activeFileLabel ?? 'Unsaved project'} - ${saveStatusLabel}`
-          }
-        >
-          {isDirty ? '* ' : ''}
-          {activeFileLabel ?? 'unsaved'}
-        </span>
-        <span
-          className={`hidden md:inline text-[11px] shrink-0 ${
-            isDirty ? 'text-amber-300' : 'text-slate-500'
-          }`}
-          title={
+    <div className="h-screen flex flex-col bg-ink text-chalk overflow-hidden">
+      {/* Top bar: project, scene tabs, document actions */}
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-rule bg-panel pr-3 pl-4">
+        <h1 className="m-0 shrink-0 font-display text-title font-medium whitespace-nowrap">
+          Manim <span className="font-normal text-chalk-dim italic">Timeline</span>
+        </h1>
+        <div
+          className="flex h-5 min-w-0 shrink items-center gap-2 border-l border-rule pl-3 text-ctl text-chalk-dim"
+          title={`${activeFileLabel ?? 'Untitled project'}: ${saveStatusLabel}. ${
             isTauriRuntime()
-              ? 'Ctrl+S saves; Ctrl+Shift+S opens Save as'
+              ? 'Ctrl+S saves; Ctrl+Shift+S opens Save as.'
               : 'Ctrl+S saves; Ctrl+Shift+S opens Save as. Browsers without File System Access download a new .mtproj.'
-          }
+          }`}
         >
-          {saveStatusLabel}
-        </span>
-        <label className="flex items-center gap-2 text-xs text-slate-400 shrink-0 max-w-[min(280px,40vw)]">
-          <span className="shrink-0">Manim class</span>
-          <input
-            type="text"
+          {isDirty && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-warn" />}
+          <span className="max-w-[min(220px,22vw)] truncate">{activeFileLabel ?? 'Untitled project'}</span>
+          <span className="sr-only">{isDirty ? '(unsaved changes)' : '(saved)'}</span>
+        </div>
+        <div className="flex h-full min-w-0 flex-1 items-stretch">
+          <SceneTabsBar />
+        </div>
+        <label
+          className="flex shrink-0 items-center gap-2 text-ctl whitespace-nowrap text-chalk-dim"
+          title={`Python class name for this scene in the exported file: ${safeSceneClassName(defaults.sceneName)}`}
+        >
+          Manim class
+          <TextInput
+            code
+            size="sm"
+            className="w-28"
             value={defaults.sceneName}
             onChange={(e) => setDefaults({ sceneName: e.target.value })}
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-slate-200 font-mono text-xs"
             placeholder="Scene1"
-            title="Manim class name in full-file export (sanitized)"
           />
-          <span
-            className="hidden sm:inline text-slate-500 font-mono truncate max-w-[100px]"
-            title="Sanitized Python class"
-          >
-            → {safeSceneClassName(defaults.sceneName)}
-          </span>
         </label>
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!canUndo}
-          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-700"
-          title="Undo (Ctrl+Z, ⌘+Z)"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!canRedo}
-          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-700"
-          title="Redo (Ctrl+Y, ⌘+Y, Ctrl+Shift+Z, ⌘+Shift+Z)"
-        >
-          Redo
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleLoad()}
-          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
-          title="Open full project or import a selection fragment (.json / .mtproj)"
-        >
-          Open / import
-        </button>
-        <button
-          type="button"
-          onClick={() => void saveProject()}
-          className="px-3 py-1 text-xs bg-emerald-700 hover:bg-emerald-600 rounded transition-colors"
-          title="Save the current .mtproj project. Ctrl+S / Cmd+S saves to the active file when available."
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={() => void saveProjectAs()}
-          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
-          title="Choose a new .mtproj path. Ctrl+Shift+S / Cmd+Shift+S."
-        >
-          Save as
-        </button>
-        <button
-          type="button"
-          onClick={() => setAgentOpen(!agentOpen)}
-          className={`px-3 py-1 text-xs rounded transition-colors ${
-            agentOpen
-              ? 'bg-fuchsia-600 hover:bg-fuchsia-500'
-              : 'bg-slate-700 hover:bg-slate-600'
-          }`}
-          title="AI Copilot"
-        >
-          AI
-        </button>
-        <button
-          type="button"
-          onClick={() => useSceneStore.getState().setExportOpen(true)}
-          className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
-        >
-          Export
-        </button>
+        <div className="flex shrink-0 items-center gap-1 border-l border-rule pl-3">
+          <IconButton label="Undo" title="Undo (Ctrl+Z, ⌘+Z)" onClick={undo} disabled={!canUndo}>
+            <UndoIcon />
+          </IconButton>
+          <IconButton
+            label="Redo"
+            title="Redo (Ctrl+Y, ⌘+Y, Ctrl+Shift+Z, ⌘+Shift+Z)"
+            onClick={redo}
+            disabled={!canRedo}
+          >
+            <RedoIcon />
+          </IconButton>
+          <Button
+            variant="ghost"
+            onClick={() => void handleLoad()}
+            title="Open a project or import a selection fragment (.json / .mtproj)"
+          >
+            Open…
+          </Button>
+          <Button
+            onClick={() => void saveProject()}
+            title="Save the current .mtproj project. Ctrl+S / Cmd+S saves to the active file when available."
+          >
+            Save
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void saveProjectAs()}
+            title="Choose a new .mtproj path. Ctrl+Shift+S / Cmd+Shift+S."
+          >
+            Save as…
+          </Button>
+          <Button
+            variant="ghost"
+            pressed={agentOpen}
+            onClick={() => setAgentOpen(!agentOpen)}
+            title="Open the AI Copilot"
+          >
+            Copilot
+          </Button>
+          <Button variant="primary" onClick={() => useSceneStore.getState().setExportOpen(true)}>
+            Export
+          </Button>
+        </div>
       </header>
-      <SceneTabsBar />
 
       {/* Main content: list + canvas + export/audio; properties float over canvas */}
       <div className="flex flex-1 min-h-0 relative overflow-hidden">
         {/* Left sidebar: Item list */}
-        <aside className="w-64 border-r border-slate-700 bg-slate-850 flex flex-col shrink-0 z-10">
+        <aside className="w-64 border-r border-rule bg-panel flex flex-col shrink-0 z-10">
           <ItemList />
           <FramesPanel />
         </aside>
@@ -651,7 +623,11 @@ export default function App() {
       </div>
 
       <div
-        className="h-1 w-full bg-slate-800 hover:bg-blue-500 cursor-row-resize transition-colors shrink-0"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize timeline"
+        title="Drag to resize the timeline"
+        className="h-1 w-full shrink-0 cursor-row-resize bg-ink transition-colors hover:bg-highlight/70"
         onPointerDown={startResize}
       />
 

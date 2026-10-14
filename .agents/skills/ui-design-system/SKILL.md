@@ -25,13 +25,14 @@ drift or if a text token drops below 4.5:1 contrast.
 | `stage` | The Manim frame background only. Never tint it |
 | `highlight` / `highlight-ink` | Selection ring, active-tab underline, playhead, scrubber fill, the single primary button per view (`bg-highlight text-highlight-ink`), focus ring |
 | `danger` | Delete actions and error text |
+| `warn` | Attention without error: the unsaved dot, preview-only modes (free view, fit preview), missing references |
 | `kind-text`, `kind-axes`, `kind-graph`, `kind-shape`, `kind-camera`, `kind-audio`, `kind-image`, `kind-effect` | Identifying an item kind: list swatch, lane header swatch, timeline clip fill. Get the color with `itemKindColor(item.kind)` from `@/lib/theme`, never by hand |
 
 Rules:
 - `highlight` is the only accent. Do not introduce blue, emerald, fuchsia or indigo for state.
   Save is a `line` button; Export is the primary.
 - Kind colors carry meaning (which kind of object) and nothing else. Do not use them for buttons.
-- Unsaved state is a 7px `kind-image` (gold) dot next to the project name, with a `title`.
+- Unsaved state is a 7px `warn` dot next to the project name, with a `title`.
 - New code never uses `slate-*`, `gray-*`, `blue-*`, raw hex in `className`, or `bg-black`.
   Konva and inline SVG use `THEME` / `KIND_COLORS` from `@/lib/theme`.
 
@@ -69,10 +70,10 @@ hash). Source of the gallery: `src/components/ui/UiGallery.tsx`; add new primiti
 
 | Primitive | Use |
 |---|---|
-| `Button` | `variant`: `primary` (one per view), `line` (default, secondary), `ghost` (toolbars), `link` (inline). `danger` for destructive. `size`: `md` (28px) or `sm` (24px, dense rows). `icon` for a leading 16px svg. Defaults to `type="button"`. |
+| `Button` | `variant`: `primary` (one per view), `line` (default, secondary), `ghost` (toolbars), `link` (inline). `danger` for destructive. `pressed` for toggles. `size`: `md` (28px) or `sm` (24px, dense rows). `icon` for a leading 16px svg. Defaults to `type="button"`. |
 | `IconButton` | Icon-only. `label` is required and becomes `aria-label` and the tooltip. `pressed` makes it a toggle. |
 | `Field` | Label + one control + optional `hint` or `error`. Wires `id`, `aria-describedby` and `aria-invalid` into a ui control inside it. `layout="inline"` for short numeric rows. Errors say what is wrong and how to fix it. |
-| `TextInput` | Text; `dir="auto"` by default for Hebrew. `unit` draws a suffix inside the field. |
+| `TextInput` | Text; `dir="auto"` by default for Hebrew. `unit` draws a suffix inside the field. `code` for identifiers (monospace, LTR, no spellcheck). |
 | `NumberInput` | Commits on blur or Enter (one undo step per edit), Escape cancels, clamps to `min`/`max`, `unit` suffix, tabular figures. Replaces the legacy default export `components/NumberInput.tsx`; do not use that one in migrated code. |
 | `Select` | Native `<select>` with the Chalkboard surface and chevron. |
 | `TextArea` | `code` for LaTeX and math expressions: monospace, always `dir="ltr"`, no spellcheck. |
@@ -82,6 +83,7 @@ hash). Source of the gallery: `src/components/ui/UiGallery.tsx`; add new primiti
 | `PanelTitle`, `ItemTitle` | Serif titles for panels (16px) and the selected item in the inspector (21px). |
 | `SectionLabel` | Sentence-case group label; replaces every `uppercase tracking-wide` header. |
 | `KindSwatch` | Kind color square: `kind={item.kind}` or `group="audio"`. |
+| Icons | `UndoIcon`, `RedoIcon`, `DuplicateIcon`, `CloseIcon`, `PlusIcon`, `PencilIcon`, `ChevronRightIcon`, `GridIcon` from `@/components/ui`. Add new ones to `icons.tsx` in the same 16px stroke style. |
 
 `className` on a primitive is for layout only (margin, width, grid placement). There is no
 class merging, so do not pass colors or sizes through it; add a prop to the primitive instead.
@@ -112,6 +114,25 @@ Migration toward these is in progress; do not regress them once a panel has move
 - Timeline: a 112px lane-name column (kind swatch and name) plus lanes; clips are solid kind
   colors with `text-meta font-medium text-highlight-ink` labels; the playhead is the only
   yellow line.
+
+## Migration status
+
+Done: app shell and header (`App.tsx` header, timeline resize bar, left aside), `SceneTabsBar`
+(now inside the header), `ItemList`, `FramesPanel`, the canvas toolbar and stage frame in
+`SceneCanvas.tsx`.
+
+Remaining, in planned order:
+1. Insert rail: `AddObjectToolbar.tsx` plus the insert column wrapper in `App.tsx`.
+2. Timeline: `Timeline.tsx`, `PlaybackControls.tsx`, `TimelineTrack.tsx`, `TimelineClip.tsx`,
+   `AudioClip.tsx`, `BedClip.tsx`, `Playhead.tsx`, `BoundaryLabel.tsx`, the timeline popups.
+3. Inspector, docked right: `PropertyPanel.tsx`, every `*Editor.tsx`, `PropertyTabs`,
+   `NumberInput`, `ColorPicker`, `DirectionPicker`.
+4. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
+   from the header), `AudioPanel`, `AgentPanel` (moves into the dock), modals.
+5. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
+
+Before starting a batch, check `git status` on its files: do not restyle a file with someone
+else's uncommitted work in it.
 
 ## Migrating legacy classes
 

@@ -17,6 +17,7 @@ export const THEME = {
   highlight: '#f7d96f',
   highlightInk: '#1a1916',
   danger: '#fc6255',
+  warn: '#f0ac5f',
 } as const;
 
 /** One color per item group, taken from Manim's color constants (WHITE, GREEN_C, BLUE_C, ...). */

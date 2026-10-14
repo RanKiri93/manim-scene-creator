@@ -5,6 +5,18 @@ import { isTopLevelItem } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { associatedFrameId, frameDisplayName, readingOrderFrames } from '@/lib/frameGrid';
+import { cx } from '@/lib/cx';
+import {
+  CloseIcon,
+  DuplicateIcon,
+  IconButton,
+  KindSwatch,
+  PanelTitle,
+  SectionLabel,
+  Segmented,
+  Select,
+  focusRing,
+} from '@/components/ui';
 import {
   buildObjectPanelModel,
   nestedChildTitle,
@@ -65,11 +77,10 @@ export default function ItemList() {
         <span className="truncate">{title}</span>
         {extraCount > 0 ? (
           <span
-            className={`shrink-0 rounded px-1 text-[9px] ${
-              child.hasMissingTarget
-                ? 'bg-amber-900/50 text-amber-200'
-                : 'bg-slate-700/80 text-slate-300'
-            }`}
+            className={cx(
+              'shrink-0 rounded-ctl bg-ink px-1 text-meta tabular-nums',
+              child.hasMissingTarget ? 'text-warn' : 'text-chalk-dim',
+            )}
             title={tip}
           >
             +{extraCount}
@@ -171,11 +182,10 @@ export default function ItemList() {
       if (!ax || ax.kind !== 'axes') {
         return (
           <span
-            className="shrink-0 truncate max-w-[140px] rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-medium text-amber-200"
-            title={`Referenced axes "${item.axesId}" is missing — pick another axes in the graph editor.`}
-            dir="auto"
+            className="shrink-0 text-meta text-warn"
+            title={`Referenced axes "${item.axesId}" is missing. Pick other axes in the graph editor.`}
           >
-            Axes missing
+            No axes
           </span>
         );
       }
@@ -183,135 +193,75 @@ export default function ItemList() {
       return (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            select(ax.id);
-          }}
-          className="shrink-0 truncate max-w-[140px] rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-200 hover:bg-emerald-600/35 transition-colors"
-          title={`Attached to axes: ${axesName} (${ax.id}) — click to select it.`}
-          dir="auto"
+          onClick={() => select(ax.id)}
+          className={cx(
+            'flex max-w-24 shrink-0 items-center gap-1 rounded-ctl px-1 text-meta text-chalk-faint transition-colors hover:text-chalk',
+            focusRing,
+          )}
+          title={`Attached to axes: ${axesName} (${ax.id}). Click to select the axes.`}
         >
-          Axes: {axesName}
+          <KindSwatch kind="axes" size="sm" />
+          <span className="truncate" dir="auto">{axesName}</span>
         </button>
       );
     })();
 
-    let kindBadge = 'bg-slate-600/30 text-slate-300';
-    let kindLetter = '?';
-    if (item.kind === 'textLine') {
-      kindBadge = 'bg-blue-600/30 text-blue-300';
-      kindLetter = 'T';
-    } else if (item.kind === 'axes') {
-      kindBadge = 'bg-emerald-600/30 text-emerald-300';
-      kindLetter = 'A';
-    } else if (item.kind === 'graphPlot') {
-      kindBadge = 'bg-teal-600/30 text-teal-300';
-      kindLetter = 'P';
-    } else if (item.kind === 'graphCurve') {
-      kindBadge = 'bg-sky-600/30 text-sky-200';
-      kindLetter = 'C';
-    } else if (item.kind === 'graphDot') {
-      kindBadge = 'bg-cyan-600/30 text-cyan-300';
-      kindLetter = 'D';
-    } else if (item.kind === 'graphField') {
-      kindBadge = 'bg-lime-600/30 text-lime-300';
-      kindLetter = 'F';
-    } else if (item.kind === 'graphFunctionSeries') {
-      kindBadge = 'bg-fuchsia-600/30 text-fuchsia-300';
-      kindLetter = 'Fn';
-    } else if (item.kind === 'graphPointSequence') {
-      kindBadge = 'bg-indigo-600/30 text-indigo-300';
-      kindLetter = 'Pt';
-    } else if (item.kind === 'graphArea') {
-      kindBadge = 'bg-violet-600/30 text-violet-200';
-      kindLetter = 'G';
-    } else if (item.kind === 'exit_animation') {
-      kindBadge = 'bg-rose-600/30 text-rose-300';
-      kindLetter = 'X';
-    } else if (item.kind === 'blink_animation') {
-      kindBadge = 'bg-amber-600/30 text-amber-200';
-      kindLetter = 'B';
-    } else if (item.kind === 'target_animation') {
-      kindBadge = 'bg-yellow-900/35 text-yellow-200';
-      kindLetter = 'TA';
-    } else if (item.kind === 'camera_move') {
-      kindBadge = 'bg-purple-700/35 text-purple-200';
-      kindLetter = 'Cam';
-    } else if (item.kind === 'surroundingRect') {
-      kindBadge = 'bg-orange-600/30 text-orange-200';
-      kindLetter = 'R';
-    } else if (item.kind === 'shape') {
-      kindBadge = 'bg-pink-600/30 text-pink-200';
-      kindLetter = 'S';
-    } else if (item.kind === 'image') {
-      kindBadge = 'bg-stone-600/30 text-stone-200';
-      kindLetter = 'Img';
-    }
-
-    const timeLabel = `${item.startTime.toFixed(1)}s`;
+    const timeLabel = `${item.startTime.toFixed(1)} s`;
 
     return (
       <div
         key={item.id}
-        onClick={(e) => select(item.id, isMultiSelectModifier(e))}
-        className={`flex items-center gap-2 px-2 ${opts?.compact ? 'py-1' : 'py-1.5'} rounded cursor-pointer text-xs transition-colors ${
-          isSelected
-            ? 'bg-blue-600/20 border border-blue-500/40'
-            : 'bg-slate-800/50 border border-transparent hover:bg-slate-700/50'
-        }`}
+        className={cx(
+          'group flex items-center gap-1 rounded-[4px] pr-1 transition-colors',
+          isSelected ? 'bg-raised ring-1 ring-highlight/45 ring-inset' : 'hover:bg-raised',
+        )}
       >
-        <span className="w-4 shrink-0" />
-
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${kindBadge}`}>
-          {kindLetter}
-        </span>
-        <span className="flex-1 truncate text-slate-300" dir="auto">
-          {opts?.title ?? label}
-        </span>
+        <button
+          type="button"
+          aria-pressed={isSelected}
+          onClick={(e) => select(item.id, isMultiSelectModifier(e))}
+          className={cx(
+            'flex min-w-0 flex-1 items-center gap-2.5 rounded-[4px] pl-2 text-left text-body',
+            opts?.compact ? 'py-1' : 'py-1.5',
+            focusRing,
+          )}
+        >
+          <KindSwatch kind={item.kind} />
+          <span className="min-w-0 flex-1 truncate text-chalk" dir="auto">
+            {opts?.title ?? label}
+          </span>
+        </button>
         {axesChip}
         {opts?.trailing}
-        <span className="text-slate-500 font-mono text-[10px] shrink-0">{timeLabel}</span>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            duplicateItem(item.id);
-          }}
-          className="text-slate-500 hover:text-slate-300 transition-colors"
-          title="Duplicate"
+        <span className="shrink-0 pr-1 text-meta text-chalk-faint tabular-nums">{timeLabel}</span>
+        {/* Row actions take space only while the row is hovered, focused or selected. */}
+        <span
+          className={cx(
+            'shrink-0 items-center group-focus-within:flex group-hover:flex',
+            isSelected ? 'flex' : 'hidden',
+          )}
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <rect x="4" y="4" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <rect x="2" y="2" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            removeItem(item.id);
-          }}
-          className="text-slate-500 hover:text-red-400 transition-colors"
-          title="Delete"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+          <IconButton size="sm" label="Duplicate item" onClick={() => duplicateItem(item.id)}>
+            <DuplicateIcon />
+          </IconButton>
+          <IconButton size="sm" danger label="Delete item" onClick={() => removeItem(item.id)}>
+            <CloseIcon />
+          </IconButton>
+        </span>
       </div>
     );
   };
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex items-center gap-2 p-3 shrink-0 border-b border-slate-700/60">
-        <h3 className="text-sm font-semibold text-slate-200 shrink-0">Items</h3>
-        <select
+      <div className="flex shrink-0 items-center gap-2 pt-3 pr-3 pb-2 pl-3.5">
+        <PanelTitle className="shrink-0">Items</PanelTitle>
+        <Select
+          size="sm"
+          className="ml-auto min-w-0 max-w-[140px]"
           value={effectiveFilter}
-          onChange={(e) =>
-            setFilterFrameId(e.target.value as ItemId | 'all')
-          }
-          title="Filter items by frame"
-          className="ml-auto min-w-0 max-w-[140px] bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+          onChange={(e) => setFilterFrameId(e.target.value as ItemId | 'all')}
+          aria-label="Show items from frame"
         >
           <option value="all">All frames</option>
           {readingOrderFrames(frames).map((f) => (
@@ -319,50 +269,33 @@ export default function ItemList() {
               {frameDisplayName(f, frames)}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
-      <div
-        className="flex shrink-0 gap-1 border-b border-slate-700/60 px-3 pb-2"
-        role="tablist"
-        aria-label="Items view"
-      >
-        {(
-          [
-            { id: 'timeline', label: 'Timeline' },
-            { id: 'object', label: 'By object' },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={viewMode === tab.id}
-            onClick={() => setViewMode(tab.id)}
-            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-              viewMode === tab.id
-                ? 'bg-slate-700 text-slate-100'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        className="mx-3 mb-2 shrink-0"
+        aria-label="Item list order"
+        options={[
+          { value: 'timeline', label: 'By time' },
+          { value: 'object', label: 'By object' },
+        ]}
+        value={viewMode}
+        onChange={setViewMode}
+      />
 
-      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-1.5 pb-3">
         {items.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-4 text-center">
-            No items yet. Use the toolbar beside the list to add objects or audio.
+          <p className="m-0 px-3 py-6 text-center text-ctl text-chalk-faint">
+            No items yet. Add text, axes or audio from the Insert toolbar.
           </p>
         ) : visibleItems.length === 0 ? (
-          <p className="text-xs text-slate-500 italic py-4 text-center">
-            No items in this frame.
+          <p className="m-0 px-3 py-6 text-center text-ctl text-chalk-faint">
+            Nothing in this frame. Choose All frames to see every item.
           </p>
         ) : null}
 
         {viewMode === 'timeline' ? (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-px">
             {visibleItems.map((item) => (
               <div key={item.id}>{renderRow(item)}</div>
             ))}
@@ -370,16 +303,13 @@ export default function ItemList() {
         ) : (
           <div className="flex flex-col gap-1.5">
             {panelModel.groups.map((group) => (
-              <div
-                key={group.object.id}
-                className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-1"
-              >
+              <div key={group.object.id} className="rounded-pop border border-rule p-0.5">
                 {renderRow(
                   group.object,
                   group.children.length > 0
                     ? {
                         trailing: (
-                          <span className="shrink-0 text-[10px] text-slate-500">
+                          <span className="shrink-0 text-meta text-chalk-faint">
                             {relatedCountLabel(group.children.length)}
                           </span>
                         ),
@@ -387,7 +317,7 @@ export default function ItemList() {
                     : undefined,
                 )}
                 {group.children.length > 0 ? (
-                  <div className="ml-4 flex flex-col gap-0.5 border-l-2 border-slate-600/60 pl-1 pt-1">
+                  <div className="ml-3 flex flex-col gap-px border-l border-rule pt-0.5 pl-1">
                     {group.children.map((child) => (
                       <div key={`${group.object.id}-${child.item.id}`}>
                         {renderRow(child.item, {
@@ -401,10 +331,8 @@ export default function ItemList() {
               </div>
             ))}
             {panelModel.unassigned.length > 0 ? (
-              <div className="flex flex-col gap-0.5">
-                <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                  Unassigned
-                </div>
+              <div className="flex flex-col gap-px">
+                <SectionLabel className="px-2 pt-1 pb-0.5">Not attached to an object</SectionLabel>
                 {panelModel.unassigned.map((item) => (
                   <div key={item.id}>{renderRow(item)}</div>
                 ))}

@@ -12,6 +12,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   danger?: boolean;
   /** Optional leading icon, 16px (14px at `sm`). */
   icon?: ReactNode;
+  /** Set for toggle buttons (`ghost` or `line`); renders `aria-pressed` and a pressed surface. */
+  pressed?: boolean;
 }
 
 const base =
@@ -52,6 +54,7 @@ export function Button({
   size = 'md',
   danger = false,
   icon,
+  pressed,
   type = 'button',
   className,
   children,
@@ -60,7 +63,8 @@ export function Button({
   return (
     <button
       type={type}
-      className={cx(base, sizes[size], variantClass(variant, danger), className)}
+      aria-pressed={pressed}
+      className={cx(base, sizes[size], variantClass(variant, danger), pressed && 'bg-raised', className)}
       {...rest}
     >
       {icon}

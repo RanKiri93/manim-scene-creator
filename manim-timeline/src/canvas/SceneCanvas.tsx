@@ -37,6 +37,7 @@ import {
 } from '@/lib/graphPreview';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { surroundPreviewBBoxManim } from '@/lib/surroundCanvasPreview';
+import { Button, Checkbox, NumberInput, Select } from '@/components/ui';
 import {
   canvasToWorldPoint,
   cameraViewportTransform,
@@ -649,73 +650,46 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-2">
-      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-        <label className="flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showGrid}
-            onChange={(e) => setShowGrid(e.target.checked)}
-            className="accent-blue-500"
-          />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-ctl text-chalk-dim">
+        <Checkbox checked={showGrid} onChange={setShowGrid}>
           Grid
-        </label>
-        <label className="flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showAxes}
-            onChange={(e) => setShowAxes(e.target.checked)}
-            className="accent-blue-500"
-          />
+        </Checkbox>
+        <Checkbox checked={showAxes} onChange={setShowAxes}>
           Axes
-        </label>
-        <label className="flex items-center gap-1 cursor-pointer" title="Snap visible text edges to nearby objects and frame edges. Hold Alt while dragging to bypass. Snapping places text but does not attach it.">
-          <input
-            type="checkbox"
-            checked={snapText}
-            onChange={(e) => {
-              setSnapText(e.target.checked);
-              if (!e.target.checked) setSnapGuides(null);
-            }}
-            className="accent-blue-500"
-          />
+        </Checkbox>
+        <Checkbox
+          checked={snapText}
+          onChange={(on) => {
+            setSnapText(on);
+            if (!on) setSnapGuides(null);
+          }}
+          title="Snap visible text edges to nearby objects and frame edges. Hold Alt while dragging to bypass. Snapping places text but does not attach it."
+        >
           Snap text
-        </label>
-        <label className="flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={renderLikePreview}
-            onChange={(e) => setRenderLikePreview(e.target.checked)}
-            className="accent-blue-500"
-          />
+        </Checkbox>
+        <Checkbox checked={renderLikePreview} onChange={setRenderLikePreview}>
           Render-like
-        </label>
-        <label className="flex items-center gap-1 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={boardView}
-            onChange={(e) => setBoardView(e.target.checked)}
-            className="accent-blue-500"
-          />
+        </Checkbox>
+        <Checkbox checked={boardView} onChange={setBoardView}>
           Board
-        </label>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-500">View</span>
-          <button
-            type="button"
+        </Checkbox>
+        <span aria-hidden="true" className="h-4 w-px bg-rule" />
+        <div className="flex items-center gap-1.5">
+          <span>View</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            pressed={viewMode === 'follow'}
             onClick={() => {
               setViewMode('follow');
               setCameraAuthoringError(null);
             }}
             title="Follow the authored camera"
-            className={`rounded border px-2 py-0.5 transition-colors ${
-              viewMode === 'follow'
-                ? 'border-blue-500 bg-blue-600/30 text-blue-200'
-                : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
           >
             Follow camera
-          </button>
-          <select
+          </Button>
+          <Select
+            size="sm"
             value=""
             onChange={(e) => {
               const f = frames.find((fr) => fr.id === e.target.value);
@@ -725,7 +699,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               setViewMode('free');
             }}
             title="Jump the preview to a frame (does not change export)"
-            className="bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-slate-300"
+            aria-label="Jump the preview to a frame"
           >
             <option value="">View frame…</option>
             {readingOrderFrames(frames).map((f) => (
@@ -733,40 +707,45 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 {frameDisplayName(f, frames)}
               </option>
             ))}
-          </select>
+          </Select>
           {viewMode === 'free' && !isPlaying && (
-            <span className="text-amber-300/80">Free view · drag/scroll to pan</span>
+            <span className="text-warn">Free view: drag or scroll to pan</span>
           )}
         </div>
         {fitPreview ? (
-          <div className="flex items-center gap-2 rounded border border-amber-400/50 bg-amber-500/10 px-2 py-1 text-amber-200">
+          <div className="flex items-center gap-2 rounded-ctl bg-warn/10 py-0.5 pr-0.5 pl-2 text-warn ring-1 ring-warn/45 ring-inset">
             <span>Object fit preview</span>
-            <button type="button" onClick={applyFitPreview} className="rounded bg-emerald-600 px-2 py-0.5 text-white">Apply</button>
-            <button type="button" onClick={cancelCameraAuthoring} className="rounded bg-slate-700 px-2 py-0.5">Cancel</button>
+            <Button size="sm" variant="primary" onClick={applyFitPreview}>
+              Apply
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancelCameraAuthoring}>
+              Cancel
+            </Button>
           </div>
         ) : null}
         {cameraAuthoringError ? (
-          <span className="text-rose-300">{cameraAuthoringError}</span>
+          <span role="alert" className="text-danger">{cameraAuthoringError}</span>
         ) : null}
-        <label className="flex items-center gap-1 cursor-pointer">
+        <label className="flex items-center gap-1.5">
           Divisions
-          <input
-            type="number"
+          <NumberInput
+            size="sm"
+            className="w-14"
             min={4}
             max={32}
+            step={1}
             value={gridDivisions}
-            onChange={(e) => setGridDivisions(Math.max(4, Math.min(32, +e.target.value || 16)))}
-            className="w-12 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            onChange={setGridDivisions}
           />
         </label>
-        <span className="ml-auto text-slate-500">
-          {FRAME_W.toFixed(2)} x {FRAME_H} Manim units
+        <span className="ml-auto text-meta text-chalk-faint tabular-nums">
+          {FRAME_W.toFixed(2)} × {FRAME_H} Manim units
         </span>
       </div>
 
       <div
         ref={containerRef}
-        className="w-full h-full flex-1 min-h-0 rounded-lg overflow-hidden border border-slate-700 bg-black flex items-center justify-center"
+        className="w-full h-full flex-1 min-h-0 rounded-pop overflow-hidden border border-rule bg-stage flex items-center justify-center"
         style={{ cursor: regionCapture ? 'crosshair' : !isPlaying && !boardView ? 'grab' : 'default' }}
       >
         <Stage

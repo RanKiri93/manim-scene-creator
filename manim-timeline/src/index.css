@@ -16,6 +16,8 @@
   --color-highlight: #f7d96f;
   --color-highlight-ink: #1a1916;
   --color-danger: #fc6255;
+  /* Attention without error: unsaved changes, preview-only modes. Same hue as GOLD_C. */
+  --color-warn: #f0ac5f;
   /* Item kinds, from Manim color constants. Map kinds to these via src/lib/theme.ts. */
   --color-kind-text: #ece6d6;
   --color-kind-axes: #83c167;
