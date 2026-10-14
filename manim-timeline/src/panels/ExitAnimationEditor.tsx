@@ -99,26 +99,26 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Exit animation</h3>
-      <p className="text-[11px] text-slate-500 leading-snug">
+      <h3 className="text-body font-semibold text-chalk">Exit animation</h3>
+      <p className="text-meta text-chalk-faint leading-snug">
         All rows run together at the start time below. Each row must begin at or after that
         target&apos;s run end. Start time is clamped to the latest required hold among targets.
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Label
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Exit group"
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete exit clip
@@ -129,13 +129,13 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
   const targetsContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Targets</div>
-        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+        <div className="text-ctl text-chalk-dim mb-1">Targets</div>
+        <label className="text-meta text-chalk-faint mb-2 inline-flex items-center gap-1">
           Scope
           <select
             value={targetScope}
             onChange={(e) => setTargetScope(e.target.value as TargetScope)}
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             <option value="same-frame">This frame</option>
             <option value="all-frames">All frames</option>
@@ -148,14 +148,14 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
             return (
               <div
                 key={`${row.targetId}-${index}`}
-                className="flex flex-wrap items-end gap-2 p-2 rounded border border-slate-700 bg-slate-800/40"
+                className="flex flex-wrap items-end gap-2 p-2 rounded-ctl border border-rule bg-ink/40"
               >
-                <label className="text-[10px] text-slate-500 flex-1 min-w-[140px]">
+                <label className="text-meta text-chalk-faint flex-1 min-w-[140px]">
                   Object
                   <select
                     value={row.targetId}
                     onChange={(e) => onTargetChange(index, e.target.value)}
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     {!hasTarget ? (
                       <option value={row.targetId}>
@@ -177,7 +177,7 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
                     ))}
                   </select>
                 </label>
-                <label className="text-[10px] text-slate-500 w-[130px]">
+                <label className="text-meta text-chalk-faint w-[130px]">
                   Style
                   <select
                     value={row.animStyle}
@@ -186,7 +186,7 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
                         animStyle: e.target.value as ExitAnimStyle,
                       })
                     }
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     <option value="fade_out">FadeOut</option>
                     <option value="uncreate">Uncreate</option>
@@ -197,18 +197,18 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
                 {targetsList.length > 1 ? (
                   <button
                     type="button"
-                    className="text-[10px] text-slate-500 hover:text-red-300 px-1"
+                    className="text-meta text-chalk-faint hover:text-danger px-1"
                     onClick={() => removeRow(index)}
                   >
                     Remove
                   </button>
                 ) : null}
                 {target && canBeExitTarget(target) ? (
-                  <p className="w-full text-[10px] text-slate-500">
+                  <p className="w-full text-meta text-chalk-faint">
                     {itemClipDisplayName(target)}
                   </p>
                 ) : (
-                  <p className="w-full text-[10px] text-amber-400">
+                  <p className="w-full text-meta text-warn">
                     Invalid or missing target.
                   </p>
                 )}
@@ -218,7 +218,7 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
         </div>
         <button
           type="button"
-          className="mt-2 text-xs text-sky-400 hover:text-sky-300"
+          className="mt-2 text-ctl text-chalk hover:text-chalk"
           onClick={addRow}
         >
           + Add target
@@ -226,14 +226,14 @@ export default function ExitAnimationEditor({ item }: ExitAnimationEditorProps) 
       </div>
 
       {invalidStart ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-ctl text-warn">
           Start time is before a target run ends. Increase start to at least{' '}
           {minStart!.toFixed(2)}s.
         </p>
       ) : null}
 
       {allNone ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-ctl text-warn">
           All styles are &quot;None&quot; — export will skip this clip.
         </p>
       ) : null}

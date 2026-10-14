@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { itemClipDisplayName, itemKindLabel } from '@/lib/itemDisplayName';
+import { CloseIcon, IconButton, ItemTitle, KindSwatch, PanelTitle } from '@/components/ui';
 import { useSceneStore } from '@/store/useSceneStore';
 import LineEditor from './LineEditor';
 import AxesEditor from './AxesEditor';
@@ -18,106 +20,25 @@ import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
 import ImageEditor from './ImageEditor';
 
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 200;
-
-type PropertyPanelProps = {
-  anchorRect?: DOMRect | null;
-};
-
-function defaultPanelPosition(anchorRect?: DOMRect | null): { x: number; y: number } {
-  if (anchorRect) return { x: anchorRect.left + 8, y: anchorRect.top + 8 };
-  if (typeof window === 'undefined') return { x: 400, y: 16 };
-  return { x: Math.max(16, window.innerWidth - MIN_WIDTH - 16), y: 16 };
-}
-
-export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
+/** Docked inspector on the right of the stage. Closing it clears the selection. */
+export default function PropertyPanel() {
   const inspectedId = useSceneStore((s) => s.inspectedId);
   const itemsMap = useSceneStore((s) => s.items);
   const clearSelection = useSceneStore((s) => s.clearSelection);
 
-  const [pos, setPos] = useState(() => defaultPanelPosition(anchorRect));
-  const wasOpenRef = useRef(false);
-
-  useEffect(() => {
-    const isOpen = !!inspectedId;
-    if (isOpen && !wasOpenRef.current) {
-      setPos(defaultPanelPosition(anchorRect));
-    }
-    wasOpenRef.current = isOpen;
-  }, [inspectedId, anchorRect]);
-  const posRef = useRef(pos);
-  posRef.current = pos;
-
-  const [size, setSize] = useState({ w: MIN_WIDTH, h: 500 });
-  const sizeRef = useRef(size);
-  sizeRef.current = size;
-
-  const dragRef = useRef<{ active: boolean; offsetX: number; offsetY: number } | null>(null);
-  const resizeRef = useRef<{ active: boolean; startW: number; startH: number; startX: number; startY: number } | null>(null);
-
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      if (dragRef.current?.active) {
-        const d = dragRef.current;
-        const maxX = Math.max(16, window.innerWidth - sizeRef.current.w - 8);
-        const maxY = Math.max(16, window.innerHeight - 120);
-        setPos({
-          x: Math.max(8, Math.min(e.clientX - d.offsetX, maxX)),
-          y: Math.max(8, Math.min(e.clientY - d.offsetY, maxY)),
-        });
-      } else if (resizeRef.current?.active) {
-        const r = resizeRef.current;
-        const newW = Math.max(MIN_WIDTH, r.startW + (e.clientX - r.startX));
-        const newH = Math.max(MIN_HEIGHT, r.startH + (e.clientY - r.startY));
-        setSize({
-          w: Math.min(newW, window.innerWidth - posRef.current.x - 16),
-          h: Math.min(newH, window.innerHeight - posRef.current.y - 16),
-        });
-      }
-    };
-    const onUp = () => {
-      if (dragRef.current) dragRef.current.active = false;
-      if (resizeRef.current) resizeRef.current.active = false;
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-  }, []);
-
-  const onDragHandlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragRef.current = {
-      active: true,
-      offsetX: e.clientX - posRef.current.x,
-      offsetY: e.clientY - posRef.current.y,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const onResizeHandlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    resizeRef.current = {
-      active: true,
-      startW: sizeRef.current.w,
-      startH: sizeRef.current.h,
-      startX: e.clientX,
-      startY: e.clientY,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
   const item = inspectedId ? itemsMap.get(inspectedId) : undefined;
-
   if (!item) {
-    return null;
+    return (
+      <aside
+        aria-label="Properties"
+        className="flex w-[340px] shrink-0 flex-col gap-2 border-l border-rule bg-panel px-5 pt-4"
+      >
+        <PanelTitle>Properties</PanelTitle>
+        <p className="m-0 max-w-[32ch] text-ctl text-chalk-faint">
+          Select an item on the stage, in the item list or on the timeline to edit it here.
+        </p>
+      </aside>
+    );
   }
 
   let body: ReactNode;
@@ -171,44 +92,25 @@ export default function PropertyPanel({ anchorRect }: PropertyPanelProps) {
       body = <ImageEditor item={item} />;
       break;
     default:
-      body = <p className="text-xs text-slate-500 p-4">Unknown item kind.</p>;
+      body = <p className="m-0 text-ctl text-chalk-faint">This item kind has no editor.</p>;
   }
 
   return (
-    <div
-      className="fixed z-50 flex flex-col bg-slate-900 border border-slate-700 rounded-lg shadow-2xl overflow-hidden"
-      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
-    >
-      <div
-        className="flex items-center gap-2 px-2 py-2 border-b border-slate-700 bg-slate-800 shrink-0 cursor-grab active:cursor-grabbing select-none touch-none"
-        onPointerDown={onDragHandlePointerDown}
-        role="presentation"
-      >
-        <span className="text-xs font-semibold text-slate-200 flex-1 truncate">Properties</span>
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            clearSelection();
-          }}
-          className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-slate-100 hover:bg-slate-700 text-lg leading-none"
-          title="Close"
-          aria-label="Close properties"
-        >
-          ×
-        </button>
+    <aside aria-label="Properties" className="flex w-[340px] shrink-0 flex-col border-l border-rule bg-panel">
+      <div className="flex shrink-0 items-start gap-2 border-b border-rule pt-3 pr-2 pb-3 pl-4">
+        <div className="min-w-0 flex-1">
+          <ItemTitle className="text-title">
+            <KindSwatch kind={item.kind} />
+            <span className="min-w-0 truncate" dir="auto">{itemClipDisplayName(item)}</span>
+          </ItemTitle>
+          <div className="mt-0.5 pl-[18px] text-meta text-chalk-faint">{itemKindLabel(item.kind)}</div>
+        </div>
+        <IconButton label="Close properties" title="Close properties (clears the selection)" onClick={clearSelection}>
+          <CloseIcon />
+        </IconButton>
       </div>
       <FrameAssignmentPanel item={item} />
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3">{body}</div>
-      <div
-        className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none"
-        onPointerDown={onResizeHandlePointerDown}
-        style={{
-          background: 'linear-gradient(135deg, transparent 50%, rgba(148, 163, 184, 0.5) 50%)',
-        }}
-        aria-hidden="true"
-      />
-    </div>
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4">{body}</div>
+    </aside>
   );
 }

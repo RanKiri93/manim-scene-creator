@@ -15,7 +15,7 @@ export function GraphFieldHelpIcon({ title, label = 'Help' }: HelpIconProps) {
   return (
     <button
       type="button"
-      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-500 text-[10px] font-semibold leading-none text-slate-400 hover:border-slate-400 hover:text-slate-200"
+      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-rule text-meta font-semibold leading-none text-chalk-dim hover:border-rule hover:text-chalk"
       title={title}
       aria-label={label}
       onClick={(e) => {

@@ -125,16 +125,22 @@ Done: app shell and header (`App.tsx` header, timeline resize bar, left aside, i
 column), `SceneTabsBar` (inside the header), `ItemList`, `FramesPanel`, the canvas toolbar
 and stage frame in `SceneCanvas.tsx`, the insert rail (`AddObjectToolbar.tsx`), the timeline
 (`Timeline.tsx`, `PlaybackControls.tsx`, `TimelineTrack.tsx`, `TimelineClip.tsx`,
-`AudioClip.tsx`, `BedClip.tsx`, `Playhead.tsx`, `BoundaryLabel.tsx`), and the global
-scrollbar, range and scrubber styles in `index.css`.
+`AudioClip.tsx`, `BedClip.tsx`, `Playhead.tsx`, `BoundaryLabel.tsx`), the global
+scrollbar, range, scrubber and focus-ring styles in `index.css`, and the inspector: the
+docked `PropertyPanel` (340px, right of the stage), every editor in `panels/`,
+`PropertyTabs` (now an adapter over `Tabs`), `NumberInput` (adapter over the ui primitive),
+`ColorPicker` and `DirectionPicker`.
+
+The editors were converted with a token codemod, so many still hand-roll inputs with token
+classes (`bg-raised border border-rule rounded-ctl …`). That is acceptable; when you next edit
+one of those controls for another reason, replace it with the matching ui primitive.
 
 Remaining, in planned order:
-1. Inspector, docked right: `PropertyPanel.tsx`, every `*Editor.tsx`, `PropertyTabs`,
-   `NumberInput`, `ColorPicker`, `DirectionPicker`.
-2. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
+1. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
    from the header), `AudioPanel`, `AgentPanel` (moves into the dock), `AudioClipEditPopup`,
-   `TimelineSurgeryDialog`, `BackgroundBedPopup`, other modals.
-3. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
+   `TimelineSurgeryDialog`, `BackgroundBedPopup`, other modals. Copilot then joins the
+   inspector dock as a second segment ("Properties / Copilot").
+2. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
 
 Before starting a batch, check `git status` on its files: do not restyle a file with someone
 else's uncommitted work in it.

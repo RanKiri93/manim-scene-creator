@@ -56,16 +56,16 @@ export default function TargetAnimationEffectsNote({
   if (clips.length === 0) return null;
 
   return (
-    <div className="rounded border border-slate-700 bg-slate-800/35 px-2 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500 mb-1">
+    <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2">
+      <div className="text-meta text-chalk-faint mb-1">
         Persistent target animations
       </div>
       <ul className="flex flex-col gap-1">
         {clips.map((c) => (
-          <li key={c.id} className="text-[11px] text-slate-400 leading-snug">
-            <span className="text-slate-300 font-medium">{itemClipDisplayName(c)}</span>
+          <li key={c.id} className="text-meta text-chalk-dim leading-snug">
+            <span className="text-chalk-dim font-medium">{itemClipDisplayName(c)}</span>
             {' · '}
-            <span className="text-sky-400/95">{c.mode}</span>
+            <span className="text-chalk">{c.mode}</span>
             {' @ '}
             {c.startTime.toFixed(2)}s ({c.duration.toFixed(2)}s) — {summarizeRow(c)}
           </li>

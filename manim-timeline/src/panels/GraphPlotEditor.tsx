@@ -49,15 +49,15 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Graph plot</h3>
-      <label className="text-xs text-slate-400 block">
+      <h3 className="text-body font-semibold text-chalk">Graph plot</h3>
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Main sine — optional; shown in exit target menu"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
@@ -71,14 +71,14 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           min={0}
           step={0.25}
         />
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim">
           <span>Line style</span>
           <select
             value={item.lineStyle ?? 'solid'}
             onChange={(e) =>
               set({ lineStyle: e.target.value as FunctionLineStyle })
             }
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-200"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             {LINE_STYLES.map((s) => (
               <option key={s} value={s}>
@@ -103,8 +103,8 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
         dialogTitle="Plot expression helper"
       />
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={customXDomain}
@@ -112,7 +112,7 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
               if (e.target.checked) enableCustomXDomain();
               else set({ xDomain: null });
             }}
-            className="rounded border-slate-500"
+            className="rounded-ctl border-rule"
           />
           Custom x domain (sample curve only on this interval)
         </label>
@@ -122,9 +122,9 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
             <NumberInput label="x max" value={dxHi} onChange={(v) => set({ xDomain: [dxLo, v] })} />
           </div>
         )}
-        <p className="text-[10px] text-slate-500 leading-snug pl-5 max-w-md">
+        <p className="text-meta text-chalk-faint leading-snug pl-5 max-w-md">
           When off, the curve uses the full horizontal range of the axes (same as Manim default). When on, export uses{' '}
-          <code className="text-slate-400">plot(..., x_range=[x_min, x_max])</code>.
+          <code className="text-chalk-dim">plot(..., x_range=[x_min, x_max])</code>.
         </p>
       </div>
     </div>
@@ -155,7 +155,7 @@ export default function GraphPlotEditor({ item }: GraphPlotEditorProps) {
           <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
           <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug max-w-md">
+        <p className="text-meta text-chalk-faint leading-snug max-w-md">
           On the same axes, higher Layer draws above other plots, dots, fields, and series clips. If Layer matches,
           order is plot → field → series → dot.
         </p>

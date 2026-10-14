@@ -32,7 +32,7 @@ export default function AudioBindingSelect({
   const selectValue = value == null || value === '' ? '' : value;
 
   return (
-    <label className="text-xs text-slate-400 block">
+    <label className="text-ctl text-chalk-dim block">
       Audio binding
       <select
         value={selectValue}
@@ -41,7 +41,7 @@ export default function AudioBindingSelect({
           if (next === '') onChange(null);
           else onChange(next);
         }}
-        className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+        className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
       >
         <option value="">Auto by timeline overlap</option>
         <option value={AUDIO_BINDING_NONE}>None</option>
@@ -68,7 +68,7 @@ export default function AudioBindingSelect({
           );
         })}
       </select>
-      <p className="mt-1 text-[10px] text-slate-500">
+      <p className="mt-1 text-meta text-chalk-faint">
         Auto uses the current export heuristic. None disables audio binding for this clip. Choosing a
         specific track aligns that audio clip’s timeline start with this clip and keeps it synced
         when you move the clip; only one visual may own a track at a time.

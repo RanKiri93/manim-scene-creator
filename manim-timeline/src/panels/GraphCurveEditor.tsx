@@ -49,15 +49,15 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Graph curve</h3>
-      <label className="text-xs text-slate-400 block">
+      <h3 className="text-body font-semibold text-chalk">Graph curve</h3>
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Circle trace — optional; shown in exit target menu"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
@@ -74,14 +74,14 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
           min={0}
           step={0.25}
         />
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim">
           <span>Line style</span>
           <select
             value={item.lineStyle ?? 'solid'}
             onChange={(e) =>
               set({ lineStyle: e.target.value as FunctionLineStyle })
             }
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-200"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             {LINE_STYLES.map((s) => (
               <option key={s} value={s}>
@@ -96,11 +96,11 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
 
   const graphContent = (
     <div className="flex flex-col gap-3">
-      <div className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2">
-        <div className="text-xs text-slate-400 mb-1">Parametric formulae γ(t) = (x(t), y(t))</div>
-        <p className="mt-1 text-[11px] leading-snug text-slate-500">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2">
+        <div className="text-ctl text-chalk-dim mb-1">Parametric formulae γ(t) = (x(t), y(t))</div>
+        <p className="mt-1 text-meta leading-snug text-chalk-faint">
           JavaScript drives the canvas preview; Python (NumPy) drives export. Variable is{' '}
-          <code className="text-slate-400">t</code> in graph coordinates on the axes.
+          <code className="text-chalk-dim">t</code> in graph coordinates on the axes.
         </p>
 
         <div className="mt-3 flex flex-col gap-2">
@@ -123,15 +123,15 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
         </div>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-xs text-slate-300">Parameter domain</div>
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-ctl text-chalk-dim">Parameter domain</div>
         <div className="flex items-end gap-3 flex-wrap">
           <NumberInput label="t min" value={tLo} onChange={(v) => set({ tDomain: [v, tHi] })} />
           <NumberInput label="t max" value={tHi} onChange={(v) => set({ tDomain: [tLo, v] })} />
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug max-w-md">
+        <p className="text-meta text-chalk-faint leading-snug max-w-md">
           The curve is sampled from t min to t max (same interval as exported{' '}
-          <code className="text-slate-400">ParametricFunction(..., t_range=[...])</code>).
+          <code className="text-chalk-dim">ParametricFunction(..., t_range=[...])</code>).
         </p>
       </div>
     </div>
@@ -173,7 +173,7 @@ export default function GraphCurveEditor({ item }: GraphCurveEditorProps) {
             step={1}
           />
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug max-w-md">
+        <p className="text-meta text-chalk-faint leading-snug max-w-md">
           On the same axes, higher Layer draws above other plots and curves when layer ties apply.
         </p>
       </div>

@@ -67,27 +67,27 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Shape</h3>
-      <p className="text-[11px] text-slate-500 leading-snug">
+      <h3 className="text-body font-semibold text-chalk">Shape</h3>
+      <p className="text-meta text-chalk-faint leading-snug">
         Primitive Manim shape. Drag on the canvas to move (with absolute positioning). Use the
-        yellow handle to rotate. Export uses <code className="text-slate-400">Circle</code>,{' '}
-        <code className="text-slate-400">Rectangle</code>, <code className="text-slate-400">Arrow</code>,{' '}
-        <code className="text-slate-400">Line</code>, or <code className="text-slate-400">VMobject</code>{' '}
+        yellow handle to rotate. Export uses <code className="text-chalk-dim">Circle</code>,{' '}
+        <code className="text-chalk-dim">Rectangle</code>, <code className="text-chalk-dim">Arrow</code>,{' '}
+        <code className="text-chalk-dim">Line</code>, or <code className="text-chalk-dim">VMobject</code>{' '}
         polyline.
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Highlight ring"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Shape type
         <select
           value={item.shapeType}
@@ -96,7 +96,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
             set({ shapeType });
             if (shapeType !== 'polyline') setPolylinePointCaptureId(null);
           }}
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           {SHAPE_TYPES.map((o) => (
             <option key={o.value} value={o.value}>
@@ -153,14 +153,14 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
       )}
 
       {item.shapeType === 'polyline' && (
-        <div className="flex flex-col gap-3 border border-slate-700 rounded-md p-3 bg-slate-900/40">
-          <div className="text-xs font-medium text-slate-300">Points</div>
-          <p className="text-[11px] text-slate-500 leading-snug">
+        <div className="flex flex-col gap-3 border border-rule rounded-ctl p-3 bg-ink/40">
+          <div className="text-ctl font-medium text-chalk-dim">Points</div>
+          <p className="text-meta text-chalk-faint leading-snug">
             Click the canvas to append points in order. Tail is the first point; head is the last
             point. Point picking matches the anchor at rotation 0 and scale 1.
           </p>
           {pickBlocked ? (
-            <p className="text-[11px] text-amber-400/90">
+            <p className="text-meta text-warn">
               Set rotation to 0° and scale to 1 to pick points on the canvas, or edit coordinates
               below.
             </p>
@@ -169,7 +169,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
             {isCapturing ? (
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-100 hover:bg-slate-600"
+                className="text-ctl px-2 py-1 rounded-ctl bg-raised text-chalk hover:bg-rule"
                 onClick={() => setPolylinePointCaptureId(null)}
               >
                 Finish picking
@@ -178,7 +178,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
               <button
                 type="button"
                 disabled={pickBlocked}
-                className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-100 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-ctl px-2 py-1 rounded-ctl bg-raised text-chalk hover:bg-rule disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => setPolylinePointCaptureId(item.id)}
               >
                 Start picking points
@@ -186,21 +186,21 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
             )}
             <button
               type="button"
-              className="text-xs px-2 py-1 rounded bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700"
+              className="text-ctl px-2 py-1 rounded-ctl bg-raised text-chalk border border-rule hover:bg-rule"
               onClick={() => set({ points: [] })}
             >
               Clear points
             </button>
             <button
               type="button"
-              className="text-xs px-2 py-1 rounded bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700"
+              className="text-ctl px-2 py-1 rounded-ctl bg-raised text-chalk border border-rule hover:bg-rule"
               onClick={addPoint}
             >
               Add point
             </button>
           </div>
 
-          <label className="text-xs text-slate-400 block">
+          <label className="text-ctl text-chalk-dim block">
             Arrowheads
             <select
               value={
@@ -219,7 +219,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
                   headArrow: mode === 'head' || mode === 'both',
                 });
               }}
-              className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+              className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
             >
               <option value="none">None</option>
               <option value="tail">Tail</option>
@@ -230,14 +230,14 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
           <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
             {item.points.length === 0 ? (
-              <span className="text-[11px] text-slate-500">No points — pick or add below.</span>
+              <span className="text-meta text-chalk-faint">No points — pick or add below.</span>
             ) : null}
             {item.points.map((p, i) => (
               <div
                 key={`${item.id}-pt-${i}`}
-                className="flex flex-wrap items-end gap-2 border-b border-slate-800 pb-2"
+                className="flex flex-wrap items-end gap-2 border-b border-rule pb-2"
               >
-                <span className="text-[10px] text-slate-500 w-full">#{i + 1}</span>
+                <span className="text-meta text-chalk-faint w-full">#{i + 1}</span>
                 <NumberInput
                   label="X"
                   value={p.x}
@@ -252,7 +252,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
                 />
                 <button
                   type="button"
-                  className="text-[11px] text-red-300 hover:text-red-200"
+                  className="text-meta text-danger hover:text-danger"
                   onClick={() => deletePoint(i)}
                 >
                   Delete
@@ -263,7 +263,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
           <button
             type="button"
-            className="self-start text-[11px] text-slate-400 hover:text-slate-300 underline"
+            className="self-start text-meta text-chalk-dim hover:text-chalk-dim underline"
             onClick={() =>
               set({ points: DEFAULT_SHAPE_POLYLINE_POINTS.map((q) => ({ ...q })) })
             }
@@ -277,7 +277,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete shape
@@ -288,7 +288,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
   const styleContent = (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-slate-400">Stroke</span>
+        <span className="text-ctl text-chalk-dim">Stroke</span>
         <ColorPicker value={item.strokeColor} onChange={(c) => set({ strokeColor: c })} />
         <NumberInput
           label="Stroke width"
@@ -301,14 +301,14 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
       {item.shapeType !== 'polyline' ? (
         <div className="flex flex-col gap-2">
-          <label className="text-xs text-slate-400 flex items-center gap-2">
+          <label className="text-ctl text-chalk-dim flex items-center gap-2">
             <input
               type="checkbox"
               checked={Boolean(item.fillColor?.trim())}
               onChange={(e) =>
                 set({ fillColor: e.target.checked ? '#3b82f6' : null })
               }
-              className="accent-blue-500"
+              className="accent-highlight"
             />
             Fill (circle / rectangle / arrow tip)
           </label>
@@ -330,7 +330,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
           ) : null}
         </div>
       ) : (
-        <p className="text-[11px] text-slate-500">
+        <p className="text-meta text-chalk-faint">
           Polylines are open paths — fill is not used.
         </p>
       )}
@@ -340,13 +340,13 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
   const animationContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Intro</div>
+        <div className="text-ctl text-chalk-dim mb-1">Intro</div>
         <select
           value={item.introStyle}
           onChange={(e) =>
             set({ introStyle: e.target.value as ShapeItem['introStyle'] })
           }
-          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           <option value="create">Create</option>
           <option value="fade_in">FadeIn</option>
@@ -427,7 +427,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
       </div>
 
       <div>
-        <div className="text-xs text-slate-400 mb-1">Position steps</div>
+        <div className="text-ctl text-chalk-dim mb-1">Position steps</div>
         <PositionStepsEditor
           steps={item.posSteps}
           onChange={(posSteps) => set({ posSteps })}

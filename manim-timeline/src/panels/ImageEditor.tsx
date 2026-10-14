@@ -90,27 +90,27 @@ export default function ImageEditor({ item }: ImageEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Image</h3>
-      <p className="text-[11px] text-slate-500 leading-snug">
+      <h3 className="text-body font-semibold text-chalk">Image</h3>
+      <p className="text-meta text-chalk-faint leading-snug">
         Still picture from disk (PNG, JPG, or GIF — GIF shows its first
         frame). Drag on the canvas to move with absolute positioning.
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Title illustration"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
-      <div className="flex flex-col gap-1 text-[11px] text-slate-400">
+      <div className="flex flex-col gap-1 text-meta text-chalk-dim">
         <span>
           File:{' '}
-          <span className="text-slate-200" dir="auto">
+          <span className="text-chalk" dir="auto">
             {item.fileName}
           </span>
         </span>
@@ -135,21 +135,21 @@ export default function ImageEditor({ item }: ImageEditorProps) {
         />
         <button
           type="button"
-          className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-100 hover:bg-slate-600"
+          className="text-ctl px-2 py-1 rounded-ctl bg-raised text-chalk hover:bg-rule"
           onClick={() => fileRef.current?.click()}
         >
           Replace image…
         </button>
       </div>
       {replaceError ? (
-        <p className="text-[11px] text-red-300">{replaceError}</p>
+        <p className="text-meta text-danger">{replaceError}</p>
       ) : null}
 
       <TargetAnimationEffectsNote targetId={item.id} />
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete image
@@ -175,12 +175,12 @@ export default function ImageEditor({ item }: ImageEditorProps) {
           step={0.1}
         />
       </div>
-      <label className="text-xs text-slate-400 flex items-center gap-2">
+      <label className="text-ctl text-chalk-dim flex items-center gap-2">
         <input
           type="checkbox"
           checked={lockAspect}
           onChange={(e) => setLockAspect(e.target.checked)}
-          className="accent-blue-500"
+          className="accent-highlight"
         />
         Lock aspect ratio
       </label>
@@ -271,7 +271,7 @@ export default function ImageEditor({ item }: ImageEditorProps) {
       </div>
 
       <div>
-        <div className="text-xs text-slate-400 mb-1">Position steps</div>
+        <div className="text-ctl text-chalk-dim mb-1">Position steps</div>
         <PositionStepsEditor
           steps={item.posSteps}
           onChange={(posSteps) => set({ posSteps })}

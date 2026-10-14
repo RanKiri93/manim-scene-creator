@@ -15,11 +15,11 @@ export default function VisibleAtSceneStartRow({
   onChange,
 }: VisibleAtSceneStartRowProps) {
   return (
-    <div className="flex flex-col gap-1 text-xs text-slate-300">
+    <div className="flex flex-col gap-1 text-ctl text-chalk-dim">
       <label className="flex items-center gap-2 cursor-pointer select-none">
         <input
           type="checkbox"
-          className="rounded border-slate-600"
+          className="rounded-ctl border-rule"
           checked={checked}
           disabled={disabled}
           title={disabled ? disabledReason : undefined}
@@ -28,9 +28,9 @@ export default function VisibleAtSceneStartRow({
         <span>Already visible at scene start</span>
       </label>
       {disabled && disabledReason ? (
-        <p className="text-slate-500 pl-6">{disabledReason}</p>
+        <p className="text-chalk-faint pl-6">{disabledReason}</p>
       ) : null}
-      {checked && note ? <p className="text-slate-500 pl-6">{note}</p> : null}
+      {checked && note ? <p className="text-chalk-faint pl-6">{note}</p> : null}
     </div>
   );
 }

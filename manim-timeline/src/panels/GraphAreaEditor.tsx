@@ -105,8 +105,8 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
     src: GraphAreaCurveSource,
     onChange: (c: GraphAreaCurveSource) => void,
   ) => (
-    <div className="flex flex-col gap-1 border border-slate-700 rounded p-2 bg-slate-800/40">
-      <span className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</span>
+    <div className="flex flex-col gap-1 border border-rule rounded-ctl p-2 bg-ink/40">
+      <span className="text-meta text-chalk-faint ">{label}</span>
       <select
         value={src.sourceKind}
         onChange={(e) => {
@@ -118,7 +118,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
             onChange({ sourceKind: 'expr', jsExpr: '0', pyExpr: '0' });
           }
         }}
-        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+        className="w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
       >
         <option value="expr">Expression</option>
         <option value="plot" disabled={plotOptions.length === 0}>
@@ -129,7 +129,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
         <select
           value={src.plotId}
           onChange={(e) => onChange({ sourceKind: 'plot', plotId: e.target.value as ItemId })}
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           {plotOptions.length === 0 ? (
             <option value="">No plots on this axes</option>
@@ -159,24 +159,24 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Graph area</h3>
-      <label className="text-xs text-slate-400 block">
+      <h3 className="text-body font-semibold text-chalk">Graph area</h3>
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Area type
         <select
           value={m.areaKind}
           onChange={(e) => onKindChange(e.target.value as GraphAreaMode['areaKind'])}
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           <option value="underCurve">Under one curve (to x-axis)</option>
           <option value="betweenCurves">Between two curves</option>
@@ -197,7 +197,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
             <NumberInput label="x max" value={m.xMax} onChange={(v) => setMode({ ...m, xMax: v })} />
           </div>
           {curveSourceEditor('Curve', m.curve, (curve) => setMode({ ...m, curve }))}
-          <label className="flex items-center gap-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 text-ctl text-chalk-dim">
             <input
               type="checkbox"
               checked={m.showBoundaryPlot}
@@ -216,7 +216,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           </div>
           {curveSourceEditor('Lower curve', m.lower, (lower) => setMode({ ...m, lower }))}
           {curveSourceEditor('Upper curve', m.upper, (upper) => setMode({ ...m, upper }))}
-          <label className="flex items-center gap-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 text-ctl text-chalk-dim">
             <input
               type="checkbox"
               checked={m.showBoundaryPlot}
@@ -230,8 +230,8 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
       {m.areaKind === 'parallelogramFour' && (
         <div className="grid grid-cols-2 gap-2">
           {m.corners.map((c, i) => (
-            <div key={i} className="flex flex-col gap-1 border border-slate-700 rounded p-2">
-              <span className="text-[10px] text-slate-500">Corner {i + 1}</span>
+            <div key={i} className="flex flex-col gap-1 border border-rule rounded-ctl p-2">
+              <span className="text-meta text-chalk-faint">Corner {i + 1}</span>
               <NumberInput
                 label="x"
                 value={c.x}
@@ -324,7 +324,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
           <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug max-w-md">
+        <p className="text-meta text-chalk-faint leading-snug max-w-md">
           Areas use a lower stack rank than curves by default so fills stay behind plots.
         </p>
       </div>

@@ -36,9 +36,9 @@ export default function FunctionSeriesIndividualPanel({
     const el = rowRefs.current.get(focusedN);
     if (el) {
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      el.classList.add('ring-1', 'ring-blue-400');
+      el.classList.add('ring-1', 'ring-highlight/60');
       const t = setTimeout(() => {
-        el.classList.remove('ring-1', 'ring-blue-400');
+        el.classList.remove('ring-1', 'ring-highlight/60');
       }, 1500);
       return () => clearTimeout(t);
     }
@@ -95,9 +95,9 @@ export default function FunctionSeriesIndividualPanel({
       onClose={onClose}
       defaultSize={{ w: 440, h: 520 }}
     >
-      <div className="flex flex-col gap-2 text-xs">
+      <div className="flex flex-col gap-2 text-ctl">
         {indices.length === 0 && (
-          <p className="text-slate-500 italic">
+          <p className="text-chalk-faint italic">
             No curves in range. Set n_min &lt; n_max to populate.
           </p>
         )}
@@ -114,18 +114,18 @@ export default function FunctionSeriesIndividualPanel({
                 if (el) rowRefs.current.set(n, el);
                 else rowRefs.current.delete(n);
               }}
-              className={`rounded border px-2 py-2 space-y-2 ${
+              className={`rounded-ctl border px-2 py-2 space-y-2 ${
                 error
-                  ? 'border-red-700 bg-red-900/20'
-                  : 'border-slate-600 bg-slate-800/40'
+                  ? 'border-danger/50 bg-danger/10'
+                  : 'border-rule bg-ink/40'
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-200">n = {n}</span>
+                <span className="font-semibold text-chalk">n = {n}</span>
                 <button
                   type="button"
                   onClick={() => resetRow(n)}
-                  className="text-[10px] text-slate-400 hover:text-slate-100"
+                  className="text-meta text-chalk-dim hover:text-chalk"
                   title="Clear all per-n overrides for this index"
                   disabled={Object.keys(override).length === 0}
                 >
@@ -141,7 +141,7 @@ export default function FunctionSeriesIndividualPanel({
                   <button
                     type="button"
                     onClick={() => clearOverride(n, 'color')}
-                    className="text-[10px] text-slate-400 hover:text-slate-100"
+                    className="text-meta text-chalk-dim hover:text-chalk"
                     title="Revert to default color"
                   >
                     ↺
@@ -156,7 +156,7 @@ export default function FunctionSeriesIndividualPanel({
                   min={0}
                   step={0.25}
                 />
-                <label className="flex items-center gap-2 text-xs text-slate-300">
+                <label className="flex items-center gap-2 text-ctl text-chalk-dim">
                   <span>Style</span>
                   <select
                     value={resolved.lineStyle}
@@ -165,7 +165,7 @@ export default function FunctionSeriesIndividualPanel({
                         lineStyle: e.target.value as FunctionLineStyle,
                       })
                     }
-                    className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-200"
+                    className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
                   >
                     {LINE_STYLES.map((s) => (
                       <option key={s} value={s}>
@@ -196,7 +196,7 @@ export default function FunctionSeriesIndividualPanel({
                 />
               </div>
               {error && (
-                <div className="text-[11px] text-red-300" role="alert">
+                <div className="text-meta text-danger" role="alert">
                   Error: {error}
                 </div>
               )}

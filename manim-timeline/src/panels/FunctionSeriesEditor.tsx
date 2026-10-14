@@ -88,31 +88,31 @@ export default function FunctionSeriesEditor({
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Function series</h3>
+      <h3 className="text-body font-semibold text-chalk">Function series</h3>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. sin family"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
 
       {hasErrors && (
-        <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
+        <div className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-2 text-ctl text-danger space-y-1">
           <div className="font-semibold">
             Playback of this object is disabled until errors are resolved.
           </div>
           {item.topLevelError && (
-            <div className="text-red-300">• {item.topLevelError}</div>
+            <div className="text-danger">• {item.topLevelError}</div>
           )}
           {perNErrorEntries.length > 0 && (
-            <div className="text-red-400">
+            <div className="text-danger">
               {perNErrorEntries.length} per-n issue
               {perNErrorEntries.length === 1 ? '' : 's'} — open the Graph tab to review and fix.
             </div>
@@ -133,14 +133,14 @@ export default function FunctionSeriesEditor({
         dialogTitle="Function series — expression helper"
       />
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Curve
         </div>
         <div
           role="radiogroup"
           aria-label="Curve geometry"
-          className="inline-flex rounded border border-slate-600 overflow-hidden text-xs"
+          className="inline-flex rounded-ctl border border-rule overflow-hidden text-ctl"
         >
           <button
             type="button"
@@ -150,8 +150,8 @@ export default function FunctionSeriesEditor({
             className={
               'px-2 py-1 font-mono transition-colors ' +
               (displayMode === 'individual'
-                ? 'bg-slate-200 text-slate-900'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
+                ? 'bg-chalk text-ink'
+                : 'bg-raised text-chalk-dim hover:bg-rule')
             }
             title="Each curve is the single term f(n, x)"
           >
@@ -165,23 +165,23 @@ export default function FunctionSeriesEditor({
             className={
               'px-2 py-1 font-mono transition-colors ' +
               (displayMode === 'partialSum'
-                ? 'bg-slate-200 text-slate-900'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
+                ? 'bg-chalk text-ink'
+                : 'bg-raised text-chalk-dim hover:bg-rule')
             }
             title="Each curve is the partial sum S_k(x) = Σ_{n=n_min}^{k} f(n, x)"
           >
             Σ f_n(x)
           </button>
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug">
+        <p className="text-meta text-chalk-faint leading-snug">
           {displayMode === 'partialSum'
             ? 'Each step draws the partial sum S_k(x) = Σ f_n(x). Pair with Replacement mode for a Taylor / Fourier–style morph between successive partial sums.'
             : 'Each step draws a single term f(n, x).'}
         </p>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Range (integers)
         </div>
         <div className="flex items-end gap-3 flex-wrap">
@@ -197,21 +197,21 @@ export default function FunctionSeriesEditor({
             onChange={(v) => set({ nMax: Math.trunc(v) })}
             step={1}
           />
-          <span className="text-[11px] text-slate-500">
+          <span className="text-meta text-chalk-faint">
             {indices.length} {indices.length === 1 ? 'curve' : 'curves'}
           </span>
         </div>
-        <p className="text-[10px] text-slate-500 leading-snug">
+        <p className="text-meta text-chalk-faint leading-snug">
           Negative integers allowed; must satisfy n_min &lt; n_max. Per-n style
           settings are retained when the range shrinks and restored on expand.
         </p>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Playback mode
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={item.mode === 'accumulation'}
@@ -226,19 +226,19 @@ export default function FunctionSeriesEditor({
                   : {}),
               });
             }}
-            className="rounded border-slate-500"
+            className="rounded-ctl border-rule"
           />
           Accumulation (each f_n is drawn and stays on screen)
         </label>
-        <p className="text-[10px] text-slate-500 leading-snug pl-5">
+        <p className="text-meta text-chalk-faint leading-snug pl-5">
           When off (Replacement): the first curve is Created; each subsequent
           curve is ReplacementTransform&apos;d from the previous one, which
           hides it automatically at end of transform.
         </p>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Apply to all (defaults)
         </div>
         <div className="flex items-end gap-3 flex-wrap">
@@ -253,7 +253,7 @@ export default function FunctionSeriesEditor({
             min={0}
             step={0.25}
           />
-          <label className="flex items-center gap-2 text-xs text-slate-300">
+          <label className="flex items-center gap-2 text-ctl text-chalk-dim">
             <span>Line style</span>
             <select
               value={item.defaults.lineStyle}
@@ -262,7 +262,7 @@ export default function FunctionSeriesEditor({
                   lineStyle: e.target.value as FunctionLineStyle,
                 })
               }
-              className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-200"
+              className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
             >
               {LINE_STYLES.map((s) => (
                 <option key={s} value={s}>
@@ -293,15 +293,15 @@ export default function FunctionSeriesEditor({
         <button
           type="button"
           onClick={() => openIndividualFor(null)}
-          className="mt-1 px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
+          className="mt-1 px-2 py-1 text-ctl bg-raised hover:bg-rule rounded-ctl text-chalk"
           title="Edit each curve's color / stroke / style / wait individually"
         >
           Individual curve editing…
         </button>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={customXDomain}
@@ -309,7 +309,7 @@ export default function FunctionSeriesEditor({
               if (e.target.checked) enableCustomXDomain();
               else set({ xDomain: null });
             }}
-            className="rounded border-slate-500"
+            className="rounded-ctl border-rule"
           />
           Custom x domain (sample curves only on this interval)
         </label>
@@ -330,12 +330,12 @@ export default function FunctionSeriesEditor({
       </div>
 
       {hasErrors && (
-        <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
+        <div className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-2 text-ctl text-danger space-y-1">
           <div className="font-semibold">
             Playback of this object is disabled until errors are resolved.
           </div>
           {item.topLevelError && (
-            <div className="text-red-300">• {item.topLevelError}</div>
+            <div className="text-danger">• {item.topLevelError}</div>
           )}
           {perNErrorEntries.length > 0 && (
             <div className="space-y-0.5">
@@ -344,14 +344,14 @@ export default function FunctionSeriesEditor({
                   key={n}
                   type="button"
                   onClick={() => openIndividualFor(Number(n))}
-                  className="block text-left text-red-300 hover:text-red-100"
+                  className="block text-left text-danger hover:text-danger"
                   title="Open in Individual panel"
                 >
                   • n = {n}: {msg}
                 </button>
               ))}
               {perNErrorEntries.length > 6 && (
-                <div className="text-red-400">
+                <div className="text-danger">
                   …and {perNErrorEntries.length - 6} more.
                 </div>
               )}
@@ -385,11 +385,11 @@ export default function FunctionSeriesEditor({
           min={0}
           disabled={item.visibleAtSceneStart === true}
         />
-        <div className="flex flex-col text-[11px] text-slate-400">
-          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+        <div className="flex flex-col text-meta text-chalk-dim">
+          <span className="text-meta text-chalk-faint">
             Duration (computed)
           </span>
-          <span className="font-mono text-slate-300">
+          <span className="font-mono text-chalk-dim">
             {item.duration.toFixed(2)}s
           </span>
         </div>

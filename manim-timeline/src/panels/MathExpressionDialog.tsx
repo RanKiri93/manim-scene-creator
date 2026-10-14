@@ -26,17 +26,17 @@ interface MathExpressionDialogProps {
 function StatusPanel({ status }: { status: MathExpressionPairStatus }) {
   if (status.level === 'ok') {
     return (
-      <div className="rounded border border-emerald-700 bg-emerald-900/25 px-2 py-1.5 text-[11px] text-emerald-200">
+      <div className="rounded-ctl border border-kind-axes/50 bg-kind-axes/10 px-2 py-1.5 text-meta text-kind-axes">
         ✓ Both expressions look valid.
       </div>
     );
   }
   const color =
     status.level === 'error'
-      ? 'border-red-700 bg-red-900/25 text-red-200'
-      : 'border-amber-700 bg-amber-900/25 text-amber-200';
+      ? 'border-danger/50 bg-danger/10 text-danger'
+      : 'border-warn/45 bg-warn/10 text-warn';
   return (
-    <div className={`rounded border px-2 py-1.5 text-[11px] leading-snug ${color}`}>
+    <div className={`rounded-ctl border px-2 py-1.5 text-meta leading-snug ${color}`}>
       {status.issues.map((issue, i) => (
         <div key={i}>
           • [{issue.dialect === 'both' ? 'both' : issue.dialect === 'js' ? 'preview' : 'export'}]{' '}
@@ -148,9 +148,9 @@ export default function MathExpressionDialog({
   return (
     <FloatingPanel title={title} onClose={onClose} defaultSize={{ w: 560, h: 560 }}>
       <div dir="ltr" className="flex flex-col gap-3 text-left">
-        <p className="text-[11px] leading-snug text-slate-400">{sectionHelp}</p>
+        <p className="text-meta leading-snug text-chalk-dim">{sectionHelp}</p>
 
-        <div className="flex items-center gap-1 text-xs text-slate-300">
+        <div className="flex items-center gap-1 text-ctl text-chalk-dim">
           <span>Preview (JavaScript)</span>
           <GraphFieldHelpIcon title={jsHelp} label="Help: JavaScript formula" />
         </div>
@@ -162,9 +162,9 @@ export default function MathExpressionDialog({
           rows={3}
           spellCheck={false}
           dir="ltr"
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono text-left"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1.5 text-ctl text-chalk font-mono text-left"
         />
-        <div className="flex items-center gap-1 text-xs text-slate-300">
+        <div className="flex items-center gap-1 text-ctl text-chalk-dim">
           <span>Export (Python)</span>
           <GraphFieldHelpIcon title={pyHelp} label="Help: Python formula" />
         </div>
@@ -176,7 +176,7 @@ export default function MathExpressionDialog({
           rows={3}
           spellCheck={false}
           dir="ltr"
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 font-mono text-left"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1.5 text-ctl text-chalk font-mono text-left"
         />
 
         <StatusPanel status={status} />
@@ -184,14 +184,14 @@ export default function MathExpressionDialog({
           <button
             type="button"
             onClick={fixPower}
-            className="self-start rounded border border-amber-600 bg-amber-900/40 px-2 py-0.5 text-[11px] text-amber-200 hover:bg-amber-800/50"
+            className="self-start rounded-ctl border border-warn/45 bg-warn/10 px-2 py-0.5 text-meta text-warn hover:bg-warn/10"
           >
             Fix: replace ^ with **
           </button>
         )}
 
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-slate-500">
+          <span className="text-meta text-chalk-faint">
             Variables (insert at cursor in the focused box):
           </span>
           <div className="flex flex-wrap gap-1">
@@ -200,7 +200,7 @@ export default function MathExpressionDialog({
                 key={v}
                 type="button"
                 onClick={() => insertVariable(v)}
-                className="rounded border border-sky-700 bg-sky-900/40 px-1.5 py-0.5 text-[11px] font-mono text-sky-200 hover:bg-sky-800/50"
+                className="rounded-ctl border border-highlight/60 bg-raised px-1.5 py-0.5 text-meta font-mono text-chalk hover:bg-rule"
               >
                 {v}
               </button>
@@ -209,7 +209,7 @@ export default function MathExpressionDialog({
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-slate-500">
+          <span className="text-meta text-chalk-faint">
             Whole formula (replaces both boxes):
           </span>
           <div className="flex flex-wrap gap-1">
@@ -222,7 +222,7 @@ export default function MathExpressionDialog({
                   setDraftJs(p.js);
                   setDraftPy(p.py);
                 }}
-                className="rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-300 hover:border-slate-500 hover:bg-slate-700"
+                className="rounded-ctl border border-rule bg-raised px-1.5 py-0.5 text-meta text-chalk hover:border-rule hover:bg-rule"
               >
                 {p.label}
               </button>
@@ -231,7 +231,7 @@ export default function MathExpressionDialog({
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-slate-500">
+          <span className="text-meta text-chalk-faint">
             Insert at cursor (updates preview + export together):
           </span>
           <div className="flex flex-wrap gap-1">
@@ -241,7 +241,7 @@ export default function MathExpressionDialog({
                 type="button"
                 title={`Insert ${s.js} / ${s.py}`}
                 onClick={() => insertSnippet(s.js, s.py)}
-                className="rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-300 hover:border-slate-500 hover:bg-slate-700"
+                className="rounded-ctl border border-rule bg-raised px-1.5 py-0.5 text-meta text-chalk hover:border-rule hover:bg-rule"
               >
                 {s.label}
               </button>
@@ -253,14 +253,14 @@ export default function MathExpressionDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-slate-600 bg-slate-800 px-3 py-1 text-xs text-slate-300 hover:bg-slate-700"
+            className="rounded-ctl border border-rule bg-raised px-3 py-1 text-ctl text-chalk hover:bg-rule"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => onApply({ jsExpr: draftJs, pyExpr: draftPy })}
-            className="rounded border border-blue-600 bg-blue-700 px-3 py-1 text-xs font-medium text-white hover:bg-blue-600"
+            className="rounded-ctl border border-highlight/60 bg-raised px-3 py-1 text-ctl font-medium text-chalk hover:bg-rule"
           >
             Apply
           </button>

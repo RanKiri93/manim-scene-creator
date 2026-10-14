@@ -196,22 +196,22 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Surrounding rectangle</h3>
-      <p className="text-[11px] text-slate-500 leading-snug">
-        Draws a Manim <code className="text-slate-400">SurroundingRectangle</code> around the
-        chosen object(s) after each is positioned (multiple objects become one <code className="text-slate-400">VGroup</code>
-        ). The highlight stays on screen until an <strong className="text-slate-400">Exit animation</strong> targets this clip
-        (the timeline bar is only the Create/FadeIn <code className="text-slate-400">run_time</code>).
+      <h3 className="text-body font-semibold text-chalk">Surrounding rectangle</h3>
+      <p className="text-meta text-chalk-faint leading-snug">
+        Draws a Manim <code className="text-chalk-dim">SurroundingRectangle</code> around the
+        chosen object(s) after each is positioned (multiple objects become one <code className="text-chalk-dim">VGroup</code>
+        ). The highlight stays on screen until an <strong className="text-chalk-dim">Exit animation</strong> targets this clip
+        (the timeline bar is only the Create/FadeIn <code className="text-chalk-dim">run_time</code>).
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Highlight formula"
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
@@ -219,7 +219,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete surrounding rectangle
@@ -230,13 +230,13 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
   const targetsContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Targets</div>
-        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+        <div className="text-ctl text-chalk-dim mb-1">Targets</div>
+        <label className="text-meta text-chalk-faint mb-2 inline-flex items-center gap-1">
           Scope
           <select
             value={targetScope}
             onChange={(e) => setTargetScope(e.target.value as TargetScope)}
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             <option value="same-frame">This frame</option>
             <option value="all-frames">All frames</option>
@@ -250,14 +250,14 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
             return (
               <div
                 key={`${tid}-${index}`}
-                className="flex flex-wrap items-end gap-2 p-2 rounded border border-slate-700 bg-slate-800/40"
+                className="flex flex-wrap items-end gap-2 p-2 rounded-ctl border border-rule bg-ink/40"
               >
-                <label className="text-[10px] text-slate-500 flex-1 min-w-[140px]">
+                <label className="text-meta text-chalk-faint flex-1 min-w-[140px]">
                   Object
                   <select
                     value={tid}
                     onChange={(e) => onTargetChange(index, e.target.value)}
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     {!hasRow ? (
                       <option value={tid}>(missing) {tid.slice(0, 10)}</option>
@@ -288,7 +288,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
                 </label>
                 <button
                   type="button"
-                  className="text-[10px] text-slate-500 hover:text-red-300 px-2 py-1"
+                  className="text-meta text-chalk-faint hover:text-danger px-2 py-1"
                   disabled={targetIdsList.length <= 1}
                   onClick={() => removeRow(index)}
                 >
@@ -300,25 +300,25 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
         </div>
         <button
           type="button"
-          className="mt-2 text-xs text-sky-400 hover:text-sky-300"
+          className="mt-2 text-ctl text-chalk hover:text-chalk"
           onClick={addRow}
           disabled={scopedCandidates.length === 0}
         >
           + Add object
         </button>
         {targetScope === 'all-frames' ? (
-          <p className="text-[10px] text-slate-500 mt-1">
+          <p className="text-meta text-chalk-faint mt-1">
             Multi-target rectangles stay constrained to one frame; changing frames may drop
             incompatible rows.
           </p>
         ) : null}
         {targetIdsList.length === 0 ? (
-          <p className="text-xs text-amber-400 mt-1">Add at least one target to export.</p>
+          <p className="text-ctl text-warn mt-1">Add at least one target to export.</p>
         ) : null}
       </div>
 
       {lineTarget && lineTarget.segments.length > 0 ? (
-        <label className="text-xs text-slate-400 block">
+        <label className="text-ctl text-chalk-dim block">
           Text segments to surround (optional)
           <input
             type="text"
@@ -332,17 +332,17 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
               })
             }
             placeholder="e.g. 2 or 1, 2 — 0-based; empty = whole line"
-            className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
+            className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk font-mono"
           />
-          <span className="block mt-1 text-[10px] text-slate-500">
-            Split the line with <code className="text-slate-400">||</code> or math segments so each
+          <span className="block mt-1 text-meta text-chalk-faint">
+            Split the line with <code className="text-chalk-dim">||</code> or math segments so each
             part has an index. Preview still shows the full line box.
           </span>
         </label>
       ) : null}
 
       {hasTargets ? (
-        <p className="text-[10px] text-slate-500">
+        <p className="text-meta text-chalk-faint">
           All visible (intersection, approx.):{' '}
           {tStart != null ? `${tStart.toFixed(2)}s` : '—'}
           {' — '}
@@ -353,7 +353,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
       ) : null}
 
       {invalidWindow ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-ctl text-warn">
           Start time should fall within the overlap when every target is on screen.
         </p>
       ) : null}
@@ -370,13 +370,13 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           min={0}
           step={0.02}
         />
-        <label className="text-xs text-slate-400 block col-span-2">
+        <label className="text-ctl text-chalk-dim block col-span-2">
           Stroke color (hex)
           <input
             type="text"
             value={item.color}
             onChange={(e) => set({ color: e.target.value })}
-            className="mt-1 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200 font-mono"
+            className="mt-1 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk font-mono"
           />
         </label>
         <NumberInput
@@ -395,27 +395,27 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
         />
       </div>
 
-      <div className="border-t border-slate-700 pt-3">
-        <div className="text-xs text-slate-400 mb-2">Label (optional)</div>
-        <label className="text-xs text-slate-400 block mb-2">
+      <div className="border-t border-rule pt-3">
+        <div className="text-ctl text-chalk-dim mb-2">Label (optional)</div>
+        <label className="text-ctl text-chalk-dim block mb-2">
           Text
           <input
             type="text"
             value={item.labelText}
             onChange={(e) => set({ labelText: e.target.value })}
             placeholder="e.g. Step 1"
-            className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+            className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
           />
         </label>
         <div className="flex flex-wrap gap-2 items-end">
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Direction
             <select
               value={item.labelDir}
               onChange={(e) =>
                 set({ labelDir: e.target.value as ManimDirection })
               }
-              className="mt-1 block w-28 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+              className="mt-1 block w-28 bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
             >
               {DIRS.map((d) => (
                 <option key={d} value={d}>
@@ -439,7 +439,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
   const animationContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Intro style</div>
+        <div className="text-ctl text-chalk-dim mb-1">Intro style</div>
         <select
           value={item.introStyle}
           onChange={(e) =>
@@ -447,7 +447,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
               introStyle: e.target.value as SurroundingRectItem['introStyle'],
             })
           }
-          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           <option value="create">Create</option>
           <option value="fade_in">FadeIn</option>
@@ -488,9 +488,9 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           step={1}
         />
       </div>
-      <p className="text-[10px] text-slate-500 -mt-1">
+      <p className="text-meta text-chalk-faint -mt-1">
         Width of the clip on the timeline matches this runtime (Manim{' '}
-        <code className="text-slate-400">self.play(…, run_time=…)</code>).
+        <code className="text-chalk-dim">self.play(…, run_time=…)</code>).
       </p>
     </div>
   );

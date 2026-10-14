@@ -1,25 +1,31 @@
+import { TextInput } from '@/components/ui';
+
 interface ColorPickerProps {
   value: string;
   onChange: (hex: string) => void;
   label?: string;
 }
 
+/** Native color swatch plus an editable hex field. */
 export default function ColorPicker({ value, onChange, label }: ColorPickerProps) {
   return (
-    <label className="flex items-center gap-2 text-xs text-slate-300">
+    <div className="flex items-center gap-2 text-ctl text-chalk-dim">
       {label && <span>{label}</span>}
       <input
         type="color"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-6 h-6 rounded border border-slate-600 cursor-pointer bg-transparent"
+        aria-label={label ? `${label} swatch` : 'Color swatch'}
+        className="size-6 shrink-0 cursor-pointer rounded-ctl border border-rule bg-transparent p-0.5"
       />
-      <input
-        type="text"
+      <TextInput
+        code
+        size="sm"
+        className="w-24"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-20 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 font-mono"
+        aria-label={label ? `${label} hex value` : 'Hex color'}
       />
-    </label>
+    </div>
   );
 }

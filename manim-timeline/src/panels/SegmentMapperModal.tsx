@@ -133,25 +133,25 @@ export default function SegmentMapperModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="relative flex max-h-[90vh] w-full max-w-3xl flex-col rounded border border-slate-600 bg-slate-900 shadow-xl"
+        className="relative flex max-h-[90vh] w-full max-w-3xl flex-col rounded-ctl border border-rule bg-ink shadow-xl"
         role="dialog"
         aria-labelledby="segment-mapper-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-700 px-3 py-2">
-          <h2 id="segment-mapper-title" className="text-sm font-medium text-slate-200">
+        <div className="flex items-center justify-between border-b border-rule px-3 py-2">
+          <h2 id="segment-mapper-title" className="text-body font-medium text-chalk">
             Segment mapping
           </h2>
           <button
             type="button"
-            className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+            className="rounded-ctl px-2 py-0.5 text-ctl text-chalk-dim hover:bg-rule hover:text-chalk"
             onClick={onClose}
           >
             Close
@@ -177,7 +177,7 @@ export default function SegmentMapperModal({
 
           <div className="relative z-[1] flex flex-col gap-4">
             <div>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">Source</div>
+              <div className="mb-1 text-meta text-chalk-faint">Source</div>
               <div className="flex flex-wrap gap-1.5">
                 {sourceSegs.map((seg, i) => {
                   const active = dragSource === i;
@@ -191,13 +191,13 @@ export default function SegmentMapperModal({
                       }}
                       onPointerDown={onSourcePointerDown(i)}
                       className={[
-                        'max-w-[140px] rounded border px-2 py-1 text-left text-xs font-mono',
-                        active ? 'border-sky-400 bg-sky-950/50 text-sky-100' : 'border-slate-600 bg-slate-800 text-slate-300',
-                        mapped && !active ? 'ring-1 ring-sky-700/50' : '',
+                        'max-w-[140px] rounded-ctl border px-2 py-1 text-left text-ctl font-mono',
+                        active ? 'border-highlight/60 bg-raised text-chalk' : 'border-rule bg-raised text-chalk-dim',
+                        mapped && !active ? 'ring-1 ring-highlight/60' : '',
                       ].join(' ')}
                       title="Drag from here to a target segment"
                     >
-                      <span className="text-[10px] text-slate-500">#{i}</span>{' '}
+                      <span className="text-meta text-chalk-faint">#{i}</span>{' '}
                       {truncate(seg.text, 40)}
                     </button>
                   );
@@ -206,7 +206,7 @@ export default function SegmentMapperModal({
             </div>
 
             <div>
-              <div className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">Target</div>
+              <div className="mb-1 text-meta text-chalk-faint">Target</div>
               <div className="flex flex-wrap gap-1.5">
                 {targetSegs.map((seg, i) => {
                   const dropActive = dragSource !== null;
@@ -220,14 +220,14 @@ export default function SegmentMapperModal({
                       }}
                       onPointerUp={onTargetPointerUp(i)}
                       className={[
-                        'max-w-[140px] rounded border px-2 py-1 text-left text-xs font-mono',
-                        dropActive ? 'border-dashed border-amber-600/80 bg-amber-950/20' : 'border-slate-600 bg-slate-800',
-                        mapped ? 'ring-1 ring-amber-700/40' : '',
-                        'text-slate-300',
+                        'max-w-[140px] rounded-ctl border px-2 py-1 text-left text-ctl font-mono',
+                        dropActive ? 'border-dashed border-warn/45 bg-warn/10' : 'border-rule bg-raised',
+                        mapped ? 'ring-1 ring-warn/45' : '',
+                        'text-chalk-dim',
                       ].join(' ')}
                       title={dropActive ? 'Release to map' : 'Pick a source first'}
                     >
-                      <span className="text-[10px] text-slate-500">#{i}</span>{' '}
+                      <span className="text-meta text-chalk-faint">#{i}</span>{' '}
                       {truncate(seg.text, 40)}
                     </button>
                   );
@@ -237,17 +237,17 @@ export default function SegmentMapperModal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-slate-700 px-3 py-2">
+        <div className="flex justify-end gap-2 border-t border-rule px-3 py-2">
           <button
             type="button"
-            className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
+            className="rounded-ctl border border-rule px-3 py-1 text-ctl text-chalk-dim hover:bg-rule"
             onClick={onClose}
           >
             Cancel
           </button>
           <button
             type="button"
-            className="rounded bg-sky-600 px-3 py-1 text-xs text-white hover:bg-sky-500"
+            className="rounded-ctl bg-raised px-3 py-1 text-ctl text-chalk hover:bg-rule"
             onClick={handleApply}
           >
             Apply

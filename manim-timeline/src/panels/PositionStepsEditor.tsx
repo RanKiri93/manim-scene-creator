@@ -141,33 +141,33 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId, sn
   return (
     <div className="flex flex-col gap-2">
       {snapBuffer !== undefined && onSnapBufferChange && (
-        <div className="flex items-center justify-between gap-2 rounded border border-slate-700 bg-slate-800/40 px-2 py-1.5">
-          <span className="text-xs text-slate-400">Snap gap (Manim units)</span>
+        <div className="flex items-center justify-between gap-2 rounded-ctl border border-rule bg-ink/40 px-2 py-1.5">
+          <span className="text-ctl text-chalk-dim">Snap gap (Manim units)</span>
           <NumberInput label="" value={snapBuffer} onChange={onSnapBufferChange} step={0.1} min={0} />
         </div>
       )}
       {steps.map((step, i) => (
-        <div key={i} className="flex flex-col gap-1.5 p-2 rounded bg-slate-800/60 border border-slate-700">
+        <div key={i} className="flex flex-col gap-1.5 p-2 rounded-ctl bg-raised border border-rule">
           {/* Header: kind selector + controls */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-500 w-4">{i + 1}</span>
+            <span className="text-meta text-chalk-faint w-4">{i + 1}</span>
             <select
               value={step.kind}
               onChange={(e) => changeKind(i, e.target.value)}
-              className="flex-1 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+              className="flex-1 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
             >
               {STEP_KINDS.map((sk) => (
                 <option key={sk.value} value={sk.value}>{sk.label}</option>
               ))}
             </select>
-            <button onClick={() => moveUp(i)} disabled={i === 0} className="text-slate-500 hover:text-slate-300 disabled:opacity-30 text-xs px-1" title="Move up">^</button>
-            <button onClick={() => moveDown(i)} disabled={i >= steps.length - 1} className="text-slate-500 hover:text-slate-300 disabled:opacity-30 text-xs px-1" title="Move down">v</button>
-            <button onClick={() => remove(i)} className="text-slate-500 hover:text-red-400 text-xs px-1" title="Remove">x</button>
+            <button onClick={() => moveUp(i)} disabled={i === 0} className="text-chalk-faint hover:text-chalk-dim disabled:opacity-30 text-ctl px-1" title="Move up">^</button>
+            <button onClick={() => moveDown(i)} disabled={i >= steps.length - 1} className="text-chalk-faint hover:text-chalk-dim disabled:opacity-30 text-ctl px-1" title="Move down">v</button>
+            <button onClick={() => remove(i)} className="text-chalk-faint hover:text-danger text-ctl px-1" title="Remove">x</button>
           </div>
 
           {/* Step-specific fields */}
           {step.kind === 'absolute' && (
-            <p className="text-[10px] text-slate-500 italic">Uses the item's absolute X, Y position.</p>
+            <p className="text-meta text-chalk-faint italic">Uses the item's absolute X, Y position.</p>
           )}
 
           {step.kind === 'next_to' && (
@@ -207,7 +207,7 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId, sn
 
       <button
         onClick={add}
-        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        className="text-ctl text-chalk hover:text-chalk transition-colors"
       >
         + Add positioning step
       </button>
@@ -246,7 +246,7 @@ function NextToFields({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <label className="text-[10px] text-slate-400">
+        <label className="text-meta text-chalk-dim">
           Ref
           <select
             value={step.refId ?? ''}
@@ -268,7 +268,7 @@ function NextToFields({
                 refSegmentIndex: null,
               });
             }}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300 max-w-[140px]"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk max-w-[140px]"
           >
             <option value="">-- select item --</option>
             {refHiddenByFrame ? (
@@ -294,13 +294,13 @@ function NextToFields({
           </select>
         </label>
 
-        <label className="text-[10px] text-slate-400">
+        <label className="text-meta text-chalk-dim">
           Dir
           <select
             value={step.dir}
             onChange={(e) =>
               onChange({ ...step, dir: e.target.value as ManimDirection })}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             {DIRECTIONS.map((d) => (
               <option key={d} value={d}>
@@ -311,7 +311,7 @@ function NextToFields({
         </label>
       </div>
 
-      <label className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap">
+      <label className="text-meta text-chalk-dim flex items-center gap-1 flex-wrap">
         Align edge
         <select
           value={step.alignedEdge ?? ''}
@@ -323,7 +323,7 @@ function NextToFields({
             });
           }}
           disabled={dirIsDiagonal}
-          className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300 disabled:opacity-40"
+          className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk disabled:opacity-40"
         >
           <option value="">Center (default)</option>
           {EDGE_DIRECTIONS.map((d) => (
@@ -333,12 +333,12 @@ function NextToFields({
           ))}
         </select>
         {dirIsDiagonal && (
-          <span className="text-slate-500 italic">Diagonal dir: use center only</span>
+          <span className="text-chalk-faint italic">Diagonal dir: use center only</span>
         )}
       </label>
 
       {refSegCount > 0 && (
-        <label className="text-[10px] text-slate-400 flex items-center gap-1">
+        <label className="text-meta text-chalk-dim flex items-center gap-1">
           Ref segment
           <select
             value={step.refSegmentIndex ?? ''}
@@ -349,7 +349,7 @@ function NextToFields({
                 refSegmentIndex: v === '' ? null : Number(v),
               });
             }}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             <option value="">Whole line</option>
             {Array.from({ length: refSegCount }, (_, j) => (
@@ -362,7 +362,7 @@ function NextToFields({
       )}
 
       {selfSegCount > 0 && (
-        <label className="text-[10px] text-slate-400 flex items-center gap-1">
+        <label className="text-meta text-chalk-dim flex items-center gap-1">
           Self segment
           <select
             value={step.selfSegmentIndex ?? ''}
@@ -373,7 +373,7 @@ function NextToFields({
                 selfSegmentIndex: v === '' ? null : Number(v),
               });
             }}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             <option value="">Whole line</option>
             {Array.from({ length: selfSegCount }, (_, j) => (
@@ -386,7 +386,7 @@ function NextToFields({
       )}
 
       {selfItem?.kind === 'textLine' && (
-        <label className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap">
+        <label className="text-meta text-chalk-dim flex items-center gap-1 flex-wrap">
           Bounds
           <select
             value={step.bounds ?? ''}
@@ -397,7 +397,7 @@ function NextToFields({
                 bounds: v === '' ? null : (v as NextToBoundsMode),
               });
             }}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             <option value="">Legacy (preview hybrid)</option>
             <option value="mobject">VGroup bbox (matches Manim)</option>
@@ -431,12 +431,12 @@ function ToEdgeFields({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <label className="text-[10px] text-slate-400">
+        <label className="text-meta text-chalk-dim">
           Edge
           <select
             value={step.edge}
             onChange={(e) => onChange({ ...step, edge: e.target.value as ManimDirection })}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             {EDGE_DIRECTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
@@ -451,7 +451,7 @@ function ToEdgeFields({
       </div>
 
       {item?.kind === 'textLine' && (
-        <label className="text-[10px] text-slate-400 flex items-center gap-1 flex-wrap">
+        <label className="text-meta text-chalk-dim flex items-center gap-1 flex-wrap">
           Bounds
           <select
             value={step.bounds ?? ''}
@@ -462,7 +462,7 @@ function ToEdgeFields({
                 bounds: v === '' ? null : (v as NextToBoundsMode),
               });
             }}
-            className="ml-1 bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-300"
+            className="ml-1 bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
           >
             <option value="">Legacy (preview hybrid)</option>
             <option value="mobject">VGroup bbox (matches Manim)</option>

@@ -1,11 +1,23 @@
 import type { ManimDirection } from '@/types/scene';
+import { cx } from '@/lib/cx';
+import { focusRing } from '@/components/ui';
 
-const DIRS: ManimDirection[] = ['UL', 'UP', 'UR', 'LEFT', 'DOWN', 'RIGHT', 'DL', 'DOWN', 'DR'];
 const GRID: ManimDirection[][] = [
   ['UL', 'UP', 'UR'],
   ['LEFT', 'DOWN', 'RIGHT'],
   ['DL', 'DOWN', 'DR'],
 ];
+
+const ARROW: Partial<Record<ManimDirection, string>> = {
+  UL: '↖',
+  UP: '↑',
+  UR: '↗',
+  LEFT: '←',
+  RIGHT: '→',
+  DL: '↙',
+  DOWN: '↓',
+  DR: '↘',
+};
 
 interface DirectionPickerProps {
   value: ManimDirection;
@@ -13,23 +25,29 @@ interface DirectionPickerProps {
   label?: string;
 }
 
+/** 3×3 Manim direction grid; arrows on screen, Manim constant names for screen readers. */
 export default function DirectionPicker({ value, onChange, label }: DirectionPickerProps) {
-  void DIRS; // suppress unused
   return (
     <div className="flex items-start gap-2">
-      {label && <span className="text-xs text-slate-400 mt-1">{label}</span>}
-      <div className="grid grid-cols-3 gap-0.5">
+      {label && <span className="mt-1 text-ctl text-chalk-dim">{label}</span>}
+      <div role="group" aria-label={label ?? 'Direction'} className="grid grid-cols-3 gap-0.5">
         {GRID.flat().map((dir, i) => (
           <button
             key={`${dir}-${i}`}
+            type="button"
             onClick={() => onChange(dir)}
-            className={`w-6 h-6 text-[9px] rounded transition-colors ${
+            aria-label={dir}
+            aria-pressed={value === dir}
+            title={dir}
+            className={cx(
+              'size-6 rounded-ctl text-ctl leading-none transition-colors',
               value === dir
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
-            }`}
+                ? 'bg-highlight text-highlight-ink'
+                : 'bg-raised text-chalk-dim hover:bg-rule hover:text-chalk',
+              focusRing,
+            )}
           >
-            {dir}
+            {ARROW[dir] ?? dir}
           </button>
         ))}
       </div>

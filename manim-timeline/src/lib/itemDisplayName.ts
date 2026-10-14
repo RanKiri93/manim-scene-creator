@@ -8,6 +8,30 @@ function trunc(s: string, max: number): string {
   return t.length > max ? `${t.slice(0, max)}…` : t;
 }
 
+const KIND_LABEL: Record<SceneItem['kind'], string> = {
+  textLine: 'Text line',
+  axes: 'Axes',
+  graphPlot: 'Graph plot',
+  graphCurve: 'Graph curve',
+  graphDot: 'Graph dot',
+  graphField: 'Vector field',
+  graphFunctionSeries: 'Function series',
+  graphPointSequence: 'Point sequence',
+  graphArea: 'Graph area',
+  shape: 'Shape',
+  surroundingRect: 'Surrounding rectangle',
+  image: 'Image',
+  exit_animation: 'Exit animation',
+  blink_animation: 'Blink animation',
+  target_animation: 'Target animation',
+  camera_move: 'Camera move',
+};
+
+/** Human name of an item kind ("Graph plot"), for headings. Exhaustive over `SceneItem['kind']`. */
+export function itemKindLabel(kind: SceneItem['kind']): string {
+  return KIND_LABEL[kind];
+}
+
 /**
  * Short label for timeline bars, item list, etc.
  * Prefer the user-set clip `label`; otherwise a distinctive per-kind fallback.

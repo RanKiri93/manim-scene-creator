@@ -230,29 +230,29 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Target animation</h3>
-      <p className="text-[11px] text-sky-400/95 leading-snug">
-        Clip mode: <strong className="text-sky-300">{item.mode}</strong>. {modeHint}
+      <h3 className="text-body font-semibold text-chalk">Target animation</h3>
+      <p className="text-meta text-chalk leading-snug">
+        Clip mode: <strong className="text-chalk">{item.mode}</strong>. {modeHint}
       </p>
-      <p className="text-[11px] text-slate-500 leading-snug">
+      <p className="text-meta text-chalk-faint leading-snug">
         Effect is kept after the clip ends (preview + export accumulate in timeline order).
         Start time must be at or after each target&apos;s timeline start.
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Label
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Emphasize title"
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete target animation clip
@@ -263,13 +263,13 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
   const targetsContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Targets</div>
-        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+        <div className="text-ctl text-chalk-dim mb-1">Targets</div>
+        <label className="text-meta text-chalk-faint mb-2 inline-flex items-center gap-1">
           Scope
           <select
             value={targetScope}
             onChange={(e) => setTargetScope(e.target.value as TargetScope)}
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             <option value="same-frame">This frame</option>
             <option value="all-frames">All frames</option>
@@ -290,14 +290,14 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
             return (
               <div
                 key={`${row.targetId}-${index}`}
-                className="flex flex-wrap gap-2 p-2 rounded border border-slate-700 bg-slate-800/40"
+                className="flex flex-wrap gap-2 p-2 rounded-ctl border border-rule bg-ink/40"
               >
-                <label className="text-[10px] text-slate-500 flex-1 min-w-[140px]">
+                <label className="text-meta text-chalk-faint flex-1 min-w-[140px]">
                   Object
                   <select
                     value={row.targetId}
                     onChange={(e) => onTargetChange(index, e.target.value)}
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     {!hasTarget ? (
                       <option value={row.targetId}>
@@ -320,7 +320,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                   </select>
                 </label>
                 {item.mode === 'scale' && (
-                  <label className="text-[10px] text-slate-500 w-[100px]">
+                  <label className="text-meta text-chalk-faint w-[100px]">
                     Scale ×
                     <input
                       type="number"
@@ -339,12 +339,12 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                           scaleFactor: Math.max(1.01, +e.target.value || 1.15),
                         })
                       }
-                      className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                      className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                     />
                   </label>
                 )}
                 {item.mode === 'color' && (
-                  <label className="text-[10px] text-slate-500 w-[100px]">
+                  <label className="text-meta text-chalk-faint w-[100px]">
                     New color
                     <input
                       type="color"
@@ -354,7 +354,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                           : DEFAULT_BLINK_COLOR_HEX
                       }
                       onChange={(e) => patchRow(index, { color: e.target.value })}
-                      className="mt-0.5 w-full h-7 bg-slate-800 border border-slate-600 rounded"
+                      className="mt-0.5 w-full h-7 bg-raised border border-rule rounded-ctl"
                     />
                   </label>
                 )}
@@ -394,26 +394,26 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                   const errors = [...new Set([...graphMotionDiagnostics(target.id, item.startTime), ...(resolved.error ? [resolved.error] : [])])];
                   const attachment = target.dot.attachment ?? { kind: 'free' as const };
                   return <div className="w-full flex flex-wrap items-end gap-2" dir="rtl">
-                    {attachment.kind === 'free' ? <label className="text-[10px] text-slate-400">גרף מקור
-                      <select value={row.graphPlotId ?? ''} onChange={(e) => patchRow(index, { graphPlotId: e.target.value, graphCurveId: undefined, targetT: undefined })} className="block bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200">
+                    {attachment.kind === 'free' ? <label className="text-meta text-chalk-dim">גרף מקור
+                      <select value={row.graphPlotId ?? ''} onChange={(e) => patchRow(index, { graphPlotId: e.target.value, graphCurveId: undefined, targetT: undefined })} className="block bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk">
                         <option value="">בחרו גרף</option>{plots.map((p) => <option key={p.id} value={p.id}>{p.fn.label || p.fn.jsExpr}</option>)}
                       </select>
-                    </label> : <p className="text-[10px] text-cyan-300">מקור תנועה נקבע מהחיבור: {attachment.kind === 'function' ? plots.find((p) => p.id === attachment.graphPlotId)?.fn.label || 'פונקציה' : curves.find((c) => c.id === attachment.graphCurveId)?.curve.label || 'עקומה פרמטרית'}</p>}
+                    </label> : <p className="text-meta text-kind-graph">מקור תנועה נקבע מהחיבור: {attachment.kind === 'function' ? plots.find((p) => p.id === attachment.graphPlotId)?.fn.label || 'פונקציה' : curves.find((c) => c.id === attachment.graphCurveId)?.curve.label || 'עקומה פרמטרית'}</p>}
                     {attachment.kind === 'parametric'
                       ? <NumberInput label="יעד t" value={row.targetT ?? attachment.t} onChange={(targetT) => patchRow(index, { targetT, graphPlotId: undefined, graphCurveId: undefined, targetX: undefined })} />
                       : <NumberInput label="יעד x" value={row.targetX ?? (attachment.kind === 'function' ? attachment.x : resolved.point.x)} onChange={(targetX) => patchRow(index, { targetX, graphCurveId: undefined, targetT: undefined })} />}
-                    <label className="text-[10px] text-slate-400">הקלה<select value={row.easing ?? 'smooth'} onChange={(e) => patchRow(index, { easing: e.target.value as 'linear' | 'smooth' })} className="block bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"><option value="smooth">חלק</option><option value="linear">לינארי</option></select></label>
-                    {attachment.kind === 'free' && plot?.kind !== 'graphPlot' && <p className="text-xs text-amber-300">יש לבחור פונקציה באותם צירים. נקודה פרמטרית חייבת להיות מחוברת לעקומה.</p>}
-                    {errors.map((error) => <p key={error} className="w-full text-xs text-red-300">{error}</p>)}
+                    <label className="text-meta text-chalk-dim">הקלה<select value={row.easing ?? 'smooth'} onChange={(e) => patchRow(index, { easing: e.target.value as 'linear' | 'smooth' })} className="block bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"><option value="smooth">חלק</option><option value="linear">לינארי</option></select></label>
+                    {attachment.kind === 'free' && plot?.kind !== 'graphPlot' && <p className="text-ctl text-warn">יש לבחור פונקציה באותם צירים. נקודה פרמטרית חייבת להיות מחוברת לעקומה.</p>}
+                    {errors.map((error) => <p key={error} className="w-full text-ctl text-danger">{error}</p>)}
                   </div>;
                 })() : null}
                 {item.mode === 'path' ? (
                   <div className="w-full flex flex-col gap-1">
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-meta text-chalk-faint">
                       Path offsets (Manim RIGHT/UP). Parametric paths are normalized so the
                       object starts at its current position.
                     </div>
-                    <label className="text-[10px] text-slate-500 w-[150px]">
+                    <label className="text-meta text-chalk-faint w-[150px]">
                       Path type
                       <select
                         value={row.pathKind ?? 'polyline'}
@@ -439,15 +439,15 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                                 : row.pathPoints,
                           });
                         }}
-                        className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                        className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                       >
                         <option value="polyline">Clicked / polyline</option>
                         <option value="parametric">Parametric x(t), y(t)</option>
                       </select>
                     </label>
                     {(row.pathKind ?? 'polyline') === 'parametric' ? (
-                      <div className="w-full rounded border border-slate-700 bg-slate-900/35 p-2 flex flex-col gap-2">
-                        <p className="text-[10px] text-slate-500 leading-snug">
+                      <div className="w-full rounded-ctl border border-rule bg-ink/35 p-2 flex flex-col gap-2">
+                        <p className="text-meta text-chalk-faint leading-snug">
                           JavaScript is used for canvas preview; Python/NumPy is used for export.
                           Values are offsets and the first sample is subtracted automatically.
                         </p>
@@ -526,7 +526,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       pathCapture.rowIndex === index ? (
                         <button
                           type="button"
-                          className="text-[10px] text-amber-300 hover:text-amber-200 underline"
+                          className="text-meta text-warn hover:text-warn underline"
                           onClick={() => setPathCapture(null)}
                         >
                           Stop canvas picking
@@ -534,7 +534,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       ) : (
                         <button
                           type="button"
-                          className="text-[10px] text-sky-400 hover:text-sky-300 underline"
+                          className="text-meta text-chalk hover:text-chalk underline"
                           onClick={() =>
                             setPathCapture({ clipId: item.id, rowIndex: index })
                           }
@@ -544,7 +544,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       )}
                       <button
                         type="button"
-                        className="text-[10px] text-slate-400 hover:text-slate-300 underline"
+                        className="text-meta text-chalk-dim hover:text-chalk-dim underline"
                         onClick={() =>
                           patchRow(index, { pathPoints: [{ x: 0, y: 0 }] })
                         }
@@ -553,7 +553,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       </button>
                       {pathCapture?.clipId === item.id &&
                       pathCapture.rowIndex === index ? (
-                        <span className="text-[10px] text-amber-300/90">
+                        <span className="text-meta text-warn">
                           Click empty canvas to append path corners.
                         </span>
                       ) : null}
@@ -567,7 +567,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                           ]
                       ).map((p, pi, arr) => (
                         <div key={pi} className="flex gap-2 items-end flex-wrap">
-                          <span className="text-[9px] text-slate-500 w-14">#{pi}</span>
+                          <span className="text-meta text-chalk-faint w-14">#{pi}</span>
                           <NumberInput
                             label="x"
                             value={p.x}
@@ -601,7 +601,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                           {arr.length > 2 ? (
                             <button
                               type="button"
-                              className="text-[10px] text-red-400"
+                              className="text-meta text-danger"
                               onClick={() => {
                                 const base =
                                   row.pathPoints && row.pathPoints.length > 0
@@ -626,7 +626,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       ))}
                       <button
                         type="button"
-                        className="text-[10px] text-sky-400 self-start mt-1"
+                        className="text-meta text-chalk self-start mt-1"
                         onClick={() => {
                           const base =
                             row.pathPoints && row.pathPoints.length > 0
@@ -651,7 +651,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                 {targetsList.length > 1 ? (
                   <button
                     type="button"
-                    className="text-[10px] text-slate-500 hover:text-red-300 px-1 self-end"
+                    className="text-meta text-chalk-faint hover:text-danger px-1 self-end"
                     onClick={() => removeRow(index)}
                   >
                     Remove
@@ -661,15 +661,15 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                 line &&
                 line.segments.length > 0 ? (
                   <div className="w-full">
-                    <div className="text-[10px] text-slate-500 mb-1">
+                    <div className="text-meta text-chalk-faint mb-1">
                       Text segments (optional subset; empty = whole line). Per-segment indices
-                      match export order <code className="text-slate-400">line[i]</code>.
+                      match export order <code className="text-chalk-dim">line[i]</code>.
                     </div>
                     {mathSegments.length > 0 ? (
-                      <p className="text-[10px] text-slate-500 mb-1 leading-snug">
-                        Math segments: use <strong className="text-slate-300">Pick parts</strong>{' '}
+                      <p className="text-meta text-chalk-faint mb-1 leading-snug">
+                        Math segments: use <strong className="text-chalk-dim">Pick parts</strong>{' '}
                         to target Manim subobjects inside a formula (indices match{' '}
-                        <code className="text-slate-400">line[i][j]</code> after measurement).
+                        <code className="text-chalk-dim">line[i][j]</code> after measurement).
                       </p>
                     ) : null}
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
@@ -682,10 +682,10 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                               type="button"
                               title={seg.text.slice(0, 80)}
                               onClick={() => toggleSegment(index, si, line)}
-                              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                              className={`text-meta px-1.5 py-0.5 rounded-ctl border ${
                                 active
-                                  ? 'bg-sky-700/50 border-sky-500 text-sky-100'
-                                  : 'bg-slate-900 border-slate-600 text-slate-500 line-through'
+                                  ? 'bg-raised border-highlight/60 text-chalk'
+                                  : 'bg-ink border-rule text-chalk-faint line-through'
                               }`}
                             >
                               #{si}
@@ -694,7 +694,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                             {seg.isMath ? (
                               <button
                                 type="button"
-                                className="shrink-0 text-[9px] text-amber-400 hover:text-amber-300 underline"
+                                className="shrink-0 text-meta text-warn hover:text-warn underline"
                                 onClick={() => setPicker({ rowIndex: index, segmentIndex: si })}
                               >
                                 Pick parts
@@ -705,7 +705,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                       })}
                       <button
                         type="button"
-                        className="text-[10px] text-sky-400 underline"
+                        className="text-meta text-chalk underline"
                         onClick={() => {
                           const trow = targetsList[index];
                           if (!trow || !line) {
@@ -722,11 +722,11 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                   </div>
                 ) : null}
                 {target && (item.mode === 'graphFollow' ? isGraphFollowTarget(target) : canBeTargetAnimationTarget(target, item.mode)) ? (
-                  <p className="w-full text-[10px] text-slate-500">
+                  <p className="w-full text-meta text-chalk-faint">
                     {itemClipDisplayName(target)}
                   </p>
                 ) : (
-                  <p className="w-full text-[10px] text-amber-400">
+                  <p className="w-full text-meta text-warn">
                     Invalid or missing target.
                   </p>
                 )}
@@ -736,7 +736,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
         </div>
         <button
           type="button"
-          className="mt-2 text-xs text-sky-400 hover:text-sky-300"
+          className="mt-2 text-ctl text-chalk hover:text-chalk"
           onClick={addRow}
         >
           + Add target
@@ -744,7 +744,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
       </div>
 
       {invalidStart ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-ctl text-warn">
           {item.mode === 'graphFollow' ? 'Start time is before the graph dot appears. Increase start to at least ' : 'Start time is before a target timeline start. Increase start to at least '}
           {minStart!.toFixed(2)}s.
         </p>

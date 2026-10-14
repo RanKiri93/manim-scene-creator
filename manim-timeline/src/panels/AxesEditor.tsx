@@ -55,25 +55,25 @@ export default function AxesEditor({ item }: AxesEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Axes</h3>
+      <h3 className="text-body font-semibold text-chalk">Axes</h3>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Main axes, Inset B"
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
-        <span className="mt-1 block text-[10px] text-slate-500 leading-snug">
+        <span className="mt-1 block text-meta text-chalk-faint leading-snug">
           Used in the item list, exit-animation target picker, and overlay &quot;Target axes&quot; menus. Plots and fields still link by the internal id below (unchangeable).
         </span>
       </label>
 
-      <details className="text-[10px] text-slate-500">
-        <summary className="cursor-pointer text-slate-400 select-none">Internal axes id</summary>
-        <code className="mt-1 block break-all rounded bg-slate-950 px-2 py-1 text-[10px] text-slate-400">
+      <details className="text-meta text-chalk-faint">
+        <summary className="cursor-pointer text-chalk-dim select-none">Internal axes id</summary>
+        <code className="mt-1 block break-all rounded-ctl bg-ink px-2 py-1 text-meta text-chalk-dim">
           {item.id}
         </code>
       </details>
@@ -88,22 +88,22 @@ export default function AxesEditor({ item }: AxesEditorProps) {
       </div>
 
       <div className="flex items-end gap-3 flex-wrap">
-        <label className="text-xs text-slate-400">
+        <label className="text-ctl text-chalk-dim">
           X label
           <input
             type="text"
             value={item.xLabel}
             onChange={(e) => set({ xLabel: e.target.value })}
-            className="ml-1 w-16 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="ml-1 w-16 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           />
         </label>
-        <label className="text-xs text-slate-400">
+        <label className="text-ctl text-chalk-dim">
           Y label
           <input
             type="text"
             value={item.yLabel}
             onChange={(e) => set({ yLabel: e.target.value })}
-            className="ml-1 w-16 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="ml-1 w-16 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           />
         </label>
       </div>
@@ -140,7 +140,7 @@ export default function AxesEditor({ item }: AxesEditorProps) {
   const stylingContent = (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <h4 className="text-xs font-medium text-slate-300">Axis line</h4>
+        <h4 className="text-ctl font-medium text-chalk-dim">Axis line</h4>
         <div className="flex items-end gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <ColorPicker
@@ -152,13 +152,13 @@ export default function AxesEditor({ item }: AxesEditorProps) {
               <button
                 type="button"
                 onClick={() => set({ axisColor: undefined })}
-                className="rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-400 hover:text-slate-200"
+                className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk-dim hover:text-chalk"
               >
                 Default
               </button>
             ) : null}
           </div>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Stroke width
             <input
               type="number"
@@ -167,20 +167,20 @@ export default function AxesEditor({ item }: AxesEditorProps) {
               value={item.axisStrokeWidth === undefined ? '' : item.axisStrokeWidth}
               placeholder="default"
               onChange={(e) => setOptionalNumber('axisStrokeWidth', e.target.value, 0.5)}
-              className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+              className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
             />
           </label>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 pt-1 border-t border-slate-700">
-        <h4 className="text-xs font-medium text-slate-300">Ticks and numbers</h4>
+      <div className="flex flex-col gap-2 pt-1 border-t border-rule">
+        <h4 className="text-ctl font-medium text-chalk-dim">Ticks and numbers</h4>
         <div className="flex items-end gap-3 flex-wrap">
-          <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
-            <input type="checkbox" checked={item.includeNumbers} onChange={(e) => set({ includeNumbers: e.target.checked })} className="accent-blue-500" />
+          <label className="flex items-center gap-1 text-ctl text-chalk-dim cursor-pointer">
+            <input type="checkbox" checked={item.includeNumbers} onChange={(e) => set({ includeNumbers: e.target.checked })} className="accent-highlight" />
             Numbers
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Tick length
             <input
               type="number"
@@ -189,20 +189,20 @@ export default function AxesEditor({ item }: AxesEditorProps) {
               value={item.tickLength === undefined ? '' : item.tickLength}
               placeholder="default"
               onChange={(e) => setOptionalNumber('tickLength', e.target.value, 0.01)}
-              className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+              className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
             />
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Tick color
             <input
               type="text"
               value={item.tickColor ?? ''}
               onChange={(e) => set({ tickColor: e.target.value.trim() || undefined })}
               placeholder="axis/default"
-              className="ml-1 w-32 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+              className="ml-1 w-32 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
             />
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Tick stroke
             <input
               type="number"
@@ -211,20 +211,20 @@ export default function AxesEditor({ item }: AxesEditorProps) {
               value={item.tickStrokeWidth === undefined ? '' : item.tickStrokeWidth}
               placeholder="default"
               onChange={(e) => setOptionalNumber('tickStrokeWidth', e.target.value, 0.5)}
-              className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+              className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
             />
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Number color
             <input
               type="text"
               value={item.numberColor ?? ''}
               onChange={(e) => set({ numberColor: e.target.value.trim() || undefined })}
               placeholder="default"
-              className="ml-1 w-32 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+              className="ml-1 w-32 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
             />
           </label>
-          <label className="text-xs text-slate-400">
+          <label className="text-ctl text-chalk-dim">
             Number size
             <input
               type="number"
@@ -233,22 +233,22 @@ export default function AxesEditor({ item }: AxesEditorProps) {
               value={item.numberFontSize === undefined ? '' : item.numberFontSize}
               placeholder="default"
               onChange={(e) => setOptionalNumber('numberFontSize', e.target.value, 1)}
-              className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+              className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
             />
           </label>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 pt-1 border-t border-slate-700">
-        <h4 className="text-xs font-medium text-slate-300">Tips</h4>
+      <div className="flex flex-col gap-2 pt-1 border-t border-rule">
+        <h4 className="text-ctl font-medium text-chalk-dim">Tips</h4>
         <div className="flex items-end gap-3 flex-wrap">
-          <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer">
-            <input type="checkbox" checked={item.includeTip} onChange={(e) => set({ includeTip: e.target.checked })} className="accent-blue-500" />
+          <label className="flex items-center gap-1 text-ctl text-chalk-dim cursor-pointer">
+            <input type="checkbox" checked={item.includeTip} onChange={(e) => set({ includeTip: e.target.checked })} className="accent-highlight" />
             Tips
           </label>
           {item.includeTip ? (
             <>
-              <label className="text-xs text-slate-400 flex flex-col gap-1">
+              <label className="text-ctl text-chalk-dim flex flex-col gap-1">
                 Tip shape
                 <select
                   value={item.tipShape ?? 'default'}
@@ -256,7 +256,7 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                     const v = e.target.value as AxesTipShape;
                     set({ tipShape: v === 'default' ? undefined : v });
                   }}
-                  className="w-52 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+                  className="w-52 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
                 >
                   {AXES_TIP_SHAPE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
@@ -265,7 +265,7 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                   ))}
                 </select>
               </label>
-              <label className="text-xs text-slate-400">
+              <label className="text-ctl text-chalk-dim">
                 Tip height
                 <input
                   type="number"
@@ -274,10 +274,10 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                   value={item.tipHeight === undefined ? '' : item.tipHeight}
                   placeholder="default"
                   onChange={(e) => setOptionalNumber('tipHeight', e.target.value, 0.05)}
-                  className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+                  className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
                 />
               </label>
-              <label className="text-xs text-slate-400">
+              <label className="text-ctl text-chalk-dim">
                 Tip width
                 <input
                   type="number"
@@ -286,10 +286,10 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                   value={item.tipWidth === undefined ? '' : item.tipWidth}
                   placeholder="default"
                   onChange={(e) => setOptionalNumber('tipWidth', e.target.value, 0.05)}
-                  className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+                  className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
                 />
               </label>
-              <label className="text-xs text-slate-400">
+              <label className="text-ctl text-chalk-dim">
                 Tip stroke
                 <input
                   type="number"
@@ -298,10 +298,10 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                   value={item.tipStrokeWidth === undefined ? '' : item.tipStrokeWidth}
                   placeholder="default"
                   onChange={(e) => setOptionalNumber('tipStrokeWidth', e.target.value, 0)}
-                  className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+                  className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
                 />
               </label>
-              <label className="text-xs text-slate-400">
+              <label className="text-ctl text-chalk-dim">
                 Tip fill opacity
                 <input
                   type="number"
@@ -320,7 +320,7 @@ export default function AxesEditor({ item }: AxesEditorProps) {
                     if (Number.isNaN(n)) return;
                     set({ tipFillOpacity: Math.max(0, Math.min(1, n)) });
                   }}
-                  className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300 placeholder:text-slate-600"
+                  className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
                 />
               </label>
             </>
@@ -371,7 +371,7 @@ export default function AxesEditor({ item }: AxesEditorProps) {
       </div>
 
       <div>
-        <div className="text-xs text-slate-400 mb-1">Positioning steps ({item.posSteps.length})</div>
+        <div className="text-ctl text-chalk-dim mb-1">Positioning steps ({item.posSteps.length})</div>
         <PositionStepsEditor
           steps={item.posSteps}
           onChange={(s) => set({ posSteps: s })}

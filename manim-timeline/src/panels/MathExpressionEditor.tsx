@@ -84,15 +84,15 @@ export default function MathExpressionEditor({
   const firstIssue = status.issues[0];
   const statusBadge =
     status.level === 'ok' ? (
-      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-300">
+      <span className="inline-flex items-center gap-1 text-meta text-kind-axes">
         <span aria-hidden>✓</span> Expressions look valid
       </span>
     ) : (
       <span
         className={
           status.level === 'error'
-            ? 'text-[11px] text-red-300'
-            : 'text-[11px] text-amber-300'
+            ? 'text-meta text-danger'
+            : 'text-meta text-warn'
         }
       >
         {status.level === 'error' ? '✕' : '!'} {firstIssue?.message}
@@ -103,31 +103,31 @@ export default function MathExpressionEditor({
     );
 
   return (
-    <div dir="ltr" className="rounded border border-slate-600 bg-slate-800/30 px-2 py-2 text-left">
+    <div dir="ltr" className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 text-left">
       <div className="mb-1 flex items-center gap-1.5">
-        <span className="text-xs text-slate-400">{label}</span>
+        <span className="text-ctl text-chalk-dim">{label}</span>
         <GraphFieldHelpIcon title={sectionHelp} label={`Help: ${label}`} />
         <span className="flex-1" />
         <button
           type="button"
           onClick={() => setHelperOpen(true)}
-          className="rounded border border-slate-600 bg-slate-800 px-2 py-0.5 text-[11px] text-slate-200 hover:border-slate-500 hover:bg-slate-700"
+          className="rounded-ctl border border-rule bg-raised px-2 py-0.5 text-meta text-chalk hover:border-rule hover:bg-rule"
         >
           Open helper
         </button>
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-slate-500">
+      <p className="mt-1 text-meta leading-snug text-chalk-faint">
         JavaScript drives the canvas preview; Python (NumPy) drives export.
         Variable{variables.length === 1 ? ' is' : 's are'}{' '}
         {variables.map((v, i) => (
           <span key={v}>
             {i > 0 ? ', ' : ''}
-            <code className="text-slate-400">{v}</code>
+            <code className="text-chalk-dim">{v}</code>
           </span>
         ))}
         .
       </p>
-      <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
+      <div className="mt-2 flex items-center gap-1 text-ctl text-chalk-dim">
         <span>Preview (JavaScript)</span>
         <GraphFieldHelpIcon title={jsHelp} label="Help: JavaScript formula" />
       </div>
@@ -138,9 +138,9 @@ export default function MathExpressionEditor({
         placeholder={jsPlaceholder}
         spellCheck={false}
         dir="ltr"
-        className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono text-left"
+        className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk font-mono text-left"
       />
-      <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
+      <div className="mt-2 flex items-center gap-1 text-ctl text-chalk-dim">
         <span>Export (Python)</span>
         <GraphFieldHelpIcon title={pyHelp} label="Help: Python formula" />
       </div>
@@ -151,7 +151,7 @@ export default function MathExpressionEditor({
         placeholder={pyPlaceholder}
         spellCheck={false}
         dir="ltr"
-        className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 font-mono text-left"
+        className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk font-mono text-left"
       />
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
         {statusBadge}
@@ -164,7 +164,7 @@ export default function MathExpressionEditor({
                 pyExpr: replacePowerOperator(pyExpr),
               })
             }
-            className="rounded border border-amber-600 bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-200 hover:bg-amber-800/50"
+            className="rounded-ctl border border-warn/45 bg-warn/10 px-1.5 py-0.5 text-meta text-warn hover:bg-warn/10"
           >
             Fix: ^ → **
           </button>

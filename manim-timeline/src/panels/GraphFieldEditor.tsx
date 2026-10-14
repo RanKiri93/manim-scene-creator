@@ -45,15 +45,15 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Vector / slope field</h3>
-      <label className="text-xs text-slate-400 block">
+      <h3 className="text-body font-semibold text-chalk">Vector / slope field</h3>
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Gradient field — optional; shown in exit target menu"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
@@ -62,7 +62,7 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
 
   const graphContent = (
     <div className="flex flex-col gap-3">
-      <div className="text-xs text-slate-400 flex items-center gap-1.5">
+      <div className="text-ctl text-chalk-dim flex items-center gap-1.5">
         <span>Field expressions</span>
         <GraphFieldHelpIcon
           title={FIELD_XY_PROFILE.sectionHelp}
@@ -70,14 +70,14 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
         />
       </div>
       <div className="flex flex-col gap-2">
-        <label className="text-xs text-slate-400">
+        <label className="text-ctl text-chalk-dim">
           Mode
           <select
             value={item.fieldMode ?? 'vector'}
             onChange={(e) =>
               set({ fieldMode: e.target.value as GraphFieldMode })
             }
-            className="ml-2 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+            className="ml-2 bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
           >
             <option value="none">None</option>
             <option value="vector">Vector field F = ⟨P, Q⟩</option>
@@ -104,7 +104,7 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
               dialogTitle="Field Q(x, y) — expression helper"
             />
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] text-slate-500">
+              <span className="text-meta text-chalk-faint">
                 Insert both P and Q (JS + Python) for a common field:
               </span>
               <div className="flex flex-wrap gap-1">
@@ -113,7 +113,7 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
                     key={p.label}
                     type="button"
                     title={`Insert: ${p.label}`}
-                    className="rounded border border-slate-600 bg-slate-800/80 px-1.5 py-0.5 text-[10px] text-slate-300 hover:border-slate-500 hover:bg-slate-700"
+                    className="rounded-ctl border border-rule bg-raised px-1.5 py-0.5 text-meta text-chalk hover:border-rule hover:bg-rule"
                     onClick={(e) => {
                       e.stopPropagation();
                       set({
@@ -164,14 +164,14 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
                 min={0.05}
                 step={0.05}
               />
-              <label className="text-xs text-slate-400">
+              <label className="text-ctl text-chalk-dim">
                 Colormap
                 <select
                   value={item.fieldColormap ?? 'viridis'}
                   onChange={(e) =>
                     set({ fieldColormap: e.target.value as GraphFieldColormap })
                   }
-                  className="ml-1 w-full bg-slate-800 border border-slate-600 rounded px-1 py-0.5 text-xs text-slate-200"
+                  className="ml-1 w-full bg-raised border border-rule rounded-ctl px-1 py-0.5 text-ctl text-chalk"
                 >
                   <option value="viridis">Viridis</option>
                   <option value="plasma">Plasma</option>
@@ -222,36 +222,36 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
           </>
         )}
 
-        <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={item.streamPlacementActive ?? false}
             onChange={(e) => set({ streamPlacementActive: e.target.checked })}
-            className="accent-blue-500"
+            className="accent-highlight"
           />
           Click canvas to add streamline seed (when this clip is selected)
         </label>
 
-        <div className="text-xs text-slate-500">
+        <div className="text-ctl text-chalk-faint">
           Seeds: {(item.streamPoints ?? []).length}
         </div>
         {(item.streamPoints ?? []).map((sp, i) => (
           <div
             key={sp.id}
-            className="flex flex-wrap items-center gap-2 p-2 bg-slate-800/50 border border-slate-700 rounded"
+            className="flex flex-wrap items-center gap-2 p-2 bg-ink/40 border border-rule rounded-ctl"
           >
             <NumberInput label="x0" value={sp.x} onChange={(v) => updateStream(i, { x: v })} />
             <NumberInput label="y0" value={sp.y} onChange={(v) => updateStream(i, { y: v })} />
             <button
               type="button"
               onClick={() => removeStream(i)}
-              className="text-red-400 hover:text-red-300 text-xs ml-auto"
+              className="text-danger hover:text-danger text-ctl ml-auto"
             >
               Remove
             </button>
           </div>
         ))}
-        <button type="button" onClick={addStream} className="text-xs text-blue-400 hover:text-blue-300 text-left">
+        <button type="button" onClick={addStream} className="text-ctl text-chalk hover:text-chalk text-left">
           + Add streamline seed
         </button>
       </div>
@@ -283,7 +283,7 @@ export default function GraphFieldEditor({ item }: GraphFieldEditorProps) {
           <NumberInput label="Duration" value={item.duration} onChange={(v) => set({ duration: v })} min={0.01} />
           <NumberInput label="Layer" value={item.layer} onChange={(v) => set({ layer: Math.round(v) })} min={0} step={1} />
         </div>
-        <p className="text-[10px] text-slate-500 max-w-md">
+        <p className="text-meta text-chalk-faint max-w-md">
           Stack vs other overlays on this axes: higher Layer draws on top (same as plot/dot).
         </p>
       </div>

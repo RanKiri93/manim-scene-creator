@@ -44,17 +44,17 @@ export default function FrameAssignmentPanel({ item }: FrameAssignmentPanelProps
   };
 
   return (
-    <div className="border-b border-slate-700 bg-slate-900/80 p-3 text-xs text-slate-300">
+    <div className="border-b border-rule bg-ink/80 p-3 text-ctl text-chalk-dim">
       <div className="flex items-center gap-2">
         <label className="flex-1">
-          <span className="block text-slate-400 mb-1">Frame</span>
+          <span className="block text-chalk-dim mb-1">Frame</span>
           <select
             value={currentFrameId}
             onChange={(e) => {
               updateItem(item.id, { frameId: e.target.value } as Partial<typeof item>);
               setActiveFrameId(e.target.value);
             }}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           >
             {frames.map((f) => (
               <option key={f.id} value={f.id}>
@@ -68,18 +68,18 @@ export default function FrameAssignmentPanel({ item }: FrameAssignmentPanelProps
         <button
           type="button"
           onClick={() => setActiveFrameId(currentFrameId)}
-          className="rounded border border-slate-600 bg-slate-800 px-2 py-1 hover:bg-slate-700"
+          className="rounded-ctl border border-rule bg-raised px-2 py-1 hover:bg-rule"
         >
           Use as active
         </button>
         <button
           type="button"
           onClick={addAdjacent}
-          className="rounded border border-slate-600 bg-slate-800 px-2 py-1 hover:bg-slate-700"
+          className="rounded-ctl border border-rule bg-raised px-2 py-1 hover:bg-rule"
         >
           Add frame left
         </button>
-        <span className="text-slate-500 py-1">
+        <span className="text-chalk-faint py-1">
           Active: {frameDisplayName(frames.find((f) => f.id === activeFrameId), frames)}
         </span>
       </div>

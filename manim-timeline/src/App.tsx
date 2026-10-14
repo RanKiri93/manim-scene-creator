@@ -138,7 +138,6 @@ export default function App() {
   const [timelineHeight, setTimelineHeight] = useState(220);
   const [toolbarWidth, setToolbarWidth] = useState(readStoredToolbarWidth);
   const [insertCollapsed, setInsertCollapsed] = useState(readStoredInsertCollapsed);
-  const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
 
   const toggleInsertCollapsed = useCallback(() => {
     setInsertCollapsed((prev) => {
@@ -550,7 +549,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main content: list + canvas + export/audio; properties float over canvas */}
+      {/* Main content: list, insert rail, canvas, docked properties; export/audio/Copilot float */}
       <div className="flex flex-1 min-h-0 relative overflow-hidden">
         {/* Left sidebar: Item list */}
         <aside className="w-64 border-r border-rule bg-panel flex flex-col shrink-0 z-10">
@@ -587,10 +586,10 @@ export default function App() {
 
         {/* Center: Canvas */}
         <main className="flex-1 min-h-0 relative overflow-hidden flex flex-col min-w-0 p-3">
-          <SceneCanvas onFrameRectChange={setCanvasRect} />
+          <SceneCanvas />
         </main>
 
-        <PropertyPanel anchorRect={canvasRect} />
+        <PropertyPanel />
 
         {exportOpen && (
           <FloatingPanel title="Export" onClose={() => setExportOpen(false)} defaultSize={{ w: 400, h: 520 }}>

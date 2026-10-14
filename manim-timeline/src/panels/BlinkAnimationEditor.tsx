@@ -170,26 +170,26 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Blink animation</h3>
-      <p className="text-[11px] text-slate-500 leading-snug">
+      <h3 className="text-body font-semibold text-chalk">Blink animation</h3>
+      <p className="text-meta text-chalk-faint leading-snug">
         Pulses scale and/or color on targets, then restores them. Does not remove objects.
         Start time must be at or after each target&apos;s timeline start.
       </p>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Label
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Blink emphasize"
-          className="mt-1 w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <button
         type="button"
-        className="self-start text-xs text-red-300 hover:text-red-200 underline"
+        className="self-start text-ctl text-danger hover:text-danger underline"
         onClick={() => removeItem(item.id)}
       >
         Delete blink clip
@@ -200,13 +200,13 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
   const targetsContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <div className="text-xs text-slate-400 mb-1">Targets</div>
-        <label className="text-[10px] text-slate-500 mb-2 inline-flex items-center gap-1">
+        <div className="text-ctl text-chalk-dim mb-1">Targets</div>
+        <label className="text-meta text-chalk-faint mb-2 inline-flex items-center gap-1">
           Scope
           <select
             value={targetScope}
             onChange={(e) => setTargetScope(e.target.value as TargetScope)}
-            className="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           >
             <option value="same-frame">This frame</option>
             <option value="all-frames">All frames</option>
@@ -227,14 +227,14 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
             return (
               <div
                 key={`${row.targetId}-${index}`}
-                className="flex flex-wrap gap-2 p-2 rounded border border-slate-700 bg-slate-800/40"
+                className="flex flex-wrap gap-2 p-2 rounded-ctl border border-rule bg-ink/40"
               >
-                <label className="text-[10px] text-slate-500 flex-1 min-w-[140px]">
+                <label className="text-meta text-chalk-faint flex-1 min-w-[140px]">
                   Object
                   <select
                     value={row.targetId}
                     onChange={(e) => onTargetChange(index, e.target.value)}
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     {!hasTarget ? (
                       <option value={row.targetId}>
@@ -256,21 +256,21 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                     ))}
                   </select>
                 </label>
-                <label className="text-[10px] text-slate-500 w-[140px]">
+                <label className="text-meta text-chalk-faint w-[140px]">
                   Mode
                   <select
                     value={row.mode}
                     onChange={(e) =>
                       patchRow(index, { mode: e.target.value as BlinkMode })
                     }
-                    className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                    className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                   >
                     <option value="scale">Scale only</option>
                     <option value="color">Color only</option>
                   </select>
                 </label>
                 {row.mode === 'scale' && (
-                  <label className="text-[10px] text-slate-500 w-[100px]">
+                  <label className="text-meta text-chalk-faint w-[100px]">
                     Scale
                     <input
                       type="number"
@@ -283,12 +283,12 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                           scaleFactor: Math.max(1.01, +e.target.value || 1.15),
                         })
                       }
-                      className="mt-0.5 w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                      className="mt-0.5 w-full bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
                     />
                   </label>
                 )}
                 {row.mode === 'color' && (
-                  <label className="text-[10px] text-slate-500 w-[100px]">
+                  <label className="text-meta text-chalk-faint w-[100px]">
                     Blink color
                     <input
                       type="color"
@@ -298,14 +298,14 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                           : DEFAULT_BLINK_COLOR_HEX
                       }
                       onChange={(e) => patchRow(index, { blinkColor: e.target.value })}
-                      className="mt-0.5 w-full h-7 bg-slate-800 border border-slate-600 rounded"
+                      className="mt-0.5 w-full h-7 bg-raised border border-rule rounded-ctl"
                     />
                   </label>
                 )}
                 {targetsList.length > 1 ? (
                   <button
                     type="button"
-                    className="text-[10px] text-slate-500 hover:text-red-300 px-1 self-end"
+                    className="text-meta text-chalk-faint hover:text-danger px-1 self-end"
                     onClick={() => removeRow(index)}
                   >
                     Remove
@@ -313,15 +313,15 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                 ) : null}
                 {line && line.segments.length > 0 ? (
                   <div className="w-full">
-                    <div className="text-[10px] text-slate-500 mb-1">
+                    <div className="text-meta text-chalk-faint mb-1">
                       Text segments (optional subset; empty = whole line). Per-segment indices
-                      match export order <code className="text-slate-400">line[i]</code>.
+                      match export order <code className="text-chalk-dim">line[i]</code>.
                     </div>
                     {mathSegments.length > 0 ? (
-                      <p className="text-[10px] text-slate-500 mb-1 leading-snug">
-                        Math segments: use <strong className="text-slate-300">Pick parts</strong>{' '}
+                      <p className="text-meta text-chalk-faint mb-1 leading-snug">
+                        Math segments: use <strong className="text-chalk-dim">Pick parts</strong>{' '}
                         to target Manim subobjects inside a formula (indices match{' '}
-                        <code className="text-slate-400">line[i][j]</code> after measurement).
+                        <code className="text-chalk-dim">line[i][j]</code> after measurement).
                       </p>
                     ) : null}
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
@@ -334,10 +334,10 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                               type="button"
                               title={seg.text.slice(0, 80)}
                               onClick={() => toggleSegment(index, si, line)}
-                              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                              className={`text-meta px-1.5 py-0.5 rounded-ctl border ${
                                 active
-                                  ? 'bg-sky-700/50 border-sky-500 text-sky-100'
-                                  : 'bg-slate-900 border-slate-600 text-slate-500 line-through'
+                                  ? 'bg-raised border-highlight/60 text-chalk'
+                                  : 'bg-ink border-rule text-chalk-faint line-through'
                               }`}
                             >
                               #{si}
@@ -346,7 +346,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                             {seg.isMath ? (
                               <button
                                 type="button"
-                                className="shrink-0 text-[9px] text-amber-400 hover:text-amber-300 underline"
+                                className="shrink-0 text-meta text-warn hover:text-warn underline"
                                 onClick={() => setPicker({ rowIndex: index, segmentIndex: si })}
                               >
                                 Pick parts
@@ -357,7 +357,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                       })}
                       <button
                         type="button"
-                        className="text-[10px] text-sky-400 underline"
+                        className="text-meta text-chalk underline"
                         onClick={() => {
                           const trow = targetsList[index];
                           if (!trow || !line) {
@@ -374,11 +374,11 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                   </div>
                 ) : null}
                 {target && canBeBlinkTarget(target) ? (
-                  <p className="w-full text-[10px] text-slate-500">
+                  <p className="w-full text-meta text-chalk-faint">
                     {itemClipDisplayName(target)}
                   </p>
                 ) : (
-                  <p className="w-full text-[10px] text-amber-400">
+                  <p className="w-full text-meta text-warn">
                     Invalid or missing target.
                   </p>
                 )}
@@ -388,7 +388,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
         </div>
         <button
           type="button"
-          className="mt-2 text-xs text-sky-400 hover:text-sky-300"
+          className="mt-2 text-ctl text-chalk hover:text-chalk"
           onClick={addRow}
         >
           + Add target
@@ -396,7 +396,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
       </div>
 
       {invalidStart ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-ctl text-warn">
           Start time is before a target timeline start. Increase start to at least{' '}
           {minStart!.toFixed(2)}s.
         </p>

@@ -55,31 +55,31 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Point sequence</h3>
+      <h3 className="text-body font-semibold text-chalk">Point sequence</h3>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. sequence on unit circle"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <AxesIdSelect value={item.axesId} onChange={(axesId) => set({ axesId })} />
 
       {hasErrors && (
-        <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
+        <div className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-2 text-ctl text-danger space-y-1">
           <div className="font-semibold">
             Playback of this object is disabled until errors are resolved.
           </div>
           {item.topLevelError && (
-            <div className="text-red-300">• {item.topLevelError}</div>
+            <div className="text-danger">• {item.topLevelError}</div>
           )}
           {perNErrorEntries.length > 0 && (
-            <div className="text-red-400">
+            <div className="text-danger">
               {perNErrorEntries.length} per-n issue
               {perNErrorEntries.length === 1 ? '' : 's'} — open the Graph tab.
             </div>
@@ -92,7 +92,7 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
   const graphContent = (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
-        <div className="text-xs text-slate-400">
+        <div className="text-ctl text-chalk-dim">
           Coordinates — one point per integer n in [n_min, n_max]
         </div>
         <MathExpressionEditor
@@ -113,8 +113,8 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
         />
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Range (integers)
         </div>
         <div className="flex items-end gap-3 flex-wrap">
@@ -130,17 +130,17 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
             onChange={(v) => set({ nMax: Math.trunc(v) })}
             step={1}
           />
-          <span className="text-[11px] text-slate-500">
+          <span className="text-meta text-chalk-faint">
             {indices.length} {indices.length === 1 ? 'point' : 'points'}
           </span>
         </div>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Playback mode
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <label className="flex items-center gap-2 text-ctl text-chalk-dim cursor-pointer">
           <input
             type="checkbox"
             checked={item.mode === 'accumulation'}
@@ -155,17 +155,17 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
                   : {}),
               });
             }}
-            className="rounded border-slate-500"
+            className="rounded-ctl border-rule"
           />
           Accumulation (each point appears and stays)
         </label>
-        <p className="text-[10px] text-slate-500 leading-snug pl-5">
+        <p className="text-meta text-chalk-faint leading-snug pl-5">
           When off (Replacement): fade out the previous dot and fade in the next at each step.
         </p>
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 px-2 py-2 space-y-2">
-        <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+      <div className="rounded-ctl border border-rule bg-ink/40 px-2 py-2 space-y-2">
+        <div className="text-meta text-chalk-faint font-medium">
           Defaults
         </div>
         <div className="flex items-end gap-3 flex-wrap">
@@ -181,7 +181,7 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
             step={0.01}
           />
         </div>
-        <p className="text-[10px] text-slate-500">
+        <p className="text-meta text-chalk-faint">
           Radius in Manim scene units (same as graph dot). Preview scales by axes size.
         </p>
         <div className="flex items-end gap-3 flex-wrap">
@@ -205,7 +205,7 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
         <button
           type="button"
           onClick={() => openIndividualFor(null)}
-          className="mt-1 px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-100"
+          className="mt-1 px-2 py-1 text-ctl bg-raised hover:bg-rule rounded-ctl text-chalk"
           title="Per-index color, radius, timing"
         >
           Individual point editing…
@@ -213,14 +213,14 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
       </div>
 
       {hasErrors && perNErrorEntries.length > 0 && (
-        <div className="rounded border border-red-700 bg-red-900/30 px-2 py-2 text-xs text-red-200 space-y-1">
+        <div className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-2 text-ctl text-danger space-y-1">
           <div className="space-y-0.5">
             {perNErrorEntries.slice(0, 8).map(([n, msg]) => (
               <button
                 key={n}
                 type="button"
                 onClick={() => openIndividualFor(Number(n))}
-                className="block text-left text-red-300 hover:text-red-100"
+                className="block text-left text-danger hover:text-danger"
               >
                 • n = {n}: {msg}
               </button>
@@ -230,7 +230,7 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
       )}
 
       {axesFor?.kind === 'axes' && (
-        <p className="text-[10px] text-slate-500">
+        <p className="text-meta text-chalk-faint">
           Points must lie inside the axes x/y domain for export validation.
         </p>
       )}
@@ -260,11 +260,11 @@ export default function PointSequenceEditor({ item }: PointSequenceEditorProps) 
           min={0}
           disabled={item.visibleAtSceneStart === true}
         />
-        <div className="flex flex-col text-[11px] text-slate-400">
-          <span className="text-[10px] uppercase tracking-wide text-slate-500">
+        <div className="flex flex-col text-meta text-chalk-dim">
+          <span className="text-meta text-chalk-faint">
             Duration (computed)
           </span>
-          <span className="font-mono text-slate-300">
+          <span className="font-mono text-chalk-dim">
             {item.duration.toFixed(2)}s
           </span>
         </div>

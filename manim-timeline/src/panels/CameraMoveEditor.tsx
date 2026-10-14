@@ -53,7 +53,7 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
     [item.id, updateItem],
   );
   const dirButtonClass =
-    'rounded border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:bg-slate-700';
+    'rounded-ctl border border-rule bg-raised px-2 py-1 text-meta text-chalk hover:bg-rule';
 
   const moveDir = useCallback(
     (dc: number, dr: number) => {
@@ -76,62 +76,62 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
   );
 
   return (
-    <div className="p-3 space-y-3 text-xs text-slate-300">
+    <div className="p-3 space-y-3 text-ctl text-chalk-dim">
       <div>
-        <label className="block text-slate-400 mb-1">Clip name</label>
+        <label className="block text-chalk-dim mb-1">Clip name</label>
         <input
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           placeholder="Camera pan"
         />
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <label>
-          <span className="block text-slate-400 mb-1">Start</span>
+          <span className="block text-chalk-dim mb-1">Start</span>
           <input
             type="number"
             step="0.1"
             value={item.startTime}
             onChange={(e) => set({ startTime: Math.max(0, Number(e.target.value) || 0) })}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
         <label>
-          <span className="block text-slate-400 mb-1">Duration (seconds)</span>
+          <span className="block text-chalk-dim mb-1">Duration (seconds)</span>
           <input
             type="number"
             step="0.1"
             min="0.05"
             value={item.duration}
             onChange={(e) => set({ duration: Math.max(0.05, Number(e.target.value) || 0.05) })}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <label>
-          <span className="block text-slate-400 mb-1">Target width</span>
+          <span className="block text-chalk-dim mb-1">Target width</span>
           <input
             type="number"
             step="0.1"
             min="0.01"
             value={item.targetWidth ?? FRAME_W}
             onChange={(e) => set({ targetWidth: Math.max(0.01, Number(e.target.value) || FRAME_W) })}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
         <label>
-          <span className="block text-slate-400 mb-1">Object fit padding</span>
+          <span className="block text-chalk-dim mb-1">Object fit padding</span>
           <input
             type="number"
             step="0.1"
             min="0"
             value={cameraObjectFitPadding}
             onChange={(e) => setCameraObjectFitPadding(Number(e.target.value))}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
       </div>
@@ -139,21 +139,21 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
         type="button"
         disabled={!hasObjectSelection}
         onClick={() => requestCameraObjectFit(item.id)}
-        className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700 disabled:opacity-40"
+        className="w-full rounded-ctl border border-rule bg-raised px-2 py-1 text-chalk hover:bg-rule disabled:opacity-40"
       >
         Fit selected object
       </button>
-      <div className="text-[10px] text-slate-500">Full frame width: {FRAME_W.toFixed(2)} Manim units</div>
+      <div className="text-meta text-chalk-faint">Full frame width: {FRAME_W.toFixed(2)} Manim units</div>
 
       <label>
-        <span className="block text-slate-400 mb-1">Target frame</span>
+        <span className="block text-chalk-dim mb-1">Target frame</span>
         <select
           value={targetFrame?.id ?? ''}
           onChange={(e) => {
             set({ targetFrameId: e.target.value, offsetX: 0, offsetY: 0 });
             setActiveFrameId(e.target.value);
           }}
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
         >
           {frames.map((f) => (
             <option key={f.id} value={f.id}>
@@ -164,7 +164,7 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
       </label>
 
       <div>
-        <div className="text-slate-400 mb-1">Pan one frame</div>
+        <div className="text-chalk-dim mb-1">Pan one frame</div>
         <div className="grid grid-cols-3 gap-1 max-w-[9rem]">
           <span />
           <button type="button" className={dirButtonClass} onClick={() => moveDir(0, -1)}>
@@ -185,45 +185,45 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
 
       <div className="grid grid-cols-2 gap-2">
         <label>
-          <span className="block text-slate-400 mb-1">Offset X</span>
+          <span className="block text-chalk-dim mb-1">Offset X</span>
           <input
             type="number"
             step="0.1"
             value={num(item.offsetX)}
             onChange={(e) => set({ offsetX: Number(e.target.value) || 0 })}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
         <label>
-          <span className="block text-slate-400 mb-1">Offset Y</span>
+          <span className="block text-chalk-dim mb-1">Offset Y</span>
           <input
             type="number"
             step="0.1"
             value={num(item.offsetY)}
             onChange={(e) => set({ offsetY: Number(e.target.value) || 0 })}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1"
+            className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
           />
         </label>
       </div>
 
       {ownSegment?.overriddenBy ? (
-        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+        <div className="rounded-ctl border border-warn/45 bg-warn/10 px-2 py-1 text-warn">
           Overridden by {itemClipDisplayName(ownSegment.overriddenBy)} at {ownSegment.overriddenBy.startTime.toFixed(2)}s
         </div>
       ) : ownSegment?.supersededByEqualStart ? (
-        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200">
+        <div className="rounded-ctl border border-warn/45 bg-warn/10 px-2 py-1 text-warn">
           Superseded by {itemClipDisplayName(ownSegment.supersededByEqualStart)} at the same start time
         </div>
       ) : null}
 
       <label>
-        <span className="block text-slate-400 mb-1">Layer</span>
+        <span className="block text-chalk-dim mb-1">Layer</span>
         <input
           type="number"
           step="1"
           value={item.layer}
           onChange={(e) => set({ layer: Math.trunc(Number(e.target.value) || 0) })}
-          className="w-24 bg-slate-800 border border-slate-600 rounded px-2 py-1"
+          className="w-24 bg-raised border border-rule rounded-ctl px-2 py-1"
         />
       </label>
     </div>

@@ -68,24 +68,24 @@ export default function MathSubobjectPicker({
   const canPick = Boolean(measure && previewDataUrl && boxes.length > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-slate-900 border border-slate-600 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto p-4 shadow-xl">
-        <h4 className="text-sm font-semibold text-slate-100 mb-1">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4">
+      <div className="bg-ink border border-rule rounded-pop max-w-2xl w-full max-h-[90vh] overflow-auto p-4 shadow-xl">
+        <h4 className="text-body font-semibold text-chalk mb-1">
           Pick Manim-rendered math pieces
         </h4>
-        <p className="text-[11px] text-slate-400 mb-3 leading-snug">
-          These boxes are <strong className="text-slate-300">Manim subobjects</strong>, not LaTeX
+        <p className="text-meta text-chalk-dim mb-3 leading-snug">
+          These boxes are <strong className="text-chalk-dim">Manim subobjects</strong>, not LaTeX
           structure. Indices match export{' '}
-          <code className="text-slate-300">line[{segmentIndex}][n]</code>.
+          <code className="text-chalk-dim">line[{segmentIndex}][n]</code>.
         </p>
         {!canPick ? (
-          <p className="text-xs text-amber-400/95 leading-snug">
+          <p className="text-ctl text-warn leading-snug">
             No clickable boxes for this segment. Ensure the measure server is running and
             remeasure this line (preview PNG + measurement).
           </p>
         ) : (
           <>
-            <div className="relative inline-block max-w-full border border-slate-700 bg-slate-950 rounded">
+            <div className="relative inline-block max-w-full border border-rule bg-ink rounded-ctl">
               <img
                 src={previewDataUrl!}
                 alt="Line preview"
@@ -110,29 +110,29 @@ export default function MathSubobjectPicker({
                     title={`Manim subobject #${b.childIndex}`}
                     className={`absolute box-border rounded-sm border-2 transition-colors cursor-pointer ${
                       on
-                        ? 'border-sky-400 bg-sky-500/25'
-                        : 'border-white/50 bg-transparent hover:bg-white/10'
+                        ? 'border-highlight/60 bg-raised'
+                        : 'border-chalk/50 bg-transparent hover:bg-rule'
                     }`}
                     style={st}
                   >
-                    <span className="absolute left-0.5 top-0 text-[8px] leading-none text-white/90 drop-shadow px-0.5 rounded bg-black/40 pointer-events-none">
+                    <span className="absolute left-0.5 top-0 text-meta leading-none text-chalk drop-shadow px-0.5 rounded-ctl bg-ink/40 pointer-events-none">
                       #{b.childIndex}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <div className="flex flex-wrap gap-3 mt-3 text-[11px]">
+            <div className="flex flex-wrap gap-3 mt-3 text-meta">
               <button
                 type="button"
-                className="text-sky-400 hover:text-sky-300 underline"
+                className="text-chalk hover:text-chalk underline"
                 onClick={() => setSelected(new Set(boxes.map((x) => x.childIndex)))}
               >
                 Select all pieces
               </button>
               <button
                 type="button"
-                className="text-slate-400 hover:text-slate-300 underline"
+                className="text-chalk-dim hover:text-chalk-dim underline"
                 onClick={() => setSelected(new Set())}
               >
                 Clear
@@ -143,14 +143,14 @@ export default function MathSubobjectPicker({
         <div className="flex justify-end gap-2 mt-4">
           <button
             type="button"
-            className="text-xs px-3 py-1.5 rounded bg-slate-800 text-slate-200 hover:bg-slate-700"
+            className="text-ctl px-3 py-1.5 rounded-ctl bg-raised text-chalk hover:bg-rule"
             onClick={onClose}
           >
             Cancel
           </button>
           <button
             type="button"
-            className="text-xs px-3 py-1.5 rounded bg-sky-700 text-white hover:bg-sky-600 disabled:opacity-40"
+            className="text-ctl px-3 py-1.5 rounded-ctl bg-raised text-chalk hover:bg-rule disabled:opacity-40"
             disabled={!canPick}
             onClick={() => {
               onApply([...selected].sort((a, b) => a - b));

@@ -131,39 +131,39 @@ export default function LineEditor({ item }: LineEditorProps) {
 
   const baseContent = (
     <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-slate-200">Text Line</h3>
+      <h3 className="text-body font-semibold text-chalk">Text Line</h3>
 
-      <label className="text-xs text-slate-400 block">
+      <label className="text-ctl text-chalk-dim block">
         Clip name
         <input
           type="text"
           value={item.label}
           onChange={(e) => set({ label: e.target.value })}
           placeholder="e.g. Title, Step 2 — optional; helps exit targets & item list"
-          className="mt-1 w-full max-w-md bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         />
       </label>
 
       <div>
-        <label className="text-xs text-slate-400 mb-1 block">LaTeX source</label>
+        <label className="text-ctl text-chalk-dim mb-1 block">LaTeX source</label>
         <textarea
           value={item.raw}
           onChange={(e) => onRawChange(e.target.value)}
           rows={3}
           dir="rtl"
-          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-sm text-slate-200 font-mono resize-y"
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1.5 text-body text-chalk font-mono resize-y"
           placeholder="Hebrew text with $math$ segments..."
         />
       </div>
 
       <div className="flex items-end gap-3 flex-wrap">
-        <label className="text-xs text-slate-400">
+        <label className="text-ctl text-chalk-dim">
           Font
           <input
             type="text"
             value={item.font}
             onChange={(e) => set({ font: e.target.value })}
-            className="ml-1 w-24 bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-slate-300"
+            className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           />
         </label>
         <NumberInput
@@ -177,12 +177,12 @@ export default function LineEditor({ item }: LineEditorProps) {
       </div>
 
       {item.measureError && (
-        <p className="text-[10px] text-red-400 bg-red-900/20 rounded px-2 py-1">
+        <p className="text-meta text-danger bg-danger/10 rounded-ctl px-2 py-1">
           Measure error: {item.measureError}
         </p>
       )}
       {item.measure && (
-        <p className="text-[10px] text-slate-500">
+        <p className="text-meta text-chalk-faint">
           Measured: {item.measure.width.toFixed(2)} x {item.measure.height.toFixed(2)} Manim units
           {item.measure.pngWidth && ` | raster ${item.measure.pngWidth}x${item.measure.pngHeight}px`}
         </p>
@@ -194,11 +194,11 @@ export default function LineEditor({ item }: LineEditorProps) {
   const animationContent = (
     <div className="flex flex-col gap-3">
       <div>
-        <label className="text-xs text-slate-400 mb-1 block">Anim style</label>
+        <label className="text-ctl text-chalk-dim mb-1 block">Anim style</label>
         <select
           value={animStyle}
           onChange={(e) => onAnimStyleChange(e.target.value as AnimStyle)}
-          className="w-full max-w-xs bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+          className="w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
           <option value="write">Write</option>
           <option value="fade_in">Fade in</option>
@@ -207,14 +207,14 @@ export default function LineEditor({ item }: LineEditorProps) {
       </div>
 
       {animStyle === 'transform' && (
-        <div className="flex flex-col gap-2 rounded border border-slate-600 bg-slate-800/40 p-2">
-          <div className="text-[10px] uppercase tracking-wide text-slate-500">Transform mapping</div>
+        <div className="flex flex-col gap-2 rounded-ctl border border-rule bg-ink/40 p-2">
+          <div className="text-meta text-chalk-faint">Transform mapping</div>
           {earlierTextLines.length === 0 ? (
-            <p className="text-[11px] text-amber-400/90">No earlier text lines in the scene to use as source.</p>
+            <p className="text-meta text-warn">No earlier text lines in the scene to use as source.</p>
           ) : (item.transformConfig?.mode ?? 'segments') === 'whole' ? (
-            <div className="flex flex-col gap-1 text-xs text-slate-400">
+            <div className="flex flex-col gap-1 text-ctl text-chalk-dim">
               Source lines
-              <div className="flex flex-col gap-1 rounded border border-slate-700 bg-slate-900/40 p-2 max-h-40 overflow-y-auto">
+              <div className="flex flex-col gap-1 rounded-ctl border border-rule bg-ink/40 p-2 max-h-40 overflow-y-auto">
                 {earlierTextLines.map((line) => {
                   const selectedIds =
                     item.transformConfig?.sourceLineIds?.length
@@ -226,7 +226,7 @@ export default function LineEditor({ item }: LineEditorProps) {
                   return (
                     <label
                       key={line.id}
-                      className="flex items-center gap-2 text-slate-200 cursor-pointer"
+                      className="flex items-center gap-2 text-chalk cursor-pointer"
                     >
                       <input
                         type="checkbox"
@@ -256,7 +256,7 @@ export default function LineEditor({ item }: LineEditorProps) {
                             sourceLineId: nextIds[0]!,
                           });
                         }}
-                        className="rounded border-slate-600"
+                        className="rounded-ctl border-rule"
                       />
                       <span className="truncate">{lineLabel(line)}</span>
                     </label>
@@ -265,7 +265,7 @@ export default function LineEditor({ item }: LineEditorProps) {
               </div>
             </div>
           ) : (
-            <label className="flex flex-col gap-1 text-xs text-slate-400">
+            <label className="flex flex-col gap-1 text-ctl text-chalk-dim">
               Source line
               <select
                 value={item.transformConfig?.sourceLineId ?? ''}
@@ -278,7 +278,7 @@ export default function LineEditor({ item }: LineEditorProps) {
                     sourceLineIds: [id],
                   });
                 }}
-                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+                className="bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
               >
                 {earlierTextLines.map((line) => (
                   <option key={line.id} value={line.id}>
@@ -288,7 +288,7 @@ export default function LineEditor({ item }: LineEditorProps) {
               </select>
             </label>
           )}
-          <label className="flex flex-col gap-1 text-xs text-slate-400">
+          <label className="flex flex-col gap-1 text-ctl text-chalk-dim">
             Transform type
             <select
               value={item.transformConfig?.mode ?? 'segments'}
@@ -308,7 +308,7 @@ export default function LineEditor({ item }: LineEditorProps) {
                       : [primary],
                 });
               }}
-              className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"
+              className="bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
             >
               <option value="segments">Mapped segments</option>
               <option value="whole">Whole line morph</option>
@@ -320,7 +320,7 @@ export default function LineEditor({ item }: LineEditorProps) {
                 type="button"
                 disabled={!sourceLineItem}
                 onClick={() => setMapperOpen(true)}
-                className="self-start rounded border border-slate-500 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="self-start rounded-ctl border border-rule px-2 py-1 text-ctl text-chalk hover:bg-rule disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Map segments…
               </button>
@@ -423,54 +423,54 @@ export default function LineEditor({ item }: LineEditorProps) {
         <NumberInput label="Scale" value={item.scale} onChange={(v) => set({ scale: v })} min={0.01} step={0.05} />
       </div>
 
-      <div className="rounded border border-slate-600 bg-slate-800/40 p-2">
-        <div className="text-xs font-medium text-slate-300 mb-1.5">Quick layout</div>
+      <div className="rounded-ctl border border-rule bg-ink/40 p-2">
+        <div className="text-ctl font-medium text-chalk-dim mb-1.5">Quick layout</div>
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => setInkEdge('RIGHT', 0.3)}
-            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk hover:bg-rule"
           >
             Ink right
           </button>
           <button
             type="button"
             onClick={() => setInkEdge('LEFT', 0.3)}
-            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk hover:bg-rule"
           >
             Ink left
           </button>
           <button
             type="button"
             onClick={() => setInkEdge('UP', 0.5)}
-            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk hover:bg-rule"
           >
             Ink top
           </button>
           <button
             type="button"
             onClick={() => setInkEdge('DOWN', 0.5)}
-            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk hover:bg-rule"
           >
             Ink bottom
           </button>
           <button
             type="button"
             onClick={centerX}
-            className="rounded border border-slate-500 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className="rounded-ctl border border-rule px-2 py-0.5 text-ctl text-chalk hover:bg-rule"
           >
             Center X
           </button>
         </div>
         {!item.measure && (
-          <p className="mt-1.5 text-[10px] text-slate-500">
+          <p className="mt-1.5 text-meta text-chalk-faint">
             Ink alignment is most accurate after measurement completes.
           </p>
         )}
       </div>
 
       <div>
-        <div className="text-xs text-slate-400 mb-1">Positioning steps ({item.posSteps.length})</div>
+        <div className="text-ctl text-chalk-dim mb-1">Positioning steps ({item.posSteps.length})</div>
         <PositionStepsEditor
           steps={item.posSteps}
           onChange={(s) => set({ posSteps: s })}
