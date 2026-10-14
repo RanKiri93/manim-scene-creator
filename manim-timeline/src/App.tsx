@@ -37,7 +37,7 @@ const INSERT_SIDEBAR_COLLAPSED_KEY = 'manim-timeline-insert-sidebar-collapsed';
 const DEFAULT_TOOLBAR_WIDTH = 216;
 const MIN_TOOLBAR_WIDTH = 64;
 const MAX_TOOLBAR_WIDTH = 360;
-const COLLAPSED_INSERT_WIDTH = 60;
+const COLLAPSED_INSERT_WIDTH = 52;
 const MIN_EXPANDED_INSERT_WIDTH = 180;
 
 function readStoredToolbarWidth(): number {
@@ -56,9 +56,10 @@ function readStoredToolbarWidth(): number {
 function readStoredInsertCollapsed(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return localStorage.getItem(INSERT_SIDEBAR_COLLAPSED_KEY) === '1';
+    // Icon rail by default; only an explicit '0' keeps the labelled sidebar.
+    return localStorage.getItem(INSERT_SIDEBAR_COLLAPSED_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -558,7 +559,7 @@ export default function App() {
         </aside>
 
         <div
-          className="flex shrink-0 min-h-0 relative border-r border-slate-700 bg-slate-850/95"
+          className="relative flex min-h-0 shrink-0 border-r border-rule bg-panel"
           style={{ width: insertSidebarWidth }}
         >
           <div className="min-w-0 flex-1 flex flex-col overflow-hidden">
@@ -566,7 +567,7 @@ export default function App() {
               collapsed={insertCollapsed}
               onToggleCollapsed={toggleInsertCollapsed}
             />
-            <div className="shrink-0 border-t border-slate-700/80 px-2 py-2">
+            <div className={`shrink-0 border-t border-rule py-2 ${insertCollapsed ? 'px-1' : 'px-2'}`}>
               <InsertAudioActions collapsed={insertCollapsed} />
             </div>
           </div>
@@ -579,7 +580,7 @@ export default function App() {
               onPointerDown={startToolbarWidthResize}
               className="absolute top-0 right-0 bottom-0 w-3 -mr-1.5 z-20 cursor-col-resize flex justify-center touch-none group/seph"
             >
-              <span className="w-px h-full bg-slate-600 group-hover/seph:bg-blue-400 group-active/seph:bg-blue-300 transition-colors" />
+              <span className="h-full w-px bg-rule transition-colors group-hover/seph:bg-highlight/70 group-active/seph:bg-highlight" />
             </div>
           )}
         </div>

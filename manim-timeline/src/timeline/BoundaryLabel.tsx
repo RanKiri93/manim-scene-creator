@@ -43,7 +43,7 @@ export default function BoundaryLabel({
   if (!mathHtml) {
     return (
       <span
-        className={`pointer-events-none block truncate text-[8px] font-bold leading-tight text-white drop-shadow-sm ${
+        className={`pointer-events-none block truncate text-meta leading-tight font-medium text-highlight-ink ${
           align === 'right' ? 'text-right' : ''
         }`}
         style={{ maxWidth: `${maxWidthPx}px` }}
@@ -59,7 +59,7 @@ export default function BoundaryLabel({
       style={fillSegment ? { width: `${maxWidthPx}px`, maxWidth: `${maxWidthPx}px` } : undefined}
     >
       <span
-        className={`block text-white drop-shadow-sm ${fillSegment ? 'overflow-visible' : 'overflow-hidden'}`}
+        className={`block text-highlight-ink ${fillSegment ? 'overflow-visible' : 'overflow-hidden'}`}
         style={{
           fontSize: fillSegment ? '12px' : '10px',
           lineHeight: 1.2,
@@ -68,7 +68,7 @@ export default function BoundaryLabel({
         dangerouslySetInnerHTML={{ __html: mathHtml }}
       />
       <span
-        className={`pointer-events-none absolute top-full z-50 mt-1 hidden whitespace-nowrap rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white shadow-lg group-hover/math:block ${
+        className={`pointer-events-none absolute top-full z-50 mt-1 hidden whitespace-nowrap rounded-ctl border border-rule bg-panel px-2 py-1 text-chalk shadow-lg group-hover/math:block ${
           align === 'right' ? 'right-0' : 'left-0'
         }`}
         style={{ fontSize: '16px' }}

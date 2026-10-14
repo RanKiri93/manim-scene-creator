@@ -108,28 +108,33 @@ Migration toward these is in progress; do not regress them once a panel has move
 
 - Header: one row containing the wordmark, the project name with the unsaved dot, scene tabs,
   undo/redo, Open, Save, and Export as the primary. The Manim class name lives in Export.
-- Insert: a 48px icon rail between the item list and the stage, grouped Objects / Graph /
-  Audio, with labels on hover and focus.
+- Insert: a 52px icon rail (the default) between the item list and the stage, grouped
+  Objects / Graph / Animations / Audio with hairline dividers. Labels appear on hover and focus
+  in a fixed layer (`RailTipLayer` in `AddObjectToolbar.tsx`) so the scrolling rail cannot clip
+  them. The labelled, resizable sidebar remains available from the chevron.
 - Inspector: docked on the right. Properties and Copilot are two segments of the same dock.
-- Timeline: a 112px lane-name column (kind swatch and name) plus lanes; clips are solid kind
-  colors with `text-meta font-medium text-highlight-ink` labels; the playhead is the only
-  yellow line.
+- Timeline: tracks are layers (L0, L1, ...), which drive stacking and export order, so they
+  are not regrouped by kind. Clips are solid kind colors (`kindBg[ITEM_COLOR_GROUP[kind]]`)
+  with `text-meta font-medium text-highlight-ink` labels; overlays on clips (waits, stripes,
+  errors, previews) darken with `ink/…` so they read on light and dark kinds alike. The
+  playhead and scrubber progress are the only yellow lines.
 
 ## Migration status
 
-Done: app shell and header (`App.tsx` header, timeline resize bar, left aside), `SceneTabsBar`
-(now inside the header), `ItemList`, `FramesPanel`, the canvas toolbar and stage frame in
-`SceneCanvas.tsx`.
+Done: app shell and header (`App.tsx` header, timeline resize bar, left aside, insert
+column), `SceneTabsBar` (inside the header), `ItemList`, `FramesPanel`, the canvas toolbar
+and stage frame in `SceneCanvas.tsx`, the insert rail (`AddObjectToolbar.tsx`), the timeline
+(`Timeline.tsx`, `PlaybackControls.tsx`, `TimelineTrack.tsx`, `TimelineClip.tsx`,
+`AudioClip.tsx`, `BedClip.tsx`, `Playhead.tsx`, `BoundaryLabel.tsx`), and the global
+scrollbar, range and scrubber styles in `index.css`.
 
 Remaining, in planned order:
-1. Insert rail: `AddObjectToolbar.tsx` plus the insert column wrapper in `App.tsx`.
-2. Timeline: `Timeline.tsx`, `PlaybackControls.tsx`, `TimelineTrack.tsx`, `TimelineClip.tsx`,
-   `AudioClip.tsx`, `BedClip.tsx`, `Playhead.tsx`, `BoundaryLabel.tsx`, the timeline popups.
-3. Inspector, docked right: `PropertyPanel.tsx`, every `*Editor.tsx`, `PropertyTabs`,
+1. Inspector, docked right: `PropertyPanel.tsx`, every `*Editor.tsx`, `PropertyTabs`,
    `NumberInput`, `ColorPicker`, `DirectionPicker`.
-4. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
-   from the header), `AudioPanel`, `AgentPanel` (moves into the dock), modals.
-5. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
+2. Floating panels and dialogs: `FloatingPanel`, `ExportPanel` (receives the Manim class field
+   from the header), `AudioPanel`, `AgentPanel` (moves into the dock), `AudioClipEditPopup`,
+   `TimelineSurgeryDialog`, `BackgroundBedPopup`, other modals.
+3. Konva selection and handle colors in `src/canvas/layers` via `THEME`.
 
 Before starting a batch, check `git status` on its files: do not restyle a file with someone
 else's uncommitted work in it.

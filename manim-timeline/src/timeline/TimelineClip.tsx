@@ -40,6 +40,8 @@ import {
   isAudioBindingNone,
 } from '@/lib/audioBinding';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
+import { ITEM_COLOR_GROUP } from '@/lib/theme';
+import { kindBg } from '@/components/ui';
 import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
 import {
   applyWaitEdgeResize,
@@ -58,24 +60,6 @@ interface TimelineClipProps {
   previewOp?: PreviewOp;
 }
 
-const KIND_COLORS: Record<string, string> = {
-  textLine: 'bg-blue-600/80 border-blue-400',
-  axes: 'bg-emerald-600/80 border-emerald-400',
-  graphPlot: 'bg-teal-600/80 border-teal-400',
-  graphCurve: 'bg-sky-700/80 border-sky-400',
-  graphDot: 'bg-cyan-600/80 border-cyan-400',
-  graphField: 'bg-lime-700/80 border-lime-400',
-  graphFunctionSeries: 'bg-fuchsia-700/80 border-fuchsia-400',
-  graphPointSequence: 'bg-indigo-700/80 border-indigo-400',
-  graphArea: 'bg-violet-700/80 border-violet-400',
-  exit_animation: 'bg-rose-700/85 border-rose-400',
-  blink_animation: 'bg-amber-700/85 border-amber-300',
-  target_animation: 'bg-yellow-900/80 border-yellow-300',
-  camera_move: 'bg-purple-800/85 border-purple-300',
-  surroundingRect: 'bg-orange-700/85 border-orange-300',
-  shape: 'bg-pink-700/85 border-pink-300',
-  image: 'bg-stone-600/85 border-stone-300',
-};
 
 export default function TimelineClip({
   item,
@@ -212,9 +196,8 @@ export default function TimelineClip({
     return parts.join('\n');
   })();
 
-  const colors = item.kind === 'target_animation' && item.mode === 'graphFollow'
-    ? 'bg-cyan-800/85 border-cyan-300'
-    : KIND_COLORS[item.kind] ?? 'bg-slate-600/80 border-slate-400';
+  // Solid Manim kind color; overlays below darken with ink so they read on every kind.
+  const colors = kindBg[ITEM_COLOR_GROUP[item.kind]];
 
   const onMouseDownMove = useCallback(
     (e: React.MouseEvent) => {
@@ -616,7 +599,7 @@ export default function TimelineClip({
                   >
                     <div
                       className={`relative flex h-full shrink-0 min-w-[2px] ${
-                        err ? 'bg-red-400/60' : 'bg-white/12'
+                        err ? 'bg-danger/70' : 'bg-ink/10'
                       }`}
                       style={{
                         width: `${
@@ -629,13 +612,13 @@ export default function TimelineClip({
                         err ? ` — error: ${err}` : ''
                       }`}
                     >
-                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-fuchsia-200/80 pointer-events-auto cursor-pointer"
+                      <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-ink/60 pointer-events-auto cursor-pointer"
                         onClick={(ev) => onClickFsBookmark(ev, n)}
                         title={`Jump to n=${n} start`}
                       />
                       <div className="flex-1" />
                       <div
-                        className="relative z-[5] w-2 shrink-0 cursor-ew-resize hover:bg-white/30 rounded-sm pointer-events-auto"
+                        className="relative z-[5] w-2 shrink-0 cursor-ew-resize hover:bg-ink/25 rounded-sm pointer-events-auto"
                         onMouseDown={(ev) => onMouseDownFsAnim(ev, n)}
                         title={`Drag to resize Create duration for n=${n}`}
                       />
@@ -652,9 +635,9 @@ export default function TimelineClip({
                         }}
                         title={`Wait ${res.waitAfter.toFixed(2)}s before n=${n + 1}`}
                       >
-                        <div className="absolute inset-0 bg-amber-400/40 border-l border-amber-200/30 pointer-events-none" />
+                        <div className="absolute inset-0 border-l border-ink/30 bg-[repeating-linear-gradient(135deg,rgb(26_25_22/0.38)_0_3px,rgb(26_25_22/0.18)_3px_6px)] pointer-events-none" />
                         <div
-                          className="relative z-[5] flex-1 cursor-ew-resize hover:bg-white/20"
+                          className="relative z-[5] flex-1 cursor-ew-resize hover:bg-ink/20"
                           onMouseDown={(ev) => onMouseDownFsWait(ev, n)}
                           title="Drag to resize wait (ripples subsequent curves)"
                         />
@@ -664,7 +647,7 @@ export default function TimelineClip({
                 );
               })}
               {hasErr && (
-                <div className="absolute inset-0 bg-red-900/30 border-2 border-red-400/80 pointer-events-none rounded" />
+                <div className="absolute inset-0 rounded-ctl bg-danger/20 ring-2 ring-danger ring-inset pointer-events-none" />
               )}
             </div>
           );
@@ -696,7 +679,7 @@ export default function TimelineClip({
                   >
                     <div
                       className={`relative flex h-full shrink-0 min-w-[2px] ${
-                        err ? 'bg-red-400/60' : 'bg-white/12'
+                        err ? 'bg-danger/70' : 'bg-ink/10'
                       }`}
                       style={{
                         width: `${
@@ -710,13 +693,13 @@ export default function TimelineClip({
                       }`}
                     >
                       <div
-                        className="absolute left-0 top-0 bottom-0 w-[2px] bg-indigo-200/80 pointer-events-auto cursor-pointer"
+                        className="absolute left-0 top-0 bottom-0 w-[2px] bg-ink/60 pointer-events-auto cursor-pointer"
                         onClick={(ev) => onClickPsBookmark(ev, n)}
                         title={`Jump to n=${n} start`}
                       />
                       <div className="flex-1" />
                       <div
-                        className="relative z-[5] w-2 shrink-0 cursor-ew-resize hover:bg-white/30 rounded-sm pointer-events-auto"
+                        className="relative z-[5] w-2 shrink-0 cursor-ew-resize hover:bg-ink/25 rounded-sm pointer-events-auto"
                         onMouseDown={(ev) => onMouseDownPsAnim(ev, n)}
                         title={`Drag to resize FadeIn duration for n=${n}`}
                       />
@@ -733,9 +716,9 @@ export default function TimelineClip({
                         }}
                         title={`Wait ${res.waitAfter.toFixed(2)}s before n=${n + 1}`}
                       >
-                        <div className="absolute inset-0 bg-amber-400/40 border-l border-amber-200/30 pointer-events-none" />
+                        <div className="absolute inset-0 border-l border-ink/30 bg-[repeating-linear-gradient(135deg,rgb(26_25_22/0.38)_0_3px,rgb(26_25_22/0.18)_3px_6px)] pointer-events-none" />
                         <div
-                          className="relative z-[5] flex-1 cursor-ew-resize hover:bg-white/20"
+                          className="relative z-[5] flex-1 cursor-ew-resize hover:bg-ink/20"
                           onMouseDown={(ev) => onMouseDownPsWait(ev, n)}
                           title="Drag to resize wait"
                         />
@@ -745,7 +728,7 @@ export default function TimelineClip({
                 );
               })}
               {hasErr && (
-                <div className="absolute inset-0 bg-red-900/30 border-2 border-red-400/80 pointer-events-none rounded" />
+                <div className="absolute inset-0 rounded-ctl bg-danger/20 ring-2 ring-danger ring-inset pointer-events-none" />
               )}
             </div>
           );
@@ -756,15 +739,15 @@ export default function TimelineClip({
   const zIndex = isSelected ? zBase + 500 : zBase;
 
   const borderRing = isSelected
-    ? 'ring-2 ring-blue-300 ring-offset-1 ring-offset-slate-900'
+    ? 'ring-2 ring-highlight ring-offset-1 ring-offset-panel'
     : '';
 
   const previewClass = previewOp
     ? previewOp === 'delete'
-      ? 'opacity-40 !border-red-400 border-dashed ring-1 ring-red-400/70'
+      ? 'opacity-40 border-dashed border-danger! ring-1 ring-danger/70'
       : previewOp === 'create'
-        ? 'opacity-70 border-dashed !border-fuchsia-300 ring-1 ring-fuchsia-300/60'
-        : 'opacity-75 border-dashed !border-amber-300 ring-1 ring-amber-300/60'
+        ? 'opacity-70 border-dashed border-chalk! ring-1 ring-chalk/60'
+        : 'opacity-75 border-dashed border-warn! ring-1 ring-warn/60'
     : '';
 
   const segmentWaitStripes =
@@ -784,7 +767,7 @@ export default function TimelineClip({
               const cells: ReactNode[] = [
                 <div
                   key={`a-${i}`}
-                  className="h-full shrink-0 bg-white/12 min-w-[2px] pointer-events-none"
+                  className="h-full shrink-0 bg-ink/10 min-w-[2px] pointer-events-none"
                   style={{
                     width: `${((animSecs[i] ?? 0) / totalSec) * 100}%`,
                   }}
@@ -800,19 +783,19 @@ export default function TimelineClip({
                     }}
                     title={`Wait ${seg.waitAfterSec}s after segment ${i} — center: slide; left/right: scale vs adjacent animation`}
                   >
-                    <div className="absolute inset-0 bg-amber-400/40 border-l border-amber-200/30 pointer-events-none" />
+                    <div className="absolute inset-0 border-l border-ink/30 bg-[repeating-linear-gradient(135deg,rgb(26_25_22/0.38)_0_3px,rgb(26_25_22/0.18)_3px_6px)] pointer-events-none" />
                     <div
-                      className="relative z-[5] w-2.5 shrink-0 cursor-ew-resize hover:bg-white/30 rounded-sm"
+                      className="relative z-[5] w-2.5 shrink-0 cursor-ew-resize hover:bg-ink/25 rounded-sm"
                       onMouseDown={(ev) => onMouseDownWaitResize(ev, i, 'left')}
                       title="Grow/shrink wait vs segment before (shortens or lengthens its animation)"
                     />
                     <div
-                      className="relative z-[2] min-w-[6px] flex-1 cursor-grab active:cursor-grabbing hover:bg-white/10"
+                      className="relative z-[2] min-w-[6px] flex-1 cursor-grab active:cursor-grabbing hover:bg-ink/10"
                       onMouseDown={(ev) => onMouseDownWaitMove(ev, i)}
                       title="Slide wait along the line"
                     />
                     <div
-                      className="relative z-[5] w-2.5 shrink-0 cursor-ew-resize hover:bg-white/30 rounded-sm"
+                      className="relative z-[5] w-2.5 shrink-0 cursor-ew-resize hover:bg-ink/25 rounded-sm"
                       onMouseDown={(ev) => onMouseDownWaitResize(ev, i, 'right')}
                       title="Grow/shrink wait vs segment after"
                     />
@@ -823,7 +806,7 @@ export default function TimelineClip({
                 cells.push(
                   <div
                     key={`b-${i}`}
-                    className="h-full shrink-0 w-1 min-w-[4px] max-w-[6px] cursor-col-resize hover:bg-white/35 z-[4]"
+                    className="h-full shrink-0 w-1 min-w-[4px] max-w-[6px] cursor-col-resize hover:bg-ink/30 z-[4]"
                     title="Shift animation time between this segment and the next"
                     onMouseDown={(ev) => onMouseDownAnimBoundary(ev, i)}
                   />,
@@ -838,7 +821,7 @@ export default function TimelineClip({
 
   return (
     <div
-      className={`absolute top-1 bottom-1 flex cursor-grab select-none items-center overflow-hidden rounded-md border text-[10px] text-white truncate ${colors} ${borderRing} ${previewClass}`}
+      className={`absolute top-1 bottom-1 flex cursor-grab select-none items-center overflow-hidden rounded-ctl border border-ink/25 text-meta font-medium text-highlight-ink truncate ${colors} ${borderRing} ${previewClass}`}
       style={{ left: `${left}px`, width: `${width}px`, zIndex }}
       title={clipTitle}
       onMouseDown={onMouseDownMove}
@@ -848,7 +831,7 @@ export default function TimelineClip({
       {pointSequenceStripes}
       {cameraPresentation && (cameraPresentation.overridden || cameraPresentation.superseded) ? (
         <div
-          className="absolute inset-y-0 z-[5] pointer-events-none bg-amber-300/15 border-r-2 border-amber-200/80"
+          className="absolute inset-y-0 z-[5] pointer-events-none bg-ink/30 border-r-2 border-warn"
           style={{
             left: cameraPresentation.superseded
               ? 0
@@ -860,21 +843,21 @@ export default function TimelineClip({
         />
       ) : null}
       <div className="pointer-events-none relative z-[6] flex min-h-5 min-w-0 flex-1 items-center gap-1 px-1.5">
-        <span className="min-w-0 flex-1 truncate drop-shadow-sm">{label}</span>
+        <span className="min-w-0 flex-1 truncate" dir="auto">{label}</span>
         {explicitAudioTrack !== undefined ? (
           <span
             title={
               explicitAudioBadgeTitle ||
               `Bound audio clip: ${audioTrackLabel(explicitAudioTrack)}`
             }
-            className="pointer-events-none shrink-0 rounded border border-emerald-400/55 bg-emerald-500/25 px-1 text-[8px] font-semibold tracking-tight text-emerald-50"
+            className="pointer-events-none shrink-0 rounded-ctl bg-ink/25 px-1 leading-4"
           >
             audio
           </span>
         ) : explicitAudioId ? (
           <span
             title="Timeline has no clip with this audio id."
-            className="pointer-events-none shrink-0 rounded border border-amber-400/35 bg-amber-500/15 px-0.5 text-[8px] font-medium uppercase tracking-tight text-amber-100"
+            className="pointer-events-none shrink-0 rounded-ctl bg-ink/70 px-1 leading-4 text-warn"
           >
             audio
           </span>
@@ -882,7 +865,7 @@ export default function TimelineClip({
         {audioDisabled && hasAudioBindingField ? (
           <span
             title="Audio binding disabled for this item"
-            className="pointer-events-none shrink-0 rounded border border-slate-500/50 bg-slate-800/80 px-0.5 text-[8px] font-medium uppercase tracking-tight text-slate-400"
+            className="pointer-events-none shrink-0 rounded-ctl bg-ink/25 px-1 leading-4 line-through"
           >
             mute
           </span>
@@ -891,7 +874,7 @@ export default function TimelineClip({
 
       {item.kind !== 'graphFunctionSeries' && item.kind !== 'graphPointSequence' && (
         <div
-          className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/20 rounded-r-md z-[2]"
+          className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-ink/20 rounded-r-ctl z-[2]"
           onMouseDown={onMouseDownResize}
         />
       )}

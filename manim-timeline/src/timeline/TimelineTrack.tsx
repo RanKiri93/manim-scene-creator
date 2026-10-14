@@ -21,9 +21,9 @@ export default function TimelineTrack({
   const selectedIds = useSceneStore((s) => s.selectedIds);
 
   return (
-    <div className="relative z-10 h-8 border-b border-slate-700/50">
+    <div className="relative z-10 h-8 border-b border-rule/60">
       {/* Layer label */}
-      <span className="absolute left-1 top-0.5 text-[9px] text-slate-500 z-10 pointer-events-none">
+      <span className="pointer-events-none absolute top-0.5 left-1 z-10 text-meta text-chalk-faint tabular-nums">
         L{layer}
       </span>
 

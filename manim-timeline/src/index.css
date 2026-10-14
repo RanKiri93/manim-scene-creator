@@ -61,20 +61,20 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar styling for dark theme */
+/* Scrollbars: quiet rule-colored thumbs on every surface. */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar-thumb { background: var(--color-rule); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-chalk-faint); }
 
-/* Range input track */
+/* Range inputs in panels */
 input[type="range"] {
   -webkit-appearance: none;
   background: transparent;
 }
 input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
-  background: #334155;
+  background: var(--color-rule);
   border-radius: 2px;
 }
 input[type="range"]::-webkit-slider-thumb {
@@ -82,15 +82,14 @@ input[type="range"]::-webkit-slider-thumb {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--color-chalk);
   margin-top: -4px;
   cursor: pointer;
 }
 
-/* Main playback scrubber: visible pill rail + blue progress fill + slim handle.
-   Scoped to .timeline-scrubber (with the input type prefix so these rules win
-   over the legacy global range selectors above) so panel sliders keep their
-   existing size. */
+/* Main playback scrubber: thin rail, yellow progress (the playhead colour), chalk handle.
+   Scoped to .timeline-scrubber (with the input type prefix so these rules win over the
+   global range selectors above). */
 input.timeline-scrubber {
   --scrubber-progress: 0%;
   flex: 1 1 0%;
@@ -98,85 +97,61 @@ input.timeline-scrubber {
   height: 22px;
   background: transparent;
   cursor: pointer;
-  accent-color: #3b82f6;
+  accent-color: var(--color-highlight);
 }
 input.timeline-scrubber:focus {
   outline: none;
 }
 input.timeline-scrubber:focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid var(--color-highlight);
   outline-offset: 2px;
   border-radius: 9999px;
 }
-/* WebKit rail: 8px pill with a subtle inset edge so it reads on slate-800. */
 input.timeline-scrubber::-webkit-slider-runnable-track {
-  height: 8px;
+  height: 4px;
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
   background: linear-gradient(
     to right,
-    #3b82f6 0 var(--scrubber-progress),
-    #475569 var(--scrubber-progress) 100%
+    var(--color-highlight) 0 var(--scrubber-progress),
+    var(--color-rule) var(--scrubber-progress) 100%
   );
 }
-input.timeline-scrubber:hover::-webkit-slider-runnable-track {
-  background: linear-gradient(
-    to right,
-    #60a5fa 0 var(--scrubber-progress),
-    #54667f var(--scrubber-progress) 100%
-  );
-}
-/* WebKit handle: slim 8px-wide vertical pill with a blue halo + dark outline. */
 input.timeline-scrubber::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 8px;
-  height: 18px;
-  margin-top: -6px;
-  border-radius: 9999px;
-  background: #dbeafe;
-  border: 1px solid rgba(15, 23, 42, 0.8);
-  box-shadow:
-    0 0 0 2px rgba(59, 130, 246, 0.55),
-    0 1px 3px rgba(0, 0, 0, 0.6);
+  width: 10px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 3px;
+  background: var(--color-chalk);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
   cursor: grab;
 }
-input.timeline-scrubber:hover::-webkit-slider-thumb {
+input.timeline-scrubber:hover::-webkit-slider-thumb,
+input.timeline-scrubber:active::-webkit-slider-thumb {
   background: #ffffff;
 }
 input.timeline-scrubber:active::-webkit-slider-thumb {
   cursor: grabbing;
-  background: #ffffff;
 }
-/* Firefox rail + native progress fill. */
 input.timeline-scrubber::-moz-range-track {
-  height: 8px;
+  height: 4px;
   border-radius: 9999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: #475569;
+  background: var(--color-rule);
 }
 input.timeline-scrubber::-moz-range-progress {
-  height: 8px;
+  height: 4px;
   border-radius: 9999px;
-  background: #3b82f6;
-}
-input.timeline-scrubber:hover::-moz-range-progress {
-  background: #60a5fa;
+  background: var(--color-highlight);
 }
 input.timeline-scrubber::-moz-range-thumb {
-  width: 6px;
-  height: 16px;
-  border-radius: 9999px;
-  background: #dbeafe;
-  border: 1px solid rgba(15, 23, 42, 0.8);
-  box-shadow:
-    0 0 0 2px rgba(59, 130, 246, 0.55),
-    0 1px 3px rgba(0, 0, 0, 0.6);
+  width: 10px;
+  height: 14px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--color-chalk);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
   cursor: grab;
-}
-input.timeline-scrubber:hover::-moz-range-thumb {
-  background: #ffffff;
 }
 input.timeline-scrubber:active::-moz-range-thumb {
   cursor: grabbing;

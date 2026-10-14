@@ -318,7 +318,7 @@ export default function Timeline() {
 
   return (
     <div
-      className="flex flex-col h-full min-h-0 bg-slate-900 border-t border-slate-700 select-none"
+      className="flex flex-col h-full min-h-0 bg-panel border-t border-rule select-none"
       onMouseEnter={() => {
         isHovered.current = true;
       }}
@@ -342,7 +342,7 @@ export default function Timeline() {
           {/* Ruler + scene layers + playhead only — keeps playhead from spanning audio */}
           <div className="relative z-20 isolate">
             <div
-              className="relative h-5 bg-slate-850 border-b border-slate-700 cursor-pointer"
+              className="relative h-6 bg-panel border-b border-rule cursor-pointer"
               onClick={onRulerClick}
               onWheel={onWheel}
             >
@@ -351,7 +351,7 @@ export default function Timeline() {
                 return (
                   <span
                     key={t}
-                    className="absolute top-0 text-[9px] text-slate-500 pointer-events-none"
+                    className="pointer-events-none absolute top-0 bottom-0 border-l border-rule pt-1 pl-1 text-meta leading-none text-chalk-faint tabular-nums"
                     style={{ left: `${x}px` }}
                   >
                     {t.toFixed(tickInterval < 1 ? 1 : 0)}s
@@ -375,9 +375,9 @@ export default function Timeline() {
           </div>
 
           {/* Narration audio lane */}
-          <div className="relative z-0 min-h-10 h-10 shrink-0 border-t-2 border-slate-600 bg-slate-800/50">
-            <span className="pointer-events-none absolute left-1 top-1 z-0 text-[9px] text-slate-300">
-              Audio
+          <div className="relative z-0 min-h-10 h-10 shrink-0 border-t border-rule bg-ink/40">
+            <span className="pointer-events-none absolute top-1 left-1 z-0 text-meta text-chalk-faint">
+              Narration
             </span>
             {audioItems.map((item, i) => (
               <AudioClip
@@ -393,9 +393,9 @@ export default function Timeline() {
           </div>
 
           {/* Background bed lane (full-scene, post-production) */}
-          <div className="relative z-0 min-h-8 h-8 shrink-0 border-t border-slate-700 bg-slate-850/80">
-            <span className="pointer-events-none absolute left-1 top-1 z-0 text-[9px] text-indigo-300/90">
-              Bed
+          <div className="relative z-0 min-h-8 h-8 shrink-0 border-t border-rule bg-ink/40">
+            <span className="pointer-events-none absolute top-1 left-1 z-0 text-meta text-chalk-faint">
+              Music bed
             </span>
             <BedClip
               audioBed={audioBed}
@@ -419,11 +419,11 @@ export default function Timeline() {
 
       <div
         ref={scrollbarTrackRef}
-        className="relative h-2 bg-slate-900/50 rounded-full w-full mt-2 shrink-0"
+        className="relative mt-1 mb-1 h-1.5 w-full shrink-0 rounded-full bg-ink"
       >
         <div
           role="presentation"
-          className="absolute top-0 bottom-0 h-full bg-slate-600 hover:bg-blue-500 rounded-full cursor-pointer transition-colors touch-none"
+          className="absolute top-0 bottom-0 h-full cursor-pointer touch-none rounded-full bg-rule transition-colors hover:bg-chalk-faint"
           style={{
             width: `${thumbWidthPercent}%`,
             left: `${thumbLeftPercent}%`,

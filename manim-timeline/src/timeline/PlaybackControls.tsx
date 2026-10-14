@@ -4,6 +4,8 @@ import { functionSeriesHasErrors, pointSequenceHasErrors } from '@/types/scene';
 import { resolveCameraSchedule } from '@/lib/camera';
 import { kickTimelineAudioSyncNow } from './timelineAudioController';
 import TimelineSurgeryDialog from './TimelineSurgeryDialog';
+import { cx } from '@/lib/cx';
+import { Button, IconButton, focusRing } from '@/components/ui';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -78,12 +80,16 @@ export default function PlaybackControls() {
   }, [isPlaying, togglePlayback]);
 
   return (
-    <div className="relative z-30 flex flex-wrap items-center gap-3 px-3 py-2 bg-slate-800 border-t border-slate-700">
+    <div className="relative z-30 flex flex-wrap items-center gap-2.5 border-b border-rule bg-panel px-3 py-1.5">
       {/* Play/Pause */}
       <button
+        type="button"
         onClick={onTogglePlayback}
         disabled={playbackLocked && !isPlaying}
-        className="w-8 h-8 flex items-center justify-center rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-600 disabled:hover:bg-slate-600 disabled:opacity-60"
+        className={cx(
+          'flex size-8 items-center justify-center rounded-full bg-highlight text-highlight-ink transition-colors enabled:hover:bg-highlight/90 disabled:cursor-not-allowed disabled:bg-raised disabled:text-chalk-faint',
+          focusRing,
+        )}
         aria-label={isPlaying ? 'Pause' : 'Play'}
         aria-disabled={playbackLocked && !isPlaying}
         title={lockedTitle}
@@ -101,57 +107,51 @@ export default function PlaybackControls() {
       </button>
 
       {/* Jump to start */}
-      <button
-        onClick={() => setCurrentTime(0)}
-        className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors text-xs"
-        title="Jump to start (0s)"
-        aria-label="Jump to start (0s)"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+      <IconButton label="Jump to start" title="Jump to start (0 s)" onClick={() => setCurrentTime(0)}>
+        <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
           <rect x="1" y="2" width="2" height="10" rx="0.5" />
           <polygon points="12,2 5,7 12,12" />
         </svg>
-      </button>
+      </IconButton>
 
-      <button
-        type="button"
+      <Button
+        size="sm"
         onClick={() => setSurgeryDialogOpen((v) => !v)}
-        className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600"
         title="Close an empty time range or insert empty time (shifts later clips and audio)"
         aria-expanded={surgeryDialogOpen}
       >
-        Timeline edit…
-      </button>
+        Insert or remove time…
+      </Button>
 
       {/* Batch audio processing */}
       {measureEnabled && audioItemCount > 0 ? (
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             disabled={audioBatch != null}
             onClick={() => void normalizeAllAudioTracks()}
-            className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             title="Loudness-normalize every audio clip in this scene to a consistent level (safe to re-run)"
           >
             Normalize all
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
             disabled={audioBatch != null || audioReferenceId == null}
             onClick={() => {
               void matchAllAudioTracksToReference().catch(() => {});
             }}
-            className="rounded-md bg-slate-700 px-2 py-1 text-[11px] font-medium text-slate-200 hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             title={
               audioReferenceId == null
-                ? 'Set a reference clip first — use "Set as ref" on the clip whose tone you like'
+                ? 'Set a reference clip first: use "Set as ref" on the clip whose tone you like'
                 : 'Tonally match every other clip in this scene to the reference, then level them (safe to re-run)'
             }
           >
-            Match all → ref
-          </button>
+            Match all to reference
+          </Button>
           {audioBatch ? (
-            <span className="font-mono text-[10px] text-amber-300/90">
+            <span role="status" className="text-meta text-warn tabular-nums">
               {audioBatch.kind === 'normalize' ? 'Normalizing' : 'Matching'} {audioBatch.done}/
               {audioBatch.total}
               {audioBatch.failed > 0 ? ` (${audioBatch.failed} failed)` : ''}…
@@ -161,11 +161,11 @@ export default function PlaybackControls() {
       ) : null}
 
       {/* Time display */}
-      <span className="text-xs text-slate-400 font-mono min-w-[100px]">
-        {formatTime(currentTime)} / {formatTime(duration || 0)}
+      <span className="min-w-[112px] text-body text-chalk tabular-nums">
+        {formatTime(currentTime)} <span className="text-chalk-faint">/ {formatTime(duration || 0)}</span>
       </span>
       {cameraErrorLabels.length > 0 ? (
-        <span className="text-[10px] text-rose-300 max-w-[28rem] truncate" title={cameraErrorLabels.join('\n')}>
+        <span role="alert" className="max-w-[28rem] truncate text-meta text-danger" title={cameraErrorLabels.join('\n')}>
           Camera: {cameraErrorLabels.join('; ')}
         </span>
       ) : null}

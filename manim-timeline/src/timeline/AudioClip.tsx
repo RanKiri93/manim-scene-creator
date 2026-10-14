@@ -158,10 +158,10 @@ export default function AudioClip({
 
   return (
     <div
-      className={`absolute top-0 bottom-0 ${owner ? 'cursor-not-allowed' : 'cursor-grab'} select-none overflow-visible rounded-sm border border-slate-500/60 bg-slate-700/50 ${
+      className={`absolute top-0 bottom-0 ${owner ? 'cursor-not-allowed' : 'cursor-grab'} select-none overflow-visible rounded-ctl border border-ink/25 bg-kind-audio text-highlight-ink ${
         owner ? '' : 'active:cursor-grabbing'
       } ${
-        isSelected ? 'ring-2 ring-blue-300 ring-offset-1 ring-offset-slate-800' : ''
+        isSelected ? 'ring-2 ring-highlight ring-offset-1 ring-offset-panel' : ''
       }`}
       style={{ left: `${left}px`, width: `${width}px`, zIndex }}
       title={clipTitle}
@@ -174,7 +174,7 @@ export default function AudioClip({
     >
       <button
         type="button"
-        className="absolute right-0.5 top-0.5 z-40 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-slate-900/90 text-slate-400 hover:bg-red-900/90 hover:text-red-100 border border-slate-600/80"
+        className="absolute top-0.5 right-0.5 z-40 flex size-4 shrink-0 items-center justify-center rounded-ctl bg-ink/75 text-chalk-dim transition-colors hover:bg-danger hover:text-highlight-ink"
         title="Remove audio from timeline"
         aria-label="Remove audio from timeline"
         onMouseDown={(e) => {
@@ -187,14 +187,14 @@ export default function AudioClip({
           removeAudioItem(item.id);
         }}
       >
-        <span className="text-[11px] leading-none font-bold" aria-hidden>
+        <span className="text-meta leading-none font-bold" aria-hidden>
           ×
         </span>
       </button>
       {isSelected ? (
         <button
           type="button"
-          className="absolute right-5 top-0.5 z-40 flex h-4 items-center justify-center rounded bg-slate-900/90 px-1 text-[8px] text-slate-300 hover:bg-indigo-900/90 hover:text-indigo-100 border border-slate-600/80"
+          className="absolute top-0.5 right-5 z-40 flex h-4 items-center justify-center rounded-ctl bg-ink/75 px-1 text-meta leading-none text-chalk transition-colors hover:bg-ink"
           title="Edit audio (processing, timing, fades)"
           onMouseDown={(e) => {
             e.preventDefault();
@@ -212,14 +212,14 @@ export default function AudioClip({
       {boundaries.length === 0 || owner ? (
         <span className="pointer-events-none absolute left-0.5 top-0 z-30 flex max-w-[min(200px,calc(100%-20px))] min-w-0 items-center gap-0.5">
           {boundaries.length === 0 ? (
-            <span className="min-w-0 truncate text-[9px] font-medium leading-tight text-slate-200 drop-shadow-sm">
+            <span className="min-w-0 truncate text-meta leading-tight font-medium" dir="auto">
               {item.text.trim() ? item.text : '·'}
             </span>
           ) : null}
           {owner ? (
             <span
               title={clipTitle}
-              className="shrink-0 rounded border border-amber-400/55 bg-amber-500/20 px-1 text-[9px] font-medium leading-none text-amber-100"
+              className="shrink-0 rounded-ctl bg-ink/70 px-1 text-meta leading-4 text-warn"
             >
               Linked
             </span>
@@ -255,7 +255,7 @@ export default function AudioClip({
               style={{ left: `${tickLeft}px`, width: 0 }}
             >
               <div
-                className="absolute top-0 bg-cyan-400"
+                className="absolute top-0 bg-ink/45"
                 style={{ left: 0, width: '2px', height: '100%', zIndex: 20 }}
                 aria-hidden
               />

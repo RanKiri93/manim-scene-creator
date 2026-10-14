@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, useState, type FocusEvent, type MouseEvent, type ReactNode } from 'react';
 import { useAddSceneItems } from '@/hooks/useAddSceneItems';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
@@ -9,6 +9,8 @@ import {
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import type { SceneItem, TargetAnimationMode } from '@/types/scene';
 import { resolveGraphFollowSelection } from '@/lib/graphMotion';
+import { cx } from '@/lib/cx';
+import { ChevronRightIcon, IconButton, PanelTitle, SectionLabel, focusRing } from '@/components/ui';
 
 function truncLabel(s: string, max: number): string {
   const t = s.trim();
@@ -25,6 +27,33 @@ const TARGET_ANIMATION_MODES: readonly TargetAnimationMode[] = [
   'graphFollow',
 ];
 
+type RailTip = { label: string; detail?: string; top: number; left: number } | null;
+
+/** Collapsed-rail labels render in a fixed layer so the scrolling rail cannot clip them. */
+const RailTipContext = createContext<(tip: RailTip) => void>(() => {});
+
+function RailTipLayer({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+  const [tip, setTip] = useState<RailTip>(null);
+  return (
+    <RailTipContext.Provider value={setTip}>
+      {/* A scrolled rail would leave the label floating beside the wrong icon. */}
+      <div className="contents" onScrollCapture={() => setTip(null)}>
+        {children}
+      </div>
+      {enabled && tip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-50 max-w-64 -translate-y-1/2 rounded-ctl bg-chalk px-2 py-1 text-ctl text-ink shadow-lg"
+          style={{ top: tip.top, left: tip.left }}
+        >
+          <div className="font-medium">{tip.label}</div>
+          {tip.detail && <div className="text-meta text-ink/70">{tip.detail}</div>}
+        </div>
+      )}
+    </RailTipContext.Provider>
+  );
+}
+
 function ToolButton({
   title,
   onClick,
@@ -34,53 +63,60 @@ function ToolButton({
   active,
   dimmed,
   disabled,
-  'aria-label': ariaLabel,
 }: {
+  /** Longer description: native tooltip when expanded, second line of the rail label when collapsed. */
   title: string;
   onClick: () => void;
   children: ReactNode;
   label?: string;
   collapsed: boolean;
+  /** The current selection can use this action. */
   active?: boolean;
   dimmed?: boolean;
+  /** Kept focusable and hoverable (aria-disabled) so the reason in `title` stays readable. */
   disabled?: boolean;
-  'aria-label'?: string;
 }) {
-  const emphasize = active
-    ? 'border-blue-400/80 bg-blue-500/15 text-blue-100'
-    : 'bg-slate-800/80 border-slate-600/80 text-slate-200';
-  const fade = dimmed && !active ? 'opacity-50' : '';
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        title={title}
-        aria-label={ariaLabel ?? title}
-        onClick={onClick}
-        disabled={disabled}
-        className={`flex items-center justify-center w-9 h-9 rounded-md border hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0 ${emphasize} ${fade}`}
-      >
-        {children}
-      </button>
-    );
-  }
+  const setTip = useContext(RailTipContext);
+  const name = label ?? title;
+  const detail = title !== name ? title : undefined;
+  const showTip = (e: MouseEvent<HTMLButtonElement> | FocusEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setTip({ label: name, detail, top: r.top + r.height / 2, left: r.right + 8 });
+  };
+  const hideTip = () => setTip(null);
+
   return (
     <button
       type="button"
-      title={title}
-      aria-label={ariaLabel ?? title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex items-center gap-2 w-full px-2 h-9 rounded-md border text-xs hover:bg-slate-700 hover:border-slate-500 transition-colors ${emphasize} ${fade}`}
+      aria-label={name}
+      aria-disabled={disabled || undefined}
+      title={collapsed ? undefined : title}
+      onClick={() => {
+        hideTip();
+        if (!disabled) onClick();
+      }}
+      onMouseEnter={collapsed ? showTip : undefined}
+      onFocus={collapsed ? showTip : undefined}
+      onMouseLeave={collapsed ? hideTip : undefined}
+      onBlur={collapsed ? hideTip : undefined}
+      className={cx(
+        'flex shrink-0 items-center rounded-ctl transition-colors [&_svg]:size-[18px]',
+        collapsed ? 'size-9 justify-center' : 'h-8 w-full gap-2.5 px-2 text-ctl',
+        active ? 'text-chalk ring-1 ring-highlight/40 ring-inset' : 'text-chalk-dim',
+        disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-raised hover:text-chalk',
+        dimmed && !active && !disabled && 'opacity-45',
+        focusRing,
+      )}
     >
-      <span className="shrink-0 flex items-center justify-center">{children}</span>
-      {label != null && (
-        <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+      <span className="flex shrink-0 items-center justify-center">{children}</span>
+      {!collapsed && label != null && (
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       )}
     </button>
   );
 }
 
+/** Group heading when expanded; a hairline divider in the icon rail. */
 function CategoryLabel({
   children,
   collapsed,
@@ -88,15 +124,10 @@ function CategoryLabel({
   children: ReactNode;
   collapsed: boolean;
 }) {
-  return (
-    <div
-      className={`text-[10px] font-semibold uppercase tracking-wide text-slate-500 px-1 mt-3 first:mt-0 mb-1 w-full ${
-        collapsed ? 'text-center px-0.5' : 'text-left'
-      }`}
-    >
-      {children}
-    </div>
-  );
+  if (collapsed) {
+    return <hr aria-hidden="true" className="mx-auto my-2 w-6 border-0 border-t border-rule first:hidden" />;
+  }
+  return <SectionLabel className="mt-3 mb-1 px-1 first:mt-0">{children}</SectionLabel>;
 }
 
 function InsertSidebarHeader({
@@ -108,29 +139,21 @@ function InsertSidebarHeader({
 }) {
   return (
     <div
-      className={`flex items-center shrink-0 pt-1 pb-1 ${
-        collapsed ? 'justify-center px-0' : 'justify-between px-2'
-      }`}
-    >
-      {!collapsed && (
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-          Insert
-        </span>
+      className={cx(
+        'flex shrink-0 items-center pb-1',
+        collapsed ? 'justify-center' : 'justify-between pl-1',
       )}
-      <button
-        type="button"
-        onClick={onToggleCollapsed}
-        title={
-          collapsed
-            ? 'Expand insert sidebar (show labels)'
-            : 'Collapse insert sidebar (icons only)'
-        }
-        aria-label={collapsed ? 'Expand insert sidebar' : 'Collapse insert sidebar'}
+    >
+      {!collapsed && <PanelTitle>Insert</PanelTitle>}
+      <IconButton
+        label={collapsed ? 'Show insert labels' : 'Collapse insert to icons'}
         aria-expanded={!collapsed}
-        className="flex items-center justify-center w-7 h-7 rounded-md bg-slate-800/80 border border-slate-600/80 text-slate-300 hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0 text-xs"
+        onClick={onToggleCollapsed}
       >
-        <span aria-hidden>{collapsed ? '»' : '«'}</span>
-      </button>
+        <span className={cx('inline-flex [&>svg]:size-4', !collapsed && 'rotate-180')}>
+          <ChevronRightIcon />
+        </span>
+      </IconButton>
     </div>
   );
 }
@@ -371,6 +394,45 @@ function IconCameraMove() {
   );
 }
 
+function IconZoomRegion() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <rect x="3" y="4" width="10" height="8" rx="1" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.6" />
+      <circle cx="13" cy="12" r="3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M15.2 14.2L17.5 16.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconFitObject() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M3 7V4h3M14 4h3v3M17 13v3h-3M6 16H3v-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="7" y="7.5" width="6" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+function IconZoomFrame() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <rect x="3" y="5" width="14" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M7.5 8.5L5.5 7M12.5 8.5l2-1.5M7.5 11.5l-2 1.5M12.5 11.5l2 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconGraphFollow() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M4 16V4M4 16h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M5 13c2-5 5-6 10-5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="9" cy="9.4" r="1.8" fill="currentColor" />
+      <path d="M12 6.2l2 1.6-2.3 1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function IconMic() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -435,13 +497,13 @@ export default function AddObjectToolbar({
   const animationTitle = !hasAnyAnimationTarget
     ? 'Animations'
     : selectedItems.length === 1
-      ? `Animations · ${truncLabel(itemClipDisplayName(selectedItems[0]!), 20)}`
-      : 'Animations · for selection';
+      ? `Animations for ${truncLabel(itemClipDisplayName(selectedItems[0]!), 20)}`
+      : 'Animations for the selection';
   const animationHint = !hasSelection
-    ? 'No selection — uses first eligible.'
+    ? 'Nothing selected: the first eligible object is used.'
     : hasAnyAnimationTarget
       ? 'Uses your selection.'
-      : 'Selection is not animatable — uses first eligible.';
+      : 'The selection cannot take these; the first eligible object is used.';
   const graphFollowSelection = resolveGraphFollowSelection(itemsMap, selectedIds);
   const canFollowGraph = graphFollowSelection.error == null;
 
@@ -453,17 +515,22 @@ export default function AddObjectToolbar({
       : axesItems.length === 1
         ? 'Uses existing axes.'
         : axesItems.length > 1
-          ? 'Uses earliest axes — select axes to choose.'
+          ? 'Uses the earliest axes. Select axes to choose.'
           : 'Will create axes automatically.';
 
   const groupClass = collapsed
-    ? 'flex flex-wrap gap-1 justify-center'
-    : 'flex flex-col gap-1';
+    ? 'flex flex-col items-center gap-0.5'
+    : 'flex flex-col gap-0.5';
 
   return (
+    <RailTipLayer enabled={collapsed}>
     <div
-      className="min-h-0 flex-1 w-full flex flex-col py-2 px-2 overflow-y-auto overflow-x-hidden"
+      className={cx(
+        'flex min-h-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto py-2',
+        collapsed ? 'px-1' : 'px-2',
+      )}
       role="toolbar"
+      aria-orientation="vertical"
       aria-label="Insert objects and animations"
     >
       <InsertSidebarHeader
@@ -520,7 +587,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Plot"
-          title={`Graph plot (function y = f(x)) — ${graphHelper}`}
+          title={`Graph plot (function y = f(x)). ${graphHelper}`}
           onClick={actions.addGraphPlot}
         >
           <IconGraphPlot />
@@ -528,7 +595,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Curve"
-          title={`Graph curve (parametric x(t), y(t)) — ${graphHelper}`}
+          title={`Graph curve (parametric x(t), y(t)). ${graphHelper}`}
           onClick={actions.addGraphCurve}
         >
           <IconGraphCurve />
@@ -536,7 +603,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Dot"
-          title={`Graph dot — ${graphHelper}`}
+          title={`Graph dot. ${graphHelper}`}
           onClick={actions.addGraphDot}
         >
           <IconGraphDot />
@@ -544,7 +611,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Area"
-          title={`Graph area (fill under/between) — ${graphHelper}`}
+          title={`Graph area (fill under/between). ${graphHelper}`}
           onClick={actions.addGraphArea}
         >
           <IconGraphArea />
@@ -552,7 +619,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Vector field"
-          title={`Vector / slope field — ${graphHelper}`}
+          title={`Vector or slope field. ${graphHelper}`}
           onClick={actions.addGraphField}
         >
           <IconVectorField />
@@ -560,7 +627,7 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Function series"
-          title={`Function series (partial sums or family f(n,x)) — ${graphHelper}`}
+          title={`Function series (partial sums or family f(n,x)). ${graphHelper}`}
           onClick={actions.addGraphFunctionSeries}
         >
           <IconFunctionSeries />
@@ -568,27 +635,24 @@ export default function AddObjectToolbar({
         <ToolButton
           collapsed={collapsed}
           label="Point sequence"
-          title={`Point sequence (x(n), y(n)) — ${graphHelper}`}
+          title={`Point sequence (x(n), y(n)). ${graphHelper}`}
           onClick={actions.addGraphPointSequence}
         >
           <IconPointSequence />
         </ToolButton>
       </div>
-      {!collapsed && (
-        <p className="px-1 mt-1 text-[10px] leading-snug text-slate-500 text-left">
-          {graphHelper}
-        </p>
-      )}
+      {!collapsed && <p className="m-0 mt-1 px-1 text-meta text-chalk-faint">{graphHelper}</p>}
 
       <div
-        className={
-          hasAnyAnimationTarget && !collapsed
-            ? 'mt-2 rounded-lg border border-blue-500/40 bg-blue-500/5 px-2 pt-1 pb-2'
-            : undefined
-        }
+        className={cx(
+          'mt-3',
+          hasAnyAnimationTarget &&
+            !collapsed &&
+            'rounded-pop bg-highlight/5 px-1 pt-1 pb-2 ring-1 ring-highlight/25 ring-inset',
+        )}
       >
         <CategoryLabel collapsed={collapsed}>
-          <span className={hasAnyAnimationTarget ? 'text-blue-300' : undefined}>
+          <span className={hasAnyAnimationTarget ? 'text-chalk' : undefined}>
             {animationTitle}
           </span>
         </CategoryLabel>
@@ -602,7 +666,7 @@ export default function AddObjectToolbar({
             dimmed={!canFollowGraph}
             disabled={!canFollowGraph}
           >
-            <IconTaMove />
+            <IconGraphFollow />
           </ToolButton>
           <ToolButton
             collapsed={collapsed}
@@ -627,7 +691,7 @@ export default function AddObjectToolbar({
           <ToolButton
             collapsed={collapsed}
             label="Scale"
-            title="Target: persistent scale — select compatible objects or picks first eligible"
+            title="Persistent scale. Uses compatible selected objects, or the first eligible one."
             onClick={() => actions.addTargetAnimationClip('scale')}
             active={compatibleModes.has('scale')}
             dimmed={hasSelection && !compatibleModes.has('scale')}
@@ -637,7 +701,7 @@ export default function AddObjectToolbar({
           <ToolButton
             collapsed={collapsed}
             label="Color"
-            title="Target: persistent color — same eligible set as blink"
+            title="Persistent color change. Works on the same objects as Blink."
             onClick={() => actions.addTargetAnimationClip('color')}
             active={compatibleModes.has('color')}
             dimmed={hasSelection && !compatibleModes.has('color')}
@@ -667,7 +731,7 @@ export default function AddObjectToolbar({
           <ToolButton
             collapsed={collapsed}
             label="Rotate"
-            title="Target: persistent rotate — text/shape/highlight first"
+            title="Persistent rotation. Prefers text, shapes and highlights."
             onClick={() => actions.addTargetAnimationClip('rotate')}
             active={compatibleModes.has('rotate')}
             dimmed={hasSelection && !compatibleModes.has('rotate')}
@@ -688,7 +752,7 @@ export default function AddObjectToolbar({
             title="Drag a region on the canvas to create a 1-second zoom"
             onClick={actions.beginCameraRegionSelection}
           >
-            <IconCameraMove />
+            <IconZoomRegion />
           </ToolButton>
           <ToolButton
             collapsed={collapsed}
@@ -698,7 +762,7 @@ export default function AddObjectToolbar({
             active={hasCameraFitTarget}
             dimmed={hasSelection && !hasCameraFitTarget}
           >
-            <IconCameraMove />
+            <IconFitObject />
           </ToolButton>
           <ToolButton
             collapsed={collapsed}
@@ -706,16 +770,15 @@ export default function AddObjectToolbar({
             title="Create an independent 1-second return to the full logical frame"
             onClick={actions.addCameraFrameReturn}
           >
-            <IconCameraMove />
+            <IconZoomFrame />
           </ToolButton>
         </div>
         {!collapsed && (
-          <p className="px-1 mt-1 text-[10px] leading-snug text-slate-500 text-left">
-            {animationHint}
-          </p>
+          <p className="m-0 mt-1 px-1 text-meta text-chalk-faint">{animationHint}</p>
         )}
       </div>
     </div>
+    </RailTipLayer>
   );
 }
 
@@ -723,19 +786,10 @@ export default function AddObjectToolbar({
 export function InsertAudioActions({ collapsed }: { collapsed: boolean }) {
   const actions = useAddSceneItems();
   return (
-    <div role="toolbar" aria-label="Audio actions">
-      {!collapsed && (
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 px-1 mb-1 text-left w-full">
-          Audio
-        </div>
-      )}
-      <div
-        className={
-          collapsed
-            ? 'flex flex-wrap gap-1 justify-center'
-            : 'flex flex-col gap-1'
-        }
-      >
+    <RailTipLayer enabled={collapsed}>
+    <div role="toolbar" aria-orientation="vertical" aria-label="Audio actions">
+      {!collapsed && <SectionLabel className="mb-1 px-1">Audio</SectionLabel>}
+      <div className={collapsed ? 'flex flex-col items-center gap-0.5' : 'flex flex-col gap-0.5'}>
         <ToolButton
           collapsed={collapsed}
           label="Record audio"
@@ -762,5 +816,6 @@ export function InsertAudioActions({ collapsed }: { collapsed: boolean }) {
         </ToolButton>
       </div>
     </div>
+    </RailTipLayer>
   );
 }
