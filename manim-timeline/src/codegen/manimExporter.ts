@@ -31,6 +31,7 @@ import {
   listUnboundAudioTracksForExport,
   generateUnboundAudioAddSoundLine,
 } from './lineCodegen';
+import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
 import {
   generateAxesDef,
   generateAxesPos,
@@ -41,6 +42,7 @@ import {
   generateGraphPlotPlay,
   generateGraphDotDef,
   generateGraphDotSnapToAxes,
+  graphDotAnnotationHelperSource,
   generateGraphDotPlay,
   generateGraphOverlayZIndexLines,
   generateGraphFieldDef,
@@ -99,11 +101,21 @@ import {
   generateGraphPointSequencePlay,
 } from './pointSequenceCodegen';
 import { formatBlinkClipPlay } from './blinkCodegen';
-import { formatTargetAnimationClipPlay } from './targetAnimationCodegen';
+import {
+  delayedTargetPathHelperSource,
+  formatTargetAnimationClipPlay,
+} from './targetAnimationCodegen';
 import { generateSceneStartStaticAdds } from './staticAddCodegen';
 import { canBeSurroundTarget, effectiveStart, holdEnd } from '@/lib/time';
+import { cameraPoseFromSchedule, resolveCameraSchedule } from '@/lib/camera';
 import {
-  cameraTargetPoint,
+  cameraHasMovingCameraRequirement,
+  cameraExportPreconditionNote,
+  cameraPoseAnimationHelperSource,
+  formatCameraFrameInitialization,
+  formatStandaloneCameraPlay,
+} from './cameraCodegen';
+import {
   ensureFrameConfig,
   frameCenter,
 } from '@/lib/frameGrid';
@@ -119,6 +131,8 @@ type PlaybackEvent =
       exitClips: ExitAnimationItem[];
       blinkClips: BlinkAnimationItem[];
       targetAnimationClips: TargetAnimationItem[];
+      cameraClips: CameraMoveItem[];
+      cameraSegments: import('@/lib/camera').CameraTransitionSegment[];
     }
   | { t: number; kind: 'surrounding_rect'; sr: SurroundingRectItem }
   | { t: number; kind: 'exit'; exit: ExitAnimationItem }
@@ -149,6 +163,7 @@ function concurrentClusterWallTimelineEnd(
     exitClips: ExitAnimationItem[];
     blinkClips: BlinkAnimationItem[];
     targetAnimationClips: TargetAnimationItem[];
+    cameraClips: CameraMoveItem[];
   },
   itemsMap: Map<ItemId, SceneItem>,
 ): number {
@@ -167,6 +182,9 @@ function concurrentClusterWallTimelineEnd(
   }
   for (const ta of vc.targetAnimationClips) {
     m = Math.max(m, ta.startTime + ta.duration);
+  }
+  for (const camera of vc.cameraClips) {
+    m = Math.max(m, camera.startTime + camera.duration);
   }
   return m;
 }
@@ -188,20 +206,6 @@ function manimVectorExpr(x: number, y: number): string {
   if (Math.abs(x) > 1e-9) parts.push(`${x.toFixed(6)} * RIGHT`);
   if (Math.abs(y) > 1e-9) parts.push(`${y.toFixed(6)} * UP`);
   return parts.length > 0 ? parts.join(' + ') : 'ORIGIN';
-}
-
-function cameraMovePlayLine(
-  clip: CameraMoveItem,
-  frames: readonly FrameDef[],
-  pad: string,
-): string {
-  const p = cameraTargetPoint(
-    frames,
-    clip.targetFrameId,
-    clip.offsetX ?? 0,
-    clip.offsetY ?? 0,
-  );
-  return `${pad}self.play(self.camera.frame.animate.move_to(${manimVectorExpr(p.x, p.y)}), run_time=${Math.max(0.01, clip.duration).toFixed(6)})\n`;
 }
 
 function leafNeedsNumpy(it: ExportLeaf): boolean {
@@ -401,8 +405,20 @@ function exportManimCodeInner(
     'frameId' in item && item.frameId && frames.some((f) => f.id === item.frameId)
       ? item.frameId
       : startFrameId;
-  const startFrame = frames.find((f) => f.id === startFrameId) ?? frames[0]!;
-  const startCenter = frameCenter(startFrame);
+  const cameraSchedule = resolveCameraSchedule(items, frames, startFrameId);
+  if (cameraSchedule.diagnostics.length > 0) {
+    const first = cameraSchedule.diagnostics[0]!;
+    throw new Error(`Camera clip "${first.clipId}": ${first.message}`);
+  }
+  const cameraItems = items.filter((item): item is CameraMoveItem => item.kind === 'camera_move');
+  const movingCameraRequired = cameraHasMovingCameraRequirement(items, cameraSchedule.initialPose);
+  const needsDelayedPathHelper = items.some((item) =>
+    item.kind === 'target_animation' && item.mode === 'path' &&
+    cameraItems.some((camera) =>
+      Math.min(item.startTime + item.duration, camera.startTime + camera.duration) -
+      Math.max(item.startTime, camera.startTime) > 1e-4,
+    ),
+  );
 
   for (const a of options.audioItems ?? []) {
     if (a.assetRelPath?.trim()) continue;
@@ -598,7 +614,7 @@ function exportManimCodeInner(
       posStr += generateAxesPos(it, axVar, base, idToVarName, itemsMap);
       for (const ov of overlays) {
         if (ov.kind === 'graphDot' && ov.axesId === it.id) {
-          posStr += generateGraphDotSnapToAxes(ov, axVar, base);
+          posStr += generateGraphDotSnapToAxes(ov, axVar, base, [...itemsMap.values()], it);
         } else if (ov.kind === 'graphPlot' && ov.axesId === it.id) {
           posStr += generateGraphPlotDef(ov, axVar, base);
         } else if (ov.kind === 'graphCurve' && ov.axesId === it.id) {
@@ -763,6 +779,7 @@ function exportManimCodeInner(
 
   const playPad = ' '.repeat(base);
   let timelineCursor = 0;
+  const emittedClusterAudioIds = new Set<ItemId>();
 
   const flatPlayback = flat.filter((l) => !isVisibleAtSceneStartItem(l));
 
@@ -773,6 +790,8 @@ function exportManimCodeInner(
     flatPlayback,
     items,
     itemsMap,
+    cameraItems,
+    audioList,
   );
   const inVisualCluster = new Set<ItemId>();
   for (const c of visualClusters) {
@@ -782,15 +801,36 @@ function exportManimCodeInner(
       c.exitClips.length +
       c.blinkClips.length +
       c.targetAnimationClips.length;
-    if (n >= 2) {
+    const clusterSize = n + c.cameraClips.length;
+    if (clusterSize >= 2) {
       for (const L of c.leaves) inVisualCluster.add(L.id);
       for (const sr of c.surroundingRects) inVisualCluster.add(sr.id);
       for (const ex of c.exitClips) inVisualCluster.add(ex.id);
       for (const bl of c.blinkClips) inVisualCluster.add(bl.id);
       for (const ta of c.targetAnimationClips) inVisualCluster.add(ta.id);
+      for (const camera of c.cameraClips) inVisualCluster.add(camera.id);
     }
   }
 
+  const clusterScheduledAudioIds = new Set<ItemId>();
+  for (const c of visualClusters) {
+    if (c.leaves.length + c.surroundingRects.length + c.exitClips.length + c.blinkClips.length + c.targetAnimationClips.length + c.cameraClips.length < 2) continue;
+    const starts = [
+      ...c.leaves.map((leaf) => effectiveStart(leaf, itemsMap)),
+      ...c.surroundingRects.map((sr) => effectiveStart(sr, itemsMap)),
+      ...c.exitClips.map((clip) => clip.startTime),
+      ...c.blinkClips.map((clip) => clip.startTime),
+      ...c.targetAnimationClips.map((clip) => clip.startTime),
+      ...c.cameraClips.map((clip) => clip.startTime),
+    ];
+    const start = Math.min(...starts);
+    const end = concurrentClusterWallTimelineEnd(c, itemsMap);
+    for (const track of unboundAudio) {
+      if (track.startTime > start + TIMELINE_GAP_EPS && track.startTime < end - TIMELINE_GAP_EPS) {
+        clusterScheduledAudioIds.add(track.id);
+      }
+    }
+  }
   const playEvents: PlaybackEvent[] = [];
   for (const it of flatPlayback) {
     if (inVisualCluster.has(it.id)) continue;
@@ -802,7 +842,7 @@ function exportManimCodeInner(
         c.surroundingRects.length +
         c.exitClips.length +
         c.blinkClips.length +
-        c.targetAnimationClips.length <
+      c.targetAnimationClips.length + c.cameraClips.length <
       2
     ) {
       continue;
@@ -812,7 +852,8 @@ function exportManimCodeInner(
       ...c.surroundingRects.map((sr) => effectiveStart(sr, itemsMap)),
       ...c.exitClips.map((ex) => ex.startTime),
       ...c.blinkClips.map((bl) => bl.startTime),
-      ...c.targetAnimationClips.map((ta) => ta.startTime),
+        ...c.targetAnimationClips.map((ta) => ta.startTime),
+        ...c.cameraClips.map((camera) => camera.startTime),
     ];
     const t = Math.min(...clusterTimes);
     const sortedLeaves = [...c.leaves].sort(
@@ -842,9 +883,12 @@ function exportManimCodeInner(
       exitClips: sortedExits,
       blinkClips: sortedBlinks,
       targetAnimationClips: sortedTas,
+      cameraClips: [...c.cameraClips].sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id)),
+      cameraSegments: cameraSchedule.segments,
     });
   }
   for (const tr of unboundAudio) {
+    if (clusterScheduledAudioIds.has(tr.id)) continue;
     playEvents.push({ t: tr.startTime, kind: 'audio', track: tr });
   }
   for (const it of items) {
@@ -886,6 +930,7 @@ function exportManimCodeInner(
   }
   for (const it of items) {
     if (it.kind === 'camera_move') {
+      if (inVisualCluster.has(it.id)) continue;
       playEvents.push({ t: it.startTime, kind: 'camera', cam: it });
     }
   }
@@ -943,8 +988,8 @@ function exportManimCodeInner(
     return 0;
   });
 
-  if (Math.abs(startCenter.x) > 1e-9 || Math.abs(startCenter.y) > 1e-9) {
-    playStr += `${playPad}self.camera.frame.move_to(${manimVectorExpr(startCenter.x, startCenter.y)})\n`;
+  if (movingCameraRequired) {
+    playStr += formatCameraFrameInitialization(cameraSchedule, playPad);
   }
   playStr += generateSceneStartStaticAdds(flat, items, idToVarName, base);
 
@@ -1089,7 +1134,7 @@ function exportManimCodeInner(
     const group: PlaybackEvent[] = [];
     while (
       i < playEvents.length &&
-      Math.abs(playEvents[i]!.t - t0) <= TIMELINE_GAP_EPS
+      (group.length === 0 || Math.abs(playEvents[i]!.t - t0) <= TIMELINE_GAP_EPS)
     ) {
       group.push(playEvents[i]!);
       i++;
@@ -1129,6 +1174,15 @@ function exportManimCodeInner(
       playStr += generateUnboundAudioAddSoundLine(a.track, base);
     }
     for (const vc of visualClustersInGroup) {
+      for (const track of unboundAudio) {
+        if (!clusterScheduledAudioIds.has(track.id)) continue;
+        if (emittedClusterAudioIds.has(track.id)) continue;
+        if (track.startTime <= t0 + TIMELINE_GAP_EPS) continue;
+        const clusterEnd = concurrentClusterWallTimelineEnd(vc, itemsMap);
+        if (track.startTime >= clusterEnd - TIMELINE_GAP_EPS) continue;
+        playStr += `${playPad}self.add_sound("${deriveAudioAssetRelPath(track)}", time_offset=${(track.startTime - t0).toFixed(4)})\n`;
+        emittedClusterAudioIds.add(track.id);
+      }
       const wallT = concurrentClusterWallTimelineEnd(vc, itemsMap);
       const clusterTailCeil = nextTimelineEventAfter(wallT, playEvents);
       playStr += buildConcurrentVisualClusterPlay(
@@ -1137,6 +1191,9 @@ function exportManimCodeInner(
         vc.exitClips,
         vc.blinkClips,
         vc.targetAnimationClips,
+        vc.cameraClips,
+        vc.cameraSegments,
+        cameraPoseFromSchedule(t0, cameraSchedule),
         playPad,
         base,
         idToVarName,
@@ -1188,7 +1245,10 @@ function exportManimCodeInner(
       );
     }
     for (const cam of cameraMoves) {
-      playStr += cameraMovePlayLine(cam.cam, frames, playPad);
+      const segment = cameraSchedule.segments.find((candidate) => candidate.clip.id === cam.cam.id);
+      if (segment && !segment.supersededByEqualStart) {
+        playStr += formatStandaloneCameraPlay(segment, playPad);
+      }
     }
 
     let groupEnd = t0;
@@ -1210,6 +1270,9 @@ function exportManimCodeInner(
       }
       for (const ta of vc.targetAnimationClips) {
         groupEnd = Math.max(groupEnd, ta.startTime + ta.duration);
+      }
+      for (const camera of vc.cameraClips) {
+        groupEnd = Math.max(groupEnd, camera.startTime + camera.duration);
       }
     }
     for (const e of leaves) {
@@ -1250,6 +1313,7 @@ function exportManimCodeInner(
         vc.blinkClips,
         vc.targetAnimationClips,
         itemsMap,
+        vc.cameraClips,
         options.audioItems,
         clusterTailCeil != null
           ? { tailCeilingAbs: clusterTailCeil }
@@ -1327,7 +1391,13 @@ function exportManimCodeInner(
   }
 
   if (!options.fullFile) {
-    return `${defStr}\n${posStr}\n${playStr}`;
+    const cameraSnippet = movingCameraRequired ? `${cameraExportPreconditionNote()}\n` : '';
+    const cameraHelper = cameraItems.length > 0 ? `${cameraPoseAnimationHelperSource()}\n` : '';
+    const pathSnippet = needsDelayedPathHelper ? `${delayedTargetPathHelperSource()}\n` : '';
+    const hasGraphDots = items.some((it) => it.kind === 'graphDot');
+    const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
+    const dotHelper = hasGraphDots ? `${graphDotAnnotationHelperSource(0, hasCoordinateDots)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1344,6 +1414,9 @@ function exportManimCodeInner(
     header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
+  const hasGraphDots = items.some((it) => it.kind === 'graphDot');
+  const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
+  if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster
@@ -1351,12 +1424,15 @@ function exportManimCodeInner(
   if (anyReplacementFunctionSeries(items)) {
     header += '\n\n' + functionSeriesRevealTransformSource(0);
   }
+  if (cameraItems.length > 0) {
+    header += '\n\n' + cameraPoseAnimationHelperSource(0);
+  }
+  if (needsDelayedPathHelper) {
+    header += '\n\n' + delayedTargetPathHelperSource(0);
+  }
 
   const className = safeSceneClassName(options.defaults.sceneName ?? '');
-  const needsMovingCamera =
-    items.some((it) => it.kind === 'camera_move') ||
-    Math.abs(startCenter.x) > 1e-9 ||
-    Math.abs(startCenter.y) > 1e-9;
+  const needsMovingCamera = movingCameraRequired;
   let body = `\nclass ${className}(${needsMovingCamera ? 'MovingCameraScene' : 'Scene'}):\n`;
   body += '    def construct(self):\n';
 

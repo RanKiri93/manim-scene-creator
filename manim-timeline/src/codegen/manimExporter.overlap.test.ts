@@ -12,6 +12,7 @@ import {
   createShape,
   createSurroundingRect,
   createTextLine,
+  createTargetAnimation,
   defaultSceneDefaults,
 } from '@/store/factories';
 
@@ -39,6 +40,110 @@ function createTestImage(startTime = 0) {
 }
 
 describe('exportManimCode concurrent overlap (composable leaves)', () => {
+  it('chains function-x graphFollow clips across a one-second hold with exact cursor waits', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'chain_fn_axes'; axes.visibleAtSceneStart = true;
+    const plot = createGraphPlot(axes.id, 0); plot.id = 'chain_fn_plot'; plot.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'chain_fn_dot'; dot.visibleAtSceneStart = true;
+    dot.dot.label = 'P'; dot.dot.showCoordinates = true; dot.dot.showProjectionGuides = true;
+    dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 0 };
+    const first = { ...createTargetAnimation('graphFollow', [dot.id], 1, 1), id: 'chain_fn_first' };
+    first.targets[0]!.targetX = 2;
+    const second = { ...createTargetAnimation('graphFollow', [dot.id], 3, 1), id: 'chain_fn_second' };
+    second.targets[0]!.targetX = 3;
+    const next = createTextLine(defaults, 5); next.id = 'chain_fn_end'; next.raw = 'end'; next.duration = 0.5;
+    const code = exportManimCode([axes, plot, dot, first, second, next], { fullFile: true, defaults });
+    expect(code).toContain('((0) + (((2) - (0)) * alpha))');
+    expect(code).toContain('((2) + (((3) - (2)) * alpha))');
+    expect(code.match(/run_time=1\.0000\)/g)).toHaveLength(2);
+    expect(code.match(/self\.wait\(1\.0000\)/g)).toHaveLength(3); // before clip 1, between clips, then to t=5
+    expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_fn_dot_coord, lambda _mob, alpha: None/g)).toHaveLength(2);
+    expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_fn_dot_guide_v, lambda _mob, alpha: None/g)).toHaveLength(2);
+  });
+
+  it('chains attached-parametric graphFollow clips across a one-second hold with exact cursor waits', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'chain_t_axes'; axes.visibleAtSceneStart = true;
+    const curve = createGraphCurve(axes.id, 0); curve.id = 'chain_t_curve'; curve.visibleAtSceneStart = true;
+    curve.curve = { ...curve.curve, jsXExpr: 't', jsYExpr: 't*t', pyXExpr: 't', pyYExpr: 't**2' };
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'chain_t_dot'; dot.visibleAtSceneStart = true;
+    dot.dot.label = 'P'; dot.dot.showCoordinates = true; dot.dot.showProjectionGuides = true;
+    dot.dot.attachment = { kind: 'parametric', graphCurveId: curve.id, t: 0.5 };
+    const first = { ...createTargetAnimation('graphFollow', [dot.id], 1, 1), id: 'chain_t_first' };
+    first.targets[0]!.targetT = 1.5;
+    const second = { ...createTargetAnimation('graphFollow', [dot.id], 3, 1), id: 'chain_t_second' };
+    second.targets[0]!.targetT = 2.5;
+    const next = createTextLine(defaults, 5); next.id = 'chain_t_end'; next.raw = 'end'; next.duration = 0.5;
+    const code = exportManimCode([axes, curve, dot, first, second, next], { fullFile: true, defaults });
+    expect(code).toContain('((0.5) + (((1.5) - (0.5)) * alpha))');
+    expect(code).toContain('((1.5) + (((2.5) - (1.5)) * alpha))');
+    expect(code.match(/run_time=1\.0000\)/g)).toHaveLength(2);
+    expect(code.match(/self\.wait\(1\.0000\)/g)).toHaveLength(3);
+    expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_t_dot_coord, lambda _mob, alpha: None/g)).toHaveLength(2);
+    expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_t_dot_guide_h, lambda _mob, alpha: None/g)).toHaveLength(2);
+  });
+
+  it('keeps delayed graphFollow, camera, and an overlapping leaf in one concurrent export', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(0, 0, 'Home'); const right = createFrame(1, 0, 'Right');
+    const axes = createAxes(defaults, 0); axes.id = 'camera_follow_axes'; axes.visibleAtSceneStart = true;
+    const plot = createGraphPlot(axes.id, 0); plot.id = 'camera_follow_plot'; plot.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'camera_follow_dot'; dot.visibleAtSceneStart = true;
+    dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 0 };
+    const follow = { ...createTargetAnimation('graphFollow', [dot.id], 1, 2), id: 'camera_follow_clip' };
+    follow.targets[0]!.targetX = 2;
+    const camera = createCameraMove(right.id, 0, 3);
+    const line = createTextLine(defaults, 2); line.id = 'camera_follow_leaf'; line.raw = 'overlap'; line.duration = 1;
+    const code = exportManimCode([axes, plot, dot, follow, camera, line], {
+      fullFile: true, defaults, frames: [home, right], startFrameId: home.id,
+    });
+    expect(code).toContain('class _CameraPoseAnimation(Animation):');
+    expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_camera_follow_dot');
+    expect(code).toContain('Succession(Wait(1.0000), UpdateFromAlphaFunc');
+    expect(code).toContain('AnimationGroup(');
+  });
+
+  it('keeps a labeled graph-dot intro and early graphFollow on one shared timed cluster', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'early_axes'; axes.visibleAtSceneStart = true;
+    const plot = createGraphPlot(axes.id, 0); plot.id = 'early_plot'; plot.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'early_dot'; dot.duration = 0.4;
+    dot.dot.label = 'A'; dot.dot.showCoordinates = true; dot.dot.showProjectionGuides = true;
+    dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 1 };
+    const follow = { ...createTargetAnimation('graphFollow', [dot.id], 0.8, 1), id: 'early_follow' };
+    follow.targets[0]!.targetX = 2;
+    const next = createTextLine(defaults, 3); next.id = 'after_early'; next.raw = 'after'; next.duration = 0.5;
+    const code = exportManimCode([axes, plot, dot, follow, next], { fullFile: true, defaults });
+    expect(code).toContain('AnimationGroup(FadeIn(axes_1_dot_early_dot');
+    expect(code).toContain('axes_1_dot_early_dot_coord');
+    expect(code).toContain('axes_1_dot_early_dot_guide_v');
+    expect(code).toContain('Succession(Wait(0.8000), AnimationGroup(UpdateFromAlphaFunc');
+    expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_coord, lambda _mob, alpha: None');
+    expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_guide_h, lambda _mob, alpha: None');
+    expect(code.match(/axes_1_dot_early_dot_coord/g)?.length).toBeGreaterThan(1); // existing mobject is referenced by intro and motion, not reconstructed
+    expect(code).toContain('run_time=1.000000');
+    // Dot intro is 0.4 s + the existing 1 s fixed-label Write. Cluster ends at 1.8 s; next event at 3 s.
+    expect(code).toContain('self.wait(1.2000)');
+  });
+
+  it('keeps graph-follow duration aligned with hand-derived waits to the next event', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'follow_axes'; axes.visibleAtSceneStart = true;
+    const plot = createGraphPlot(axes.id, 0); plot.id = 'follow_plot'; plot.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'follow_dot'; dot.duration = 1;
+    dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 1 };
+    const follow = { ...createTargetAnimation('graphFollow', [dot.id], 2, 2), id: 'follow_clip' };
+    follow.targets[0]!.targetX = 3;
+    const concurrent = createTextLine(defaults, 3); concurrent.id = 'during_follow'; concurrent.raw = 'concurrent'; concurrent.duration = 1;
+    const next = createTextLine(defaults, 6); next.id = 'after_follow'; next.raw = 'after'; next.duration = 1;
+    const code = exportManimCode([axes, plot, dot, follow, concurrent, next], { fullFile: true, defaults });
+    expect(code).toContain('self.wait(1.0000)'); // timeline: dot 0..1, follow begins at 2
+    expect(code).toContain('run_time=2.000000');
+    expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_follow_dot');
+    expect(code).toContain('AnimationGroup(');
+    expect(code).toContain('self.wait(2.0000)'); // follow ends at 4, next event starts at 6
+  });
+
   it('exports frame placement and camera move with MovingCameraScene', () => {
     const defaults = defaultSceneDefaults();
     const home = createFrame(0, 0, 'Home');
@@ -58,8 +163,188 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('class Scene1(MovingCameraScene):');
     expect(code).toContain('VGroup(line_1).shift(14.222222 * RIGHT)');
     expect(code).toContain(
-      'self.play(self.camera.frame.animate.move_to(14.222222 * RIGHT), run_time=1.500000)',
+      '_CameraPoseAnimation(self.camera.frame, (0.000000, 0.000000, 14.222222), [(2.000000, 3.500000, 3.500000, (0.000000, 0.000000, 14.222222), (14.222222, 0.000000, 14.222222))], run_time=3.500000)',
     );
+    expect(code).toContain('self.camera.frame.set(width=14.222222)');
+  });
+
+  it('runs a delayed camera branch concurrently with the object and pads exactly to the next event', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(0, 0, 'Home');
+    const shape = createShape(0);
+    shape.id = 'object_0_4';
+    shape.duration = 4;
+    const camera = createCameraMove(home.id, 1, 2);
+    camera.targetWidth = 7.111111;
+    camera.offsetX = 2;
+    const next = createTextLine(defaults, 6);
+    next.raw = 'next';
+    next.duration = 1;
+
+    const code = exportManimCode([shape, camera, next], {
+      fullFile: true,
+      defaults,
+      frames: [home],
+      startFrameId: home.id,
+    });
+
+    // Hand timeline: object 0..4 contains camera 1..3; cluster wall is 4s; next starts at 6.
+    expect(code).toContain('[(1.000000, 3.000000, 3.000000, (0.000000, 0.000000, 14.222222), (2.000000, 0.000000, 7.111111))]');
+    expect(code).toContain('run_time=4.000000)');
+    expect(code).toMatch(/self\.play\(AnimationGroup\([\s\S]*?run_time=4\.0000\)/);
+    expect(code).toContain('self.wait(2.0000)');
+    expect(code).not.toContain('frame.animate.move_to');
+  });
+
+  it('exports overlapping camera commands as one writer using the shared interrupted pose and keeps authored scene end', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(0, 0, 'Home');
+    const a = createCameraMove(home.id, 0, 10);
+    a.id = 'a';
+    a.offsetX = 10;
+    const b = createCameraMove(home.id, 2, 1);
+    b.id = 'b';
+    b.offsetX = 4;
+    b.targetWidth = 6;
+
+    const code = exportManimCode([a, b], {
+      fullFile: true,
+      defaults,
+      frames: [home],
+      startFrameId: home.id,
+    });
+
+    // Hand timeline: A's eased progress at 2/10 is .104; B begins there, ends at 3, holds to 10.
+    expect(code).toContain('(0.000000, 10.000000, 2.000000, (0.000000, 0.000000, 14.222222), (10.000000, 0.000000, 14.222222))');
+    expect(code).toContain('(2.000000, 3.000000, 3.000000, (1.040000, 0.000000, 14.222222), (4.000000, 0.000000, 6.000000))');
+    expect(code).toContain('run_time=10.000000)');
+    expect(code.match(/_CameraPoseAnimation\(/g)).toHaveLength(2); // class declaration + one animation
+    expect(code).not.toContain('self.wait('); // one camera branch itself consumes the authored 10s span
+    expect(code).not.toContain('self.play(self.camera.frame.animate');
+  });
+
+  it('keeps a scheduled return at its authored time and returns to absolute full-frame width', () => {
+    const defaults = defaultSceneDefaults();
+    const home = createFrame(1, 1, 'Home');
+    const zoom = createCameraMove(home.id, 5, 1);
+    zoom.targetWidth = 5;
+    zoom.offsetX = 2;
+    const back = createCameraMove(home.id, 9, 1);
+    const shape = createShape(0);
+    shape.duration = 12;
+    const code = exportManimCode([shape, zoom, back], {
+      fullFile: true,
+      defaults,
+      frames: [home],
+      startFrameId: home.id,
+    });
+    // Timeline hand-check: 0..12 object cluster contains zoom 5..6 and return 9..10.
+    expect(code).toContain('(5.000000, 6.000000, 6.000000');
+    expect(code).toContain('(9.000000, 10.000000, 10.000000');
+    expect(code).toContain('(14.222222, -8.000000, 14.222222)');
+    expect(code).toContain('run_time=12.000000)');
+    expect(code).not.toContain('frame.animate.move_to');
+  });
+
+  it('lets an authored return interrupt B continuously and holds full frame through B’s authored scene tail', () => {
+    const defaults = defaultSceneDefaults();
+    const frame = createFrame(0, 0, 'Home');
+    const object = createShape(0);
+    object.duration = 12;
+    const a = createCameraMove(frame.id, 5, 1);
+    a.targetWidth = 5;
+    a.offsetX = 2;
+    const b = createCameraMove(frame.id, 7, 4);
+    b.id = 'b';
+    b.targetWidth = 8;
+    b.offsetX = 8;
+    const back = createCameraMove(frame.id, 9, 1);
+    back.id = 'return';
+    const code = exportManimCode([object, a, b, back], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+    });
+    // At t=9 B is halfway through its four-second cubic transition: ease(.5)=.5,
+    // so the return starts at x=5,width=6.5 and the authored object ends at t=12.
+    expect(code).toContain('(7.000000, 11.000000, 9.000000, (2.000000, 0.000000, 5.000000), (8.000000, 0.000000, 8.000000))');
+    expect(code).toContain('(9.000000, 10.000000, 10.000000, (5.000000, 0.000000, 6.500000), (0.000000, 0.000000, 14.222222))');
+    expect(code).toContain('run_time=12.000000)');
+    expect(code).not.toContain('self.wait(');
+  });
+
+  it('emits exact waits and run times for a delayed camera-only clip and keeps touching intervals separate', () => {
+    const defaults = defaultSceneDefaults();
+    const frame = createFrame(0, 0, 'Home');
+    const delayed = createCameraMove(frame.id, 2, 1);
+    const solo = exportManimCode([delayed], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+    });
+    expect(solo).toContain('self.wait(2.0000)');
+    expect(solo).toContain('run_time=1.000000)');
+    expect(solo).not.toContain('self.wait(1.0000)');
+
+    const first = createCameraMove(frame.id, 0, 1);
+    const second = createCameraMove(frame.id, 1, 1);
+    const touching = exportManimCode([first, second], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+    });
+    expect(touching.match(/self\.play\(_CameraPoseAnimation\(/g)).toHaveLength(2);
+    expect(touching).toContain('run_time=1.000000)');
+    expect(touching).not.toContain('AnimationGroup(');
+  });
+
+  it('uses only the shared schedule equal-start winner, independent of input order', () => {
+    const defaults = defaultSceneDefaults();
+    const frame = createFrame(0, 0, 'Home');
+    const loser = createCameraMove(frame.id, 1, 2);
+    loser.id = 'a-loser';
+    loser.offsetX = 2;
+    const winner = createCameraMove(frame.id, 1, 1);
+    winner.id = 'z-winner';
+    winner.offsetX = 7;
+    const code = exportManimCode([winner, loser], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+    });
+    expect(code).toContain('(7.000000, 0.000000, 14.222222)');
+    expect(code).not.toContain('(2.000000, 0.000000, 14.222222)');
+    expect(code.match(/_CameraPoseAnimation\(self\.camera\.frame/g)).toHaveLength(1);
+  });
+
+  it('preserves distinct sub-millisecond camera starts instead of event-grouping their schedule', () => {
+    const defaults = defaultSceneDefaults();
+    const frame = createFrame(0, 0, 'Home');
+    const first = createCameraMove(frame.id, 1, 1);
+    first.id = 'a';
+    first.offsetX = 4;
+    const second = createCameraMove(frame.id, 1.0005, 1);
+    second.id = 'b';
+    second.offsetX = 8;
+    const code = exportManimCode([first, second], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+    });
+    expect(code).toContain('(0.000000, 1.000000, 0.000500');
+    expect(code).toContain('(0.000500, 1.000500, 1.000500');
+    expect(code).toContain('(4.000000, 0.000000, 14.222222)');
+    expect(code).toContain('(0.000003, 0.000000, 14.222222)');
+    expect(code).toContain('run_time=1.000500)');
+  });
+
+  it('schedules an unbound audio start inside a blocking camera cluster exactly once with its offset', () => {
+    const defaults = defaultSceneDefaults();
+    const frame = createFrame(0, 0, 'Home');
+    const camera = createCameraMove(frame.id, 0, 4);
+    const cameraB = createCameraMove(frame.id, 1, 2);
+    cameraB.offsetX = 1;
+    const track = {
+      id: 'interior-audio', text: 'audio', audioUrl: '/assets/audio/voice.webm',
+      assetRelPath: 'assets/audio/voice.webm', startTime: 2, duration: 1,
+    };
+    const code = exportManimCode([camera, cameraB], {
+      fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
+      audioItems: [track],
+    });
+    expect(code).toContain('self.add_sound("assets/audio/voice.webm", time_offset=2.0000)');
+    expect(code.match(/self\.add_sound\(/g)).toHaveLength(1);
+    expect(code).toContain('run_time=4.0000)');
   });
 
   it('rejects cross-frame next_to exports', () => {

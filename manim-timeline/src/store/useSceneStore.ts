@@ -31,6 +31,8 @@ import {
 } from '@/types/scene';
 import { validateFunctionSeries } from '@/lib/functionSeriesValidation';
 import { validatePointSequence } from '@/lib/pointSequenceValidation';
+import { graphMotionConflicts, resolveAttachedGraphDot, resolveGraphDotPosition } from '@/lib/graphMotion';
+import { graphFollowExportBlock } from '@/lib/exportReadiness';
 import {
   generateAudio,
   matchEq,
@@ -439,6 +441,10 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   removeFrame: (id: ItemId) => void;
   setStartFrame: (id: ItemId) => void;
   addItem: (item: SceneItem) => void;
+  /** Read-only graph-follow validation diagnostics for one graph dot. */
+  graphMotionDiagnostics: (dotId: ItemId, time?: number) => string[];
+  /** Stage capability check for the currently active scene's Manim export. */
+  graphFollowExportBlock: () => string | null;
   addCameraMoveClip: (item: CameraMoveItem) => void;
   updateItem: <K extends SceneItem['kind']>(
     id: ItemId,
@@ -817,6 +823,23 @@ export const useSceneStore = create<SceneStore>()(
           s.startFrameId = id;
           s.activeFrameId = id;
         }),
+
+      graphMotionDiagnostics: (dotId, time) => {
+        const state = get();
+        const items = [...state.items.values()];
+        const dot = state.items.get(dotId);
+        const related = items.filter((it) => it.kind === 'target_animation' && it.mode === 'graphFollow' && it.targets.some((row) => row.targetId === dotId));
+        if (dot?.kind !== 'graphDot') return related.map((clip) => `Graph-follow clip ${clip.id} references a missing graph dot.`);
+        const attachment = resolveAttachedGraphDot(dot, items);
+        const diagnostics = attachment.error ? [attachment.error] : [];
+        if (related.length === 0) return diagnostics;
+        diagnostics.push(...graphMotionConflicts(dotId, items));
+        const resolved = resolveGraphDotPosition({ dot, items, time: time ?? state.currentTime });
+        if (resolved.error) diagnostics.push(resolved.error);
+        return [...new Set(diagnostics)];
+      },
+
+      graphFollowExportBlock: () => graphFollowExportBlock([...get().items.values()]),
 
       addItem: (item) => set((s) => {
         if (item.kind === 'camera_move' && validateCameraMove(item, s.frames).length > 0) return;

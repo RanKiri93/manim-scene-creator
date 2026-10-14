@@ -346,7 +346,7 @@ export interface BlinkAnimationItem {
 }
 
 /** Permanent transform played at `startTime` for `duration`; state lives on clips, not mutated target fields. */
-export type TargetAnimationMode = 'scale' | 'color' | 'move' | 'path' | 'rotate';
+export type TargetAnimationMode = 'scale' | 'color' | 'move' | 'path' | 'rotate' | 'graphFollow';
 export type TargetAnimationPathKind = 'polyline' | 'parametric';
 
 export interface TargetAnimationParametricPath {
@@ -379,6 +379,16 @@ export interface TargetAnimationTargetSpec {
   parametricPath?: TargetAnimationParametricPath | null;
   /** Degrees CCW (`mode === 'rotate'`); allowed on shape, text line, surroundingRect. */
   angleDeg?: number;
+  /** Same-axes function plot reference (`mode === 'graphFollow'`). */
+  graphPlotId?: ItemId;
+  /** Destination x in graph-coordinate units (`mode === 'graphFollow'`). */
+  targetX?: number;
+  /** Legacy/free-row compatible parametric source; attached parametric dots infer their curve. */
+  graphCurveId?: ItemId;
+  /** Destination parameter for a graph-dot attachment to a parametric curve. */
+  targetT?: number;
+  /** Graph-x interpolation easing; omitted legacy value defaults to smooth. */
+  easing?: 'linear' | 'smooth';
   segmentIndices?: number[] | null;
   mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
 }
@@ -541,7 +551,34 @@ export interface GraphDot {
   radius: number;
   label: string;
   labelDir: ManimDirection;
+  /** Show the currently resolved graph coordinates; defaults to false. */
+  showCoordinates?: boolean;
+  /** Show projections to visible axes/range boundaries; defaults to false. */
+  showProjectionGuides?: boolean;
+  /** Persistent graph-space source; free attachments use the legacy dx/dy coordinates. */
+  attachment?: GraphDotAttachment;
+  /** Fixed-label HebrewMathLine font size; V44 default 18. */
+  labelFontSize?: number;
+  /** Fixed-label color; V44 default #ffffff. */
+  labelColor?: string;
+  /** Fixed-label gap from dot edge in graph/Manim units; V44 default 0.15. */
+  labelSpacing?: number;
+  /** Coordinate-label HebrewMathLine font size; V44 default 18. */
+  coordinateFontSize?: number;
+  /** Coordinate-label color; V44 default #e2e8f0. */
+  coordinateColor?: string;
+  /** Coordinate-label direction; unset uses a direction opposite the fixed label. */
+  coordinateDir?: ManimDirection;
+  /** Coordinate-label gap in graph/Manim units; V44 default 0.15. */
+  coordinateSpacing?: number;
+  /** Decimal places for live coordinate labels, clamped to [0, 6]; V44 default 2. */
+  coordinatePrecision?: number;
 }
+
+export type GraphDotAttachment =
+  | { kind: 'free' }
+  | { kind: 'function'; graphPlotId: ItemId; x: number }
+  | { kind: 'parametric'; graphCurveId: ItemId; t: number };
 
 /** Seed (x0, y0) for ODE streamline γ′ = F(γ) in graph coordinates. */
 export interface GraphStreamPoint {
@@ -569,6 +606,18 @@ export interface AxisPreviewBounds {
   bottom: number;
   offsetInkX: number;
   offsetInkY: number;
+  /** `/api/preview_axes` v1 transform; absent/old versions require vector fallback. */
+  metadataVersion?: number;
+  originX?: number;
+  originY?: number;
+  xUnitX?: number;
+  xUnitY?: number;
+  yUnitX?: number;
+  yUnitY?: number;
+  coordLeft?: number;
+  coordRight?: number;
+  coordTop?: number;
+  coordBottom?: number;
 }
 
 /** Coordinate axes only; plots/dots/fields are separate items referencing `id` via `axesId`. */

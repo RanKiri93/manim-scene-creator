@@ -4,11 +4,12 @@ import type {
   GraphDot,
   GraphPlotItem,
   ItemId,
-  ManimDirection,
   SceneItem,
 } from '@/types/scene';
 import { clipPolylineByProgress, createProgress } from '@/lib/createPlaybackPreview';
 import { effectiveStart } from '@/lib/time';
+import { graphProjectionGuides } from '@/lib/graphMotion';
+import { buildGraphAnnotationLayout, type GraphTextAnnotationSpec } from '@/lib/graphAnnotationLayout';
 
 /** Denser polylines than a 2-point segment so Create previews read as drawing. */
 export const AXIS_LINE_DENSITY = 48;
@@ -460,36 +461,10 @@ export interface GraphDotPreviewSpec {
   x: number;
   y: number;
   radius: number;
-  label: {
-    text: string;
-    x: number;
-    y: number;
-    fontSize: number;
-    fill: string;
-  } | null;
-}
-
-function directionVector(dir: ManimDirection): { x: number; y: number } {
-  switch (dir) {
-    case 'UP':
-      return { x: 0, y: -1 };
-    case 'DOWN':
-      return { x: 0, y: 1 };
-    case 'LEFT':
-      return { x: -1, y: 0 };
-    case 'RIGHT':
-      return { x: 1, y: 0 };
-    case 'UL':
-      return { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };
-    case 'UR':
-      return { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
-    case 'DL':
-      return { x: -Math.SQRT1_2, y: Math.SQRT1_2 };
-    case 'DR':
-      return { x: Math.SQRT1_2, y: Math.SQRT1_2 };
-    default:
-      return { x: 0, y: -1 };
-  }
+  label: GraphTextAnnotationSpec | null;
+  coordinates: string | null;
+  coordinateLabel: GraphTextAnnotationSpec | null;
+  projectionGuides: number[][];
 }
 
 export function buildGraphDotPreviewSpec(args: {
@@ -501,42 +476,42 @@ export function buildGraphDotPreviewSpec(args: {
   yMin: number;
   yMax: number;
   scenePxPerUnit: number;
+  axes?: AxesItem;
+  graphToLocal?: (gx: number, gy: number) => { x: number; y: number };
 }): GraphDotPreviewSpec {
-  const { dot, axW, axH, xMin, xMax, yMin, yMax, scenePxPerUnit } = args;
+  const { dot, axW, axH, xMin, xMax, yMin, yMax, scenePxPerUnit, axes, graphToLocal } = args;
   const xSpan = xMax - xMin;
   const ySpan = yMax - yMin;
-  const x = xSpan > 0 ? -axW / 2 + ((dot.dx - xMin) / xSpan) * axW : 0;
-  const y = ySpan > 0 ? -axH / 2 + (1 - (dot.dy - yMin) / ySpan) * axH : 0;
+  const local = graphToLocal?.(dot.dx, dot.dy);
+  const x = local?.x ?? (xSpan > 0 ? -axW / 2 + ((dot.dx - xMin) / xSpan) * axW : 0);
+  const y = local?.y ?? (ySpan > 0 ? -axH / 2 + (1 - (dot.dy - yMin) / ySpan) * axH : 0);
   const radius =
     Number.isFinite(dot.radius) && dot.radius > 0
       ? Math.max(1, dot.radius * scenePxPerUnit)
       : Math.max(1, 0.08 * scenePxPerUnit);
-  const text = dot.label.trim();
-  if (!text) {
-    return { x, y, radius, label: null };
-  }
-
-  const fontSize = 10;
-  const textWidth = Math.max(fontSize * 0.6, text.length * fontSize * 0.55);
-  const textHeight = fontSize;
-  const dir = directionVector(dot.labelDir);
-  const buff = 0.15 * scenePxPerUnit;
-  const gap = radius + buff;
-  const cx = x + dir.x * gap;
-  const cy = y + dir.y * gap;
-
+  const annotations = buildGraphAnnotationLayout({ dot, point: { x, y }, coordinate: { x: dot.dx, y: dot.dy }, radiusPx: radius, pxPerUnit: scenePxPerUnit });
   return {
     x,
     y,
     radius,
-    label: {
-      text,
-      x: cx - textWidth / 2,
-      y: cy - textHeight / 2,
-      fontSize,
-      fill: '#ffffff',
-    },
+    label: annotations.fixedLabel,
+    coordinates: annotations.coordinateText,
+    coordinateLabel: annotations.coordinates,
+    projectionGuides: guideSegments(),
   };
+
+  function guideSegments(): number[][] {
+    if (!dot.showProjectionGuides || !axes) return [];
+    const guides = graphProjectionGuides({ x: dot.dx, y: dot.dy }, axes);
+    const toLocal = (gx: number, gy: number) => {
+      if (graphToLocal) {
+        const p = graphToLocal(gx, gy);
+        return [p.x, p.y];
+      }
+      return [-axW / 2 + ((gx - xMin) / (xMax - xMin)) * axW, -axH / 2 + (1 - (gy - yMin) / (yMax - yMin)) * axH];
+    };
+    return [[...toLocal(guides.vertical.x1, guides.vertical.y1), ...toLocal(guides.vertical.x2, guides.vertical.y2)], [...toLocal(guides.horizontal.x1, guides.horizontal.y1), ...toLocal(guides.horizontal.x2, guides.horizontal.y2)]];
+  }
 }
 
 export function buildPlotCreatePreviewSpec(args: {

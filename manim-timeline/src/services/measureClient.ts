@@ -14,6 +14,7 @@ import {
 } from '@/lib/audioAssetPath';
 import type { AudioMixdownSpec } from '@/lib/audioMixdown';
 import {
+  AXES_PREVIEW_METADATA_VERSION,
   type AxesPreviewRequestBody,
   buildAxesPreviewRequestBody,
 } from '@/lib/axesPreviewRequest';
@@ -202,6 +203,7 @@ export interface AxesPreviewApiResult {
 
 interface AxesPreviewResponseBody {
   ok: boolean;
+  metadata_version?: number;
   png_base64?: string;
   png_width?: number;
   png_height?: number;
@@ -211,6 +213,16 @@ interface AxesPreviewResponseBody {
   bottom?: number;
   offset_ink_x?: number;
   offset_ink_y?: number;
+  origin_x?: number;
+  origin_y?: number;
+  x_unit_x?: number;
+  x_unit_y?: number;
+  y_unit_x?: number;
+  y_unit_y?: number;
+  coord_left?: number;
+  coord_right?: number;
+  coord_top?: number;
+  coord_bottom?: number;
   error?: string;
 }
 
@@ -253,8 +265,13 @@ export async function previewAxes(
   }
   const b64 = j.png_base64?.trim();
   const dataUrl = b64 ? `data:image/png;base64,${b64}` : null;
+  const anchorValues = [j.origin_x, j.origin_y, j.x_unit_x, j.x_unit_y, j.y_unit_x, j.y_unit_y, j.coord_left, j.coord_right, j.coord_top, j.coord_bottom];
+  const hasV1Anchors = j.metadata_version === AXES_PREVIEW_METADATA_VERSION && anchorValues.every((value) => typeof value === 'number' && Number.isFinite(value));
   const bounds =
     dataUrl &&
+    hasV1Anchors &&
+    Number.isFinite(j.png_width) && j.png_width! > 0 &&
+    Number.isFinite(j.png_height) && j.png_height! > 0 &&
     j.left != null &&
     j.right != null &&
     j.top != null &&
@@ -268,6 +285,17 @@ export async function previewAxes(
           bottom: j.bottom,
           offsetInkX: j.offset_ink_x,
           offsetInkY: j.offset_ink_y,
+          metadataVersion: AXES_PREVIEW_METADATA_VERSION,
+          originX: j.origin_x!,
+          originY: j.origin_y!,
+          xUnitX: j.x_unit_x!,
+          xUnitY: j.x_unit_y!,
+          yUnitX: j.y_unit_x!,
+          yUnitY: j.y_unit_y!,
+          coordLeft: j.coord_left!,
+          coordRight: j.coord_right!,
+          coordTop: j.coord_top!,
+          coordBottom: j.coord_bottom!,
         }
       : null;
   return {
@@ -275,7 +303,11 @@ export async function previewAxes(
     pngWidth: j.png_width ?? null,
     pngHeight: j.png_height ?? null,
     bounds,
-    error: null,
+    error: !dataUrl
+      ? 'preview_axes: raster image is unavailable; using vector axes.'
+      : !bounds
+        ? 'preview_axes: origin-anchor metadata version 1 is missing or invalid; using vector axes.'
+        : null,
   };
 }
 

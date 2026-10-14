@@ -36,6 +36,7 @@ import { sameFrameTargets, targetCandidateFrameId } from '@/lib/targetScope';
 import { logicalCameraFrameAtTime, resolveCameraSchedule } from '@/lib/camera';
 import { FRAME_W } from '@/lib/constants';
 import { useCameraRegionSelection } from '@/canvas/hooks/useCameraRegionSelection';
+import { resolveGraphDotPosition, resolveGraphFollowSelection } from '@/lib/graphMotion';
 
 function pickDefaultAxesId(
   itemsMap: Map<ItemId, SceneItem>,
@@ -316,6 +317,22 @@ export function useAddSceneItems() {
   const addTargetAnimationClip = useCallback(
     (mode: TargetAnimationMode) => {
       const map = useSceneStore.getState().items;
+      if (mode === 'graphFollow') {
+        const pair = resolveGraphFollowSelection(map, selectedIds);
+        if (pair.error || !pair.dot) return;
+        const { dot, plot } = pair;
+        const at = Math.max(currentTime, effectiveStart(dot, map));
+        const resolved = resolveGraphDotPosition({ dot, items: [...map.values()], time: at });
+        if (resolved.error) return;
+        const clip = createTargetAnimation('graphFollow', [dot.id], at, 1);
+        const attachment = dot.dot.attachment ?? { kind: 'free' as const };
+        clip.targets = [attachment.kind === 'function'
+          ? { targetId: dot.id, targetX: resolved.parameter ?? resolved.point.x, easing: 'smooth' }
+          : attachment.kind === 'parametric'
+            ? { targetId: dot.id, targetT: resolved.parameter ?? attachment.t, easing: 'smooth' }
+            : { targetId: dot.id, graphPlotId: plot!.id, targetX: resolved.point.x, easing: 'smooth' }];
+        addItem(clip); select(clip.id); return;
+      }
       const selectedTargets = [...selectedIds]
         .map((id) => map.get(id))
         .filter(

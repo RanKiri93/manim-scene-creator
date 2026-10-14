@@ -27,6 +27,11 @@ import { defaultTargetAnimationRow } from '@/store/factories';
 import MathSubobjectPicker from './MathSubobjectPicker';
 import MathExpressionEditor from './MathExpressionEditor';
 import { PATH_T_PROFILE } from './mathExpressionPresets';
+import {
+  graphFollowMinimumStartTime,
+  isGraphFollowTarget,
+  resolveGraphDotPosition,
+} from '@/lib/graphMotion';
 
 function defaultParametricPath() {
   return {
@@ -48,6 +53,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
   const updateItem = useSceneStore((s) => s.updateItem);
   const removeItem = useSceneStore((s) => s.removeItem);
   const itemsMap = useSceneStore((s) => s.items);
+  const graphMotionDiagnostics = useSceneStore((s) => s.graphMotionDiagnostics);
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const pathCapture = useSceneStore((s) => s.targetAnimationPathCapture);
@@ -65,8 +71,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
   const targets = useMemo(
     () =>
-      [...itemsMap.values()].filter((it) =>
-        canBeTargetAnimationTarget(it, item.mode),
+      [...itemsMap.values()].filter((it) => item.mode === 'graphFollow' ? isGraphFollowTarget(it) : canBeTargetAnimationTarget(it, item.mode),
       ),
     [itemsMap, item.mode],
   );
@@ -85,7 +90,9 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
   const targetsList = item.targets?.length ? item.targets : [];
 
-  const minStart = minTargetAnimationStartTimeForClip(item, itemsMap);
+  const minStart = item.mode === 'graphFollow'
+    ? graphFollowMinimumStartTime(item, itemsMap)
+    : minTargetAnimationStartTimeForClip(item, itemsMap);
   const invalidStart = minStart != null && item.startTime + 1e-6 < minStart;
 
   const setTargets = useCallback(
@@ -98,7 +105,17 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
       scopedTargets.find((t) => !targetsList.some((r) => r.targetId === t.id)) ??
       scopedTargets[0];
     if (!pick) return;
-    setTargets([...targetsList, defaultTargetAnimationRow(item.mode, pick.id)]);
+    const row: TargetAnimationTargetSpec = defaultTargetAnimationRow(item.mode, pick.id);
+    if (item.mode === 'graphFollow' && pick.kind === 'graphDot') {
+      const candidatePlots = [...itemsMap.values()].filter((it): it is Extract<typeof it, { kind: 'graphPlot' }> => it.kind === 'graphPlot' && it.axesId === pick.axesId);
+      const plot = candidatePlots.length === 1 ? candidatePlots[0] : null;
+      const position = resolveGraphDotPosition({ dot: pick, items: [...itemsMap.values()], time: item.startTime });
+      const attachment = pick.dot.attachment ?? { kind: 'free' as const };
+      if (attachment.kind === 'function') Object.assign(row, { graphPlotId: undefined, targetX: position.parameter ?? position.point.x, graphCurveId: undefined, targetT: undefined });
+      else if (attachment.kind === 'parametric') Object.assign(row, { graphPlotId: undefined, targetX: undefined, graphCurveId: undefined, targetT: position.parameter ?? attachment.t });
+      else Object.assign(row, { graphPlotId: plot?.id ?? '', targetX: position.point.x, graphCurveId: undefined, targetT: undefined });
+    }
+    setTargets([...targetsList, row]);
   };
 
   const removeRow = (index: number) => {
@@ -112,13 +129,26 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
   const onTargetChange = (index: number, newTargetId: string) => {
     const t = itemsMap.get(newTargetId);
-    if (!t || !canBeTargetAnimationTarget(t, item.mode)) return;
+    if (!t || (item.mode === 'graphFollow' ? t.kind !== 'graphDot' : !canBeTargetAnimationTarget(t, item.mode))) return;
+    const compatiblePlots = item.mode === 'graphFollow' && t.kind === 'graphDot'
+      ? [...itemsMap.values()].filter((candidate) => candidate.kind === 'graphPlot' && candidate.axesId === t.axesId)
+      : [];
+    const compatiblePlot = compatiblePlots.length === 1 ? compatiblePlots[0] : null;
+      const currentPosition = item.mode === 'graphFollow' && t.kind === 'graphDot'
+      ? resolveGraphDotPosition({ dot: t, items: [...itemsMap.values()], time: item.startTime })
+      : null;
     const next = targetsList.map((r, i) =>
       i === index
         ? {
             ...defaultTargetAnimationRow(item.mode, newTargetId),
             ...r,
             targetId: newTargetId,
+            ...(item.mode === 'graphFollow' && t.kind === 'graphDot' ? t.dot.attachment?.kind === 'parametric'
+              ? { targetT: currentPosition?.parameter ?? t.dot.attachment.t, graphCurveId: undefined, graphPlotId: undefined, targetX: undefined, easing: r.easing ?? 'smooth' }
+              : t.dot.attachment?.kind === 'function'
+                ? { targetX: currentPosition?.parameter ?? t.dot.attachment.x, graphPlotId: undefined, graphCurveId: undefined, targetT: undefined, easing: r.easing ?? 'smooth' }
+                : { graphPlotId: compatiblePlot?.id ?? '', targetX: currentPosition?.point.x ?? 0, targetT: undefined, graphCurveId: undefined, easing: r.easing ?? 'smooth' }
+              : {}),
             segmentIndices: null,
             mathSubtargets: null,
           }
@@ -193,8 +223,10 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
         : item.mode === 'move'
           ? 'Additive shift vs anchor at clip start (RIGHT / UP axes). Does not overwrite posSteps.'
           : item.mode === 'path'
-            ? 'Relative path offsets; final vertex is the persistent displacement.'
-            : 'Rotation in degrees CCW (Manim).';
+          ? 'Relative path offsets; final vertex is the persistent displacement.'
+            : item.mode === 'graphFollow'
+              ? 'Moves a graph dot by interpolating graph-space x along the selected fixed function.'
+              : 'Rotation in degrees CCW (Manim).';
 
   const baseContent = (
     <div className="flex flex-col gap-3">
@@ -269,7 +301,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                   >
                     {!hasTarget ? (
                       <option value={row.targetId}>
-                        {target && canBeTargetAnimationTarget(target, item.mode)
+                        {target && (item.mode === 'graphFollow' ? target.kind === 'graphDot' : canBeTargetAnimationTarget(target, item.mode))
                           ? frameAwareItemLabel(target, itemsMap, frames, startFrameId, true)
                           : `(missing) ${row.targetId.slice(0, 10)}`}
                       </option>
@@ -354,6 +386,27 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                     step={1}
                   />
                 ) : null}
+                {item.mode === 'graphFollow' && target?.kind === 'graphDot' ? (() => {
+                  const plots = [...itemsMap.values()].filter((it): it is Extract<typeof it, { kind: 'graphPlot' }> => it.kind === 'graphPlot' && it.axesId === target.axesId);
+                  const curves = [...itemsMap.values()].filter((it): it is Extract<typeof it, { kind: 'graphCurve' }> => it.kind === 'graphCurve' && it.axesId === target.axesId);
+                  const plot = itemsMap.get(row.graphPlotId ?? '');
+                  const resolved = resolveGraphDotPosition({ dot: target, items: [...itemsMap.values()], time: item.startTime });
+                  const errors = [...new Set([...graphMotionDiagnostics(target.id, item.startTime), ...(resolved.error ? [resolved.error] : [])])];
+                  const attachment = target.dot.attachment ?? { kind: 'free' as const };
+                  return <div className="w-full flex flex-wrap items-end gap-2" dir="rtl">
+                    {attachment.kind === 'free' ? <label className="text-[10px] text-slate-400">גרף מקור
+                      <select value={row.graphPlotId ?? ''} onChange={(e) => patchRow(index, { graphPlotId: e.target.value, graphCurveId: undefined, targetT: undefined })} className="block bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200">
+                        <option value="">בחרו גרף</option>{plots.map((p) => <option key={p.id} value={p.id}>{p.fn.label || p.fn.jsExpr}</option>)}
+                      </select>
+                    </label> : <p className="text-[10px] text-cyan-300">מקור תנועה נקבע מהחיבור: {attachment.kind === 'function' ? plots.find((p) => p.id === attachment.graphPlotId)?.fn.label || 'פונקציה' : curves.find((c) => c.id === attachment.graphCurveId)?.curve.label || 'עקומה פרמטרית'}</p>}
+                    {attachment.kind === 'parametric'
+                      ? <NumberInput label="יעד t" value={row.targetT ?? attachment.t} onChange={(targetT) => patchRow(index, { targetT, graphPlotId: undefined, graphCurveId: undefined, targetX: undefined })} />
+                      : <NumberInput label="יעד x" value={row.targetX ?? (attachment.kind === 'function' ? attachment.x : resolved.point.x)} onChange={(targetX) => patchRow(index, { targetX, graphCurveId: undefined, targetT: undefined })} />}
+                    <label className="text-[10px] text-slate-400">הקלה<select value={row.easing ?? 'smooth'} onChange={(e) => patchRow(index, { easing: e.target.value as 'linear' | 'smooth' })} className="block bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-200"><option value="smooth">חלק</option><option value="linear">לינארי</option></select></label>
+                    {attachment.kind === 'free' && plot?.kind !== 'graphPlot' && <p className="text-xs text-amber-300">יש לבחור פונקציה באותם צירים. נקודה פרמטרית חייבת להיות מחוברת לעקומה.</p>}
+                    {errors.map((error) => <p key={error} className="w-full text-xs text-red-300">{error}</p>)}
+                  </div>;
+                })() : null}
                 {item.mode === 'path' ? (
                   <div className="w-full flex flex-col gap-1">
                     <div className="text-[10px] text-slate-500">
@@ -668,7 +721,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
                     </div>
                   </div>
                 ) : null}
-                {target && canBeTargetAnimationTarget(target, item.mode) ? (
+                {target && (item.mode === 'graphFollow' ? isGraphFollowTarget(target) : canBeTargetAnimationTarget(target, item.mode)) ? (
                   <p className="w-full text-[10px] text-slate-500">
                     {itemClipDisplayName(target)}
                   </p>
@@ -692,7 +745,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 
       {invalidStart ? (
         <p className="text-xs text-amber-400">
-          Start time is before a target timeline start. Increase start to at least{' '}
+          {item.mode === 'graphFollow' ? 'Start time is before the graph dot appears. Increase start to at least ' : 'Start time is before a target timeline start. Increase start to at least '}
           {minStart!.toFixed(2)}s.
         </p>
       ) : null}

@@ -3,6 +3,8 @@ import type { AgentAction, AgentChatMessage } from './types';
 import { useAgentStore } from './useAgentStore';
 import type { ProviderId } from './providers';
 import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
+import { useSceneStore } from '@/store/useSceneStore';
+import { summarizeCameraProposal } from './cameraProposalSummary';
 
 const PROVIDER_OPTIONS: { id: ProviderId; label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
@@ -277,6 +279,10 @@ function AssistantBubble({
   onReject,
   onRetry,
 }: AssistantBubbleProps) {
+  const items = useSceneStore((s) => s.items);
+  const frames = useSceneStore((s) => s.frames);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const cameraSummaries = summarizeCameraProposal(message.actions, items, frames, startFrameId);
   const hasErr = message.error && message.error.length > 0;
   const hasActions = !!message.actions && message.actions.length > 0;
   const pending = hasActions && message.actionsStatus === 'pending';
@@ -323,6 +329,8 @@ function AssistantBubble({
             ))}
           </ul>
         )}
+
+        {cameraSummaries.length > 0 && <div className="rounded bg-slate-950/50 px-2 py-1 text-[11px] text-sky-200">{cameraSummaries.map(({ clip, displayName, frameLabel, overrideLabel, overrideTime, returnStart, returnEnd, targetWidth }) => <div key={clip.id} dir="auto"><bdi dir="auto">{displayName}</bdi> → <bdi dir="auto">{frameLabel}</bdi>: <bdi dir="auto">{clip.startTime.toFixed(2)}–{(clip.startTime + clip.duration).toFixed(2)}s</bdi>, <bdi dir="auto">{clip.duration.toFixed(2)}s transition</bdi>, <bdi dir="auto">width {targetWidth.toFixed(2)} ({(clip.offsetX ?? 0).toFixed(2)}, {(clip.offsetY ?? 0).toFixed(2)})</bdi>{returnStart !== null && returnEnd !== null ? <>; full-frame return <bdi dir="auto">{returnStart.toFixed(2)}–{returnEnd.toFixed(2)}s</bdi></> : null}{overrideLabel ? <>; overridden by <bdi dir="auto">{overrideLabel}</bdi> at <bdi dir="auto">{overrideTime!.toFixed(2)}s</bdi></> : null}</div>)}</div>}
 
         {hasActions && (
           <div className="flex flex-col gap-1">
@@ -409,8 +417,8 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
     return (
       <li className={`text-fuchsia-200 ${dimClass}`}>
         <span className="text-fuchsia-400">CREATE</span> {it.kind}{' '}
-        <code className="text-slate-300">{it.id}</code>
-        {it.label ? ` "${it.label}"` : ''}
+        <code className="text-slate-300"><bdi dir="auto">{it.id}</bdi></code>
+        {it.label ? <> “<bdi dir="auto">{it.label}</bdi>”</> : ''}
       </li>
     );
   }
@@ -421,7 +429,7 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
       <li className={`text-amber-200 ${dimClass} flex flex-col gap-0.5`}>
         <div>
           <span className="text-amber-400">UPDATE</span>{' '}
-          <code className="text-slate-300">{action.itemId}</code>{' '}
+          <code className="text-slate-300"><bdi dir="auto">{action.itemId}</bdi></code>{' '}
           <span className="text-slate-400">{`{${keys}}`}</span>
         </div>
         {detail.length > 0 && (
@@ -435,7 +443,7 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
   return (
     <li className={`text-red-200 ${dimClass}`}>
       <span className="text-red-400">DELETE</span>{' '}
-      <code className="text-slate-300">{action.itemId}</code>
+      <code className="text-slate-300"><bdi dir="auto">{action.itemId}</bdi></code>
     </li>
   );
 }

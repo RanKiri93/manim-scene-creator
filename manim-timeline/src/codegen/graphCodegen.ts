@@ -30,6 +30,7 @@ import {
 } from './lineCodegen';
 import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 import { emitNextToPython } from './nextToCodegen';
+import { resolveAttachedGraphDot, graphProjectionGuides } from '@/lib/graphMotion';
 
 export function manimColor(hex: string): string {
   return `ManimColor("${hex}")`;
@@ -64,7 +65,7 @@ export function generateAxesDef(item: AxesItem, axVar: string, indent: number): 
     typeof item.numberFontSize === 'number' &&
     Number.isFinite(item.numberFontSize)
   ) {
-    decimalNumberConfigPairs.push(`"font_size": ${item.numberFontSize}`);
+    axisConfigPairs.push(`"font_size": ${item.numberFontSize}`);
   }
   if (decimalNumberConfigPairs.length > 0) {
     axisConfigPairs.push(
@@ -690,8 +691,18 @@ export function generateGraphDotDef(
   let s = line;
   if (dot.label.trim()) {
     const lblVar = `${dVar}_lbl`;
-    s += `${pad}${lblVar} = HebrewMathLine(${pythonStringLiteral(dot.label.trim())}, font_size=18, hebrew_font="Alef")\n`;
+    s += `${pad}${lblVar} = HebrewMathLine(${pythonStringLiteral(dot.label.trim())}, font_size=${Number.isFinite(dot.labelFontSize) ? dot.labelFontSize : 18}, color=${manimColor(dot.labelColor ?? '#ffffff')}, hebrew_font="Alef")\n`;
   }
+  if (dot.showCoordinates) s += `${pad}${dVar}_coord = _graph_coord_text(${dVar}, ${Number.isFinite(dot.coordinateFontSize) ? dot.coordinateFontSize : 18}, ${manimColor(dot.coordinateColor ?? '#e2e8f0')}, ${Math.max(0, Math.min(6, Math.trunc(dot.coordinatePrecision ?? 2)))})\n`;
+  if (dot.showProjectionGuides) {
+    s += `${pad}${dVar}_guide_v = Line(ORIGIN, ORIGIN, color=ManimColor("#94a3b8"), stroke_width=1)\n`;
+    s += `${pad}${dVar}_guide_h = Line(ORIGIN, ORIGIN, color=ManimColor("#94a3b8"), stroke_width=1)\n`;
+  }
+  const pyLabel = dot.label.trim() ? `${dVar}_lbl` : 'None';
+  const pyCoordinate = dot.showCoordinates ? `${dVar}_coord` : 'None';
+  const pyGuideV = dot.showProjectionGuides ? `${dVar}_guide_v` : 'None';
+  const pyGuideH = dot.showProjectionGuides ? `${dVar}_guide_h` : 'None';
+  s += `${pad}${dVar}_update = lambda point: _graph_update_dot(${dVar}, point, ${pyLabel}, ${pyCoordinate}, ${pyGuideV}, ${pyGuideH}, ${axVar}, ${dot.labelDir}, ${Number.isFinite(dot.labelSpacing) ? dot.labelSpacing : 0.15}, ${dot.coordinateDir ?? 'DOWN'}, ${Number.isFinite(dot.coordinateSpacing) ? dot.coordinateSpacing : 0.15}, ${Math.max(0, Math.min(6, Math.trunc(dot.coordinatePrecision ?? 2)))})\n`;
   return s;
 }
 
@@ -700,16 +711,89 @@ export function generateGraphDotSnapToAxes(
   item: GraphDotItem,
   axVar: string,
   indent: number,
+  items: readonly SceneItem[] = [item],
+  axes?: AxesItem,
 ): string {
   const pad = ' '.repeat(indent);
   const dVar = overlayDotVar(axVar, item.id);
   const dot = item.dot;
-  let s = `${pad}${dVar}.move_to(${axVar}.coords_to_point(${dot.dx}, ${dot.dy}))\n`;
-  if (dot.label.trim()) {
-    const lblVar = `${dVar}_lbl`;
-    s += `${pad}${lblVar}.next_to(${dVar}, ${dot.labelDir}, buff=0.15)\n`;
+  const resolved = resolveAttachedGraphDot(item, items);
+  if (resolved.error) throw new Error(`Graph dot "${item.label || item.id}": ${resolved.error}`);
+  const point = resolved.point;
+  const s = `${pad}${dVar}_update((${point.x}, ${point.y}))\n`;
+  if (dot.showProjectionGuides && axes) {
+    // graphProjectionGuides is also used by preview; updater emits the same nearest-boundary rule.
+    graphProjectionGuides(point, axes);
   }
   return s;
+}
+
+/** Scene-local cached HebrewMathLine glyph atlas; recomposition occurs only on changed text. */
+export function graphDotAnnotationHelperSource(indent = 0, includeCoordinates = true): string {
+  const p = ' '.repeat(indent), q = ' '.repeat(indent + 4);
+  let source = '';
+  if (includeCoordinates) {
+    source += `${p}from decimal import Decimal, ROUND_HALF_UP\n`+
+      `${p}_graph_glyphs = {c: HebrewMathLine(c, font_size=18, hebrew_font="Alef") for c in "0123456789-.(),"}\n` +
+      `${p}def _graph_fixed(value, precision):\n`+
+      `${q}rounded = Decimal.from_float(abs(float(value))).quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_UP)\n`+
+      `${q}text = f"{rounded:.{precision}f}"\n`+
+      `${q}return ("-" if value < 0 else "") + text\n`+
+      `${p}def _graph_coordinate_glyphs(text, font_size, color):\n`+
+      `${q}group = VGroup()\n`+
+      `${q}cursor = 0.0\n`+
+      `${q}scale = font_size / 18.0\n`+
+      `${q}for char in text:\n`+
+      `${q}    if char == " ":\n`+
+      `${q}        cursor += 0.24 * scale\n`+
+      `${q}        continue\n`+
+      `${q}    glyph = _graph_glyphs[char].copy().scale(scale).set_color(color)\n`+
+      `${q}    ink_left = glyph.get_left()[0]\n`+
+      `${q}    ink_right = glyph.get_right()[0]\n`+
+      `${q}    ink_width = max(0.0, ink_right - ink_left)\n`+
+      `${q}    glyph.shift(np.array([cursor - ink_left, -glyph.get_center()[1], 0.0]))\n`+
+      `${q}    glyph._graph_char = char\n`+
+      `${q}    group.add(glyph)\n`+
+      `${q}    cursor += ink_width + 0.012 * scale\n`+
+      `${q}group.move_to(ORIGIN)\n`+
+      `${q}return group\n`+
+      `${p}def _graph_coord_text(dot, font_size, color, precision):\n`+
+      `${q}group = _graph_coordinate_glyphs("", font_size, color)\n`+
+      `${q}group._graph_text = None\n`+
+      `${q}group._graph_font_size = font_size\n`+
+      `${q}group._graph_color = color\n`+
+      `${q}return group\n`;
+  }
+  source +=
+    `${p}def _graph_update_dot(dot, point, label, coord, guide_v, guide_h, axes, label_dir, label_gap, coord_dir, coord_gap, precision):\n`+
+    `${q}dot.move_to(axes.coords_to_point(point[0], point[1]))\n`+
+    `${q}if label is not None: label.next_to(dot, label_dir, buff=label_gap)\n`;
+  if (includeCoordinates) {
+    source += `${q}if coord is not None: _graph_update_coordinate(coord, point, dot, coord_dir, coord_gap, precision)\n`;
+  }
+  source += `${q}if guide_v is not None:\n`+
+    `${q}    x, y = point; xmin, xmax = axes.x_range[:2]; ymin, ymax = axes.y_range[:2]\n`+
+    `${q}    gx = 0 if xmin <= 0 <= xmax else (xmin if abs(x-xmin) <= abs(x-xmax) else xmax)\n`+
+    `${q}    gy = 0 if ymin <= 0 <= ymax else (ymin if abs(y-ymin) <= abs(y-ymax) else ymax)\n`+
+    `${q}    v_start = axes.coords_to_point(x,y); v_end = axes.coords_to_point(x,gy)\n`+
+    `${q}    if np.linalg.norm(v_end - v_start) <= 1e-8: guide_v.set_opacity(0)\n`+
+    `${q}    else: guide_v.put_start_and_end_on(v_start, v_end); guide_v.set_opacity(1)\n`+
+    `${q}    h_start = axes.coords_to_point(x,y); h_end = axes.coords_to_point(gx,y)\n`+
+    `${q}    if np.linalg.norm(h_end - h_start) <= 1e-8: guide_h.set_opacity(0)\n`+
+    `${q}    else: guide_h.put_start_and_end_on(h_start, h_end); guide_h.set_opacity(1)\n`;
+  if (includeCoordinates) {
+    source += `${p}def _graph_update_coordinate(coord, point, dot, coord_dir, coord_gap, precision):\n`+
+      `${q}x = 0.0 if point[0] == 0 else point[0]\n`+
+      `${q}y = 0.0 if point[1] == 0 else point[1]\n`+
+      `${q}text = f"({_graph_fixed(x, precision)}, {_graph_fixed(y, precision)})"\n`+
+      `${q}if getattr(coord, "_graph_text", None) != text:\n`+
+      `${q}    glyph_group = _graph_coordinate_glyphs(text, coord._graph_font_size, coord._graph_color)\n`+
+      `${q}    coord.remove(*coord.submobjects)\n`+
+      `${q}    coord.add(*glyph_group.submobjects)\n`+
+      `${q}    coord._graph_text = text\n`+
+      `${q}coord.next_to(dot, coord_dir, buff=coord_gap)\n`;
+  }
+  return source;
 }
 
 export function generateGraphDotPlay(
@@ -740,6 +824,8 @@ export function generateGraphDotPlay(
     if (dot.label.trim()) {
       s += `${pad}self.play(Write(${dVar}_lbl))\n`;
     }
+    if (dot.showCoordinates) s += `${pad}self.add(${dVar}_coord)\n`;
+    if (dot.showProjectionGuides) s += `${pad}self.add(${dVar}_guide_v, ${dVar}_guide_h)\n`;
     s += appendAudioTailAfterLeafPlayback(
       pad,
       recorded,
@@ -753,6 +839,8 @@ export function generateGraphDotPlay(
     if (dot.label.trim()) {
       s += `${pad}self.play(Write(${dVar}_lbl))\n`;
     }
+    if (dot.showCoordinates) s += `${pad}self.add(${dVar}_coord)\n`;
+    if (dot.showProjectionGuides) s += `${pad}self.add(${dVar}_guide_v, ${dVar}_guide_h)\n`;
   }
 
   return s;

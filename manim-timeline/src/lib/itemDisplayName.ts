@@ -27,6 +27,7 @@ export function itemClipDisplayName(item: SceneItem): string {
     if (m === 'move') return 'Target · move';
     if (m === 'path') return 'Target · path';
     if (m === 'rotate') return 'Target · rotate';
+    if (m === 'graphFollow') return 'Move along graph';
     return 'Target animation';
   }
   if (item.kind === 'camera_move') {

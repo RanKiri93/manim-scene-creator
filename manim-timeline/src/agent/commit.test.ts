@@ -238,3 +238,16 @@ describe('commitActions — target_animation row merge', () => {
     });
   });
 });
+
+describe('commitActions — camera clip batches', () => {
+  beforeEach(resetStore);
+  it('re-reads store per action for camera CREATE → UPDATE and persists only item fields', () => {
+    const frameId = useSceneStore.getState().startFrameId;
+    commitActions([
+      { action: 'CREATE', item: { id: 'camera1', kind: 'camera_move', label: 'Zoom', layer: 0, startTime: 5, duration: 1, targetFrameId: frameId, targetWidth: 4 } as never },
+      { action: 'UPDATE', itemId: 'camera1', updates: { targetWidth: 3, duration: 2 } },
+    ]);
+    expect(useSceneStore.getState().items.get('camera1')).toMatchObject({ kind: 'camera_move', targetWidth: 3, duration: 2 });
+    expect(useSceneStore.getState().items.get('camera1')).not.toHaveProperty('targetMode');
+  });
+});

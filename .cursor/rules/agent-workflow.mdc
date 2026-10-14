@@ -5,12 +5,14 @@ alwaysApply: true
 
 # Agent workflow (Cursor)
 
-The main Agent is the orchestrator. Specialist roles live in `.cursor/agents/` and are invoked
-as subagents. Shared project knowledge is in `AGENTS.md` and `.agents/skills/`.
+The **Orchestrator** is the user-facing entry point: it receives the task description, asks the user
+focused clarification questions when needed, and delegates through the handoff workflow. It never
+implements application code. Specialist roles live in `.cursor/agents/`; shared project knowledge
+is in `AGENTS.md` and `.agents/skills/`.
 
 ## Flow
 
-`architect` → `<owner_role>` (editor-dev | codegen-dev | server-dev | copilot-dev) → `verifier`
+`orchestrator` → `architect` → `<owner_role>` (editor-dev | codegen-dev | server-dev | copilot-dev) → `verifier`
 → optional `manim-reviewer` / `ui-reviewer` → `docs-keeper`.
 
 The contract between roles is `docs/handoffs/<yyyy-mm-dd>-<slug>.md`, created from
@@ -20,13 +22,17 @@ The contract between roles is `docs/handoffs/<yyyy-mm-dd>-<slug>.md`, created fr
 ## When to delegate
 
 - Non-trivial request (touches more than one layer, changes persisted schema, changes emitted
-  Python, adds an endpoint, or is an `idea.md` item): start with `architect`, then follow the
-  handoff. Do not implement before a plan exists.
-- Small fix inside one file with an obvious test: do it directly, then still run `verifier`.
+  Python, adds an endpoint, or is an `idea.md` item): Orchestrator asks clarifications if needed,
+  starts with `architect`, then follows the handoff. Do not implement before a plan exists.
+- Small fix inside one file with an obvious test: Orchestrator may route it directly only when scope
+  and acceptance criteria are unambiguous; still run `verifier`.
 - Any change under `manim-timeline/src/codegen` or `src/lib/time.ts`: `codegen-dev` only.
 - Any change to `measure_server.py` / `hebrew_*.py`: `server-dev` only.
 - Any change under `manim-timeline/src/agent`: `copilot-dev` only.
 - After an implementer reports done: always `verifier` before telling the user it is done.
+- Preserve pre-existing WIP, do not run overlapping implementers against shared files or guessed
+  APIs, and do not bypass an ordered dependency in a handoff. If an agent/tool is blocked, report it
+  and ask the user before changing gates or delegation.
 - Generated Python changed shape, or a visual defect is reported: `manim-reviewer` in the
   background while other work continues.
 - New or changed panel/timeline UI: `ui-reviewer` in parallel with `verifier`.

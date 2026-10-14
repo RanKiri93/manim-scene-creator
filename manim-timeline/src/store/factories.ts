@@ -180,6 +180,8 @@ export function defaultTargetAnimationRow(mode: TargetAnimationMode, targetId: I
       };
     case 'rotate':
       return { targetId, angleDeg: 45 };
+    case 'graphFollow':
+      return { targetId, graphPlotId: '', targetX: 0, easing: 'smooth' as const };
     default:
       return { targetId };
   }
@@ -592,6 +594,17 @@ export function createGraphDot(): GraphDot {
     radius: 0.08,
     label: '',
     labelDir: 'UP',
+    showCoordinates: false,
+    showProjectionGuides: false,
+    attachment: { kind: 'free' },
+    labelFontSize: 18,
+    labelColor: '#ffffff',
+    labelSpacing: 0.15,
+    coordinateFontSize: 18,
+    coordinateColor: '#e2e8f0',
+    coordinateDir: 'DOWN',
+    coordinateSpacing: 0.15,
+    coordinatePrecision: 2,
   };
 }
 

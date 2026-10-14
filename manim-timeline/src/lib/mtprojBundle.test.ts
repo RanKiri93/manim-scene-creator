@@ -3,7 +3,7 @@ import { zipSync, strToU8 } from 'fflate';
 import SparkMD5 from 'spark-md5';
 import type { AudioTrackItem, MultiSceneProjectFile, ProjectFile, ProjectFragmentFile } from '@/types/scene';
 import { isMultiSceneProjectFile, MULTISCENE_PROJECT_KIND } from '@/types/scene';
-import { defaultFrames } from '@/store/factories';
+import { createGraphDotItem, createTargetAnimation, defaultFrames } from '@/store/factories';
 import { FRAME_W } from '@/lib/constants';
 import {
   parseMtprojFromUint8Array,
@@ -129,6 +129,17 @@ describe('packMtprojToBlob + parseMtprojFromUint8Array', () => {
 
   afterEach(() => {
     globalThis.fetch = origFetch;
+  });
+
+  it('round-trips graph-follow references and graph-dot annotation options', async () => {
+    const dot = createGraphDotItem('axes'); dot.id = 'dot'; dot.dot.showCoordinates = true; dot.dot.showProjectionGuides = true; dot.dot.labelFontSize = 24; dot.dot.attachment = { kind: 'function', graphPlotId: 'plot', x: 1 };
+    const follow = createTargetAnimation('graphFollow', ['dot'], 2); follow.id = 'follow';
+    follow.targets = [{ targetId: 'dot', graphPlotId: 'plot', targetX: 4, easing: 'linear' }];
+    const blob = await packMtprojToBlob(minimalProject({ items: [dot, follow] }));
+    const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+    const items = 'items' in out ? out.items : out.scenes[0]!.items;
+    expect(items.find((it) => it.kind === 'target_animation')).toMatchObject({ targets: [{ targetId: 'dot', graphPlotId: 'plot', targetX: 4, easing: 'linear' }] });
+    expect(items.find((it) => it.kind === 'graphDot')).toMatchObject({ dot: { showCoordinates: true, showProjectionGuides: true, labelFontSize: 24, attachment: { kind: 'function', graphPlotId: 'plot', x: 1 } } });
   });
 
   it('round-trips audio with virtual paths and checksums', async () => {

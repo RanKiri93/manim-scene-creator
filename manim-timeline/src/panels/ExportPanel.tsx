@@ -22,6 +22,7 @@ import { prepareSceneMasterAudio } from '@/lib/audioRenderHelpers';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import type { SceneItem } from '@/types/scene';
 import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
+import { graphFollowExportBlock } from '@/lib/exportReadiness';
 
 const RENDER_QUALITIES = [
   { value: 'l', label: 'Low (l)' },
@@ -69,6 +70,7 @@ function RenderProgressBar({ progress }: { progress: RenderProgressState }) {
 
 export default function ExportPanel() {
   const itemsMap = useSceneStore((s) => s.items);
+  const activeGraphFollowBlock = useSceneStore((s) => s.graphFollowExportBlock());
   const items = useMemo(
     () => Array.from(itemsMap.values()).sort((a: SceneItem, b: SceneItem) => a.startTime - b.startTime || a.layer - b.layer),
     [itemsMap],
@@ -80,6 +82,15 @@ export default function ExportPanel() {
   const audioBed = useSceneStore((s) => s.audioBed);
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
   const sceneOrderSig = useProjectScenesStore((s) => s.sceneIds.join('|'));
+  const idleScenes = useProjectScenesStore((s) => s.idleScenes);
+  const graphFollowBlock = useMemo(() => {
+    if (activeGraphFollowBlock) return activeGraphFollowBlock;
+    for (const scene of Object.values(idleScenes)) {
+      const blocked = graphFollowExportBlock(scene.items);
+      if (blocked) return `Another scene: ${blocked}`;
+    }
+    return null;
+  }, [activeGraphFollowBlock, idleScenes]);
   const [fullFile, setFullFile] = useState(true);
   const [copied, setCopied] = useState(false);
   const [renderModalOpen, setRenderModalOpen] = useState(false);
@@ -158,21 +169,24 @@ export default function ExportPanel() {
   }, [items, sceneOrderSig]);
 
   const code = useMemo(() => {
+    if (graphFollowBlock) return `# EXPORT ERROR: ${graphFollowBlock}\n`;
     if (imagePrepError) return `# EXPORT ERROR: ${imagePrepError}\n`;
     if (needsImagePrep && !preparedExports) return '# Preparing image assets for export…\n';
     return exportManimCode(preparedExports?.single ?? items, { fullFile, defaults, frames, startFrameId, audioItems });
-  }, [preparedExports, imagePrepError, needsImagePrep, items, fullFile, defaults, frames, startFrameId, audioItems]);
+  }, [preparedExports, imagePrepError, needsImagePrep, items, fullFile, defaults, frames, startFrameId, audioItems, graphFollowBlock]);
 
   const codeFullFile = useMemo(() => {
+    if (graphFollowBlock) return `# EXPORT ERROR: ${graphFollowBlock}\n`;
     if (imagePrepError) return `# EXPORT ERROR: ${imagePrepError}\n`;
     if (needsImagePrep && !preparedExports) return '# Preparing image assets for export…\n';
     return exportManimCode(preparedExports?.single ?? items, { fullFile: true, defaults, frames, startFrameId, audioItems });
-  }, [preparedExports, imagePrepError, needsImagePrep, items, defaults, frames, startFrameId, audioItems]);
+  }, [preparedExports, imagePrepError, needsImagePrep, items, defaults, frames, startFrameId, audioItems, graphFollowBlock]);
 
   const combinedPython = useMemo(() => {
     // Read via `void` so scene-tab add/remove/rename recomputes this memo even
     // though the multi-scene file itself is read from the store below.
     void sceneOrderSig;
+    if (graphFollowBlock) return `from manim import *\n\n# COMBINED EXPORT ERROR: ${graphFollowBlock}\n`;
     if (imagePrepError) {
       return `from manim import *\n\n# COMBINED EXPORT ERROR: ${imagePrepError}\n`;
     }
@@ -196,17 +210,19 @@ export default function ExportPanel() {
       const msg = e instanceof Error ? e.message : String(e);
       return `from manim import *\n\n# COMBINED EXPORT ERROR: ${msg}\n`;
     }
-  }, [preparedExports, imagePrepError, needsImagePrep, sceneOrderSig]);
+  }, [preparedExports, imagePrepError, needsImagePrep, sceneOrderSig, graphFollowBlock]);
 
   const openRenderModal = useCallback(() => {
+    if (graphFollowBlock) return;
     setRenderSceneName(safeSceneClassName(defaults.sceneName ?? ''));
     setRenderError(null);
     setRenderProgress(null);
     setRenderModalOpen(true);
-  }, [defaults.sceneName]);
+  }, [defaults.sceneName, graphFollowBlock]);
 
   const handleRenderSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (graphFollowBlock) { setRenderError(graphFollowBlock); return; }
     setRenderError(null);
     setRendering(true);
     const scene = safeSceneClassName(renderSceneName);
@@ -218,23 +234,19 @@ export default function ExportPanel() {
         percent: 8,
       });
       let masterPath: string | null = null;
-      try {
-        setRenderProgress({
-          label: 'Preparing audio for export',
-          detail: 'Syncing assets and building mixdown when bed or cut fades are enabled.',
-          percent: 10,
-        });
-        masterPath = await prepareSceneMasterAudio(measureUrl, {
-          items,
-          defaults,
-          frames,
-          startFrameId,
-          audioItems,
-          audioBed,
-        });
-      } catch (mixErr) {
-        throw mixErr;
-      }
+      setRenderProgress({
+        label: 'Preparing audio for export',
+        detail: 'Syncing assets and building mixdown when bed or cut fades are enabled.',
+        percent: 10,
+      });
+      masterPath = await prepareSceneMasterAudio(measureUrl, {
+        items,
+        defaults,
+        frames,
+        startFrameId,
+        audioItems,
+        audioBed,
+      });
       setRenderProgress({
         label: `Rendering ${scene}`,
         detail: masterPath
@@ -309,6 +321,7 @@ export default function ExportPanel() {
   };
 
   const handleCopy = async () => {
+    if (graphFollowBlock) return;
     await navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
@@ -354,6 +367,7 @@ export default function ExportPanel() {
   }, [measureUrl, mergeFiles]);
 
   const renderFullProjectSequential = useCallback(async () => {
+    if (graphFollowBlock) { setRenderAllErr(graphFollowBlock); return; }
     setRenderAllBusy(true);
     setRenderAllErr(null);
     setRenderAllProgress({
@@ -382,24 +396,20 @@ export default function ExportPanel() {
         // Inline live `blob:`/`http(s):` images as export-only data URLs so
         // each scene's Python matches the Export panel preview.
         let preparedSceneItems: SceneItem[] = sc.items ?? [];
-        try {
-          setRenderAllProgress({
-            label: `Preparing image assets for scene ${sceneNo} of ${totalScenes}`,
-            detail: klass,
-            percent: sceneBasePercent,
-          });
-          preparedSceneItems = await prepareImageItemsForManimExport(sc.items ?? []);
-          masterPath = await prepareSceneMasterAudio(measureUrl, {
-            items: preparedSceneItems,
-            defaults: sc.defaults,
-            frames: sc.frames,
-            startFrameId: sc.startFrameId,
-            audioItems: sc.audioItems ?? [],
-            audioBed: sc.audioBed,
-          });
-        } catch (mixErr) {
-          throw mixErr;
-        }
+        setRenderAllProgress({
+          label: `Preparing image assets for scene ${sceneNo} of ${totalScenes}`,
+          detail: klass,
+          percent: sceneBasePercent,
+        });
+        preparedSceneItems = await prepareImageItemsForManimExport(sc.items ?? []);
+        masterPath = await prepareSceneMasterAudio(measureUrl, {
+          items: preparedSceneItems,
+          defaults: sc.defaults,
+          frames: sc.frames,
+          startFrameId: sc.startFrameId,
+          audioItems: sc.audioItems ?? [],
+          audioBed: sc.audioBed,
+        });
         const py = exportManimCode(preparedSceneItems, {
           fullFile: true,
           defaults: sc.defaults,
@@ -473,7 +483,7 @@ export default function ExportPanel() {
     } finally {
       setRenderAllBusy(false);
     }
-  }, [measureUrl, renderQuality]);
+  }, [measureUrl, renderQuality, graphFollowBlock]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -505,20 +515,23 @@ export default function ExportPanel() {
         <button
           type="button"
           onClick={handleCopy}
-          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors"
+          disabled={!!graphFollowBlock}
+          title={graphFollowBlock ?? 'Copy generated Manim code'}
+          className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 rounded transition-colors"
         >
           {copied ? 'Copied!' : 'Copy'}
         </button>
         <button
           type="button"
           onClick={openRenderModal}
-          disabled={rendering || preparingImages}
+          disabled={rendering || preparingImages || !!graphFollowBlock}
           className="px-2 py-1 text-xs bg-emerald-800 hover:bg-emerald-700 disabled:opacity-50 text-slate-100 rounded transition-colors"
           title={preparingImages ? 'Preparing image assets for export…' : undefined}
         >
           {preparingImages ? 'Preparing images…' : 'Render MP4'}
         </button>
       </div>
+      {graphFollowBlock && <p className="text-[11px] text-amber-300" role="alert">{graphFollowBlock}</p>}
       {preparingImages && (
         <p className="text-[11px] text-slate-500" role="status">
           Preparing image assets for export…

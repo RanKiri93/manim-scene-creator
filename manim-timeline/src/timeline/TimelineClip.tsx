@@ -29,6 +29,7 @@ import {
   textLineAnimOnlyDuration,
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
 import { cameraMovesFromItems, resolveCameraSchedule } from '@/lib/camera';
 import {
   cameraClipPresentation,
@@ -174,6 +175,22 @@ export default function TimelineClip({
 
   const clipTitle = (() => {
     const parts = [itemClipDisplayName(item)];
+    if (item.kind === 'target_animation' && item.mode === 'graphFollow') {
+      for (const row of item.targets) {
+        const dot = itemsMap.get(row.targetId);
+        if (dot?.kind !== 'graphDot') parts.push(`Missing graph dot: ${row.targetId}`);
+        else {
+          const attachment = dot.dot.attachment ?? { kind: 'free' as const };
+          const parameter = attachment.kind === 'parametric' ? row.targetT : row.targetX;
+          const sourceId = attachment.kind === 'function' ? attachment.graphPlotId
+            : attachment.kind === 'parametric' ? attachment.graphCurveId : row.graphPlotId;
+          parts.push(`${attachment.kind === 'parametric' ? 't' : 'x'} target: ${Number.isFinite(parameter) ? parameter!.toFixed(3) : 'missing'} · source: ${sourceId ?? 'missing'}`);
+          parts.push(...graphMotionConflicts(dot.id, [...itemsMap.values()]));
+          const result = resolveGraphDotPosition({ dot, items: [...itemsMap.values()], time: item.startTime });
+          if (result.error) parts.push(result.error);
+        }
+      }
+    }
     if (hasAudioBindingField) {
       if (explicitAudioTrack) {
         parts.push(`Bound audio clip: ${audioTrackLabel(explicitAudioTrack)}`);
@@ -195,7 +212,9 @@ export default function TimelineClip({
     return parts.join('\n');
   })();
 
-  const colors = KIND_COLORS[item.kind] ?? 'bg-slate-600/80 border-slate-400';
+  const colors = item.kind === 'target_animation' && item.mode === 'graphFollow'
+    ? 'bg-cyan-800/85 border-cyan-300'
+    : KIND_COLORS[item.kind] ?? 'bg-slate-600/80 border-slate-400';
 
   const onMouseDownMove = useCallback(
     (e: React.MouseEvent) => {

@@ -12,6 +12,7 @@ import type {
   TargetAnimationItem,
   TargetAnimationTargetSpec,
 } from '@/types/scene';
+import { resolveGraphDotPosition, type GraphMotionResult } from '@/lib/graphMotion';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
 import { transformSourceIds } from '@/lib/transformMapping';
 import {
@@ -520,6 +521,13 @@ export interface TargetAnimPreviewAccum {
   /** In-progress color morph toward this hex (`t` ∈ [0,1]). */
   colorLerpTo?: string;
   colorLerpT?: number;
+}
+
+/** Graph-dot position source shared by canvas rendering and timeline scrubbing. */
+export function graphFollowPreviewPosition(targetId: ItemId, time: number, items: Map<ItemId, SceneItem>): GraphMotionResult | null {
+  const target = items.get(targetId);
+  if (!target || target.kind !== 'graphDot') return null;
+  return resolveGraphDotPosition({ dot: target, items: [...items.values()], time });
 }
 
 export function targetAnimPreviewAccum(

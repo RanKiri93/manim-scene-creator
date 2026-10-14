@@ -11,6 +11,7 @@ import type {
 import type { ExportLeaf } from './flattenExport';
 import { effectiveDuration } from '@/lib/time';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
+import { MIN_CAMERA_DURATION } from '@/lib/camera';
 import {
   type BoundAudioTailOpts,
   sceneClockSecForLeafBoundPlayback,
@@ -168,7 +169,7 @@ export function sequentialAnimSecondsForTargetAnimation(
 }
 
 export function sequentialAnimSecondsForCameraMove(cam: CameraMoveItem): number {
-  return Math.max(0.01, cam.duration);
+  return Math.max(MIN_CAMERA_DURATION, cam.duration);
 }
 
 export function sequentialAnimSecondsForSurroundingRect(

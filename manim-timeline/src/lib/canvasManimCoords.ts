@@ -61,8 +61,11 @@ export function cameraViewportTransform(
 ): CanvasViewportTransform {
   const scale = FRAME_W / pose.width;
   return {
-    x: canvasWidth / 2 - pose.x * canvasWidth / pose.width,
-    y: canvasHeight / 2 + pose.y * canvasHeight / (pose.width * FRAME_H / FRAME_W),
+    // `manimToCanvas` already places the world origin at the canvas midpoint.
+    // Translate relative to that centered basis so identity camera is identity
+    // and the requested world-space camera center remains at screen center.
+    x: canvasWidth / 2 - scale * (canvasWidth / 2 + pose.x * canvasWidth / FRAME_W),
+    y: canvasHeight / 2 - scale * (canvasHeight / 2 - pose.y * canvasHeight / FRAME_H),
     scale,
   };
 }

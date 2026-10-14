@@ -38,11 +38,11 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 |------|---------|
 | **Text line** | LaTeX source with `||` segment splits; rendered in Manim as `HebrewMathLine` (or equivalent export). Supports per-segment color, bold, italic, optional **`waitAfterSec`**; measurement fills bbox and optional PNG preview. |
 | **Axes** | Coordinate system only; plots, dots, fields, and function series are **separate clips** referencing `axesId`. |
-| **Graph overlays** | `graphPlot`, `graphDot`, `graphField`, `graphFunctionSeries` — timed like other clips, anchored to an axes item. `graphFunctionSeries` renders a family of curves parameterized by integer `n ∈ [nMin, nMax]`; see [Function series](#function-series). |
+| **Graph overlays** | `graphPlot`, `graphCurve`, `graphDot`, `graphField`, `graphFunctionSeries`, and other graph overlays — timed like other clips and attached to an axes item. Dots can be free or attached to a function/parametric source; see [Graph animations](#graph-animations). `graphFunctionSeries` renders a family of curves parameterized by integer `n ∈ [nMin, nMax]`; see [Function series](#function-series). |
 | **Image** | Still picture imported from disk (**PNG/JPG/GIF** — GIF shows its first frame). Sized in Manim units (`width`/`height`), with `opacity`, `rotationDeg`, and normal `posSteps` positioning; export uses Manim `ImageMobject` and participates in exit, blink-scale, surrounding rectangles, and move/path/scale/rotate target animations. The Konva preview fades images in over their clip `duration` with Manim-smooth `FadeIn` pacing (`imageIntroOpacity` in `src/lib/visualPlaybackPreview.ts`), composing with exit fades. Newly imported live images are embedded as `data:` URLs by the Export panel for direct Python/render; `.mtproj` still stores them durably under `assets/textures/*`. |
 | **Compound** | A single timeline clip that **groups several text lines** with **local** timing inside the compound (see [Compound clips](#compound-clips-chain-calculations)). |
 | **Exit animation** | A **separate timeline clip** (`exit_animation`) that targets another animatable item by `targetId`. It runs `FadeOut` / `Uncreate` / `ShrinkToCenter` (or `none`) at its own `startTime` for `duration` seconds. The exit must start at or after the target’s **hold end** (`effectiveStart + run duration`, including compound-local duration for child lines). Adding an object does not create an exit; add exits from **Insert → Animations → Exit** when needed. |
-| **Target animation** | A **timeline clip** (`target_animation`) that applies a **permanent** visual change (after playback) to one or more items via `targets[].targetId`. Modes include `scale`, `color`, `move`, `path`, and `rotate`. State is carried on this clip — **not** by mutating `posSteps` on the target. See [Target animations](#target-animations-permanent-effects). |
+| **Target animation** | A **timeline clip** (`target_animation`) that applies a **permanent** visual change (after playback) to one or more items via `targets[].targetId`. Modes include `scale`, `color`, `move`, `path`, `rotate`, and `graphFollow`. State is carried on this clip — **not** by mutating `posSteps` on the target. See [Target animations](#target-animations-permanent-effects). |
 
 **Time** — Each timed item has `startTime`, `duration`, and `layer`. Items inside a compound use `localStart` / `localDuration` (and `parentId`); the store keeps the compound’s `duration` in sync with its children. Pauses can be **spacing clips on the timeline**, or optional **`waitAfterSec` on each text-line segment** (extends that line’s `runDuration` and shows as amber stripes on the timeline bar; export uses `Succession` / `Wait`).
 
@@ -62,6 +62,9 @@ You build a scene from **items** stored in a Zustand map. Each top-level item ca
 **Graph animations**
 
 - Playback is expressed with `Create` / `FadeIn` / `Write` as appropriate; **exits** for axes and overlays use the same Manim ops, emitted from **exit_animation** clips that target the corresponding item.
+- **Move along graph** — A `target_animation` with mode `graphFollow` moves an existing `graphDot` over time on a fixed function or attached parametric curve. Function-attached dots store source plot + current `x` and move toward `targetX`; parametric-attached dots store source curve + current `t` and move toward `targetT`. The source is inferred for attached dots. A free dot can follow an explicitly selected compatible function plot by x, but must already lie on that plot; free-point parametric inversion is not supported. Smooth (default) or linear easing controls progress. Clips can be chained with timeline gaps: each destination is held through the pause and after the last clip.
+- **Dot labels and coordinates** — The fixed label and live `(x, y)` coordinate annotation have independent size, color, direction, and spacing settings; coordinate precision is configurable from 0 to 6 decimals. Projection guides end at x=0/y=0 when those axes are visible, otherwise at the nearest visible range boundary. Export uses cached `HebrewMathLine` glyphs for live numbers rather than compiling TeX in a per-frame updater.
+- **Validation and support boundary** — Off-curve free-function starts, missing/incompatible sources, overlapping position writers (`graphFollow`/`move`/`path`), and detected invalid/domain-hole/discontinuity intervals are reported as actionable errors; no snap or initial jump is applied. Interval discontinuity detection is best-effort numerical sampling, not a proof that every discontinuity is detected. Graph shape animation, arc-length-constant speed, free-dot parametric inversion, optimization/search, and Copilot authoring are not supported. The export capability guard is enabled only after function-x and attached-parametric-t exports, annotations, and rendered review passed.
 
 ### Timeline
 
@@ -102,6 +105,7 @@ Configure the base URL in the app (default **`http://127.0.0.1:8765`**).
 - Chat proposals (**CREATE** / **UPDATE** / **DELETE**) preview on canvas/timeline and apply only after **Approve**; details in `src/agent/ARCHITECTURE.md`.
 - The Copilot is **frame-aware**: it sees the frame catalog plus the **active frame**, stamps new drawables with the active frame unless you name another valid frame, and rejects unknown `frameId`s (effect clips follow their targets and take no `frameId`).
 - The Copilot speaks the same expression pairs as the editors: plot `fn`, curve `x(t)/y(t)`, series `f(n,x)`, point-sequence `x(n)/y(n)`, and path-mode target-animation offsets — always paired JS/Python with `**` power (stray `^` is repaired, a missing dialect derived), and partial updates never wipe sibling fields.
+- Camera proposals use ordinary `camera_move` clips. The Copilot resolves frame, region, or supported object-fit targets against the request-time snapshot, anchors “now” to the captured playhead, and previews destination, duration, full-frame return, and override timing before approval. Pending descriptors are normalized away; if the reviewed scene geometry or camera schedule changes before approval, the proposal is rejected atomically and must be regenerated. Ambiguous or unsupported bounds require clarification rather than a guessed zoom.
 
 ---
 
@@ -127,6 +131,10 @@ Narration is **not** stored per line or per graph in the data model. Instead:
 - **Download Script (.md)** — **`exportScriptToMarkdown`** produces a **human-readable outline** (line headings + raw LaTeX, graph summaries, compound children). It is **not** a TTS script format; use **`audioItems`** for spoken content.
 
 **Scene class name** — Editable in the header; sanitized with **`safeSceneClassName`** (`src/lib/pythonIdent.ts`) for valid Python identifiers.
+
+**Camera zoom export** — `camera_move` items export through `MovingCameraScene` as absolute camera center/width poses; scene objects are not moved or scaled to imitate a zoom. `src/lib/camera.ts` supplies the same cubic ease-in/out and later-start interruption schedule used by preview. A newer clip starts at the previously scheduled camera pose sampled at its exact start using the interrupted clip's original duration; the older clip never resumes. A full-frame return is an independent authored clip targeting `FRAME_W` and remains scheduled after intervening zooms. Authored clip ends still determine scene length, even when a later camera command supersedes their visual influence. Concurrent object/camera clips use one camera writer in their `AnimationGroup`; a camera delay is retained inside that play, and interior unbound narration is emitted once with its relative `time_offset`. Partial export includes the camera helper and a `MovingCameraScene` precondition note. Delayed polyline/parametric target paths that overlap a camera cluster build their path at branch start from the target's then-current anchor.
+
+**Graph-axis preview alignment** — Raster axes are drawn only when the preview response includes valid v1 origin/basis metadata; otherwise the canvas uses vector axes. The graph-coordinate origin and basis are mapped independently of the cropped all-ink PNG bounds. Camera viewport placement uses the same centered canvas coordinate basis as graph objects, so the identity camera adds no extra half-frame offset; direct graph dragging moves the graph content while the background grid stays fixed.
 
 ---
 
@@ -189,6 +197,8 @@ A single uploaded track often spans **several** text lines. Waiting until **`tra
 
 Overlapping intro intervals (by **`holdEnd`**, not only **`effectiveStart`**) merge into one **`AnimationGroup`** with per-participant **`Succession(Wait(rel), …)`** stagger. **Adjacent** clips that only **touch** at an endpoint do **not** merge (**`MIN_INTERVAL_OVERLAP_SEC`**).
 
+**Camera clips** use the resolved schedule from `src/lib/camera.ts`: export interpolates absolute center/width poses with the shared cubic easing and samples an interrupted clip at its original authored progress. Camera/object overlap uses one camera writer whose branch starts at the cluster time and evaluates camera segments at their authored relative times; its `run_time` is included in the same cluster wall-time calculation. Thus camera delays do not compress or postpone overlapping object animations. Later camera clips replace the earlier view without resumption, while separately authored full-frame returns remain at their original times. Authored camera ends still extend scene length even when visually overridden. Interior unbound audio starts are emitted before the blocking cluster with `time_offset` and are deduplicated from later event dispatch.
+
 ### Per-leaf duration accuracy
 
 For the padding math to produce correct `self.wait` gaps, `sequentialAnimSecondsForLeaf` (`groupPlaybackSpan.ts`) must return exactly the number of Manim scene-clock seconds the emitted code block consumes. Key invariants:
@@ -206,6 +216,7 @@ For the padding math to produce correct `self.wait` gaps, `sequentialAnimSeconds
 ### Tests
 
 - **`src/codegen/manimExporter.overlap.test.ts`** — Overlap clustering, early **`add_sound`**, **tail ceiling** for two lines sharing one long track, segment **`waitAfterSec`**, audio tail when file longer than slice, etc.
+- **`src/codegen/cameraCodegen.test.ts`** — Exact emitted camera helper/runtime, absolute widths, easing, malformed clips and partial-export prerequisites; **`manimExporter.overlap.test.ts`** covers cursor waits and camera/object/audio concurrency.
 
 ### Files to read first
 
@@ -215,6 +226,7 @@ For the padding math to produce correct `self.wait` gaps, `sequentialAnimSeconds
 | Text line + audio resolution + tails | `src/codegen/lineCodegen.ts` |
 | Per-leaf duration for cursor | `src/codegen/groupPlaybackSpan.ts` |
 | Concurrent `AnimationGroup` | `src/codegen/leafConcurrentCodegen.ts` |
+| Camera schedule / pose export | `src/lib/camera.ts`, `src/codegen/cameraCodegen.ts` |
 | Graph / shape bound audio | `src/codegen/graphCodegen.ts`, `src/codegen/shapeCodegen.ts` |
 | Timeline math | `src/lib/time.ts` |
 
@@ -243,10 +255,11 @@ A **`target_animation`** clip schedules a timed Manim `self.play` that leaves th
 
 | Topic | Behavior |
 |--------|----------|
-| **Modes** | `scale`, `color`, `move`, `path`, `rotate`. Each entry in `targets[]` has a `targetId` plus fields for that mode (`scaleFactor`, `color`, `dx`/`dy`, path data, `angleDeg`). Text lines support segment-level targeting (`segmentIndices`, `mathSubtargets`) for color-like effects. |
+| **Modes** | `scale`, `color`, `move`, `path`, `rotate`, and `graphFollow`. Each entry in `targets[]` has a `targetId` plus fields for that mode (`scaleFactor`, `color`, `dx`/`dy`, path data, `angleDeg`, or graph parameter destination/source). Text lines support segment-level targeting (`segmentIndices`, `mathSubtargets`) for color-like effects. |
 | **`path` and path kinds** | **`polyline`** — `pathPoints` are **offsets from the anchor at clip start** (first point is often `(0,0)`). In the editor, you can **click the canvas** to append vertices while the clip is being edited. Export builds a corner polyline and uses **`MoveAlongPath`**. **`parametric`** — `parametricPath` holds **`jsXExpr` / `jsYExpr`** (preview, parameter `t`) and **`pyXExpr` / `pyYExpr`** (Manim export), **`tMin`**, **`tMax`**, optional **`samples`**. Preview evaluates the JS pair; export emits **`ParametricFunction`** (Python lambdas) plus **`MoveAlongPath`**, with the path anchored so motion matches the polyline normalization (offset from the first sample). |
 | **Preview** | `src/lib/visualPlaybackPreview.ts` accumulates preview transforms; path segments interpolate polyline corners or sample the parametric curve. |
 | **Codegen** | `src/codegen/targetAnimationCodegen.ts`; shares helpers with graph export where needed (`src/codegen/graphCodegen.ts`). |
+| **Graph-follow timing/export** | `graphFollow` interpolates function x or attached parametric t using the clip easing, recomputes the point on the source, and moves the existing dot plus its enabled label/coordinate/guides. Chaining holds the previous destination across gaps. Each clip consumes `Math.max(0.01, duration)` scene-clock seconds; annotation updaters add no waits, so the existing per-leaf duration table is unchanged. Invalid references, off-curve free starts, invalid sampled intervals, and same-dot position-writer conflicts fail export with actionable diagnostics. |
 | **Canvas** | `src/canvas/SceneCanvas.tsx` — polyline point-pick appends points relative to the target anchor; parametric mode does not use click-picking. |
 | **Agent / validation** | `target_animation` is in **`AGENT_ALLOWED_KINDS`** (`src/agent/types.ts`). `validate.ts` enforces **eligible target kinds per mode** via `canBeTargetAnimationTargetKind` and normalizes with `normalizeTargetAnimation`. |
 
@@ -289,6 +302,7 @@ A **`graphFunctionSeries`** item renders a family of curves parameterized by an 
 - Bump **`PROJECT_VERSION`** when you make breaking schema changes and consider adding migration logic in **`loadProjectFile`** if needed.
 - **Version 10** — Removes per-item `waitAfter`, `exitAnimStyle`, and `exitRunTime`. Legacy projects with `version` below 10 are migrated on load: non-`none` exits become **`exit_animation`** items (start time = old hold + wait + exit offset as before), then legacy fields are stripped (`migrateProjectToV10.ts`). Very old monolithic **`graph`** items are still split in **`migrateSceneItems.ts`** before that step.
 - **Version 41** — Adds the **`image`** scene item kind (still pictures: `srcUrl`, `assetRelPath?`, `fileName`, `mimeType`, `width`, `height`, `opacity`, `rotationDeg`); `PosStepNextTo.refKind` gains **`image`**. Migration is a pass-through (`migrateProjectToV41.ts`); older files load unchanged.
+- **Version 44** — Graph dots may persist `attachment: {kind:'free'}` (legacy `dx/dy`), `{kind:'function', graphPlotId, x}`, or `{kind:'parametric', graphCurveId, t}`. V44 also adds optional independent label/coordinate presentation fields (`labelFontSize`, `labelColor`, `labelSpacing`, `coordinateFontSize`, `coordinateColor`, `coordinateDir`, `coordinateSpacing`, `coordinatePrecision`) and annotation toggles (`showCoordinates`, `showProjectionGuides`). Migration preserves V43 graph-follow rows and backfills free attachments/style defaults. Graph-follow targets use `targetX` for function/free-function motion or `targetT` for parametric-attached motion, with optional `graphPlotId`/legacy `graphCurveId` references and `easing` (`linear` or `smooth`; missing legacy easing defaults to smooth).
 - Import / export helpers live in **`src/lib/projectIO.ts`**.
 
 ### Portable bundle (`.mtproj`)
@@ -456,7 +470,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 
 ---
 
-*Last updated: **Windows desktop startup watcher** — Vite now ignores `src-tauri/` to avoid `EBUSY` when watching locked Rust build artifacts; Tauri retains its own Rust watcher.
+*Last updated: **Graph-follow export and aligned graph preview** — graph dots can attach to functions or parametric curves, move with chained x/t clips, and export styled fixed/live annotations and projection guides with cached `HebrewMathLine` glyphs; invalid starts/intervals/conflicts remain actionable errors. Axes raster overlays use server origin/basis metadata, and identity camera placement no longer adds a half-frame offset. **Project format v44** records dot attachments and independent label/coordinate settings. Copilot graph-follow authoring remains deferred. Earlier: **Copilot camera proposals** — the assistant can propose snapshot-based frame, region, and supported object-fit camera clips, preview timing/overrides, and reject stale proposals before approval; ambiguous targets require clarification. Earlier: **Camera zoom export** — camera playback now consumes the shared absolute center/width interruption schedule with cubic easing, concurrent single-writer clusters, preserved authored returns and scene tails, and matching partial-export helpers.
+Earlier: **Windows desktop startup watcher** — Vite now ignores `src-tauri/` to avoid `EBUSY` when watching locked Rust build artifacts; Tauri retains its own Rust watcher.
 Earlier: **Measured text snapping** — canvas text dragging can snap measured ink to same-frame object/frame edges with a uniform 0.3-unit default, an Alt bypass, and a per-line snap-gap control; snapped positions remain ordinary coordinates, not attachments.
 Earlier: **Image Konva fade-in preview** — canvas images now fade in over their clip duration with Manim-smooth `FadeIn` pacing (`imageIntroOpacity`), composing with exit fades; export and project shape unchanged.
 Earlier: **Image export for live images** — the Export panel now inlines newly imported `blob:`/`http(s):` images as export-only `data:` URLs (`src/lib/imageExportAssets.ts`), so fresh images export/render immediately without a save/reopen `.mtproj` round trip; unbundled raw URLs are still rejected by codegen.

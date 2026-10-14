@@ -292,6 +292,17 @@ describe('buildGraphDotPreviewSpec', () => {
     const spec = buildGraphDotPreviewSpec({ dot, ...geom });
     expect(spec.label).toBeNull();
   });
+
+  it('adds optional live coordinates and boundary projection guides without changing defaults', () => {
+    const dot = createGraphDot(); dot.dx = 1; dot.dy = 2;
+    const axes = createAxes(defaultSceneDefaults()); axes.xRange = [2, 6, 1]; axes.yRange = [3, 7, 1];
+    expect(buildGraphDotPreviewSpec({ dot, axes, ...geom }).projectionGuides).toEqual([]);
+    dot.showCoordinates = true; dot.showProjectionGuides = true;
+    const spec = buildGraphDotPreviewSpec({ dot, axes, ...geom });
+    expect(spec.coordinates).toBe('(1.00, 2.00)');
+    expect(spec.projectionGuides).toHaveLength(2);
+    expect(spec.projectionGuides[0]?.[2]).toBeCloseTo(20);
+  });
 });
 
 describe('buildPlotCreatePreviewSpec', () => {

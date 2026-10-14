@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { useSceneStore } from '@/store/useSceneStore';
-import { buildContextPayload } from './serialize';
+import { buildContextPayload, stripUiFields } from './serialize';
 import { buildSystemPrompt } from './systemPrompt';
 import { validateAgentResponse } from './validate';
 import { commitActions } from './commit';
@@ -12,6 +12,7 @@ import {
   type ProviderId,
 } from './providers';
 import type { AgentChatMessage } from './types';
+import { resolveCameraRequest } from './cameraRequests';
 
 export type AgentStatus = 'idle' | 'loading' | 'error';
 
@@ -110,6 +111,10 @@ export const useAgentStore = create<AgentStoreShape>()(
         });
 
         const sceneState = useSceneStore.getState();
+        const requestItems = new Map(sceneState.items);
+        const requestFrames = sceneState.frames.map((frame) => ({ ...frame }));
+        const requestTime = sceneState.currentTime;
+        const cameraSnapshotKey = cameraContextKey(requestItems, requestFrames, sceneState.startFrameId);
         const payload = buildContextPayload({
           defaults: sceneState.defaults,
           currentTime: sceneState.currentTime,
@@ -138,11 +143,19 @@ export const useAgentStore = create<AgentStoreShape>()(
             includeThinking: state.showThinking,
             signal: controller.signal,
           });
+          const normalizedRaw = resolveCameraRequests(raw, {
+            currentTimeSec: requestTime,
+            items: requestItems,
+            frames: requestFrames,
+            startFrameId: sceneState.startFrameId,
+            activeFrameId: sceneState.activeFrameId,
+          });
           const result = validateAgentResponse(
-            raw,
-            useSceneStore.getState().items,
+            normalizedRaw,
+            requestItems,
             {
               frameIds: sceneState.frames.map((f) => f.id),
+              frames: requestFrames,
               activeFrameId: sceneState.activeFrameId,
               startFrameId: sceneState.startFrameId,
             },
@@ -175,6 +188,7 @@ export const useAgentStore = create<AgentStoreShape>()(
               ? {
                   actions: resp.actions,
                   actionsStatus: 'pending' as const,
+                  ...(resp.actions.some((action) => action.action === 'CREATE' && action.item.kind === 'camera_move' || action.action === 'UPDATE' && requestItems.get(action.itemId)?.kind === 'camera_move') ? { cameraSnapshotKey } : {}),
                 }
               : {}),
           };
@@ -259,6 +273,10 @@ export const useAgentStore = create<AgentStoreShape>()(
             !msg.actions ||
             msg.actionsStatus !== 'pending'
           ) {
+            return;
+          }
+          if (msg.cameraSnapshotKey && msg.cameraSnapshotKey !== cameraContextKey(useSceneStore.getState().items, useSceneStore.getState().frames, useSceneStore.getState().startFrameId)) {
+            set((s) => ({ ...s, messages: s.messages.map((m) => m.id === messageId ? { ...m, actionsStatus: 'rejected' as const, error: ['Camera proposal is stale: frames, target geometry, or camera schedule changed after the request. Ask Copilot to re-propose against the current scene.'] } : m), activePreviewMessageId: s.activePreviewMessageId === messageId ? null : s.activePreviewMessageId }));
             return;
           }
           commitActions(msg.actions);
@@ -373,4 +391,64 @@ function pickDefaultModel(provider: ProviderId, current: string): string {
     return 'gemini-2.5-flash';
   }
   return current || 'gpt-4o-mini';
+}
+
+function cameraContextKey(items: Map<string, import('@/types/scene').SceneItem>, frames: readonly import('@/types/scene').FrameDef[], startFrameId: string | null): string {
+  const serialized = [...items.values()].sort((a, b) => a.id.localeCompare(b.id)).map((item) => {
+    const visible = stripUiFields(item) as Record<string, unknown>;
+    if (item.kind === 'axes') {
+      visible.axisPreviewHash = item.axisPreviewHash;
+      visible.axisPreviewBounds = item.axisPreviewBounds;
+    } else if (item.kind === 'textLine') {
+      const measure = item.measure;
+      visible.measureInk = measure ? {
+        width: measure.width, height: measure.height, widthInk: measure.widthInk, heightInk: measure.heightInk,
+        offsetInkX: measure.offsetInkX, offsetInkY: measure.offsetInkY, inkLeftX: measure.inkLeftX,
+        inkRightX: measure.inkRightX, inkTopY: measure.inkTopY, inkBottomY: measure.inkBottomY,
+      } : null;
+    }
+    return visible;
+  });
+  return JSON.stringify({ frames, startFrameId, items: serialized });
+}
+
+function resolveCameraRequests(raw: unknown, context: Parameters<typeof resolveCameraRequest>[1]): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const response = raw as Record<string, unknown>;
+  if (!Array.isArray(response.actions)) return raw;
+  const actions: unknown[] = [];
+  for (const action of response.actions) {
+    if (!action || typeof action !== 'object') { actions.push(action); continue; }
+    const candidate = action as Record<string, unknown>;
+    if (candidate.action === 'CREATE' && candidate.item && typeof candidate.item === 'object' && (candidate.item as Record<string, unknown>).kind === 'camera_move') {
+      const resolved = resolveCameraRequest(candidate.item as Record<string, unknown>, context);
+      if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
+      actions.push({ ...candidate, item: resolved.item });
+      continue;
+    }
+    if (candidate.action === 'UPDATE' && typeof candidate.itemId === 'string' && candidate.updates && typeof candidate.updates === 'object') {
+      const previous = context.items.get(candidate.itemId);
+      const updates = candidate.updates as Record<string, unknown>;
+      if (previous?.kind === 'camera_move' && typeof updates.targetMode === 'string') {
+        const resolved = resolveCameraRequest({ ...previous, ...updates }, context);
+        if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
+        if (resolved.item) {
+          const persistedUpdates = { ...updates };
+          delete persistedUpdates.targetMode;
+          delete persistedUpdates.targetId;
+          delete persistedUpdates.region;
+          Object.assign(persistedUpdates, {
+            targetFrameId: resolved.item.targetFrameId,
+            targetWidth: resolved.item.targetWidth,
+            offsetX: resolved.item.offsetX,
+            offsetY: resolved.item.offsetY,
+          });
+          actions.push({ ...candidate, updates: persistedUpdates });
+          continue;
+        }
+      }
+    }
+    actions.push(action);
+  }
+  return { ...response, actions };
 }

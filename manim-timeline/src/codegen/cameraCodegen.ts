@@ -36,19 +36,19 @@ export function cameraPoseAnimationHelperSource(indentLevel = 0): string {
     `${body}self.camera_segments = segments\n` +
     `${body}self.inner_animation = None\n` +
     `${inner}def begin(self):\n` +
-    `${body}self.inner_animation = None\n` +
+    `${body}super().begin()\n` +
     `${inner}def interpolate_mobject(self, alpha):\n` +
     `${body}time = max(0.0, min(self.get_run_time(), alpha * self.get_run_time()))\n` +
     `${body}pose = self.camera_initial_pose\n` +
-    `${body}for start, nominal_end, source, destination in self.camera_segments:\n` +
+    `${body}for start, nominal_end, effective_end, source, destination in self.camera_segments:\n` +
     `${body}    if time < start:\n` +
     `${body}        break\n` +
-    `${body}    if time >= nominal_end:\n` +
-    `${body}        pose = destination\n` +
-    `${body}        continue\n` +
-    `${body}    progress = max(0.0, min(1.0, (time - start) / (nominal_end - start)))\n` +
+    `${body}    sample_time = min(time, effective_end)\n` +
+    `${body}    progress = max(0.0, min(1.0, (sample_time - start) / (nominal_end - start)))\n` +
     `${body}    eased = progress * progress * (3.0 - 2.0 * progress)\n` +
     `${body}    pose = tuple(source[i] + (destination[i] - source[i]) * eased for i in range(3))\n` +
+    `${body}    if time < effective_end:\n` +
+    `${body}        break\n` +
     `${body}self.mobject.move_to(pose[0] * RIGHT + pose[1] * UP)\n` +
     `${body}self.mobject.set(width=pose[2])\n` +
     `${pad}\n`
@@ -66,6 +66,7 @@ function segmentTupleExpr(
   return (
     `(${number(segment.startTime - originTime)}, ` +
     `${number(segment.nominalEndTime - originTime)}, ` +
+    `${number(segment.effectiveEndTime - originTime)}, ` +
     `${poseTupleExpr(segment.source)}, ${poseTupleExpr(segment.destination)})`
   );
 }
@@ -89,23 +90,24 @@ export function formatStandaloneCameraPlay(
 export function formatConcurrentCameraBranch(
   segments: readonly CameraTransitionSegment[],
   clusterStart: number,
+  clusterEnd: number,
+  initialPose: CameraPose,
   playPad: string,
 ): string {
   const active = [...segments]
-    .filter((segment) => !segment.supersededByEqualStart)
+    .filter((segment) =>
+      !segment.supersededByEqualStart &&
+      segment.startTime < clusterEnd &&
+      segment.nominalEndTime > clusterStart,
+    )
     .sort((a, b) => a.startTime - b.startTime || a.clip.id.localeCompare(b.clip.id));
   if (active.length === 0) return '';
-  const cameraStart = active[0]!.startTime;
-  const cameraEnd = Math.max(...active.map((segment) => segment.nominalEndTime));
-  const runTime = cameraEnd - cameraStart;
-  const relWait = Math.max(0, cameraStart - clusterStart);
-  const tuple = segmentTupleExpr(active[0]!, cameraStart);
-  const initialPose = poseTupleExpr(active[0]!.source);
+  const runTime = Math.max(0.05, clusterEnd - clusterStart);
   const segmentList = active
-    .map((segment) => segmentTupleExpr(segment, cameraStart))
+    .map((segment) => segmentTupleExpr(segment, clusterStart))
     .join(', ');
-  const animation = `_CameraPoseAnimation(self.camera.frame, ${initialPose}, [${segmentList}], run_time=${number(runTime)})`;
-  return `${playPad}Succession(Wait(${relWait.toFixed(4)}), ${animation})\n`;
+  const animation = `_CameraPoseAnimation(self.camera.frame, ${poseTupleExpr(initialPose)}, [${segmentList}], run_time=${number(runTime)})`;
+  return `${playPad}${animation}`;
 }
 
 export function cameraHasMovingCameraRequirement(

@@ -57,6 +57,18 @@ function plot(axesId: string, id: string, fnId: string): SceneItem {
 }
 
 describe('remapFragmentItemsInPlace', () => {
+  it('keeps graph-follow dot and plot references together and rejects partial fragments', () => {
+    const dot = { kind: 'graphDot', id: 'dot', label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], axesId: 'ax1', dot: { id: 'dot-data', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP' } } as unknown as SceneItem;
+    const follow = { kind: 'target_animation', id: 'follow', label: '', layer: 0, startTime: 1, duration: 1, mode: 'graphFollow', targets: [{ targetId: 'dot', graphPlotId: 'plot1', targetX: 2, easing: 'smooth' }] } as unknown as SceneItem;
+    const items = [axes('ax1'), plot('ax1', 'plot1', 'fn1'), dot, follow];
+    remapFragmentItemsInPlace(items, [], new Set());
+    const copied = items.find((it) => it.kind === 'target_animation');
+    const copiedDot = items.find((it) => it.kind === 'graphDot');
+    if (copied?.kind !== 'target_animation' || copiedDot?.kind !== 'graphDot') throw new Error('Expected copied graph items');
+    expect(copied.targets[0]?.targetId).toBe(copiedDot.id);
+    expect(copied.targets[0]?.graphPlotId).toBe(items.find((it) => it.kind === 'graphPlot')?.id);
+    expect(() => remapFragmentItemsInPlace([follow], [], new Set())).toThrow(/include its referenced dot and source/);
+  });
   it('remaps nested graph fn id and axes reference', () => {
     const items = [axes('ax1'), plot('ax1', 'plot1', 'fn1')] as SceneItem[];
     const reserved = new Set<string>(['collision']);
@@ -68,6 +80,17 @@ describe('remapFragmentItemsInPlace', () => {
     if (pl.kind !== 'graphPlot') throw new Error('expected plot');
     expect(pl.axesId).toBe(ax.id);
     expect(pl.fn.id).not.toBe('fn1');
+  });
+
+  it('remaps attached function sources and rejects a fragment that omits its source', () => {
+    const attached = { kind: 'graphDot', id: 'attached', label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], axesId: 'ax1', dot: { id: 'attached-data', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP', attachment: { kind: 'function', graphPlotId: 'plot1', x: 1 } } } as unknown as SceneItem;
+    const items = [axes('ax1'), plot('ax1', 'plot1', 'fn1'), attached];
+    remapFragmentItemsInPlace(items, [], new Set());
+    const copiedDot = items.find((item) => item.kind === 'graphDot');
+    const copiedPlot = items.find((item) => item.kind === 'graphPlot');
+    if (copiedDot?.kind !== 'graphDot' || copiedPlot?.kind !== 'graphPlot') throw new Error('Missing remapped attachment items');
+    expect(copiedDot.dot.attachment).toMatchObject({ kind: 'function', graphPlotId: copiedPlot.id, x: 1 });
+    expect(() => remapFragmentItemsInPlace([attached], [], new Set())).toThrow(/include its referenced graph source/);
   });
 
   it('remaps graph area plot reference to new plot id', () => {

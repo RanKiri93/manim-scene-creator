@@ -1,5 +1,8 @@
 import type { AxesItem } from '@/types/scene';
 
+/** Increment whenever the `/api/preview_axes` response/transform contract changes. */
+export const AXES_PREVIEW_METADATA_VERSION = 1;
+
 /** JSON body for `POST /api/preview_axes` (snake_case matches measure server). */
 export interface AxesPreviewRequestBody {
   x_range: [number, number, number];
@@ -82,5 +85,5 @@ export function buildAxesPreviewRequestBody(item: AxesItem): AxesPreviewRequestB
 
 /** Stable string for change detection and skip logic. */
 export function axesPreviewVisualKey(item: AxesItem): string {
-  return JSON.stringify(buildAxesPreviewRequestBody(item));
+  return `${AXES_PREVIEW_METADATA_VERSION}:${JSON.stringify(buildAxesPreviewRequestBody(item))}`;
 }

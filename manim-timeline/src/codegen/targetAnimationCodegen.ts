@@ -10,6 +10,7 @@ import type {
 } from '@/types/scene';
 import { permanentBlinkStyleParts } from './blinkCodegen';
 import { canBeTargetAnimationTarget } from '@/lib/time';
+import { graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
 import {
   overlayDotVar,
   pythonOverlaySuffix,
@@ -121,20 +122,20 @@ export function delayedTargetPathHelperSource(indentLevel = 0): string {
     `${body}        ])\n` +
     `${body}    else:\n` +
     `${body}        fx, fy, t_min, t_max = parametric\n` +
+    `${body}        x0 = fx(t_min)\n` +
+    `${body}        y0 = fy(t_min)\n` +
     `${body}        path = ParametricFunction(\n` +
-    `${body}            lambda t, anchor=anchor, fx=fx, fy=fy: anchor.get_center() + fx(t) * RIGHT + fy(t) * UP,\n` +
+    `${body}            lambda t, anchor=anchor, fx=fx, fy=fy, x0=x0, y0=y0: anchor.get_center() + (fx(t) - x0) * RIGHT + (fy(t) - y0) * UP,\n` +
     `${body}            t_range=[t_min, t_max],\n` +
     `${body}        )\n` +
     `${body}    animations.extend(MoveAlongPath(target, path) for target in targets)\n` +
     `${body}self.inner_animation = AnimationGroup(*animations, lag_ratio=0) if animations else None\n` +
     `${body}if self.inner_animation is not None:\n` +
     `${body}    self.inner_animation.begin()\n` +
+    `${body}super().begin()\n` +
     `${inner}def interpolate_mobject(self, alpha):\n` +
     `${body}if self.inner_animation is not None:\n` +
-    `${body}    self.inner_animation.interpolate_mobject(alpha)\n` +
-    `${inner}def finish(self):\n` +
-    `${body}if self.inner_animation is not None:\n` +
-    `${body}    self.inner_animation.finish()\n` +
+    `${body}    self.inner_animation.interpolate(alpha)\n` +
     `${pad}\n`
   );
 }
@@ -149,7 +150,7 @@ function delayedPathRows(
     const target = itemsMap.get(row.targetId);
     const anchor = target ? firstTargetMobExprForPath(target, idToVarName) : null;
     if (!anchor) continue;
-    const targets = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, '_unused')
+    const targets = (targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, '_unused') ?? [])
       .map((part) => part.match(/MoveAlongPath\(([^,]+),\s*_unused\)/)?.[1]?.trim())
       .filter((value): value is string => !!value);
     if (targets.length === 0) continue;
@@ -163,8 +164,8 @@ function delayedPathRows(
       if (Math.abs(t1 - t0) < 1e-9) continue;
       rows.push(
         `(${anchor}, [], [${targets.join(', ')}], ` +
-          `((lambda t: (${px}) - (${px})(${t0.toFixed(6)})), ` +
-          `(lambda t: (${py}) - (${py})(${t0.toFixed(6)})), ` +
+        `((lambda t: ${px}), ` +
+          `(lambda t: ${py}), ` +
           `${t0.toFixed(6)}, ${t1.toFixed(6)}))`,
       );
       continue;
@@ -396,7 +397,51 @@ export function buildTargetAnimationPlayBlock(
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
 ): { setup: string; innerPlayArg: string; runTimeStr: string } {
-  const rt = Math.max(0.05, clip.duration).toFixed(4);
+  const rt = Math.max(clip.mode === 'graphFollow' ? 0.01 : 0.05, clip.duration).toFixed(4);
+  if (clip.mode === 'graphFollow') {
+    const rows = clip.targets.map((row) => {
+      const dot = itemsMap.get(row.targetId);
+      if (dot?.kind !== 'graphDot') throw new Error(`Graph-follow clip "${clip.label || clip.id}" requires graph dot "${row.targetId}".`);
+      const conflicts = graphMotionConflicts(dot.id, [...itemsMap.values()]);
+      if (conflicts.length) throw new Error(conflicts[0]);
+      const start = resolveGraphDotPosition({ dot, items: [...itemsMap.values()], time: clip.startTime });
+      const end = resolveGraphDotPosition({ dot, items: [...itemsMap.values()], time: clip.startTime + clip.duration });
+      if (start.error) throw new Error(`Graph-follow clip "${clip.label || clip.id}": ${start.error}`);
+      if (end.error) throw new Error(`Graph-follow clip "${clip.label || clip.id}": ${end.error}`);
+      const attachment = dot.dot.attachment ?? { kind: 'free' as const };
+      const functionMode = attachment.kind !== 'parametric';
+      const sourceId = attachment.kind === 'function' ? attachment.graphPlotId : attachment.kind === 'parametric' ? attachment.graphCurveId : row.graphPlotId;
+      const source = sourceId ? itemsMap.get(sourceId) : undefined;
+      if (functionMode && source?.kind !== 'graphPlot') throw new Error(`Graph-follow clip "${clip.label || clip.id}" requires a valid function plot source.`);
+      if (!functionMode && source?.kind !== 'graphCurve') throw new Error(`Graph-follow clip "${clip.label || clip.id}" requires its attached parametric curve.`);
+      const parameter0 = start.parameter ?? (functionMode ? start.point.x : attachment.kind === 'parametric' ? attachment.t : 0);
+      const parameter1 = functionMode ? row.targetX : row.targetT;
+      if (!Number.isFinite(parameter1)) throw new Error(`Graph-follow clip "${clip.label || clip.id}" has an invalid destination parameter.`);
+      const dVar = overlayDotVar(idToVarName.get(dot.axesId) ?? '', dot.id);
+      const updateVar = `${dVar}_update`;
+      const pExpr = `((${parameter0}) + (((${parameter1}) - (${parameter0})) * alpha))`;
+      const xExpr = functionMode ? pExpr : `(lambda t: ${oneLinePyExpr(source?.kind === 'graphCurve' ? source.curve.pyXExpr : undefined, 't')})(${pExpr})`;
+      const yExpr = functionMode
+        ? `(lambda x: ${oneLinePyExpr(source?.kind === 'graphPlot' ? source.fn.pyExpr : undefined, 'x')})(${pExpr})`
+        : `(lambda t: ${oneLinePyExpr(source?.kind === 'graphCurve' ? source.curve.pyYExpr : undefined, '0')})(${pExpr})`;
+      const rate = row.easing === 'linear' ? 'linear' : 'smooth';
+      const runTime = Math.max(0.01, clip.duration).toFixed(6);
+      const main = `UpdateFromAlphaFunc(${dVar}, lambda _mob, alpha: ${updateVar}((${xExpr}, ${yExpr})), rate_func=${rate}, run_time=${runTime})`;
+      const linkedMobjects = [
+        dot.dot.label.trim() ? `${dVar}_lbl` : null,
+        dot.dot.showCoordinates ? `${dVar}_coord` : null,
+        dot.dot.showProjectionGuides ? `${dVar}_guide_v` : null,
+        dot.dot.showProjectionGuides ? `${dVar}_guide_h` : null,
+      ].filter((mobject): mobject is string => mobject != null);
+      if (linkedMobjects.length === 0) return main;
+      const familyAnimations = [main, ...linkedMobjects.map((mobject) =>
+        `UpdateFromAlphaFunc(${mobject}, lambda _mob, alpha: None, rate_func=${rate}, run_time=${runTime})`,
+      )];
+      return `AnimationGroup(${familyAnimations.join(', ')}, lag_ratio=0, run_time=${runTime})`;
+    });
+    if (rows.length === 0) throw new Error(`Graph-follow clip "${clip.label || clip.id}" has no target rows.`);
+    return { setup: '', innerPlayArg: rows.length === 1 ? rows[0]! : `AnimationGroup(${rows.join(', ')}, lag_ratio=0)`, runTimeStr: rt };
+  }
   type RowWork = { parts: string[] };
   const rows: RowWork[] = [];
   const setups: string[] = [];

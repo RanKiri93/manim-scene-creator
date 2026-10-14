@@ -71,9 +71,12 @@ function intervalsOverlap(
 function leafInterval(
   leaf: ExportLeaf,
   itemsMap: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
 ): { start: number; end: number } {
   const start = effectiveStart(leaf, itemsMap);
-  const end = holdEnd(leaf, itemsMap);
+  const end = leaf.kind === 'graphDot'
+    ? start + sequentialAnimSecondsForLeaf(leaf, itemsMap, audioItems)
+    : holdEnd(leaf, itemsMap);
   return { start, end };
 }
 
@@ -126,8 +129,9 @@ type VisualNode =
 function nodePlaybackInterval(
   node: VisualNode,
   itemsMap: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
 ): { start: number; end: number } {
-  if (node.kind === 'leaf') return leafInterval(node.leaf, itemsMap);
+  if (node.kind === 'leaf') return leafInterval(node.leaf, itemsMap, audioItems);
   if (node.kind === 'sr') return surroundingRectIntroInterval(node.sr, itemsMap);
   if (node.kind === 'exit') return exitClipInterval(node.exit);
   if (node.kind === 'blink') return blinkClipInterval(node.blink);
@@ -164,6 +168,7 @@ export function clusterConcurrentVisualPlayback(
   items: SceneItem[],
   itemsMap: Map<ItemId, SceneItem>,
   cameraClips: readonly CameraMoveItem[] = [],
+  audioItems?: AudioTrackItem[],
 ): VisualPlaybackCluster[] {
   const nodes: VisualNode[] = [];
   for (const leaf of flat) {
@@ -214,7 +219,7 @@ export function clusterConcurrentVisualPlayback(
   if (n < 2) return [];
 
   const uf = new UnionFind(n);
-  const iv = nodes.map((node) => nodePlaybackInterval(node, itemsMap));
+  const iv = nodes.map((node) => nodePlaybackInterval(node, itemsMap, audioItems));
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       if (intervalsOverlap(iv[i]!.start, iv[i]!.end, iv[j]!.start, iv[j]!.end)) {
@@ -267,11 +272,12 @@ export function visualClusterWallSeconds(
   targetAnimationClips: TargetAnimationItem[],
   itemsMap: Map<ItemId, SceneItem>,
   cameraClips: readonly CameraMoveItem[] = [],
+  audioItems?: AudioTrackItem[],
 ): number {
   let tMin = Infinity;
   let tMax = -Infinity;
   for (const leaf of leaves) {
-    const { start, end } = leafInterval(leaf, itemsMap);
+    const { start, end } = leafInterval(leaf, itemsMap, audioItems);
     tMin = Math.min(tMin, start);
     tMax = Math.max(tMax, end);
   }
@@ -368,6 +374,7 @@ export function visualClusterManimSeconds(
     targetAnimationClips,
     itemsMap,
     cameraClips,
+    audioItems,
   ));
 }
 
@@ -491,10 +498,16 @@ function concurrentBranchForLeaf(
     const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
     const lbl = dot.label.trim();
     const rt = recorded ? recorded.runTime : leaf.duration;
+    const introParts = [`FadeIn(${dVar}, run_time=${fmtRt(rt)})`];
+    if (dot.showCoordinates) introParts.push(`FadeIn(${dVar}_coord, run_time=${fmtRt(rt)})`);
+    if (dot.showProjectionGuides) introParts.push(`FadeIn(${dVar}_guide_v, run_time=${fmtRt(rt)})`, `FadeIn(${dVar}_guide_h, run_time=${fmtRt(rt)})`);
+    const intro = introParts.length === 1
+      ? introParts[0]!
+      : `AnimationGroup(${introParts.join(', ')}, lag_ratio=0, run_time=${fmtRt(rt)})`;
     if (lbl) {
-      return `Succession(Wait(${wStr}), FadeIn(${dVar}, run_time=${fmtRt(rt)}), Write(${dVar}_lbl, run_time=${MANIM_DEFAULT_PLAY_SEC})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
+      return `Succession(Wait(${wStr}), ${intro}, Write(${dVar}_lbl, run_time=${MANIM_DEFAULT_PLAY_SEC})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
     }
-    return `Succession(Wait(${wStr}), FadeIn(${dVar}, run_time=${fmtRt(rt)})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
+    return `Succession(Wait(${wStr}), ${intro}${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
 
   if (leaf.kind === 'graphField') {
@@ -658,6 +671,9 @@ function concurrentBranchForTargetAnimationClip(
   if (!inner) {
     return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
   }
+  if (ta.mode === 'path') {
+    return `Succession(Wait(${wStr}), ${inner})`;
+  }
   return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
 }
 
@@ -742,6 +758,7 @@ export function buildConcurrentVisualClusterPlay(
   targetAnimationClips: TargetAnimationItem[],
   cameraClips: readonly CameraMoveItem[],
   cameraSegments: readonly CameraTransitionSegment[],
+  cameraInitialPose: import('@/lib/camera').CameraPose,
   playPad: string,
   _baseIndent: number,
   idToVarName: Map<ItemId, string>,
@@ -816,7 +833,24 @@ export function buildConcurrentVisualClusterPlay(
       );
     }
     if (p.kind === 'camera') {
-      return formatConcurrentCameraBranch(cameraSegments, t0, playPad).trimEnd();
+      const clusterEnd = t0 + visualClusterManimSeconds(
+        leaves,
+        surroundingRects,
+        exitClips,
+        blinkClips,
+        targetAnimationClips,
+        itemsMap,
+        cameraClips,
+        audioItems,
+        tailOpts,
+      );
+      return formatConcurrentCameraBranch(
+        cameraSegments,
+        t0,
+        clusterEnd,
+        cameraInitialPose,
+        playPad,
+      ).trimEnd();
     }
     return concurrentBranchForTargetAnimationClip(
       p.ta,

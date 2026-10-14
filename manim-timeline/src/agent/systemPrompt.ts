@@ -166,6 +166,7 @@ CRITICAL ARCHITECTURE RULES:
    - \`startTime\` must be ≥ each target's timeline \`startTime\`. Do NOT set \`frameId\` — effect clips follow their targets' frames.
    Example — move line "t1" along a cosine offset path:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "target_animation", "label": "תנועה", "mode": "path", "startTime": 3, "duration": 1.5, "targets": [ { "targetId": "t1", "pathKind": "parametric", "parametricPath": { "jsXExpr": "t", "pyXExpr": "t", "jsYExpr": "Math.cos(t)", "pyYExpr": "np.cos(t)", "tMin": 0, "tMax": 6.28 } } ] } }
+ 12. Camera clips (camera_move): targets are snapshots. For CREATE use targetMode "frame", "region" (finite world-space bounds), or "object" (exact existing targetId). Never invent bounds. Use the frozen currentTimeSec for “now”; timing such as “after it finishes” means prior startTime + duration + requested delay. Later starts override earlier camera influence, but never delete, retime, or retarget an explicit future return. Request-only target descriptors are resolved before persistence.
 `;
 
 /**

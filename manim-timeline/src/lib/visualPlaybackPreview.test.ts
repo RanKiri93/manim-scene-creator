@@ -8,14 +8,65 @@ import {
   cameraPosePreviewAtTime,
   exitPreviewForTarget,
   imageIntroOpacity,
+  graphFollowPreviewPosition,
   manimSmoothProgress,
   previewRunTime,
   targetAnimPreviewAccum,
   textIntroSegmentStates,
 } from './visualPlaybackPreview';
+import type { GraphCurveItem, GraphDotItem, GraphPlotItem, TargetAnimationItem } from '@/types/scene';
 function mapOf(...items: SceneItem[]): Map<ItemId, SceneItem> {
   return new Map(items.map((it) => [it.id, it]));
 }
+
+describe('graph-follow scrub preview', () => {
+  it('resolves chained holds deterministically when seeking backward', () => {
+    const dot: GraphDotItem = { kind: 'graphDot', id: 'd', axesId: 'a', dot: { id: 'd', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP' }, label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [] };
+    const plot: GraphPlotItem = { kind: 'graphPlot', id: 'p', axesId: 'a', fn: { id: 'f', jsExpr: 'x*x', pyExpr: 'x**2', color: '#fff', label: '' }, xDomain: null, strokeWidth: 1, label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [] };
+    const axis = { kind: 'axes', id: 'a', xRange: [-2, 2, 1], yRange: [-2, 4, 1] } as SceneItem;
+    const first: TargetAnimationItem = { kind: 'target_animation', id: 'one', label: '', layer: 0, mode: 'graphFollow', startTime: 1, duration: 1, targets: [{ targetId: 'd', graphPlotId: 'p', targetX: 1, easing: 'linear' }] };
+    const second: TargetAnimationItem = { ...first, id: 'two', startTime: 4, targets: [{ targetId: 'd', graphPlotId: 'p', targetX: 2, easing: 'linear' }] };
+    const items = mapOf(dot, plot, axis, first, second);
+    expect(graphFollowPreviewPosition('d', 3, items)?.point).toEqual({ x: 1, y: 1 });
+    expect(graphFollowPreviewPosition('d', 1.5, items)?.point).toEqual({ x: .5, y: .25 });
+  });
+
+  it('chains attached parametric targetT clips across pauses, boundaries, and reverse seeks without mutation', () => {
+    const dot: GraphDotItem = {
+      kind: 'graphDot', id: 'pd', axesId: 'pa',
+      dot: { id: 'pdd', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP', attachment: { kind: 'parametric', graphCurveId: 'pc', t: 0 } },
+      label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [],
+    };
+    const curve: GraphCurveItem = {
+      kind: 'graphCurve', id: 'pc', axesId: 'pa',
+      curve: { id: 'pc-data', jsXExpr: 't', jsYExpr: 't*t', pyXExpr: 't', pyYExpr: 't**2', color: '#fff', label: '' },
+      tDomain: [0, 4], strokeWidth: 1, label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [],
+    };
+    const axes = { kind: 'axes', id: 'pa', xRange: [0, 4, 1], yRange: [0, 16, 1] } as SceneItem;
+    const first: TargetAnimationItem = { kind: 'target_animation', id: 't1', label: '', layer: 0, mode: 'graphFollow', startTime: 1, duration: 2, targets: [{ targetId: dot.id, targetT: 2, easing: 'linear' }] };
+    const second: TargetAnimationItem = { kind: 'target_animation', id: 't2', label: '', layer: 0, mode: 'graphFollow', startTime: 5, duration: 2, targets: [{ targetId: dot.id, targetT: 4, easing: 'linear' }] };
+    expect(first.targets[0]).not.toHaveProperty('graphCurveId');
+    const items = mapOf(dot, curve, axes, first, second);
+    const before = structuredClone([...items.entries()]);
+    const pointAt = (time: number) => graphFollowPreviewPosition(dot.id, time, items)!.point;
+    expect(pointAt(.5)).toEqual({ x: 0, y: 0 });
+    expect(pointAt(1)).toEqual({ x: 0, y: 0 });
+    expect(pointAt(2)).toEqual({ x: 1, y: 1 });
+    expect(pointAt(3)).toEqual({ x: 2, y: 4 }); // exact first end
+    expect(pointAt(4)).toEqual({ x: 2, y: 4 }); // pause holds first destination
+    expect(pointAt(5)).toEqual({ x: 2, y: 4 }); // second clip boundary
+    expect(pointAt(6)).toEqual({ x: 3, y: 9 });
+    expect(pointAt(7)).toEqual({ x: 4, y: 16 }); // exact second end
+    expect(pointAt(20)).toEqual({ x: 4, y: 16 }); // final hold
+    expect(pointAt(2)).toEqual({ x: 1, y: 1 }); // seek backward after later samples
+    expect([...items.entries()]).toEqual(before); // pure resolver: no animated state mutation
+
+    const editedCurve = { ...curve, curve: { ...curve.curve, jsXExpr: '2*t', jsYExpr: 't*t*t' } };
+    const editedItems = mapOf(dot, editedCurve, axes, first, second);
+    expect(graphFollowPreviewPosition(dot.id, 6, editedItems)?.point).toEqual({ x: 6, y: 27 });
+    expect(graphFollowPreviewPosition(dot.id, 3, editedItems)?.point).toEqual({ x: 4, y: 8 });
+  });
+});
 
 function line(id: string, startTime = 0): TextLineItem {
   const item = createTextLine(defaultSceneDefaults(), startTime);

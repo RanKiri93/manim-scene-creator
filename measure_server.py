@@ -56,6 +56,7 @@ import os
 import sys
 import traceback
 import json
+import math
 
 # Project root on sys.path when launched from elsewhere
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -194,8 +195,10 @@ class AxesPreviewRequest(BaseModel):
 
     x_range: tuple[float, float, float] = Field(..., description="x_min, x_max, x_step")
     y_range: tuple[float, float, float] = Field(..., description="y_min, y_max, y_step")
-    scale_x: float = Field(1.0, ge=0.01)
-    scale_y: float = Field(1.0, ge=0.01)
+    # Validate inside the endpoint so JSON NaN/Infinity produce its typed ok:false
+    # response instead of leaking non-finite input through FastAPI's 422 encoder.
+    scale_x: float = 1.0
+    scale_y: float = 1.0
     x_label: str = ""
     y_label: str = ""
     include_numbers: bool = False
@@ -225,6 +228,18 @@ class AxesPreviewResponse(BaseModel):
     bottom: float | None = None
     offset_ink_x: float | None = None
     offset_ink_y: float | None = None
+    # Contract v1: post-recenter Manim coordinates, not crop-relative pixels.
+    metadata_version: int | None = None
+    origin_x: float | None = None
+    origin_y: float | None = None
+    x_unit_x: float | None = None
+    x_unit_y: float | None = None
+    y_unit_x: float | None = None
+    y_unit_y: float | None = None
+    coord_left: float | None = None
+    coord_right: float | None = None
+    coord_top: float | None = None
+    coord_bottom: float | None = None
     error: str | None = None
 
 
@@ -581,10 +596,17 @@ def _resolve_tip_shape_class(name: str | None) -> type | None:
 def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
     """Build ``Axes`` like the timeline exporter and return a transparent cropped PNG."""
     try:
-        from manim import Axes, ORIGIN, VGroup
+        from manim import Axes, DOWN, LEFT, ORIGIN, VGroup
 
         x_min, x_max, x_step = req.x_range
         y_min, y_max, y_step = req.y_range
+        numeric_values = (*req.x_range, *req.y_range, req.scale_x, req.scale_y)
+        if not all(math.isfinite(v) for v in numeric_values):
+            raise ValueError("axis ranges and scales must be finite")
+        if req.scale_x < 0.01 or req.scale_y < 0.01:
+            raise ValueError("axis scales must be at least 0.01")
+        if x_min >= x_max or y_min >= y_max or x_step <= 0 or y_step <= 0:
+            raise ValueError("axis ranges must be increasing and steps positive")
         x_length = float((x_max - x_min) * req.scale_x)
         y_length = float((y_max - y_min) * req.scale_y)
 
@@ -654,11 +676,22 @@ def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
         xl = req.x_label.strip() if req.x_label else ""
         yl = req.y_label.strip() if req.y_label else ""
         if xl:
-            parts.append(ax.get_x_axis_label(xl))
+            label = HebrewMathLine(xl, font_size=36, hebrew_font="Alef")
+            label.next_to(ax.x_axis.get_end(), DOWN, buff=0.25)
+            parts.append(label)
         if yl:
-            parts.append(ax.get_y_axis_label(yl))
+            label = HebrewMathLine(yl, font_size=36, hebrew_font="Alef")
+            label.next_to(ax.y_axis.get_end(), LEFT, buff=0.25)
+            parts.append(label)
         grp = VGroup(*parts)
         grp.move_to(ORIGIN)
+
+        # Capture the actual graph transform after the whole export group has been
+        # recentered. Crop ink bounds are intentionally independent of this geometry.
+        origin = ax.c2p(0, 0)
+        x_unit = ax.c2p(1, 0) - origin
+        y_unit = ax.c2p(0, 1) - origin
+        corners = [ax.c2p(x_min, y_min), ax.c2p(x_max, y_max)]
 
         (
             png_b64,
@@ -685,6 +718,14 @@ def preview_axes_raster(req: AxesPreviewRequest) -> AxesPreviewResponse:
             bottom=float(iby),
             offset_ink_x=float(ox_ink),
             offset_ink_y=float(oy_ink),
+            metadata_version=1,
+            origin_x=float(origin[0]), origin_y=float(origin[1]),
+            x_unit_x=float(x_unit[0]), x_unit_y=float(x_unit[1]),
+            y_unit_x=float(y_unit[0]), y_unit_y=float(y_unit[1]),
+            coord_left=float(min(c[0] for c in corners)),
+            coord_right=float(max(c[0] for c in corners)),
+            coord_top=float(max(c[1] for c in corners)),
+            coord_bottom=float(min(c[1] for c in corners)),
         )
     except Exception as e:
         return AxesPreviewResponse(

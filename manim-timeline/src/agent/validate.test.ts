@@ -58,6 +58,28 @@ function textLine(id = 'tl1'): TextLineItem {
 }
 
 describe('validateAgentResponse', () => {
+  it('normalizes camera clips and validates ordered CREATE → UPDATE → DELETE batches', () => {
+    const frames = [{ id: 'f1', col: 0, row: 0 }];
+    const context = { frameIds: ['f1'], frames, activeFrameId: 'f1', startFrameId: 'f1' };
+    const created = validateAgentResponse({ reply: 'camera', actions: [
+      { action: 'CREATE', item: { id: 'cam', kind: 'camera_move', targetFrameId: 'f1', startTime: 5 } },
+      { action: 'UPDATE', itemId: 'cam', updates: { duration: 2, targetWidth: 4 } },
+      { action: 'DELETE', itemId: 'cam' },
+    ] }, new Map(), context);
+    expect(created.ok).toBe(true);
+    if (created.ok) expect(created.response.actions[0]).toMatchObject({ action: 'CREATE', item: { kind: 'camera_move', targetWidth: expect.any(Number), duration: 1 } });
+
+    const invalid = validateAgentResponse({ reply: 'bad', actions: [
+      { action: 'CREATE', item: { id: 'cam', kind: 'camera_move', targetFrameId: 'missing' } },
+    ] }, new Map(), context);
+    expect(invalid.ok).toBe(false);
+    const existingCamera = { id: 'existing-cam', kind: 'camera_move', label: 'Zoom', layer: 0, startTime: 1, duration: 1, targetFrameId: 'f1', targetWidth: 4 } as SceneItem;
+    const badUpdate = validateAgentResponse({ reply: 'bad update', actions: [{ action: 'UPDATE', itemId: 'existing-cam', updates: { targetWidth: -1 } }] }, new Map([[existingCamera.id, existingCamera]]), context);
+    expect(badUpdate.ok).toBe(false);
+    const goodUpdate = validateAgentResponse({ reply: 'update', actions: [{ action: 'UPDATE', itemId: 'existing-cam', updates: { duration: 2 } }] }, new Map([[existingCamera.id, existingCamera]]), context);
+    expect(goodUpdate.ok).toBe(true);
+  });
+
   it('accepts a valid CREATE + UPDATE + DELETE sequence', () => {
     const map = new Map<string, SceneItem>();
     map.set('tl1', textLine('tl1'));

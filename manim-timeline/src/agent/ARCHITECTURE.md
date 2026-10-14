@@ -53,6 +53,7 @@ All paths are relative to `src/agent/`.
 | `validate.ts` | `validateAgentResponse()` — strict cross-action invariants, per-kind normalizers, and forgiving auto-repair. |
 | `commit.ts` | `commitActions(actions)` — applies an approved action list to `useSceneStore`. |
 | `previewSelectors.ts` | `usePreviewMergedItems()`, `usePreviewOps()`, `buildPreviewState(items, actions)`. |
+| `cameraProposalSummary.ts` | Pure camera proposal summaries (destination, timing, returns, overrides) derived through `lib/camera.ts`; no UI-side schedule logic. |
 | `useAgentStore.ts` | Zustand store: persisted provider settings + persisted chat log + ephemeral request state. |
 | `AgentPanel.tsx` | The React chat UI (transcript, per-message Approve/Reject, collapsible Thinking, Settings, New chat). |
 | `providers/types.ts` | `AgentProvider`, `ProviderConfig`, `ProviderId`, `AgentProviderError`, `ProviderGenerateInput` (with `history` + `includeThinking`). |
@@ -137,10 +138,12 @@ Only these `kind` values may appear in CREATE actions (see `AGENT_ALLOWED_KINDS`
 
 ```
 textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPointSequence,
-shape, surroundingRect, exit_animation, blink_animation, target_animation
+shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
 
 `graphArea` and `graphField` remain UI-only creations for now (not agent-emitted).
+
+**`camera_move`** is a persisted snapshot clip. Providers may supply request-only `targetMode` (`frame | region | object`), exact `targetId`, or finite world-space `region`; `cameraRequests.ts` resolves and consumes those descriptors against request-time context before validation/preview/commit. Persisted items contain only ordinary camera fields (`targetFrameId`, absolute `targetWidth`, offsets, start and duration). Object fitting delegates to `lib/cameraBounds.ts`; unsupported bounds require clarification. Overlap is valid and schedule/return semantics remain owned by `lib/camera.ts`.
 
 **`target_animation`** — Permanent timed effects on existing drawable items: `mode` is one of `scale`, `color`, `move`, `path`, `rotate`; each `targets[]` row references `targetId` and mode-specific fields (`scaleFactor`, `color`, `dx`/`dy`, `pathKind` + `pathPoints` or `parametricPath`, `angleDeg`, optional `segmentIndices` / `mathSubtargets` for refined text/math targeting). Cross-reference validation uses `canBeTargetAnimationTargetKind(mode, resolvedKind)` (see `validate.ts`). Normalization fills defaults and coerces path/parametric payloads (`normalizeTargetAnimation`).
 
@@ -164,7 +167,7 @@ For `graphFunctionSeries`, the normalizer in `validate.ts` upholds:
 ## 4. Request lifecycle (`useAgentStore.sendMessage`)
 
 1. **Append user turn**: push a `{role:'user', content}` entry onto `messages`.
-2. **Snapshot state**: read `items`, `currentTime`, `defaults`, `frames`, `startFrameId`, and `activeFrameId` from `useSceneStore`.
+2. **Snapshot state**: read `items`, `currentTime`, `defaults`, `frames`, `startFrameId`, and `activeFrameId` from `useSceneStore`. Camera descriptors resolve against this frozen request context, not post-await navigation or edits.
 3. **Serialize**: `buildContextPayload(...)` produces the slim payload (UI-only fields stripped, frame catalog included). The payload is attached only to the **current** user turn, never to historical turns.
 4. **Build system prompt**: `buildSystemPrompt(customRules)` = `BASE_SYSTEM_PROMPT` + optional user rules.
 5. **Pick provider**: `getProvider({ provider, apiKey, baseUrl, model })`.
@@ -519,4 +522,5 @@ Segment indices are in **parse order** (left to right in `raw`), even though Heb
 - When a prior proposal is rejected or superseded, the model only sees a short parenthetical note in the re-sent assistant turn rather than the full diff of what was proposed. If this causes the model to re-propose the same edit, consider expanding the note to include the action list.
 - Gemini preview models (`gemini-3.1-pro-preview`, `gemini-2.5-flash`) are known to occasionally emit duplicate CREATEs, omit `axesId`, and pick non-canonical `fn` shapes — `validate.ts` includes auto-repair passes specifically for these cases. If a new class of hallucination becomes common, prefer adding a rescue in `validate.ts` over tightening the schema further; that way the failure mode is recoverable for *all* providers.
 - Reasoning/thinking support is best-effort per provider. Non-reasoning models silently ignore the toggle; the UI hides the Thinking block when the field is empty.
+- Camera snapshots are not live object dependencies. Pending camera proposals are rejected at approval if their frozen scene fingerprint changed; proposal UI summarizes destination width, transition timing, and schedule overrides. A stale proposal must be requested again against current context.
 - The custom-rules field is free-form and can easily override the base rules if a user writes contradictory instructions. There's no guard against that.

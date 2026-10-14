@@ -69,11 +69,18 @@ There is no CI. The `verifier` role is the CI.
 
 ## Working model: roles and handoffs
 
-Work flows `architect → <domain>-dev → verifier → (reviewers) → docs-keeper`. The contract
-between roles is a file `docs/handoffs/<yyyy-mm-dd>-<slug>.md` created from
+Work flows `orchestrator → architect → <domain>-dev → verifier → (reviewers) → docs-keeper`.
+The Orchestrator is the user-facing coordinator: it gathers the task description, asks focused
+clarifying questions and waits for answers before resolving ambiguous product decisions, then
+delegates ordered stages. It does not implement application code. For a clearly scoped existing
+handoff it resumes at that handoff's status/owner instead of duplicating the plan. Never run
+overlapping implementers against shared files or an unsettled API. Preserve pre-existing WIP and
+report blockers to the user rather than silently skipping a role or gate. The contract between
+roles is a file `docs/handoffs/<yyyy-mm-dd>-<slug>.md` created from
 `docs/handoffs/TEMPLATE.md`. Each role appends its own section and never rewrites an earlier
 one. The file's frontmatter (`status`, `owner_role`, `next_tool`) is the only place task
 status lives. Handoff files are committed.
 
-Roles are defined per tool in `.opencode/agents/` and `.cursor/agents/`. Their prompts are
-short on purpose; the domain knowledge they need is in `.agents/skills/`.
+Roles are defined per tool in `.opencode/agents/` and `.cursor/agents/`. OpenCode uses
+`orchestrator` as its project default; Cursor exposes the matching agent for selection. Their prompts
+are short on purpose; the domain knowledge they need is in `.agents/skills/`.

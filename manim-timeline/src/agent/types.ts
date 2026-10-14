@@ -21,6 +21,7 @@ export const AGENT_ALLOWED_KINDS = [
   'exit_animation',
   'blink_animation',
   'target_animation',
+  'camera_move',
 ] as const;
 
 export type AgentAllowedKind = (typeof AGENT_ALLOWED_KINDS)[number];
@@ -117,6 +118,8 @@ export interface AgentChatMessage {
   actionsStatus?: AgentMessageStatus;
   /** Attached to an assistant turn that failed validation or a provider error. */
   error?: string[];
+  /** Frozen camera-relevant request fingerprint, used only to gate approval. */
+  cameraSnapshotKey?: string;
 }
 
 /**
@@ -162,10 +165,18 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   kind: {
                     type: 'string',
                     enum: [...AGENT_ALLOWED_KINDS],
+                    description: 'For camera_move use targetMode (frame, region, or object), targetFrameId, targetId or region bounds as appropriate. Request-only descriptors are resolved and stripped before persistence.',
                   },
+                  targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'Request-only camera target mode; resolved and removed before persistence.' },
+                  targetId: { type: 'string', description: 'Request-only exact existing object id for snapshot fitting.' },
+                  region: { type: 'object', description: 'Request-only finite world-space rectangle.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
+                  targetFrameId: { type: 'string', description: 'Existing camera destination frame id.' },
+                  targetWidth: { type: 'number', description: 'Positive absolute camera width in Manim units.' },
+                  offsetX: { type: 'number' }, offsetY: { type: 'number' },
+                  startTime: { type: 'number' }, duration: { type: 'number' },
                 },
-              },
             },
+          },
           },
           {
             type: 'object',
@@ -177,6 +188,17 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
               updates: {
                 type: 'object',
                 additionalProperties: true,
+                properties: {
+                  targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'camera_move UPDATE request-only target descriptor; resolved before persistence.' },
+                  targetId: { type: 'string', description: 'camera_move UPDATE request-only exact existing object id for snapshot fitting.' },
+                  region: { type: 'object', description: 'camera_move UPDATE request-only finite world-space target rectangle.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
+                  targetFrameId: { type: 'string', description: 'camera_move UPDATE: existing destination frame id.' },
+                  targetWidth: { type: 'number', description: 'camera_move UPDATE: positive absolute camera width.' },
+                  offsetX: { type: 'number', description: 'camera_move UPDATE: finite horizontal offset.' },
+                  offsetY: { type: 'number', description: 'camera_move UPDATE: finite vertical offset.' },
+                  startTime: { type: 'number', description: 'camera_move UPDATE: finite start time in seconds.' },
+                  duration: { type: 'number', description: 'camera_move UPDATE: duration at least 0.05 seconds.' },
+                },
               },
             },
           },

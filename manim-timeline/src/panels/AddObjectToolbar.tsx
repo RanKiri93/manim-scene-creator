@@ -8,6 +8,7 @@ import {
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import type { SceneItem, TargetAnimationMode } from '@/types/scene';
+import { resolveGraphFollowSelection } from '@/lib/graphMotion';
 
 function truncLabel(s: string, max: number): string {
   const t = s.trim();
@@ -21,6 +22,7 @@ const TARGET_ANIMATION_MODES: readonly TargetAnimationMode[] = [
   'move',
   'path',
   'rotate',
+  'graphFollow',
 ];
 
 function ToolButton({
@@ -31,6 +33,7 @@ function ToolButton({
   collapsed,
   active,
   dimmed,
+  disabled,
   'aria-label': ariaLabel,
 }: {
   title: string;
@@ -40,6 +43,7 @@ function ToolButton({
   collapsed: boolean;
   active?: boolean;
   dimmed?: boolean;
+  disabled?: boolean;
   'aria-label'?: string;
 }) {
   const emphasize = active
@@ -53,6 +57,7 @@ function ToolButton({
         title={title}
         aria-label={ariaLabel ?? title}
         onClick={onClick}
+        disabled={disabled}
         className={`flex items-center justify-center w-9 h-9 rounded-md border hover:bg-slate-700 hover:border-slate-500 transition-colors shrink-0 ${emphasize} ${fade}`}
       >
         {children}
@@ -65,6 +70,7 @@ function ToolButton({
       title={title}
       aria-label={ariaLabel ?? title}
       onClick={onClick}
+      disabled={disabled}
       className={`flex items-center gap-2 w-full px-2 h-9 rounded-md border text-xs hover:bg-slate-700 hover:border-slate-500 transition-colors ${emphasize} ${fade}`}
     >
       <span className="shrink-0 flex items-center justify-center">{children}</span>
@@ -436,6 +442,8 @@ export default function AddObjectToolbar({
     : hasAnyAnimationTarget
       ? 'Uses your selection.'
       : 'Selection is not animatable — uses first eligible.';
+  const graphFollowSelection = resolveGraphFollowSelection(itemsMap, selectedIds);
+  const canFollowGraph = graphFollowSelection.error == null;
 
   const axesItems = [...itemsMap.values()].filter((i) => i.kind === 'axes');
   const selectedAxes = selectedItems.find((i) => i.kind === 'axes');
@@ -585,6 +593,17 @@ export default function AddObjectToolbar({
           </span>
         </CategoryLabel>
         <div className={groupClass}>
+          <ToolButton
+            collapsed={collapsed}
+            label="Move along graph"
+            title={graphFollowSelection.error ?? 'Move the selected graph dot along its same-axes plot'}
+            onClick={() => actions.addTargetAnimationClip('graphFollow')}
+            active={canFollowGraph}
+            dimmed={!canFollowGraph}
+            disabled={!canFollowGraph}
+          >
+            <IconTaMove />
+          </ToolButton>
           <ToolButton
             collapsed={collapsed}
             label="Exit"

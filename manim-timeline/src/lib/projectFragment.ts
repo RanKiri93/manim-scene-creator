@@ -68,6 +68,12 @@ function remapPosSteps(steps: PosStep[], m: Map<string, string>): PosStep[] {
   });
 }
 
+function requireRemappedGraphSource(map: Map<string, string>, sourceId: string, dotId: string): string {
+  const mapped = map.get(sourceId);
+  if (!mapped) throw new Error(`Cannot copy attached graph dot ${dotId}: include its referenced graph source.`);
+  return mapped;
+}
+
 function remapGraphAreaMode(
   mode: GraphAreaItem['mode'],
   m: Map<string, string>,
@@ -141,7 +147,15 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
     case 'graphDot':
       it.axesId = m.get(it.axesId) ?? it.axesId;
       it.posSteps = remapPosSteps(it.posSteps, m);
-      it.dot = { ...it.dot, id: m.get(it.dot.id) ?? it.dot.id };
+      it.dot = {
+        ...it.dot,
+        id: m.get(it.dot.id) ?? it.dot.id,
+        ...(it.dot.attachment?.kind === 'function'
+          ? { attachment: { ...it.dot.attachment, graphPlotId: requireRemappedGraphSource(m, it.dot.attachment.graphPlotId, it.id) } }
+          : it.dot.attachment?.kind === 'parametric'
+            ? { attachment: { ...it.dot.attachment, graphCurveId: requireRemappedGraphSource(m, it.dot.attachment.graphCurveId, it.id) } }
+            : {}),
+      };
       if (it.audioTrackId) {
         const aid = m.get(it.audioTrackId);
         if (aid) it.audioTrackId = aid;
@@ -197,10 +211,17 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
       }));
       break;
     case 'target_animation':
-      it.targets = it.targets.map((t) => ({
-        ...t,
-        targetId: m.get(t.targetId) ?? t.targetId,
-      }));
+      it.targets = it.targets.map((t) => {
+        if (it.mode === 'graphFollow' && (!m.has(t.targetId) || (t.graphPlotId && !m.has(t.graphPlotId)) || (t.graphCurveId && !m.has(t.graphCurveId)))) {
+          throw new Error(`Cannot copy graph-follow animation ${it.id}: include its referenced dot and source.`);
+        }
+        return {
+          ...t,
+          targetId: m.get(t.targetId) ?? t.targetId,
+          ...(t.graphPlotId ? { graphPlotId: m.get(t.graphPlotId) ?? t.graphPlotId } : {}),
+          ...(t.graphCurveId ? { graphCurveId: m.get(t.graphCurveId) ?? t.graphCurveId } : {}),
+        };
+      });
       break;
     case 'surroundingRect':
       it.targetIds = it.targetIds.map((tid) => m.get(tid) ?? tid);

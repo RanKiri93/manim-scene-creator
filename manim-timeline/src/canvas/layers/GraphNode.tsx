@@ -37,9 +37,11 @@ import {
 } from '@/lib/graphCreatePreview';
 import {
   exitPreviewForTarget,
+  graphFollowPreviewPosition,
   type ExitPreviewState,
 } from '@/lib/visualPlaybackPreview';
-import { axesRasterGeometry } from '@/lib/axesRasterPreview';
+import { axesRasterCoordinateGeometry, axesRasterGeometry, axesRasterLocalToGraph, axesVectorOverlayOffset, axesOverlayPoint } from '@/lib/axesRasterPreview';
+import { resolveGraphDotPosition } from '@/lib/graphMotion';
 
 function evalGraphY(jsExpr: string, x: number): number | null {
   try {
@@ -295,13 +297,22 @@ export default function GraphNode({
       }),
     [axes, currentTime, itemsMap, pxPerUnitX, pxPerUnitY],
   );
+  const axesCoordinateGeom = useMemo(
+    () => axesRasterCoordinateGeometry({ axes, pxPerUnitX, pxPerUnitY }),
+    [axes, pxPerUnitX, pxPerUnitY],
+  );
   const useAxesRaster = axesRasterGeom != null && axesRasterImg != null;
+  const vectorAxesOffset = useMemo(
+    () => !useAxesRaster && axesCoordinateGeom
+      ? axesVectorOverlayOffset({ geometry: axesCoordinateGeom, xMin, xMax, yMin, yMax, axW, axH })
+      : { x: 0, y: 0 },
+    [useAxesRaster, axesCoordinateGeom, xMin, xMax, yMin, yMax, axW, axH],
+  );
 
   const plotPolyline = (jsExpr: string, xLo: number, xHi: number): number[] => {
     const points: number[] = [];
     const steps = 200;
-    const span = xMax - xMin;
-    if (!(span > 0) || !(xHi > xLo)) return points;
+    if (!(xHi > xLo)) return points;
     for (let s = 0; s <= steps; s++) {
       const t = s / steps;
       const x = xLo + t * (xHi - xLo);
@@ -312,20 +323,18 @@ export default function GraphNode({
         continue;
       }
       if (!isFinite(y)) continue;
-      const px = -axW / 2 + ((x - xMin) / span) * axW;
-      const py = -axH / 2 + (1 - (y - yMin) / (yMax - yMin)) * axH;
-      points.push(px, py);
+       const p = toLocal(x, y);
+       points.push(p.lx, p.ly);
     }
     return points;
   };
 
   const toLocal = useCallback(
     (gx: number, gy: number) => {
-      const lx = -axW / 2 + ((gx - xMin) / (xMax - xMin)) * axW;
-      const ly = -axH / 2 + (1 - (gy - yMin) / (yMax - yMin)) * axH;
-      return { lx, ly };
+      const p = axesOverlayPoint({ point: { x: gx, y: gy }, geometry: axesCoordinateGeom, rasterActive: useAxesRaster, vectorOffset: vectorAxesOffset, xMin, xMax, yMin, yMax, axW, axH });
+      return { lx: p.x, ly: p.y };
     },
-    [axW, axH, xMin, xMax, yMin, yMax],
+    [axW, axH, xMin, xMax, yMin, yMax, useAxesRaster, axesCoordinateGeom, vectorAxesOffset],
   );
 
   const curvePolyline = (
@@ -399,7 +408,8 @@ export default function GraphNode({
         const v = evalGraphField(field, x, y);
         if (!v) continue;
         const [vx, vy] = v;
-        const { lx, ly } = toLocal(x, y);
+        const local = axesOverlayPoint({ point: { x, y }, geometry: axesCoordinateGeom, rasterActive: useAxesRaster, vectorOffset: vectorAxesOffset, xMin, xMax, yMin, yMax, axW, axH });
+        const { lx, ly } = { lx: local.x, ly: local.y };
 
         // Compute arrow delta in axes-local pixels.
         // - slope mode: `evalGraphField` already returns a vector of target
@@ -436,7 +446,7 @@ export default function GraphNode({
       }
     }
     return out;
-  }, [field, fieldMode, xMin, xMax, yMin, yMax, axW, axH, toLocal, cmap, cmin, cmax]);
+  }, [field, fieldMode, xMin, xMax, yMin, yMax, axW, axH, axesCoordinateGeom, useAxesRaster, vectorAxesOffset, cmap, cmin, cmax]);
 
   const streamPreviewLines = useMemo(() => {
     // TODO(animation): in a future pass, reveal each streamline progressively
@@ -456,7 +466,8 @@ export default function GraphNode({
       let x = seed.x;
       let y = seed.y;
       for (let k = 0; k < maxSteps; k++) {
-        const { lx, ly } = toLocal(x, y);
+        const local = axesOverlayPoint({ point: { x, y }, geometry: axesCoordinateGeom, rasterActive: useAxesRaster, vectorOffset: vectorAxesOffset, xMin, xMax, yMin, yMax, axW, axH });
+        const { lx, ly } = { lx: local.x, ly: local.y };
         pts.push(lx, ly);
         const next = rk4Step2d(fx, x, y, dt);
         if (!next) break;
@@ -476,7 +487,7 @@ export default function GraphNode({
       }
     });
     return lines;
-  }, [field, fieldMode, xMin, xMax, yMin, yMax, toLocal]);
+  }, [field, fieldMode, xMin, xMax, yMin, yMax, axW, axH, axesCoordinateGeom, useAxesRaster, vectorAxesOffset]);
 
   const onAxesClick = useCallback(
     (ev: KonvaEventObject<MouseEvent>) => {
@@ -485,10 +496,12 @@ export default function GraphNode({
       const rect = ev.target;
       const pos = rect.getRelativePointerPosition();
       if (!pos) return;
-      const rx = pos.x;
-      const ry = pos.y;
-      const gx = xMin + (rx / axW) * (xMax - xMin);
-      const gy = yMax - (ry / axH) * (yMax - yMin);
+      const graphGeometry = useAxesRaster ? axesRasterGeom : axesCoordinateGeom;
+      const inverse = graphGeometry ? axesRasterLocalToGraph(graphGeometry, pos.x, pos.y)
+        : { x: xMin + ((pos.x - vectorAxesOffset.x) / axW) * (xMax - xMin), y: yMax - ((pos.y - vectorAxesOffset.y) / axH) * (yMax - yMin) };
+      if (!inverse) return;
+      const gx = inverse.x;
+      const gy = inverse.y;
       const sp = createGraphStreamPoint();
       sp.x = gx;
       sp.y = gy;
@@ -507,6 +520,10 @@ export default function GraphNode({
       xMax,
       yMin,
       yMax,
+      useAxesRaster,
+      axesRasterGeom,
+      axesCoordinateGeom,
+      vectorAxesOffset,
       updateItem,
     ],
   );
@@ -544,6 +561,7 @@ export default function GraphNode({
         onClick={placement ? onAxesClick : undefined}
       />
 
+      <Group x={vectorAxesOffset.x} y={vectorAxesOffset.y}>
       {useAxesRaster && axesRasterGeom && axesRasterImg ? (
         <KonvaImage
           image={axesRasterImg}
@@ -1022,8 +1040,10 @@ export default function GraphNode({
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphDot') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          const motion = graphFollowPreviewPosition(it.id, currentTime, itemsMap) ?? resolveGraphDotPosition({ dot: it, items: [...itemsMap.values()], time: currentTime });
+          const resolvedDot = { ...it.dot, dx: motion.point.x, dy: motion.point.y };
           const dotPreview = buildGraphDotPreviewSpec({
-            dot: it.dot,
+            dot: resolvedDot,
             axW,
             axH,
             xMin,
@@ -1031,10 +1051,18 @@ export default function GraphNode({
             yMin,
             yMax,
             scenePxPerUnit: (pxPerUnitX + pxPerUnitY) / 2,
+            axes,
+            graphToLocal: (gx, gy) => {
+              const p = toLocal(gx, gy);
+              return { x: p.lx, y: p.ly };
+            },
           });
           return (
             <GraphPlaybackWrap key={key} exit={exit}>
             <Group>
+              {it.dot.showProjectionGuides === true && <>
+                {dotPreview.projectionGuides.map((points, index) => <Line key={`projection-${index}`} points={points} stroke="#94a3b8" dash={[4, 3]} listening={false} />)}
+              </>}
               <Circle
                 x={dotPreview.x}
                 y={dotPreview.y}
@@ -1049,9 +1077,14 @@ export default function GraphNode({
                   text={dotPreview.label.text}
                   fontSize={dotPreview.label.fontSize}
                   fill={dotPreview.label.fill}
+                  width={dotPreview.label.width}
+                  align={dotPreview.label.align}
+                  direction={dotPreview.label.direction}
                   listening={false}
                 />
               )}
+              {dotPreview.coordinateLabel && <Text x={dotPreview.coordinateLabel.x} y={dotPreview.coordinateLabel.y} text={dotPreview.coordinateLabel.text} fontSize={dotPreview.coordinateLabel.fontSize} fill={dotPreview.coordinateLabel.fill} width={dotPreview.coordinateLabel.width} align={dotPreview.coordinateLabel.align} direction={dotPreview.coordinateLabel.direction} listening={false} />}
+              {motion.error && <Text x={dotPreview.x + 8} y={dotPreview.y - 18} text="⚠ invalid graph motion" fontSize={9} fill="#fca5a5" listening={false} />}
             </Group>
             </GraphPlaybackWrap>
           );
@@ -1069,6 +1102,7 @@ export default function GraphNode({
           listening={false}
         />
       )}
+      </Group>
 
       {draggable && !hideEditorChrome && (
         <Group x={axW / 2 - 14} y={-axH / 2 + 14}>

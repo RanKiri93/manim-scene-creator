@@ -44,6 +44,12 @@ function legacySingleScene(overrides: Partial<ProjectFile> = {}): ProjectFile {
 }
 
 describe('multisceneNormalize', () => {
+  it('retains graph-follow references and optional annotation fields across scenes', () => {
+    const item = { kind: 'target_animation', id: 'move-graph', label: '', layer: 0, startTime: 1, duration: 2, mode: 'graphFollow', targets: [{ targetId: 'dot', graphPlotId: 'plot', targetX: 2, easing: 'linear' }] } as unknown as SceneItem;
+    const dot = { kind: 'graphDot', id: 'dot', axesId: 'axes', label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], dot: { id: 'data-dot', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP', showCoordinates: true, showProjectionGuides: true, attachment: { kind: 'function', graphPlotId: 'plot', x: 2 }, coordinatePrecision: 3 } } as unknown as SceneItem;
+    const normalized = normalizeAnyDiskProjectToMulti(legacySingleScene({ items: [item, dot] }));
+    expect(normalized.scenes[0]!.items).toEqual(expect.arrayContaining([item, expect.objectContaining({ kind: 'graphDot', dot: expect.objectContaining({ showCoordinates: true, showProjectionGuides: true, attachment: { kind: 'function', graphPlotId: 'plot', x: 2 }, coordinatePrecision: 3 }) })]));
+  });
   it('wraps legacy ProjectFile into MultiSceneProjectFile with one scene', () => {
     const legacy = legacySingleScene();
     const multi = legacyProjectFileToMultiScene(legacy);

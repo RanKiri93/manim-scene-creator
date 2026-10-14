@@ -39,7 +39,7 @@ function staticAddExprsForLeaf(
       const ax = idToVarName.get(leaf.axesId);
       if (!ax) return [];
       const d = overlayDotVar(ax, leaf.id);
-      return leaf.dot.label.trim() ? [d, `${d}_lbl`] : [d];
+      return [d, ...(leaf.dot.label.trim() ? [`${d}_lbl`] : []), ...(leaf.dot.showCoordinates ? [`${d}_coord`] : []), ...(leaf.dot.showProjectionGuides ? [`${d}_guide_v`, `${d}_guide_h`] : [])];
     }
     case 'graphField': {
       if (leaf.fieldMode === 'none') return [];

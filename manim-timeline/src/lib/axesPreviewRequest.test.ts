@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createAxes, defaultSceneDefaults } from '@/store/factories';
 import {
+  AXES_PREVIEW_METADATA_VERSION,
   axesPreviewVisualKey,
   buildAxesPreviewRequestBody,
 } from '@/lib/axesPreviewRequest';
@@ -39,6 +40,7 @@ describe('axesPreviewRequest', () => {
     const b = createAxes(defaultSceneDefaults(), 0);
     b.axisStrokeWidth = 3;
     expect(axesPreviewVisualKey(a)).not.toBe(axesPreviewVisualKey(b));
+    expect(axesPreviewVisualKey(a)).toMatch(new RegExp(`^${AXES_PREVIEW_METADATA_VERSION}:`));
   });
 
   it('axesPreviewVisualKey ignores timeline fields', () => {

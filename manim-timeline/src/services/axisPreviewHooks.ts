@@ -13,6 +13,7 @@ export function useAxesPreviewSync() {
   const url = useSceneStore((s) => s.measureConfig.url);
   const enabled = useSceneStore((s) => s.measureConfig.enabled);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const failedAttemptRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     const flush = () => {
@@ -24,7 +25,10 @@ export function useAxesPreviewSync() {
         if (it.kind !== 'axes') continue;
         const ax = it as AxesItem;
         const key = axesPreviewVisualKey(ax);
+        const attemptKey = `${measureConfig.url}|${key}`;
         if (ax.axisPreviewHash === key && ax.axisPreviewDataUrl) continue;
+        if (failedAttemptRef.current.get(ax.id) === attemptKey) continue;
+        failedAttemptRef.current.set(ax.id, attemptKey);
 
         promises.push(
           (async () => {
@@ -43,6 +47,7 @@ export function useAxesPreviewSync() {
                   axisPreviewHash: key,
                 });
               } else {
+                failedAttemptRef.current.delete(ax.id);
                 useSceneStore.getState().updateItem(ax.id, {
                   axisPreviewDataUrl: r.dataUrl,
                   axisPreviewError: null,
@@ -51,6 +56,7 @@ export function useAxesPreviewSync() {
                 });
               }
             } catch (e) {
+              failedAttemptRef.current.set(ax.id, attemptKey);
               const msg = e instanceof Error ? e.message : String(e);
               useSceneStore.getState().updateItem(ax.id, {
                 axisPreviewError: msg,

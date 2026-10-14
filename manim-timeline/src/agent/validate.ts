@@ -34,7 +34,7 @@ import {
   type TransformMapping,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
-import { DEFAULT_FONT, DEFAULT_FONT_SIZE } from '@/lib/constants';
+import { DEFAULT_FONT, DEFAULT_FONT_SIZE, FRAME_W } from '@/lib/constants';
 import {
   AGENT_ALLOWED_KINDS,
   AGENT_UI_ONLY_FIELDS,
@@ -43,6 +43,8 @@ import {
   isAgentAllowedKind,
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
+import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
+import type { CameraMoveItem } from '@/types/scene';
 
 export type ValidationResult =
   | { ok: true; response: AgentChatResponse }
@@ -58,6 +60,7 @@ export interface AgentFrameContext {
   frameIds: readonly ItemId[];
   activeFrameId: ItemId | null;
   startFrameId: ItemId | null;
+  frames?: readonly import('@/types/scene').FrameDef[];
 }
 
 /**
@@ -234,6 +237,12 @@ export function validateAgentResponse(
       }
       const targetKind =
         currentItems.get(itemId)?.kind ?? plannedCreates.get(itemId) ?? '';
+      if (targetKind === 'camera_move') {
+        for (const key of ['targetMode', 'targetId', 'region']) if (key in updates) {
+          errors.push(`${prefix}.updates.${key} is request-only and cannot be persisted; use the resolved camera destination fields.`);
+          return;
+        }
+      }
       if (frameCtx && 'frameId' in updates) {
         const fid = (updates as Record<string, unknown>).frameId;
         if (fid == null) {
@@ -384,6 +393,25 @@ export function validateAgentResponse(
   }
 
   // Third pass: enforce two-stage text workflow.
+  if (frameCtx?.frames) {
+    const virtual = new Map(currentItems);
+    for (let i = 0; i < normalizedActions.length; i += 1) {
+      const action = normalizedActions[i]!;
+      if (action.action === 'CREATE') virtual.set(action.item.id, action.item);
+      else if (action.action === 'UPDATE') {
+        const previous = virtual.get(action.itemId);
+        if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
+      } else virtual.delete(action.itemId);
+      if (action.action !== 'DELETE') {
+        const candidate = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
+        if (candidate?.kind === 'camera_move') {
+          for (const diagnostic of validateCameraMove(candidate, frameCtx.frames)) errors.push(`actions[${i}]: ${diagnostic.message}`);
+        }
+      }
+    }
+  }
+
+  // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
   // 2) Styling must not be combined with text creation in the same response.
   //    (no styled CREATE, and no UPDATE that styles a textLine created earlier
@@ -458,6 +486,8 @@ function normalizeCreateItem(
       return normalizeBlinkAnimation(raw, errors, prefix);
     case 'target_animation':
       return normalizeTargetAnimation(raw, errors, prefix);
+    case 'camera_move':
+      return normalizeCameraMove(raw, errors, prefix);
     default:
       errors.push(`${prefix}.item.kind "${kind}" is not implemented.`);
       return null;
@@ -1148,6 +1178,21 @@ function sanitizeTransformConfig(raw: unknown): TransformMapping | null {
     unmappedTargetBehavior:
       tc.unmappedTargetBehavior === 'write' ? 'write' : 'fade_in',
   });
+}
+
+function normalizeCameraMove(raw: Record<string, unknown>, errors: string[], prefix: string): CameraMoveItem | null {
+  const targetFrameId = typeof raw.targetFrameId === 'string' ? raw.targetFrameId.trim() : '';
+  if (!targetFrameId) { errors.push(`${prefix}.item.targetFrameId is required for camera_move.`); return null; }
+  const duration = typeof raw.duration === 'number' ? raw.duration : DEFAULT_CAMERA_DURATION;
+  if (!Number.isFinite(duration) || duration < MIN_CAMERA_DURATION) errors.push(`${prefix}.item.duration must be at least ${MIN_CAMERA_DURATION}s.`);
+  const targetWidth = raw.targetWidth == null ? FRAME_W : raw.targetWidth;
+  if (typeof targetWidth !== 'number' || !Number.isFinite(targetWidth) || targetWidth <= 0) errors.push(`${prefix}.item.targetWidth must be finite and positive.`);
+  for (const key of ['startTime', 'offsetX', 'offsetY'] as const) if (raw[key] != null && (typeof raw[key] !== 'number' || !Number.isFinite(raw[key]))) errors.push(`${prefix}.item.${key} must be finite.`);
+  if (typeof raw.startTime === 'number' && raw.startTime < 0) errors.push(`${prefix}.item.startTime must be non-negative.`);
+  const base = baseDefaults({ ...raw, duration });
+  const out: Record<string, unknown> = { id: base.id, kind: 'camera_move', label: base.label, layer: base.layer, startTime: base.startTime, duration, targetFrameId, targetWidth, offsetX: typeof raw.offsetX === 'number' ? raw.offsetX : 0, offsetY: typeof raw.offsetY === 'number' ? raw.offsetY : 0 };
+  delete out.targetMode; delete out.targetId; delete out.region;
+  return out as unknown as CameraMoveItem;
 }
 
 function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
