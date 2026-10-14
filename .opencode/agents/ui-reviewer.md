@@ -27,6 +27,9 @@ Read the handoff and `git diff` of the touched UI files. Check, and report only 
 - Reuse: new controls should use `components/` primitives (FloatingPanel, NumberInput,
   ColorPicker, DirectionPicker) and the existing editor patterns in `panels/` (PropertyTabs,
   *Editor.tsx). Flag hand-rolled inputs and duplicated helpers that belong in `src/lib/`.
+- Theme: load skill `ui-design-system`. Touched components use Chalkboard tokens only (no
+  `slate-*`/`blue-*`/raw hex, nothing below `text-meta`, no uppercase labels), keep one primary
+  action per view, take kind colors from `itemKindColor`, and show a `focus-visible` ring.
 - Layering: components read the store and dispatch actions; any timeline/layout/export math
   inside a component is a finding.
 - RTL and Hebrew: text inputs and labels handle RTL; LaTeX source fields are LTR; segment order
