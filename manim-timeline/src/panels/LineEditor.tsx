@@ -15,6 +15,18 @@ import PropertyTabs from './PropertyTabs';
 import { appendCenterXStep, inkEdgeSteps, updateAxisStep, type ToEdgeCardinal } from '@/lib/quickLayout';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
+import { IconButton } from '@/components/ui';
+
+/** Remembered per browser: whether the LaTeX source box is forced left-to-right while editing. */
+const SOURCE_LTR_KEY = 'manim-timeline.lineEditor.sourceLtr';
+
+function readSourceLtr(): boolean {
+  try {
+    return localStorage.getItem(SOURCE_LTR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 function defaultTransformMapping(sourceLineId: string): TransformMapping {
   return {
@@ -37,6 +49,19 @@ interface LineEditorProps {
 }
 
 export default function LineEditor({ item }: LineEditorProps) {
+  // Display-only: the stored source is identical either way.
+  const [sourceLtr, setSourceLtr] = useState(readSourceLtr);
+  const toggleSourceLtr = () => {
+    setSourceLtr((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SOURCE_LTR_KEY, next ? '1' : '0');
+      } catch {
+        /* storage unavailable: keep the in-memory choice */
+      }
+      return next;
+    });
+  };
   const updateItem = useSceneStore((s) => s.updateItem);
   const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const setLineTransformConfig = useSceneStore((s) => s.setLineTransformConfig);
@@ -145,12 +170,31 @@ export default function LineEditor({ item }: LineEditorProps) {
       </label>
 
       <div>
-        <label className="text-ctl text-chalk-dim mb-1 block">LaTeX source</label>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <label htmlFor={`latex-src-${item.id}`} className="text-ctl text-chalk-dim">LaTeX source</label>
+          <IconButton
+            size="sm"
+            pressed={sourceLtr}
+            label={sourceLtr ? 'Show the source in reading direction' : 'Show the source left-to-right'}
+            title={
+              sourceLtr
+                ? 'Showing left-to-right so $math$ appears exactly as typed. Click to return to reading direction.'
+                : 'Show left-to-right so $math$ appears exactly as typed (display only; the text is unchanged)'
+            }
+            onClick={toggleSourceLtr}
+          >
+            <span aria-hidden="true" className="text-ctl leading-none">⇄</span>
+          </IconButton>
+        </div>
         <textarea
+          id={`latex-src-${item.id}`}
           value={item.raw}
           onChange={(e) => onRawChange(e.target.value)}
           rows={3}
-          dir="rtl"
+          // Hebrew sentences with $math$: by default the first strong letter picks the direction,
+          // so a Hebrew line reads right-to-left and a line starting with LaTeX stays left-to-right.
+          // The toggle above forces left-to-right so $…$ delimiters show exactly as typed.
+          dir={sourceLtr ? 'ltr' : 'auto'}
           className="w-full bg-raised border border-rule rounded-ctl px-2 py-1.5 text-body text-chalk font-mono resize-y"
           placeholder="Hebrew text with $math$ segments..."
         />

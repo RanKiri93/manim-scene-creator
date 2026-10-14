@@ -42,7 +42,7 @@ export default function UiGallery() {
   const [order, setOrder] = useState<'time' | 'object'>('time');
   const [dock, setDock] = useState<'properties' | 'copilot'>('properties');
   const [name, setName] = useState('כותרת');
-  const [src, setSrc] = useState('הנגזרת של $\\sin x$ היא $\\cos x$');
+  const [src, setSrc] = useState('np.sin(x) + x**2 / 4');
   const [size, setSize] = useState(36);
   const [start, setStart] = useState(0);
   const [duration, setDuration] = useState(3);
@@ -95,7 +95,7 @@ export default function UiGallery() {
               <Field label="Clip name" hint="Shown in exit and target menus.">
                 <TextInput value={name} onChange={(e) => setName(e.target.value)} />
               </Field>
-              <Field label="LaTeX source">
+              <Field label="Export expression (Python)">
                 <TextArea code value={src} onChange={(e) => setSrc(e.target.value)} />
               </Field>
               <div className="grid grid-cols-2 gap-2.5">

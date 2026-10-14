@@ -32,7 +32,7 @@ Read the handoff and `git diff` of the touched UI files. Check, and report only 
   action per view, take kind colors from `itemKindColor`, and show a `focus-visible` ring.
 - Layering: components read the store and dispatch actions; any timeline/layout/export math
   inside a component is a finding.
-- RTL and Hebrew: text inputs and labels handle RTL; LaTeX source fields are LTR; segment order
+- RTL and Hebrew: text inputs and labels handle RTL; the Text line LaTeX source (Hebrew with $math$) is `dir="auto"`, pure math/expression fields are LTR; segment order
   in pickers matches what the user sees.
 - Interaction: undo/redo covers the new edit and not transient UI state; keyboard shortcuts do not
   fire while typing in inputs; drag/click on the canvas respects the preview-locked (amber)

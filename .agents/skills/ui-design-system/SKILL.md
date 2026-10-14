@@ -42,8 +42,9 @@ Rules:
   `body`; do not set it again.
 - `font-display` (Frank Ruhl Libre 500) for panel titles (`text-title`), the inspector item
   title (`text-section`) and empty-state headings. Not for labels, buttons or values.
-- `font-mono` (Plex Mono) only for LaTeX source and math-expression fields. Those fields are
-  always `dir="ltr"`. Times and numbers use `tabular-nums` in the sans, never mono.
+- `font-mono` (Plex Mono) only for LaTeX source and math-expression fields. Pure math and
+  expression fields (plot `fn`, Python/JS expressions, class names) are `dir="ltr"`; the Text line
+  LaTeX source, which is Hebrew with `$math$` segments, is `dir="auto"`. Times and numbers use `tabular-nums` in the sans, never mono.
 - Sizes: `text-meta` 11px (times, hints, clip labels), `text-ctl` 12px (controls, labels),
   `text-body` 13px (lists, Copilot messages), `text-title` 16px, `text-section` 21px.
   Nothing below 11px. No `text-[10px]` or `text-[11px]`.
@@ -76,7 +77,7 @@ hash). Source of the gallery: `src/components/ui/UiGallery.tsx`; add new primiti
 | `TextInput` | Text; `dir="auto"` by default for Hebrew. `unit` draws a suffix inside the field. `code` for identifiers (monospace, LTR, no spellcheck). |
 | `NumberInput` | Commits on blur or Enter (one undo step per edit), Escape cancels, clamps to `min`/`max`, `unit` suffix, tabular figures. Replaces the legacy default export `components/NumberInput.tsx`; do not use that one in migrated code. |
 | `Select` | Native `<select>` with the Chalkboard surface and chevron. |
-| `TextArea` | `code` for LaTeX and math expressions: monospace, always `dir="ltr"`, no spellcheck. |
+| `TextArea` | `code` for pure math and expressions: monospace, always `dir="ltr"`, no spellcheck. Not for Hebrew-plus-math text, which needs `dir="auto"`. |
 | `Checkbox` | Checkbox with its label as one hit target; `onChange` receives a boolean. |
 | `Tabs` + `TabPanel` | Underlined tabs with arrow-key navigation. Share one `useId()` as `idBase`. Replaces `panels/PropertyTabs.tsx` as editors migrate. |
 | `Segmented` | Two to four exclusive views ("By time / By object", "Properties / Copilot"). Needs `aria-label`. |
@@ -100,7 +101,8 @@ it (for the inspector: `PropertyPanel` and every `*Editor.tsx` together), then d
 - Icon-only buttons get `aria-label` (a `title` alone is not enough).
 - Clickable rows and clips are `<button>`s, or carry `role`, `tabIndex={0}` and an Enter/Space
   handler.
-- Hebrew text inputs and labels: `dir="auto"`. LaTeX fields: `dir="ltr"`.
+- Hebrew text inputs and labels: `dir="auto"`, including the Hebrew-plus-math LaTeX source of a
+  text line. Pure math and expression fields: `dir="ltr"`.
 
 ## Layout targets
 
