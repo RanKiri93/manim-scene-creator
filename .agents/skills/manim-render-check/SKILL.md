@@ -24,7 +24,8 @@ Check, in order, and report each as pass/fail with the offending line:
 - Axes: every `Axes(` has both `x_range=[...]` and `y_range=[...]` with three entries.
 - Positioning: `to_edge`/`next_to`/`set_x`/`set_y`/`shift` chains; `move_to(ORIGIN)` only
   when the item is meant to be centred.
-- Timing: walk the playback section with a running clock. Each `self.wait(d)` adds `d`; each
+- Timing: walk the playback section with a running clock. Each `_wait_to(self, t)` sets the
+  clock to `max(clock, t)`; each `self.wait(d)` adds `d`; each
   `self.play(..., run_time=r)` adds `r` (default 1 when omitted); `add_sound` adds 0. Compare
   the clock at each leaf's first `self.play` with the item's `effectiveStart` in the project.
   Deviations > 0.05 s are a fail; cite the clip.

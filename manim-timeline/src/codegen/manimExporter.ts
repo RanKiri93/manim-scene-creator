@@ -115,6 +115,7 @@ import {
   formatCameraFrameInitialization,
   formatStandaloneCameraPlay,
 } from './cameraCodegen';
+import { timelineWaitHelperSource, timelineWaitLine } from './timelineWaitCodegen';
 import {
   ensureFrameConfig,
   frameCenter,
@@ -779,6 +780,8 @@ function exportManimCodeInner(
 
   const playPad = ' '.repeat(base);
   let timelineCursor = 0;
+  // Cursor waits are emitted as absolute `_wait_to(self, t)` targets (see timelineWaitCodegen.ts).
+  let usesTimelineWait = false;
   const emittedClusterAudioIds = new Set<ItemId>();
 
   const flatPlayback = flat.filter((l) => !isVisibleAtSceneStartItem(l));
@@ -1141,7 +1144,8 @@ function exportManimCodeInner(
     }
 
     if (t0 > timelineCursor + TIMELINE_GAP_EPS) {
-      playStr += `${playPad}self.wait(${(t0 - timelineCursor).toFixed(4)})\n`;
+      playStr += timelineWaitLine(playPad, t0);
+      usesTimelineWait = true;
       timelineCursor = t0;
     }
 
@@ -1346,16 +1350,17 @@ function exportManimCodeInner(
       animSec += sequentialAnimSecondsForCameraMove(cam.cam);
     }
     const padAfter = Math.max(0, groupSpanCapped - animSec);
+    const advanced = t0 + animSec + padAfter;
     if (padAfter > TIMELINE_GAP_EPS) {
-      playStr += `${playPad}self.wait(${padAfter.toFixed(4)})\n`;
+      playStr += timelineWaitLine(playPad, advanced);
+      usesTimelineWait = true;
     }
 
-    const advanced = t0 + animSec + padAfter;
     if (Number.isFinite(nextT) && advanced > nextT + TIMELINE_GAP_EPS) {
       playStr += `${playPad}# Note: scene clock after this group (${advanced.toFixed(4)}s) exceeds next timeline event at ${nextT.toFixed(4)}s — verify timing.\n`;
     }
 
-    timelineCursor = Math.max(timelineCursor, t0 + animSec + padAfter);
+    timelineCursor = Math.max(timelineCursor, advanced);
   }
 
   let fullSceneEnd = timelineCursor;
@@ -1386,18 +1391,20 @@ function exportManimCodeInner(
     }
   }
   if (fullSceneEnd > timelineCursor + TIMELINE_GAP_EPS) {
-    playStr += `${playPad}self.wait(${(fullSceneEnd - timelineCursor).toFixed(4)})\n`;
+    playStr += timelineWaitLine(playPad, fullSceneEnd);
+    usesTimelineWait = true;
     timelineCursor = fullSceneEnd;
   }
 
   if (!options.fullFile) {
+    const waitHelper = usesTimelineWait ? `${timelineWaitHelperSource()}\n` : '';
     const cameraSnippet = movingCameraRequired ? `${cameraExportPreconditionNote()}\n` : '';
     const cameraHelper = cameraItems.length > 0 ? `${cameraPoseAnimationHelperSource()}\n` : '';
     const pathSnippet = needsDelayedPathHelper ? `${delayedTargetPathHelperSource()}\n` : '';
     const hasGraphDots = items.some((it) => it.kind === 'graphDot');
     const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
     const dotHelper = hasGraphDots ? `${graphDotAnnotationHelperSource(0, hasCoordinateDots)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${defStr}\n${posStr}\n${playStr}`;
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1414,6 +1421,8 @@ function exportManimCodeInner(
     header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
+  // Before any helper `class`: multi-scene export splits each file at its first `class`.
+  if (usesTimelineWait) header += '\n\n' + timelineWaitHelperSource();
   const hasGraphDots = items.some((it) => it.kind === 'graphDot');
   const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
   if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);

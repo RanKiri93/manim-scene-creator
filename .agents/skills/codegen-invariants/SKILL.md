@@ -17,7 +17,7 @@ to advance `timelineCursor` and to compute `padAfter`. If they disagree, every l
 drifts and `self.wait` gaps go wrong or vanish.
 
 So: any change to what a leaf emits requires the matching change in `groupPlaybackSpan.ts`,
-and a test asserting the emitted `self.wait(...)` values.
+and a test asserting the emitted `_wait_to(self, …)` / `self.wait(...)` values.
 
 ## Per-leaf duration table (must stay true)
 
@@ -37,8 +37,15 @@ and a test asserting the emitted `self.wait(...)` values.
    are not leaves; they are events emitted at their own `startTime`.
 2. `playEvents` sorted by `t`, stable kind order at equal `t`. Group by equal `t` within
    `TIMELINE_GAP_EPS`.
-3. Per group: `self.wait(t0 - timelineCursor)` if positive; `add_sound` lines; concurrent
-   `AnimationGroup` clusters; sequential leaf plays; then `self.wait(padAfter)`.
+3. Per group: `_wait_to(self, t0)` if `t0` is past the cursor; `add_sound` lines; concurrent
+   `AnimationGroup` clusters; sequential leaf plays; then `_wait_to(self, t0 + animSec +
+   padAfter)` when `padAfter > 0`; the scene end is `_wait_to(self, fullSceneEnd)`.
+   `_wait_to` (`timelineWaitCodegen.ts`) waits until an absolute, frame-snapped scene time so
+   Manim's per-play frame rounding cannot accumulate. The targets are exactly the cursor
+   values, so the cursor model is unchanged. Leaf-internal waits (segment `waitAfterSec`,
+   audio tails, series steps) stay relative `self.wait`/`Wait(...)`. The helper is emitted
+   before any helper `class`: multi-scene export splits each file at its first `class` and
+   merges headers line by line.
 
 ## Audio binding and tails (lineCodegen.ts)
 

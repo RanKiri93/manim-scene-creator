@@ -87,8 +87,11 @@ describe('projectExporter', () => {
     // Each scene's standalone export carries the module helper; duplicate identical definitions
     // remain stateless and cannot leak a scene-specific camera schedule.
     expect(code.match(/class _CameraPoseAnimation\(Animation\):/g)).toHaveLength(2);
-    expect(code).toContain('self.wait(2.0000)');
-    expect(code).toContain('self.wait(4.0000)');
+    expect(code).toContain('_wait_to(self, 2.0000)');
+    expect(code).toContain('_wait_to(self, 4.0000)');
+    // The absolute-wait helper sits before the first `class`, so the header merge keeps one copy.
+    expect(code.match(/^def _wait_to\(scene, t\):$/gm)).toHaveLength(1);
+    expect(code.indexOf('def _wait_to(')).toBeLessThan(code.indexOf('class '));
     expect(code).toContain('(1.000000, 0.000000, 5.000000)');
     expect(code).toContain('(12.222222, 0.000000, 7.000000)');
   });

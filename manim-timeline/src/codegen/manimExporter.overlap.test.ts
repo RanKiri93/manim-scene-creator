@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exportManimCode } from './manimExporter';
+import { AUDIO_BINDING_NONE } from '@/lib/audioBinding';
 import {
   createAxes,
   createExitAnimation,
@@ -56,7 +57,10 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('((0) + (((2) - (0)) * alpha))');
     expect(code).toContain('((2) + (((3) - (2)) * alpha))');
     expect(code.match(/run_time=1\.0000\)/g)).toHaveLength(2);
-    expect(code.match(/self\.wait\(1\.0000\)/g)).toHaveLength(3); // before clip 1, between clips, then to t=5
+    // Absolute targets: clip 1 at t=1, clip 2 at t=3, then hold to the line at t=5.
+    expect(code.match(/_wait_to\(self, [\d.]+\)/g)).toEqual([
+      '_wait_to(self, 1.0000)', '_wait_to(self, 3.0000)', '_wait_to(self, 5.0000)',
+    ]);
     expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_fn_dot_coord, lambda _mob, alpha: None/g)).toHaveLength(2);
     expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_fn_dot_guide_v, lambda _mob, alpha: None/g)).toHaveLength(2);
   });
@@ -78,7 +82,9 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('((0.5) + (((1.5) - (0.5)) * alpha))');
     expect(code).toContain('((1.5) + (((2.5) - (1.5)) * alpha))');
     expect(code.match(/run_time=1\.0000\)/g)).toHaveLength(2);
-    expect(code.match(/self\.wait\(1\.0000\)/g)).toHaveLength(3);
+    expect(code.match(/_wait_to\(self, [\d.]+\)/g)).toEqual([
+      '_wait_to(self, 1.0000)', '_wait_to(self, 3.0000)', '_wait_to(self, 5.0000)',
+    ]);
     expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_t_dot_coord, lambda _mob, alpha: None/g)).toHaveLength(2);
     expect(code.match(/UpdateFromAlphaFunc\(axes_1_dot_chain_t_dot_guide_h, lambda _mob, alpha: None/g)).toHaveLength(2);
   });
@@ -123,7 +129,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code.match(/axes_1_dot_early_dot_coord/g)?.length).toBeGreaterThan(1); // existing mobject is referenced by intro and motion, not reconstructed
     expect(code).toContain('run_time=1.000000');
     // Dot intro is 0.4 s + the existing 1 s fixed-label Write. Cluster ends at 1.8 s; next event at 3 s.
-    expect(code).toContain('self.wait(1.2000)');
+    expect(code).toContain('_wait_to(self, 3.0000)');
   });
 
   it('keeps graph-follow duration aligned with hand-derived waits to the next event', () => {
@@ -137,11 +143,11 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     const concurrent = createTextLine(defaults, 3); concurrent.id = 'during_follow'; concurrent.raw = 'concurrent'; concurrent.duration = 1;
     const next = createTextLine(defaults, 6); next.id = 'after_follow'; next.raw = 'after'; next.duration = 1;
     const code = exportManimCode([axes, plot, dot, follow, concurrent, next], { fullFile: true, defaults });
-    expect(code).toContain('self.wait(1.0000)'); // timeline: dot 0..1, follow begins at 2
+    expect(code).toContain('_wait_to(self, 2.0000)'); // timeline: dot 0..1, follow begins at 2
     expect(code).toContain('run_time=2.000000');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_follow_dot');
     expect(code).toContain('AnimationGroup(');
-    expect(code).toContain('self.wait(2.0000)'); // follow ends at 4, next event starts at 6
+    expect(code).toContain('_wait_to(self, 6.0000)'); // follow ends at 4, next event starts at 6
   });
 
   it('exports frame placement and camera move with MovingCameraScene', () => {
@@ -192,7 +198,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('[(1.000000, 3.000000, 3.000000, (0.000000, 0.000000, 14.222222), (2.000000, 0.000000, 7.111111))]');
     expect(code).toContain('run_time=4.000000)');
     expect(code).toMatch(/self\.play\(AnimationGroup\([\s\S]*?run_time=4\.0000\)/);
-    expect(code).toContain('self.wait(2.0000)');
+    expect(code).toContain('_wait_to(self, 6.0000)');
     expect(code).not.toContain('frame.animate.move_to');
   });
 
@@ -219,7 +225,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('(2.000000, 3.000000, 3.000000, (1.040000, 0.000000, 14.222222), (4.000000, 0.000000, 6.000000))');
     expect(code).toContain('run_time=10.000000)');
     expect(code.match(/_CameraPoseAnimation\(/g)).toHaveLength(2); // class declaration + one animation
-    expect(code).not.toContain('self.wait('); // one camera branch itself consumes the authored 10s span
+    expect(code).not.toContain('_wait_to('); // one camera branch itself consumes the authored 10s span
     expect(code).not.toContain('self.play(self.camera.frame.animate');
   });
 
@@ -268,7 +274,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     expect(code).toContain('(7.000000, 11.000000, 9.000000, (2.000000, 0.000000, 5.000000), (8.000000, 0.000000, 8.000000))');
     expect(code).toContain('(9.000000, 10.000000, 10.000000, (5.000000, 0.000000, 6.500000), (0.000000, 0.000000, 14.222222))');
     expect(code).toContain('run_time=12.000000)');
-    expect(code).not.toContain('self.wait(');
+    expect(code).not.toContain('_wait_to(');
   });
 
   it('emits exact waits and run times for a delayed camera-only clip and keeps touching intervals separate', () => {
@@ -278,9 +284,9 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     const solo = exportManimCode([delayed], {
       fullFile: true, defaults, frames: [frame], startFrameId: frame.id,
     });
-    expect(solo).toContain('self.wait(2.0000)');
+    expect(solo).toContain('_wait_to(self, 2.0000)');
     expect(solo).toContain('run_time=1.000000)');
-    expect(solo).not.toContain('self.wait(1.0000)');
+    expect(solo).not.toContain('_wait_to(self, 3.0000)'); // the camera clip itself ends the scene
 
     const first = createCameraMove(frame.id, 0, 1);
     const second = createCameraMove(frame.id, 1, 1);
@@ -561,9 +567,9 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     });
 
     expect(code).toContain('self.play(FadeIn(image_1), run_time=1.500000)');
-    // Timeline by hand: image consumes 0..1.5, line starts at 3.0, so wait = 1.5.
-    expect(code).toContain('self.wait(1.5000)');
-    expect(code.indexOf('self.wait(1.5000)')).toBeLessThan(code.indexOf('Write('));
+    // Timeline by hand: image consumes 0..1.5, line starts at 3.0, so wait until 3.0.
+    expect(code).toContain('_wait_to(self, 3.0000)');
+    expect(code.indexOf('_wait_to(self, 3.0000)')).toBeLessThan(code.indexOf('Write('));
   });
 
   it('rejects unbundled blob image paths instead of emitting a missing texture path', () => {
@@ -1017,7 +1023,7 @@ describe('exportManimCode visibleAtSceneStart (static self.add)', () => {
     expect(code).toContain('self.add(image_1)');
     expect(code).not.toContain('self.play(FadeIn(image_1)');
     // Scene-start images consume zero intro seconds; final hold padding covers 0..2.
-    expect(code).toContain('self.wait(2.0000)');
+    expect(code).toContain('_wait_to(self, 2.0000)');
   });
 
   it('emits bound audio for a visible-at-scene-start image as timeline audio', () => {
@@ -1062,7 +1068,7 @@ describe('exportManimCode visibleAtSceneStart (static self.add)', () => {
     const addIdx = code.indexOf('self.add(');
     expect(addIdx).toBeGreaterThan(-1);
     // No leaf play events when the only visual is scene-start — only waits after static add.
-    expect(code).toContain('self.wait(');
+    expect(code).toContain('_wait_to(self, ');
     expect(code).not.toContain('Create(');
   });
 
@@ -1081,5 +1087,52 @@ describe('exportManimCode visibleAtSceneStart (static self.add)', () => {
 
     expect(code).toContain('self.add(');
     expect(code).toMatch(/FadeOut|Uncreate|ShrinkToCenter/);
+  });
+});
+
+describe('exportManimCode absolute timeline waits', () => {
+  function scene() {
+    const defaults = defaultSceneDefaults();
+    const a = createTextLine(defaults, 0); a.raw = 'a'; a.segments = [seg('a')]; a.duration = 1;
+    const b = createTextLine(defaults, 2.5); b.raw = 'b'; b.segments = [seg('b')]; b.duration = 0.5;
+    // Keep the sting unbound so the scene end is reached by the exporter's final wait, not a leaf tail.
+    b.audioTrackId = AUDIO_BINDING_NONE;
+    const sting = {
+      id: 'sting', text: 'sting', audioUrl: '/assets/audio/sting.webm',
+      assetRelPath: 'assets/audio/sting.webm', startTime: 1.5, duration: 2,
+    };
+    return { defaults, items: [a, b], audioItems: [sting] };
+  }
+
+  it('waits until absolute timeline times so Manim frame rounding cannot accumulate', () => {
+    const { defaults, items, audioItems } = scene();
+    const code = exportManimCode(items, { fullFile: true, defaults, audioItems });
+    // Hand timeline: line a 0..1, unbound sting at 1.5 (ends 3.5), line b 2.5..3.0, scene end 3.5.
+    expect(code.match(/_wait_to\(self, [\d.]+\)/g)).toEqual([
+      '_wait_to(self, 1.5000)', '_wait_to(self, 2.5000)', '_wait_to(self, 3.5000)',
+    ]);
+    expect(code).not.toMatch(/^\s+self\.wait\(/m);
+    expect(code.indexOf('_wait_to(self, 1.5000)')).toBeLessThan(code.indexOf('self.add_sound('));
+    expect(code.indexOf('_wait_to(self, 2.5000)')).toBeLessThan(code.lastIndexOf('Write('));
+  });
+
+  it('emits the helper once at module scope before the scene class, and in partial export', () => {
+    const { defaults, items, audioItems } = scene();
+    const full = exportManimCode(items, { fullFile: true, defaults, audioItems });
+    expect(full.match(/^def _wait_to\(scene, t\):$/gm)).toHaveLength(1);
+    expect(full).toContain('    frames = round((t - scene.time) * config.frame_rate)\n');
+    expect(full).toContain('        scene.wait((frames + 0.5) / config.frame_rate)\n');
+    expect(full.indexOf('def _wait_to(')).toBeLessThan(full.indexOf('\nclass '));
+
+    const partial = exportManimCode(items, { fullFile: false, defaults, audioItems });
+    expect(partial).toContain('def _wait_to(scene, t):');
+    expect(partial).toContain('_wait_to(self, 1.5000)');
+  });
+
+  it('omits the helper when no cursor wait is needed', () => {
+    const defaults = defaultSceneDefaults();
+    const a = createTextLine(defaults, 0); a.raw = 'a'; a.segments = [seg('a')]; a.duration = 1;
+    const code = exportManimCode([a], { fullFile: true, defaults });
+    expect(code).not.toContain('_wait_to');
   });
 });
