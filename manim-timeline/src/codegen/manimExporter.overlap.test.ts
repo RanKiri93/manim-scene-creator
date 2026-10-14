@@ -116,20 +116,61 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     const dot = createGraphDotItem(axes.id, 0); dot.id = 'early_dot'; dot.duration = 0.4;
     dot.dot.label = 'A'; dot.dot.showCoordinates = true; dot.dot.showProjectionGuides = true;
     dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 1 };
-    const follow = { ...createTargetAnimation('graphFollow', [dot.id], 0.8, 1), id: 'early_follow' };
+    const follow = { ...createTargetAnimation('graphFollow', [dot.id], 0.2, 1), id: 'early_follow' };
     follow.targets[0]!.targetX = 2;
     const next = createTextLine(defaults, 3); next.id = 'after_early'; next.raw = 'after'; next.duration = 0.5;
     const code = exportManimCode([axes, plot, dot, follow, next], { fullFile: true, defaults });
-    expect(code).toContain('AnimationGroup(FadeIn(axes_1_dot_early_dot');
-    expect(code).toContain('axes_1_dot_early_dot_coord');
-    expect(code).toContain('axes_1_dot_early_dot_guide_v');
-    expect(code).toContain('Succession(Wait(0.8000), AnimationGroup(UpdateFromAlphaFunc');
+    // Dot, annotations and label come in together inside the 0.4 s clip.
+    expect(code).toContain(
+      'Succession(Wait(0.0000), AnimationGroup(FadeIn(axes_1_dot_early_dot, run_time=0.400000), ' +
+      'FadeIn(axes_1_dot_early_dot_coord, run_time=0.400000), FadeIn(axes_1_dot_early_dot_guide_v, run_time=0.400000), ' +
+      'FadeIn(axes_1_dot_early_dot_guide_h, run_time=0.400000), Write(axes_1_dot_early_dot_lbl, run_time=0.400000), ' +
+      'lag_ratio=0, run_time=0.400000))',
+    );
+    expect(code).toContain('Succession(Wait(0.2000), AnimationGroup(UpdateFromAlphaFunc');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_coord, lambda _mob, alpha: None');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_guide_h, lambda _mob, alpha: None');
     expect(code.match(/axes_1_dot_early_dot_coord/g)?.length).toBeGreaterThan(1); // existing mobject is referenced by intro and motion, not reconstructed
     expect(code).toContain('run_time=1.000000');
-    // Dot intro is 0.4 s + the existing 1 s fixed-label Write. Cluster ends at 1.8 s; next event at 3 s.
+    // Hand timeline: dot 0..0.4, follow 0.2..1.2, so the cluster runs 1.2 s; next event at 3 s.
+    expect(code).toContain('), run_time=1.2000)');
     expect(code).toContain('_wait_to(self, 3.0000)');
+  });
+
+  it('writes a labelled graph-dot label inside the clip when the dot plays on its own', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'solo_axes'; axes.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'solo_dot'; dot.duration = 0.4;
+    dot.dot.label = 'A'; dot.dot.showCoordinates = true;
+    const next = createTextLine(defaults, 0.8); next.id = 'after_solo'; next.raw = 'after'; next.duration = 0.5;
+    const code = exportManimCode([axes, dot, next], { fullFile: true, defaults });
+    expect(code).toContain(
+      'self.play(AnimationGroup(FadeIn(axes_1_dot_solo_dot), FadeIn(axes_1_dot_solo_dot_coord), ' +
+      'Write(axes_1_dot_solo_dot_lbl), lag_ratio=0), run_time=0.4)',
+    );
+    expect(code).not.toContain('self.play(Write(axes_1_dot_solo_dot_lbl))');
+    expect(code).not.toContain('self.add(axes_1_dot_solo_dot_coord)');
+    // Hand timeline: dot 0..0.4 (label included), line at 0.8.
+    expect(code).toContain('_wait_to(self, 0.8000)');
+  });
+
+  it('starts a labelled graph-dot audio tail at the end of its run time, not a second later', () => {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'tail_axes'; axes.visibleAtSceneStart = true;
+    const dot = createGraphDotItem(axes.id, 0); dot.id = 'tail_dot'; dot.duration = 1;
+    dot.dot.label = 'P';
+    dot.audioTrackId = 'dot-audio';
+    const code = exportManimCode([axes, dot], {
+      fullFile: true,
+      defaults,
+      audioItems: [{
+        id: 'dot-audio', text: 'p', audioUrl: '/assets/audio/p.webm',
+        assetRelPath: 'assets/audio/p.webm', startTime: 0, duration: 3,
+      }],
+    });
+    expect(code).toContain('Write(axes_1_dot_tail_dot_lbl), lag_ratio=0), run_time=1.000000)');
+    // Hand timeline: 1 s intro (label inside), file runs to 3 s, so the tail is 2 s.
+    expect(code).toContain('self.wait(2.0000)');
   });
 
   it('keeps graph-follow duration aligned with hand-derived waits to the next event', () => {

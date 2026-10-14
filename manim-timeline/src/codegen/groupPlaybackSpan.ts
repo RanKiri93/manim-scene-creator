@@ -78,17 +78,14 @@ export function sequentialAnimSecondsForLeaf(
       return clock ?? leaf.duration;
     }
     case 'graphDot': {
-      const label = leaf.dot.label.trim();
+      // The label is written inside the intro group, so a dot takes exactly its clip run time.
       const clock = sceneClockSecForLeafBoundPlayback(
         leaf,
         itemsMap,
         audioItems,
         tailOpts,
       );
-      // When audio is bound, sceneClockSecForLeafBoundPlayback already accounts for the
-      // label Write() extra second via sceneAnimEndForBoundAudioTail — do not add it again.
-      if (clock != null) return clock;
-      return leaf.duration + (label ? MANIM_DEFAULT_PLAY_SEC : 0);
+      return clock ?? leaf.duration;
     }
     case 'graphField': {
       const seeds = leaf.streamPoints ?? [];

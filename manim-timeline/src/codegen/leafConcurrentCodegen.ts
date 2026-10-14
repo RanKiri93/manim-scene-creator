@@ -33,6 +33,7 @@ import { transformSourceIds } from '@/lib/transformMapping';
 import { segmentWaitTotal } from '@/lib/time';
 import {
   exitAnimationExpr,
+  graphDotIntroParts,
   overlayAreaVar,
   overlayCurveVar,
   overlayDotVar,
@@ -494,19 +495,13 @@ function concurrentBranchForLeaf(
   if (leaf.kind === 'graphDot') {
     const axVar = idToVarName.get(leaf.axesId)!;
     const dVar = overlayDotVar(axVar, leaf.id);
-    const dot = leaf.dot;
     const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
-    const lbl = dot.label.trim();
     const rt = recorded ? recorded.runTime : leaf.duration;
-    const introParts = [`FadeIn(${dVar}, run_time=${fmtRt(rt)})`];
-    if (dot.showCoordinates) introParts.push(`FadeIn(${dVar}_coord, run_time=${fmtRt(rt)})`);
-    if (dot.showProjectionGuides) introParts.push(`FadeIn(${dVar}_guide_v, run_time=${fmtRt(rt)})`, `FadeIn(${dVar}_guide_h, run_time=${fmtRt(rt)})`);
+    // Same parts as the sequential path; the label is written inside the clip, not after it.
+    const introParts = graphDotIntroParts(dVar, leaf.dot, `, run_time=${fmtRt(rt)}`);
     const intro = introParts.length === 1
       ? introParts[0]!
       : `AnimationGroup(${introParts.join(', ')}, lag_ratio=0, run_time=${fmtRt(rt)})`;
-    if (lbl) {
-      return `Succession(Wait(${wStr}), ${intro}, Write(${dVar}_lbl, run_time=${MANIM_DEFAULT_PLAY_SEC})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
-    }
     return `Succession(Wait(${wStr}), ${intro}${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
 

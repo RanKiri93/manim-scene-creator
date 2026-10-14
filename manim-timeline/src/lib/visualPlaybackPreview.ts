@@ -5,6 +5,7 @@ import type {
   BlinkAnimationItem,
   BlinkTargetSpec,
   FrameDef,
+  GraphDotItem,
   ImageItem,
   ItemId,
   SceneItem,
@@ -236,6 +237,29 @@ export function textIntroFinished(
  */
 export function imageIntroOpacity(
   item: ImageItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  return fadeInIntroOpacity(item, time, items, audioItems);
+}
+
+/**
+ * Graph dot intro: export fades the dot, coordinates and guides in and writes the label as
+ * one group over the clip's run time (`graphDotIntroParts`); the preview fades the whole group.
+ */
+export function graphDotIntroOpacity(
+  item: GraphDotItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  return fadeInIntroOpacity(item, time, items, audioItems);
+}
+
+/** Manim-smooth `FadeIn` opacity over the item's preview run time (`previewRunTime`). */
+function fadeInIntroOpacity(
+  item: ImageItem | GraphDotItem,
   time: number,
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],

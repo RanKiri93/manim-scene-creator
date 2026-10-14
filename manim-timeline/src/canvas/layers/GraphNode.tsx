@@ -37,6 +37,7 @@ import {
 } from '@/lib/graphCreatePreview';
 import {
   exitPreviewForTarget,
+  graphDotIntroOpacity,
   graphFollowPreviewPosition,
   type ExitPreviewState,
 } from '@/lib/visualPlaybackPreview';
@@ -179,6 +180,7 @@ export default function GraphNode({
   itemsMap,
 }: GraphNodeProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
+  const audioItems = useSceneStore((s) => s.audioItems);
 
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -1060,7 +1062,8 @@ export default function GraphNode({
           });
           return (
             <GraphPlaybackWrap key={key} exit={exit}>
-            <Group>
+            {/* Export brings the dot, label, coordinates and guides in together over the clip. */}
+            <Group opacity={graphDotIntroOpacity(it, currentTime, itemsMap, audioItems)}>
               {it.dot.showProjectionGuides === true && <>
                 {dotPreview.projectionGuides.map((points, index) => <Line key={`projection-${index}`} points={points} stroke="#94a3b8" dash={[4, 3]} listening={false} />)}
               </>}

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioTrackItem, ImageItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
-import { createBlinkAnimation, createCameraMove, createExitAnimation, createFrame, createImageItem, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
+import { createAxes, createBlinkAnimation, createCameraMove, createExitAnimation, createFrame, createGraphDotItem, createImageItem, createTextLine, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
 import {
   activeTextTransformForLine,
   blinkPreviewForTarget,
   cameraOffsetAtTime,
   cameraPosePreviewAtTime,
   exitPreviewForTarget,
+  graphDotIntroOpacity,
   imageIntroOpacity,
   graphFollowPreviewPosition,
   manimSmoothProgress,
@@ -162,6 +163,29 @@ describe('textIntroSegmentStates', () => {
     const duringSecond = textIntroSegmentStates(item, 1.75, items);
     expect(duringSecond[1]!.progress).toBeCloseTo(0.25);
     expect(duringSecond[1]!.visualProgress).toBeCloseTo(0.15625);
+  });
+});
+
+describe('graphDotIntroOpacity', () => {
+  it('fades the labelled dot group in over its clip like the export intro group', () => {
+    const axes = createAxes(defaultSceneDefaults(), 0);
+    const dot = createGraphDotItem(axes.id, 1);
+    dot.duration = 2;
+    dot.dot.label = 'P';
+    const items = mapOf(axes, dot);
+    expect(graphDotIntroOpacity(dot, 0.9, items)).toBe(0);
+    // Quarter through the 2 s intro: Manim-smooth, not linear.
+    expect(graphDotIntroOpacity(dot, 1.5, items)).toBeCloseTo(0.15625);
+    expect(graphDotIntroOpacity(dot, 2, items)).toBeCloseTo(0.5);
+    // The label is written inside the clip: fully in at the clip end, not a second later.
+    expect(graphDotIntroOpacity(dot, 3, items)).toBe(1);
+  });
+
+  it('is fully visible for a dot shown at scene start', () => {
+    const axes = createAxes(defaultSceneDefaults(), 0);
+    const dot = createGraphDotItem(axes.id, 0);
+    dot.visibleAtSceneStart = true;
+    expect(graphDotIntroOpacity(dot, 0, mapOf(axes, dot))).toBe(1);
   });
 });
 

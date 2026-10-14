@@ -201,8 +201,6 @@ export function sceneAnimEndForBoundAudioTail(
   let extra = 0;
   if (leaf.kind === 'textLine') {
     extra = segmentWaitTotal(leaf.segments);
-  } else if (leaf.kind === 'graphDot' && leaf.dot.label.trim()) {
-    extra = DEFAULT_PLAY_AFTER_RECORDED;
   } else if (
     leaf.kind === 'graphField' &&
     (leaf.streamPoints?.length ?? 0) > 0

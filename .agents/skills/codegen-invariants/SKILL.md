@@ -25,7 +25,7 @@ and a test asserting the emitted `_wait_to(self, …)` / `self.wait(...)` values
 |---|---|---|
 | `textLine` | `effectiveDuration` (anim + segment `waitAfterSec`) | `sceneClockSecForLeafBoundPlayback` |
 | `axes`, `graphPlot`, `graphFunctionSeries`, `shape` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
-| `graphDot` | `duration + (label ? 1 : 0)` | bound value already includes the label second — do not add again |
+| `graphDot` | `duration` (label is written inside the intro group) | `sceneClockSecForLeafBoundPlayback` |
 | `graphField` | `duration + (seeds ? 1 : 0)` | bound value already includes the streams second — do not add again |
 
 `add_sound` does not advance Manim's clock. `padAfter` exists to compensate.

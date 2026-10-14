@@ -811,6 +811,9 @@ export function generateGraphDotPlay(
   let s = '';
 
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
+  // Dot, annotations and label all come in together inside the clip's run time.
+  const parts = graphDotIntroParts(dVar, dot);
+  const intro = parts.length === 1 ? parts[0]! : `AnimationGroup(${parts.join(', ')}, lag_ratio=0)`;
 
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
@@ -820,12 +823,7 @@ export function generateGraphDotPlay(
     ) {
       s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
     }
-    s += `${pad}self.play(FadeIn(${dVar}), run_time=${rt})\n`;
-    if (dot.label.trim()) {
-      s += `${pad}self.play(Write(${dVar}_lbl))\n`;
-    }
-    if (dot.showCoordinates) s += `${pad}self.add(${dVar}_coord)\n`;
-    if (dot.showProjectionGuides) s += `${pad}self.add(${dVar}_guide_v, ${dVar}_guide_h)\n`;
+    s += `${pad}self.play(${intro}, run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
       pad,
       recorded,
@@ -835,15 +833,28 @@ export function generateGraphDotPlay(
       tailOpts,
     );
   } else {
-    s += `${pad}self.play(FadeIn(${dVar}), run_time=${item.duration})\n`;
-    if (dot.label.trim()) {
-      s += `${pad}self.play(Write(${dVar}_lbl))\n`;
-    }
-    if (dot.showCoordinates) s += `${pad}self.add(${dVar}_coord)\n`;
-    if (dot.showProjectionGuides) s += `${pad}self.add(${dVar}_guide_v, ${dVar}_guide_h)\n`;
+    s += `${pad}self.play(${intro}, run_time=${item.duration})\n`;
   }
 
   return s;
+}
+
+/**
+ * Intro animations for a graph dot, all spanning the clip's run time: the dot, its live
+ * coordinate and projection guides fade in while the fixed label is written.
+ * Shared with the concurrent-cluster branch in `leafConcurrentCodegen.ts`.
+ */
+export function graphDotIntroParts(
+  dVar: string,
+  dot: GraphDotItem['dot'],
+  /** Extra keyword arguments for every part, e.g. `, run_time=0.600000`. */
+  kwargs = '',
+): string[] {
+  const parts = [`FadeIn(${dVar}${kwargs})`];
+  if (dot.showCoordinates) parts.push(`FadeIn(${dVar}_coord${kwargs})`);
+  if (dot.showProjectionGuides) parts.push(`FadeIn(${dVar}_guide_v${kwargs})`, `FadeIn(${dVar}_guide_h${kwargs})`);
+  if (dot.label.trim()) parts.push(`Write(${dVar}_lbl${kwargs})`);
+  return parts;
 }
 
 export function generateGraphFieldDef(
