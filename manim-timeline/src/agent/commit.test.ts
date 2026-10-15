@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useSceneStore } from '@/store/useSceneStore';
 import type {
+  BlinkAnimationItem,
   GraphFunctionSeriesItem,
   TargetAnimationItem,
+  TextLineItem,
 } from '@/types/scene';
 import { commitActions } from './commit';
 
@@ -249,5 +251,49 @@ describe('commitActions — camera clip batches', () => {
     ]);
     expect(useSceneStore.getState().items.get('camera1')).toMatchObject({ kind: 'camera_move', targetWidth: 3, duration: 2 });
     expect(useSceneStore.getState().items.get('camera1')).not.toHaveProperty('targetMode');
+  });
+});
+
+describe('commitActions — textLine source updates', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  it('splits with || and styles one piece, remapping a blink on the old segment', () => {
+    const s = useSceneStore.getState();
+    s.addItem({
+      kind: 'textLine', id: 'tl1', label: '', layer: 0, startTime: 0, duration: 2,
+      x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], audioTrackId: null,
+      raw: 'סדרות פונקציות || והתכנסות', font: 'Alef', fontSize: 36,
+      segments: [
+        { text: 'סדרות פונקציות ', isMath: false, color: '#ffffff', bold: false, italic: false },
+        { text: ' והתכנסות', isMath: false, color: '#ffffff', bold: false, italic: false, waitAfterSec: 0.3 },
+      ],
+      measure: null, measureError: null, previewDataUrl: null, segmentMeasures: null, mathChildMeasures: null,
+    });
+    s.addItem({
+      kind: 'blink_animation', id: 'bl1', label: '', layer: 1, startTime: 1, duration: 0.5,
+      targets: [{ targetId: 'tl1', mode: 'scale', segmentIndices: [1] }],
+    } as never);
+
+    commitActions([
+      {
+        action: 'UPDATE',
+        itemId: 'tl1',
+        updates: {
+          raw: 'סדרות|| פונקציות || והתכנסות',
+          segments: [{ text: 'סדרות', isMath: false, color: '#ff0000', bold: true, italic: false }],
+        },
+      } as never,
+    ]);
+
+    const tl = useSceneStore.getState().items.get('tl1') as TextLineItem;
+    expect(tl.segments.map((x) => [x.text, x.color, x.bold, x.waitAfterSec])).toEqual([
+      ['סדרות', '#ff0000', true, undefined],
+      [' פונקציות ', '#ffffff', false, undefined],
+      [' והתכנסות', '#ffffff', false, 0.3],
+    ]);
+    const bl = useSceneStore.getState().items.get('bl1') as BlinkAnimationItem;
+    expect(bl.targets[0]!.segmentIndices).toEqual([2]);
   });
 });

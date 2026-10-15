@@ -3,7 +3,6 @@ import { useSceneStore } from '@/store/useSceneStore';
 import { useMeasureLine } from '@/services/measureHooks';
 import { parseSegments } from '@/lib/textSegments';
 import { findUnwrappedForeignRuns, foreignLangOf, wrapForeignRuns } from '@/lib/textDirectionLint';
-import { createSegmentStyle } from '@/store/factories';
 import { effectiveStart } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 import {
@@ -11,7 +10,6 @@ import {
   type AnimStyle,
   type TextBaseDir,
   type TextLineItem,
-  type SegmentStyle,
   type TransformMapping,
 } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
@@ -79,7 +77,7 @@ export default function LineEditor({ item }: LineEditorProps) {
   const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const setLineTransformConfig = useSceneStore((s) => s.setLineTransformConfig);
   const items = useSceneStore((s) => s.items);
-  const defaults = useSceneStore((s) => s.defaults);
+  const setTextLineSource = useSceneStore((s) => s.setTextLineSource);
   const [mapperOpen, setMapperOpen] = useState(false);
 
   useMeasureLine(item);
@@ -119,16 +117,9 @@ export default function LineEditor({ item }: LineEditorProps) {
 
   const baseDir: TextBaseDir = item.baseDir ?? 'rtl';
 
+  // Keeps each segment's style, timing and references attached to its text (store action).
   const onRawChange = (raw: string, dir: TextBaseDir = baseDir) => {
-    const parsed = parseSegments(raw, dir);
-    const segs: SegmentStyle[] = parsed.map((p, i) => {
-      const existing = item.segments[i];
-      if (existing && existing.text === p.text && existing.isMath === p.isMath) {
-        return existing;
-      }
-      return createSegmentStyle(p.text, p.isMath, defaults);
-    });
-    set({ raw, segments: segs, baseDir: dir === 'rtl' ? undefined : dir });
+    setTextLineSource(item.id, raw, dir);
   };
 
   const segmentLangs = useMemo(

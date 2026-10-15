@@ -208,7 +208,7 @@ interface PreviewState {
 `approveMessage(id)` looks up the message, calls `commitActions(message.actions)` which iterates the actions in order and re-reads `useSceneStore.getState()` **fresh for each action** (critical — see §9.3):
 
 - `CREATE` → `ensureTextLineSegments(item, defaults)` then `s.addItem(item)`
-- `UPDATE` → re-read state, then `s.updateItem(id, updates)` if the id still exists
+- `UPDATE` → re-read state, then `s.updateItem(id, updates)` if the id still exists. A `textLine` UPDATE that touches `raw` or `baseDir` goes through `s.setTextLineSource(id, raw, baseDir, updates.segments)` instead, the same path as the editor: old segments are matched to the new ones (settings follow their text, a `||` split gives every piece the old style) and segment references elsewhere in the scene are remapped; `updates.segments[i]` then sets style/timing on new segment `i` (never its text). Other fields in the patch go through `updateItem`.
 - `DELETE` → re-read state, then `s.removeItem(id)` if the id still exists
 
 **`ensureTextLineSegments`** (added in `commit.ts`): when a `textLine` arrives with `raw` set but `segments: []`, it calls `parseSegments(raw, baseDir)` (`src/lib/textSegments.ts`) and `createSegmentStyle(...)` to populate the segments array before the item reaches the store. This mirrors `LineEditor.onRawChange` so that segment styling can be applied in a subsequent turn immediately after approval, without the user having to touch the LaTeX source field manually. Text segments default to `color: "#ffffff"`; math segments default to `color: defaults.mathColor` (`"#00FFFF"` by default).

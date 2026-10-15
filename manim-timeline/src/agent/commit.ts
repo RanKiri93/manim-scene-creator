@@ -92,6 +92,22 @@ function applyUpdate(id: string, updates: Partial<SceneItem>): void {
     return;
   }
 
+  if (existing.kind === 'textLine' && ('raw' in updates || 'baseDir' in updates)) {
+    // Same path as the editor: segments follow their text and scene references are remapped.
+    // `segments` in the patch is applied by index on top (style/timing only).
+    const { raw, baseDir, segments, ...rest } = updates as Partial<TextLineItem>;
+    s.setTextLineSource(
+      id,
+      typeof raw === 'string' ? raw : existing.raw,
+      'baseDir' in updates ? (baseDir ?? 'rtl') : undefined,
+      Array.isArray(segments) ? segments : undefined,
+    );
+    if (Object.keys(rest).length > 0) {
+      useSceneStore.getState().updateItem(id, rest as never);
+    }
+    return;
+  }
+
   if (existing.kind === 'target_animation') {
     const merged = mergeTargetAnimationUpdates(
       existing as TargetAnimationItem,

@@ -23,6 +23,8 @@ import type {
   GraphFunctionSeriesItem,
   GraphPointSequenceItem,
   CameraMoveItem,
+  SegmentStyle,
+  TextBaseDir,
 } from '@/types/scene';
 import {
   boundaryTimeToSeconds,
@@ -130,7 +132,10 @@ import {
   MEASURE_SERVER_DEFAULT_URL,
   PROJECT_VERSION,
 } from '@/lib/constants';
-import { defaultFrames, defaultSceneDefaults } from './factories';
+import { createSegmentStyle, defaultFrames, defaultSceneDefaults } from './factories';
+import { parseSegments } from '@/lib/textSegments';
+import { reconcileSegmentStyles } from '@/lib/segmentReconcile';
+import { remapSegmentRefsInPlace } from '@/lib/remapSegmentRefs';
 import {
   ensureFrameConfig,
   normalizeItemFrameIdsInPlace,
@@ -492,6 +497,20 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
     id: ItemId,
     result: MeasureResult | null,
     error?: string | null,
+  ) => void;
+
+  /**
+   * Change a text line's source (and optionally its base direction) in one undo step. Old
+   * segments are matched to the new ones so colour, bold, italic, anim time and waits follow
+   * their text, and every segment reference in the scene (blink, target animation, surround,
+   * next_to, transform pairs) is remapped; references to removed segments fall back to the whole
+   * line. `segmentPatches[i]` is merged into new segment `i` afterwards (Copilot styling).
+   */
+  setTextLineSource: (
+    id: ItemId,
+    raw: string,
+    baseDir?: TextBaseDir,
+    segmentPatches?: readonly Partial<SegmentStyle>[],
   ) => void;
 
   /** Set or clear visual segment transform mapping for a text line. */
@@ -1373,6 +1392,36 @@ export const useSceneStore = create<SceneStore>()(
             : null;
           tl.segmentMeasures = result?.segmentMeasures ?? null;
           tl.mathChildMeasures = result?.mathChildMeasures ?? null;
+        }
+      }),
+
+      setTextLineSource: (id, raw, baseDir, segmentPatches) => set((s) => {
+        const item = s.items.get(id);
+        if (item?.kind !== 'textLine') return;
+        const dir: TextBaseDir = baseDir ?? item.baseDir ?? 'rtl';
+        const parsed = parseSegments(raw, dir);
+        const defaults = s.defaults;
+        const { segments, remap } = reconcileSegmentStyles(id, item.segments, parsed, (p) =>
+          createSegmentStyle(p.text, p.isMath, defaults),
+        );
+        item.raw = raw;
+        item.baseDir = dir === 'rtl' ? undefined : dir;
+        item.segments = segments.map((seg, i) => {
+          const patch = segmentPatches?.[i];
+          if (!patch) return seg;
+          // Style and timing only: text and kind always come from the parsed source.
+          const { color, bold, italic, waitAfterSec, animSec } = patch;
+          return {
+            ...seg,
+            ...(color !== undefined && { color }),
+            ...(bold !== undefined && { bold }),
+            ...(italic !== undefined && { italic }),
+            ...('waitAfterSec' in patch && { waitAfterSec }),
+            ...('animSec' in patch && { animSec }),
+          };
+        });
+        if (remap) {
+          for (const other of s.items.values()) remapSegmentRefsInPlace(other as SceneItem, remap);
         }
       }),
 
