@@ -1,8 +1,8 @@
 ---
 slug: copilot-agent-loop
 created: 2026-10-16
-status: implementing       # planned | implementing | verifying | reviewing | docs | done | blocked
-owner_role: copilot-dev     # editor-dev | codegen-dev | server-dev | copilot-dev
+status: verifying          # planned | implementing | verifying | reviewing | docs | done | blocked
+owner_role: verifier        # editor-dev | codegen-dev | server-dev | copilot-dev
 next_tool: any             # opencode | cursor | any
 source: user request (2026-10-15/16): "give the Copilot more freedom … and let it test its results with the preview"
 ---
@@ -165,3 +165,11 @@ edited here: AGENTS.md has someone else's uncommitted changes).
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)
+
+- README: AI Copilot bullets (tool loop, seeing tools, ChatGPT provider), Scene items → Connector
+  lines, Measure server endpoints (`/api/render_frame`, `/api/chatgpt/*`), `*Last updated:*` trailer
+  extended at every step: yes. (Committed on top of HEAD's README; the uncommitted README edits in the
+  working tree belong to someone else and are still uncommitted.)
+- ARCHITECTURE.md: §5.2 one undo entry, §6.2 Anthropic thinking, §7.0–7.0b guard rails / graph motion /
+  connectors, §8 recipes, §12b tool loop incl. seeing and the ChatGPT provider: yes.
+- idea.md: §2 marked implemented, shortlist item 5 struck through.

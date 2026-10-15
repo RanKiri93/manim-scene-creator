@@ -10,7 +10,7 @@ or a small PR-sized task.
 2. **Social-media export presets should become scene/project settings, not only export options.**
 3. **Guided transcription should align recorded audio with the intended script.**
 4. **Audio editing should grow from the current normalize / clean / match-EQ pipeline.**
-5. **Agent self-feedback should start with single-frame visual review before autonomous loops.**
+5. ~~**Agent self-feedback should start with single-frame visual review before autonomous loops.**~~ Done 2026-10-16 (see §2).
 
 ## 1. Social-Media Video Presets
 
@@ -49,6 +49,13 @@ ratio and resolution. Main use cases: Instagram Reels / TikTok / Shorts
 canvas sizing / coordinate helpers, frame grid helpers, and Manim exporters.
 
 ## 2. Agent Self-Feedback From Rendered Frames
+
+**Status (2026-10-16): implemented** as the Copilot tool loop (`docs/handoffs/2026-10-16-copilot-agent-loop.md`):
+a bounded loop (10 model calls) on a draft with validation errors returned to the model,
+`inspect_scene` for exact positions and timings, `check_export`, `snapshot_preview` (canvas camera
+view) and `render_manim_frame` (new `POST /api/render_frame`). Results apply as one undo step, or wait
+for Approve. Open follow-ups: store the snapshots with the chat message; review rubric prompts;
+seek-free offscreen snapshots.
 
 ### Goal
 
