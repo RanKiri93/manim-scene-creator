@@ -57,3 +57,45 @@ export function resolveCameraRequest(raw: Record<string, unknown>, context: Came
   delete persisted.region;
   return { item: { ...persisted, kind: 'camera_move', targetFrameId: resolvedFrameId, targetWidth: width, offsetX, offsetY } as CameraMoveItem };
 }
+
+/** Resolve camera request descriptors inside a raw `{reply, actions}` envelope (CREATE and UPDATE). */
+export function resolveCameraRequests(raw: unknown, context: CameraRequestContext): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const response = raw as Record<string, unknown>;
+  if (!Array.isArray(response.actions)) return raw;
+  const actions: unknown[] = [];
+  for (const action of response.actions) {
+    if (!action || typeof action !== 'object') { actions.push(action); continue; }
+    const candidate = action as Record<string, unknown>;
+    if (candidate.action === 'CREATE' && candidate.item && typeof candidate.item === 'object' && (candidate.item as Record<string, unknown>).kind === 'camera_move') {
+      const resolved = resolveCameraRequest(candidate.item as Record<string, unknown>, context);
+      if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
+      actions.push({ ...candidate, item: resolved.item });
+      continue;
+    }
+    if (candidate.action === 'UPDATE' && typeof candidate.itemId === 'string' && candidate.updates && typeof candidate.updates === 'object') {
+      const previous = context.items.get(candidate.itemId);
+      const updates = candidate.updates as Record<string, unknown>;
+      if (previous?.kind === 'camera_move' && typeof updates.targetMode === 'string') {
+        const resolved = resolveCameraRequest({ ...previous, ...updates }, context);
+        if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
+        if (resolved.item) {
+          const persistedUpdates = { ...updates };
+          delete persistedUpdates.targetMode;
+          delete persistedUpdates.targetId;
+          delete persistedUpdates.region;
+          Object.assign(persistedUpdates, {
+            targetFrameId: resolved.item.targetFrameId,
+            targetWidth: resolved.item.targetWidth,
+            offsetX: resolved.item.offsetX,
+            offsetY: resolved.item.offsetY,
+          });
+          actions.push({ ...candidate, updates: persistedUpdates });
+          continue;
+        }
+      }
+    }
+    actions.push(action);
+  }
+  return { ...response, actions };
+}

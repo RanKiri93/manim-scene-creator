@@ -28,6 +28,7 @@ export default function AgentPanel() {
   const model = useAgentStore((s) => s.model);
   const customRules = useAgentStore((s) => s.customRules);
   const showThinking = useAgentStore((s) => s.showThinking);
+  const loopLog = useAgentStore((s) => s.loopLog);
   const updateSettings = useAgentStore((s) => s.updateSettings);
   const setProvider = useAgentStore((s) => s.setProvider);
 
@@ -124,8 +125,9 @@ export default function AgentPanel() {
         {empty && (
           <div className="text-chalk-dim text-meta italic px-1 py-4 leading-relaxed">
             Start a conversation with the Copilot, request scene edits, or open
-            Script to Timeline to paste a lesson script. Proposals only change
-            the scene after you click <b>Approve</b>.
+            Script to Timeline to paste a lesson script. You watch its draft on
+            the canvas while it works; finished changes apply as one undo step
+            (or wait for <b>Approve</b> if you turn that off in Settings).
           </div>
         )}
         {messages.map((m, i) =>
@@ -145,9 +147,16 @@ export default function AgentPanel() {
           ),
         )}
         {loading && (
-          <div className="flex items-center gap-2 px-1 py-1 text-chalk-dim">
-            <span className="inline-block w-2 h-2 rounded-full bg-raised animate-pulse" />
-            Thinking…
+          <div className="flex flex-col gap-0.5 px-1 py-1 text-chalk-dim">
+            {loopLog.map((entry, i) => (
+              <div key={i} className={`text-meta ${entry.isError ? 'text-warn' : 'text-chalk-faint'}`}>
+                {entry.summary}
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-raised animate-pulse" />
+              {loopLog.length ? 'Working…' : 'Thinking…'}
+            </div>
           </div>
         )}
       </div>
@@ -330,6 +339,21 @@ function AssistantBubble({
           </ul>
         )}
 
+        {message.log && message.log.length > 0 && (
+          <details className="text-meta text-chalk-dim">
+            <summary className="cursor-pointer select-none hover:text-chalk">
+              Steps ({message.log.length})
+            </summary>
+            <ol className="mt-1 pl-4 list-decimal space-y-0.5">
+              {message.log.map((entry, i) => (
+                <li key={i} className={entry.isError ? 'text-warn' : 'text-chalk-dim'}>
+                  {entry.summary}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+
         {message.warnings && message.warnings.length > 0 && (
           <ul className="list-disc pl-4 space-y-0.5 text-warn text-meta">
             {message.warnings.map((w, i) => (
@@ -368,7 +392,10 @@ function AssistantBubble({
               </div>
             )}
             {approved && (
-              <StatusPill tone="emerald" label="Applied" />
+              <StatusPill
+                tone="emerald"
+                label={message.autoApplied ? 'Applied automatically · Ctrl+Z undoes it' : 'Applied'}
+              />
             )}
             {rejected && (
               <StatusPill tone="slate" label="Rejected" />
@@ -622,6 +649,8 @@ function SettingsBlock({
         </span>
       </label>
 
+      <LoopSettings provider={provider} />
+
       <label className="flex flex-col gap-1">
         <span className="text-chalk-dim">
           Custom rules (appended to system prompt)
@@ -636,5 +665,45 @@ function SettingsBlock({
         />
       </label>
     </div>
+  );
+}
+
+/** Tool-loop switches; only Anthropic and OpenAI(-compatible) providers run the loop. */
+function LoopSettings({ provider }: { provider: ProviderId }) {
+  const useToolLoop = useAgentStore((s) => s.useToolLoop);
+  const autoApply = useAgentStore((s) => s.autoApply);
+  const updateSettings = useAgentStore((s) => s.updateSettings);
+  const supported = provider !== 'gemini';
+  return (
+    <>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={useToolLoop && supported}
+          disabled={!supported}
+          onChange={(e) => updateSettings({ useToolLoop: e.target.checked })}
+          className="accent-highlight"
+        />
+        <span className="text-chalk-dim">
+          Check its own work{' '}
+          <span className="text-chalk-faint">
+            {supported ? '(draft, inspect, fix before finishing)' : '(not available for Gemini)'}
+          </span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={autoApply}
+          disabled={!supported || !useToolLoop}
+          onChange={(e) => updateSettings({ autoApply: e.target.checked })}
+          className="accent-highlight"
+        />
+        <span className="text-chalk-dim">
+          Apply finished changes right away{' '}
+          <span className="text-chalk-faint">(one undo step; off = Approve / Reject)</span>
+        </span>
+      </label>
+    </>
   );
 }

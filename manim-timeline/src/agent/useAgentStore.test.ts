@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSceneStore } from '@/store/useSceneStore';
 
 const mocks = vi.hoisted(() => ({ generate: vi.fn() }));
-vi.mock('./providers', () => ({ getProvider: () => ({ generate: mocks.generate }), AgentProviderError: class extends Error {} }));
+vi.mock('./providers', () => ({ getProvider: () => ({ generate: mocks.generate }), getLoopProvider: () => null, AgentProviderError: class extends Error {} }));
 
 import { useAgentStore } from './useAgentStore';
 

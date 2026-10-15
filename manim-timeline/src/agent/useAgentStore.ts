@@ -6,15 +6,21 @@ import { buildSystemPrompt } from './systemPrompt';
 import { validateAgentResponse } from './validate';
 import { commitActions } from './commit';
 import {
+  getLoopProvider,
   getProvider,
   AgentProviderError,
   type ProviderConfig,
   type ProviderId,
 } from './providers';
-import type { AgentChatMessage } from './types';
+import type { AgentAction, AgentChatMessage } from './types';
+import { DraftSession } from './loop/draft';
+import { runAgentLoop } from './loop/runAgentLoop';
+import { loopToolSpecs } from './loop/tools';
+import { loopToolEnv } from './loop/env';
+import type { LoopLogEntry, LoopProvider } from './loop/types';
 import { DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
 import { DEFAULT_OPENAI_MODEL } from './providers/openai';
-import { resolveCameraRequest } from './cameraRequests';
+import { resolveCameraRequests } from './cameraRequests';
 
 export type AgentStatus = 'idle' | 'loading' | 'error';
 
@@ -23,6 +29,13 @@ export interface AgentSettings extends ProviderConfig {
   customRules: string;
   /** If true, send reasoning/thinking requests to providers that support it. */
   showThinking: boolean;
+  /**
+   * Let the Copilot work in a tool loop (propose → check → fix) on providers that support it
+   * (Anthropic, OpenAI, OpenAI-compatible). Off = one structured reply per message.
+   */
+  useToolLoop: boolean;
+  /** Apply the loop's finished draft immediately as one undo step instead of waiting for Approve. */
+  autoApply: boolean;
 }
 
 /** Cap on persisted message history to keep localStorage bounded. */
@@ -33,6 +46,10 @@ interface AgentSession {
   messages: AgentChatMessage[];
   /** Which assistant message's pending actions drive the canvas preview. */
   activePreviewMessageId: string | null;
+  /** Tool loop: the draft while the Copilot works (drives the canvas preview). Not persisted. */
+  draftActions: AgentAction[] | null;
+  /** Tool loop: what the Copilot has done so far this turn. Not persisted. */
+  loopLog: LoopLogEntry[];
 }
 
 interface AgentStoreShape extends AgentSettings, AgentSession {
@@ -54,6 +71,8 @@ const INITIAL_SESSION: AgentSession & { _abort: null } = {
   status: 'idle',
   messages: [],
   activePreviewMessageId: null,
+  draftActions: null,
+  loopLog: [],
   _abort: null,
 };
 
@@ -64,6 +83,8 @@ const INITIAL_SETTINGS: AgentSettings = {
   model: DEFAULT_OPENAI_MODEL,
   customRules: '',
   showThinking: true,
+  useToolLoop: true,
+  autoApply: true,
 };
 
 function nextId(prefix: string): string {
@@ -96,6 +117,103 @@ export const useAgentStore = create<AgentStoreShape>()(
        * transcript (it drops the previous assistant turn and re-sends the
        * existing last user turn).
        */
+      /** Tool-loop turn: the Copilot drafts, checks and fixes its changes before finishing. */
+      const runLoopTurn = async (
+        loopProvider: LoopProvider,
+        req: {
+          controller: AbortController;
+          payload: ReturnType<typeof buildContextPayload>;
+          history: AgentChatMessage[];
+          userPrompt: string;
+          cameraSnapshotKey: string;
+          base: ConstructorParameters<typeof DraftSession>[0];
+        },
+      ): Promise<void> => {
+        const state = get();
+        set((s) => ({ ...s, messages: supersedePending(s.messages), activePreviewMessageId: null, draftActions: [], loopLog: [] }));
+        const session = new DraftSession(req.base);
+        const env = loopToolEnv();
+        try {
+          const conversation = loopProvider.startConversation({
+            systemPrompt: buildSystemPrompt(state.customRules, 'loop'),
+            history: req.history,
+            payload: req.payload,
+            userPrompt: req.userPrompt,
+            tools: loopToolSpecs(env),
+            includeThinking: state.showThinking,
+          });
+          const outcome = await runAgentLoop({
+            conversation,
+            session,
+            env,
+            signal: req.controller.signal,
+            onProgress: (p) => {
+              if (get()._abort === req.controller) set({ draftActions: p.draft, loopLog: p.log });
+            },
+          });
+          if (get()._abort !== req.controller) return;
+          const hasActions = outcome.actions.length > 0;
+          const autoApply = hasActions && get().autoApply && !outcome.stoppedEarly;
+          if (autoApply) commitActions(outcome.actions);
+          const touchesCamera = outcome.actions.some(
+            (a) =>
+              (a.action === 'CREATE' && a.item.kind === 'camera_move') ||
+              (a.action === 'UPDATE' && req.base.items.get(a.itemId)?.kind === 'camera_move'),
+          );
+          const message: AgentChatMessage = {
+            id: nextId('asst'),
+            createdAt: Date.now(),
+            role: 'assistant',
+            content: outcome.reply,
+            ...(outcome.thinking ? { thinking: outcome.thinking } : {}),
+            ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
+            ...(outcome.log.length ? { log: outcome.log } : {}),
+            ...(hasActions
+              ? {
+                  actions: outcome.actions,
+                  actionsStatus: autoApply ? ('approved' as const) : ('pending' as const),
+                  ...(autoApply ? { autoApplied: true } : {}),
+                  ...(!autoApply && touchesCamera ? { cameraSnapshotKey: req.cameraSnapshotKey } : {}),
+                }
+              : {}),
+          };
+          set((s) => ({
+            ...s,
+            status: 'idle',
+            messages: [...supersedePending(s.messages), message],
+            activePreviewMessageId: hasActions && !autoApply ? message.id : null,
+            draftActions: null,
+            loopLog: [],
+            _abort: null,
+          }));
+        } catch (err) {
+          if ((err as DOMException)?.name === 'AbortError') {
+            set({ status: 'idle', _abort: null, draftActions: null, loopLog: [] });
+            return;
+          }
+          const msg = err instanceof Error ? err.message : String(err);
+          const log = get().loopLog;
+          set((s) => ({
+            ...s,
+            status: 'error',
+            messages: [
+              ...s.messages,
+              {
+                id: nextId('asst'),
+                createdAt: Date.now(),
+                role: 'assistant',
+                content: 'The request failed.',
+                error: [msg],
+                ...(log.length ? { log } : {}),
+              },
+            ],
+            draftActions: null,
+            loopLog: [],
+            _abort: null,
+          }));
+        }
+      };
+
       const runTurn = async (): Promise<void> => {
         const state = get();
         const messages = state.messages;
@@ -129,6 +247,34 @@ export const useAgentStore = create<AgentStoreShape>()(
         // Everything preceding the most recent user turn is "history".
         const lastUserIdx = messages.lastIndexOf(lastUser);
         const history = messages.slice(0, lastUserIdx);
+
+        const loopProvider = state.useToolLoop
+          ? getLoopProvider({
+              provider: state.provider,
+              apiKey: state.apiKey,
+              baseUrl: state.baseUrl,
+              model: state.model,
+            })
+          : null;
+        if (loopProvider) {
+          await runLoopTurn(loopProvider, {
+            controller,
+            payload,
+            history,
+            userPrompt: lastUser.content,
+            cameraSnapshotKey,
+            base: {
+              items: requestItems,
+              frames: requestFrames,
+              startFrameId: sceneState.startFrameId,
+              activeFrameId: sceneState.activeFrameId,
+              defaults: sceneState.defaults,
+              audioItems: sceneState.audioItems,
+              currentTimeSec: requestTime,
+            },
+          });
+          return;
+        }
 
         try {
           const provider = getProvider({
@@ -265,7 +411,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         cancelRequest: () => {
           const ctrl = get()._abort;
           if (ctrl) ctrl.abort();
-          set({ status: 'idle', _abort: null });
+          set({ status: 'idle', _abort: null, draftActions: null, loopLog: [] });
         },
 
         approveMessage: (messageId) => {
@@ -340,6 +486,8 @@ export const useAgentStore = create<AgentStoreShape>()(
             status: 'idle',
             messages: [],
             activePreviewMessageId: null,
+            draftActions: null,
+            loopLog: [],
             _abort: null,
           });
         },
@@ -355,6 +503,8 @@ export const useAgentStore = create<AgentStoreShape>()(
         model: s.model,
         customRules: s.customRules,
         showThinking: s.showThinking,
+        useToolLoop: s.useToolLoop,
+        autoApply: s.autoApply,
         messages: s.messages.slice(-MAX_PERSISTED_MESSAGES),
         activePreviewMessageId: s.activePreviewMessageId,
       }),
@@ -423,45 +573,4 @@ function cameraContextKey(items: Map<string, import('@/types/scene').SceneItem>,
     return visible;
   });
   return JSON.stringify({ frames, startFrameId, items: serialized });
-}
-
-function resolveCameraRequests(raw: unknown, context: Parameters<typeof resolveCameraRequest>[1]): unknown {
-  if (!raw || typeof raw !== 'object') return raw;
-  const response = raw as Record<string, unknown>;
-  if (!Array.isArray(response.actions)) return raw;
-  const actions: unknown[] = [];
-  for (const action of response.actions) {
-    if (!action || typeof action !== 'object') { actions.push(action); continue; }
-    const candidate = action as Record<string, unknown>;
-    if (candidate.action === 'CREATE' && candidate.item && typeof candidate.item === 'object' && (candidate.item as Record<string, unknown>).kind === 'camera_move') {
-      const resolved = resolveCameraRequest(candidate.item as Record<string, unknown>, context);
-      if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
-      actions.push({ ...candidate, item: resolved.item });
-      continue;
-    }
-    if (candidate.action === 'UPDATE' && typeof candidate.itemId === 'string' && candidate.updates && typeof candidate.updates === 'object') {
-      const previous = context.items.get(candidate.itemId);
-      const updates = candidate.updates as Record<string, unknown>;
-      if (previous?.kind === 'camera_move' && typeof updates.targetMode === 'string') {
-        const resolved = resolveCameraRequest({ ...previous, ...updates }, context);
-        if (resolved.error) return { ...response, reply: resolved.error, actions: [] };
-        if (resolved.item) {
-          const persistedUpdates = { ...updates };
-          delete persistedUpdates.targetMode;
-          delete persistedUpdates.targetId;
-          delete persistedUpdates.region;
-          Object.assign(persistedUpdates, {
-            targetFrameId: resolved.item.targetFrameId,
-            targetWidth: resolved.item.targetWidth,
-            offsetX: resolved.item.offsetX,
-            offsetY: resolved.item.offsetY,
-          });
-          actions.push({ ...candidate, updates: persistedUpdates });
-          continue;
-        }
-      }
-    }
-    actions.push(action);
-  }
-  return { ...response, actions };
 }

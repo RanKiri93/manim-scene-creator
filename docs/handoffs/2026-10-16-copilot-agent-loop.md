@@ -120,6 +120,15 @@ Checked with a real `manim -ql` render (dot moving along y = x² + 1 with a drop
 both follow the dot every frame. Lint: no new errors (remaining ones in `lib/time.ts` / `ShapeNode.tsx`
 exist in HEAD).
 
+**Step 4.** `agent/loop/` (draft session, tools, inspect, runner, history, env registry),
+`providers/anthropicLoop.ts`, `providers/openaiLoop.ts`, `getLoopProvider`. Loop prompt variant.
+Store: `useToolLoop` / `autoApply` settings (default on), `draftActions` + `loopLog` drive the live
+preview and progress list, messages keep `log` and `autoApplied`. Camera-request resolution moved to
+`cameraRequests.ts` (`resolveCameraRequests`) so the draft uses it too. Tests: scripted-model loop
+(error round-trip, reset, step cap, export error), provider request building (thinking replay, image
+tool results, thinking fallback), store auto-apply vs Approve, prompt modes. Not exercised against a
+live API in this session (no key here): the request shapes follow the documented formats.
+
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)

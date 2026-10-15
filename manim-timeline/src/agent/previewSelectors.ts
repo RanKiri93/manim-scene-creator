@@ -22,14 +22,17 @@ const EMPTY_OPS: Map<ItemId, PreviewOp> = new Map();
 function useActivePreviewActions(): AgentAction[] | null {
   const activeId = useAgentStore((s) => s.activePreviewMessageId);
   const messages = useAgentStore((s) => s.messages);
+  const draft = useAgentStore((s) => s.draftActions);
   return useMemo(() => {
+    // While the tool loop works, its draft drives the preview.
+    if (draft && draft.length > 0) return draft;
     if (!activeId) return null;
     const msg = messages.find((m) => m.id === activeId);
     if (!msg || msg.role !== 'assistant') return null;
     if (msg.actionsStatus !== 'pending') return null;
     if (!msg.actions || msg.actions.length === 0) return null;
     return msg.actions;
-  }, [activeId, messages]);
+  }, [activeId, messages, draft]);
 }
 
 /** React hook: merged item map for canvas/timeline preview rendering. */

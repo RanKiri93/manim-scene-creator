@@ -545,6 +545,44 @@ Segment indices are in **parse order** (left to right in `raw`), even though Heb
 
 ---
 
+## 12b. Tool loop (agent mode)
+
+On Anthropic, OpenAI and OpenAI-compatible providers (`getLoopProvider`), with **Check its own work**
+on (`useToolLoop`, default), a user turn runs a bounded tool loop instead of one structured reply.
+
+```
+runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
+                        └► runAgentLoop: conversation.next() ─► tool calls ─► runLoopTool ─► results ─► next() …
+```
+
+- **`loop/draft.ts` — `DraftSession`.** Ordered raw actions plus their normalized form. `propose(actions)`
+  validates *the whole draft* (`[...previous, ...new]`, camera descriptors resolved first) with
+  `validateAgentResponse`; on failure the draft is unchanged and the errors (with an index offset note)
+  go back to the model. `scene()` is the virtual item map.
+- **`loop/tools.ts` — tools.** `propose_changes`, `reset_draft`, `inspect_scene`, `check_export`, `finish`,
+  plus `snapshot_preview` / `render_manim_frame` when the host provides them (`loop/env.ts`,
+  `LoopToolEnv`). `runLoopTool` never throws except on abort; failures are `isError` results.
+- **`loop/inspect.ts` — `inspectDraft`.** Scene length (`computeSceneDurationSec`), camera pose per time,
+  and per item its visible window and at each time: graph dots in graph and world coordinates
+  (`resolveGraphDotPosition` + `axesGraphToWorld`), connectors as both ends, other drawables as centre +
+  size (frame offset and move/path/scale target animations applied). Default times: request time and
+  start / middle / end of every draft-touched item (max 8).
+- **`loop/runAgentLoop.ts`.** At most `MAX_LOOP_STEPS` (10) model calls. Ends on `finish({reply})`, on a
+  plain answer without tool calls, or at the limit (`stoppedEarly`, never auto-applied). Progress
+  (`draftActions`, `loopLog`) goes to the store as tools run.
+- **Providers.** `providers/anthropicLoop.ts`: Messages API, `tool_choice: auto`, thinking per
+  `thinkingModesFor` (fallback only before the first answer); the assistant content is replayed
+  unchanged (thinking blocks keep their signatures); tool results carry text and image blocks.
+  `providers/openaiLoop.ts`: Chat Completions function calling; tool messages are text, images follow
+  in one user message. History is sent as plain alternating turns (`loop/history.ts`): applied
+  proposals as a short action list, others marked NOT applied.
+- **Prompt.** `buildSystemPrompt(rules, 'loop')` swaps the JSON-envelope section for
+  `LOOP_FORMAT_SECTION`; the rules are shared.
+- **Store / UI.** While the loop runs, `draftActions` drives the canvas preview (`previewSelectors`) and
+  the panel lists `loopLog`. When it finishes: with **Apply finished changes right away** (`autoApply`,
+  default) the draft is committed as one undo entry and the message is `approved` + `autoApplied`;
+  otherwise it is `pending` like a single-shot proposal. The message keeps `log` (collapsible Steps).
+
 ## 13. Known limitations (v2 — chat)
 
 - Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence`; `graphArea` / `graphField` remain UI-only.

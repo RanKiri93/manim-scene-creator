@@ -191,12 +191,41 @@ CRITICAL ARCHITECTURE RULES:
  * Build the final system prompt by appending user-defined custom rules (if any).
  * Custom rules are trimmed; empty strings are a no-op.
  */
-export function buildSystemPrompt(customRules: string | undefined | null): string {
+export function buildSystemPrompt(
+  customRules: string | undefined | null,
+  mode: 'single' | 'loop' = 'single',
+): string {
+  const base = mode === 'loop' ? loopBasePrompt() : BASE_SYSTEM_PROMPT;
   const extra = (customRules ?? '').trim();
-  if (!extra) return BASE_SYSTEM_PROMPT;
+  if (!extra) return base;
   return (
-    BASE_SYSTEM_PROMPT +
+    base +
     '\n\n── Additional project rules ──\n' +
     extra
   );
+}
+
+const SINGLE_FORMAT_START = 'CONVERSATION & RESPONSE FORMAT';
+const RULES_START = 'CRITICAL ARCHITECTURE RULES:';
+
+/** Replaces the JSON-envelope section when the Copilot works through tools (agent loop). */
+export const LOOP_FORMAT_SECTION = `WORKING WITH TOOLS
+
+You change the scene through tools, on a draft the user watches live on the canvas. Never answer with raw JSON.
+- propose_changes({ actions }) adds CREATE / UPDATE / DELETE actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
+- reset_draft() discards the draft.
+- inspect_scene({ times?, itemIds? }) returns exact facts about the scene with the draft applied: scene length, the camera view, and per item its visible window and resolved position at those times (graph dots also in graph coordinates, connectors as both ends). Use it to verify motion, timing and layout instead of assuming.
+- check_export() generates the Manim code for the draft and reports export errors.
+- snapshot_preview({ time }) (when available) returns a picture of the preview at that time; render_manim_frame({ time }) (when available) a real Manim frame (slow).
+- finish({ reply }) ends your turn. \`reply\` is the chat message: say briefly what you did and what the user should look at; or ask a clarifying question and leave the draft empty.
+
+How to work: for anything beyond a one-line edit, propose → inspect the moments that matter (start, middle and end of each motion; that things are on screen) → fix → check_export → finish. Use as few calls as you need. When the request is ambiguous or underspecified (e.g. no axes range given), finish with a question instead of guessing. Earlier turns marked "NOT applied" never reached the scene.
+
+`;
+
+/** Base prompt with the tool-loop format section instead of the JSON envelope section. */
+export function loopBasePrompt(): string {
+  const start = BASE_SYSTEM_PROMPT.indexOf(SINGLE_FORMAT_START);
+  const end = BASE_SYSTEM_PROMPT.indexOf(RULES_START);
+  return BASE_SYSTEM_PROMPT.slice(0, start) + LOOP_FORMAT_SECTION + BASE_SYSTEM_PROMPT.slice(end);
 }

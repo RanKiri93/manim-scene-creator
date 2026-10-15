@@ -124,7 +124,7 @@ export function createOpenAIProvider(cfg: ProviderConfig): AgentProvider {
   };
 }
 
-function supportsReasoning(model: string): boolean {
+export function supportsReasoning(model: string): boolean {
   const m = model.toLowerCase();
   return (
     m.startsWith('o1') ||
