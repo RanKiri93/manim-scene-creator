@@ -110,10 +110,20 @@ Migration toward these is in progress; do not regress them once a panel has move
 
 - Header: one row containing the wordmark, the project name with the unsaved dot, scene tabs,
   undo/redo, Open, Save, and Export as the primary. The Manim class name lives in Export.
-- Insert: a 52px icon rail (the default) between the item list and the stage, grouped
-  Objects / Graph / Animations / Audio with hairline dividers. Labels appear on hover and focus
-  in a fixed layer (`RailTipLayer` in `AddObjectToolbar.tsx`) so the scrolling rail cannot clip
-  them. The labelled, resizable sidebar remains available from the chevron.
+- Insert: a 52px icon rail (the default) between the item list and the stage. Text line, Shape
+  and Image insert directly; Graph, Animate, Camera and Audio are category buttons that open a
+  labelled, pinnable flyout beside the rail (Escape or an outside click closes it). Labels appear
+  on hover and focus in a fixed layer (`RailTipLayer` in `AddObjectToolbar.tsx`). The labelled,
+  resizable sidebar remains available from the chevron and lists the same groups. Every action
+  is declared once in `panels/insertActions.ts`; add new ones there, never as a one-off button.
+  The same list feeds insert search (`/`, `panels/InsertSearch.tsx`) and the animate bar over the
+  stage selection (`canvas/SelectionAnimateBar.tsx`); selection checks live in
+  `panels/useInsertActionState.ts`. Canvas entries are wrapped in a Konva group with id
+  `canvasItemNodeId(item.id)` so DOM chrome can read their on-screen bounds.
+- Insert icons (`panels/insertIcons.tsx`): 20px grid, 1.5px round stroke set on the `<svg>`.
+  Animations draw the start state dashed and the end state solid; graph parts sit on a faint
+  axis baseline instead of full axes; camera tools are framed by viewfinder corners; fill only
+  for the object itself or an area at 30%.
 - Inspector: docked on the right. Properties and Copilot are two segments of the same dock.
 - Timeline: tracks are layers (L0, L1, ...), which drive stacking and export order, so they
   are not regrouped by kind. Clips are solid kind colors (`kindBg[ITEM_COLOR_GROUP[kind]]`)

@@ -19,7 +19,7 @@ import SceneCanvas from '@/canvas/SceneCanvas';
 import Timeline from '@/timeline/Timeline';
 import ItemList from '@/panels/ItemList';
 import FramesPanel from '@/panels/FramesPanel';
-import AddObjectToolbar, { InsertAudioActions } from '@/panels/AddObjectToolbar';
+import AddObjectToolbar from '@/panels/AddObjectToolbar';
 import PropertyPanel from '@/panels/PropertyPanel';
 import ExportPanel from '@/panels/ExportPanel';
 import AudioPanel from '@/panels/AudioPanel';
@@ -548,9 +548,6 @@ export default function App() {
               collapsed={insertCollapsed}
               onToggleCollapsed={toggleInsertCollapsed}
             />
-            <div className={`shrink-0 border-t border-rule py-2 ${insertCollapsed ? 'px-1' : 'px-2'}`}>
-              <InsertAudioActions collapsed={insertCollapsed} />
-            </div>
           </div>
           {!insertCollapsed && (
             <div

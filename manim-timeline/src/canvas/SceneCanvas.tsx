@@ -1,4 +1,5 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import type Konva from 'konva';
 import { Stage, Layer, Group, Rect, Text, Line as KonvaLine } from 'react-konva';
 import { useSceneStore } from '@/store/useSceneStore';
 import {
@@ -12,6 +13,8 @@ import ShapeNode from './layers/ShapeNode';
 import ImageNode from './layers/ImageNode';
 import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
+import SelectionAnimateBar from './SelectionAnimateBar';
+import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
@@ -630,6 +633,70 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
   const snapFrameScale = contentTransform.scale;
 
+  // ---- Animate bar over the selection ----
+  const stageRef = useRef<Konva.Stage>(null);
+  const [stageGesture, setStageGesture] = useState(false);
+  const [selectionAnchor, setSelectionAnchor] = useState<
+    { rect: AnchorRect; containerWidth: number; containerHeight: number } | null
+  >(null);
+  const showAnimateBar =
+    !isPlaying && !stageGesture && !regionCapture && !fitPreview &&
+    !targetAnimationPathCapture && !polylinePointCaptureId;
+
+  const measureSelectionAnchor = useCallback(() => {
+    const stage = stageRef.current;
+    const container = containerRef.current;
+    let next: { rect: AnchorRect; containerWidth: number; containerHeight: number } | null = null;
+    if (showAnimateBar && stage && container && selectedIds.size > 0) {
+      const anchorIds = new Set<string>();
+      for (const id of selectedIds) {
+        const item = itemsMap.get(id);
+        const anchorId = item ? anchorItemIdFor(item) : null;
+        if (anchorId) anchorIds.add(canvasItemNodeId(anchorId));
+      }
+      const stageBox = stage.container().getBoundingClientRect();
+      const box = container.getBoundingClientRect();
+      const dx = stageBox.left - box.left;
+      const dy = stageBox.top - box.top;
+      const rects: AnchorRect[] = [];
+      for (const nodeId of anchorIds) {
+        const node = stage.findOne((n: Konva.Node) => n.id() === nodeId);
+        if (!node || !node.isVisible()) continue;
+        const r = node.getClientRect();
+        if (r.width <= 0 && r.height <= 0) continue;
+        rects.push({ left: r.x + dx, top: r.y + dy, right: r.x + r.width + dx, bottom: r.y + r.height + dy });
+      }
+      const u = unionRects(rects);
+      // Only what is on screen counts, so an object half outside the view keeps the bar visible.
+      if (u && u.right > 0 && u.bottom > 0 && u.left < box.width && u.top < box.height) {
+        next = {
+          rect: {
+            left: Math.max(0, u.left),
+            top: Math.max(0, u.top),
+            right: Math.min(box.width, u.right),
+            bottom: Math.min(box.height, u.bottom),
+          },
+          containerWidth: container.clientWidth,
+          containerHeight: container.clientHeight,
+        };
+      }
+    }
+    setSelectionAnchor((prev) => {
+      if (!prev || !next) return prev === next ? prev : next;
+      const a = prev.rect;
+      const b = next.rect;
+      const same = Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 &&
+        Math.abs(a.right - b.right) < 0.5 && Math.abs(a.bottom - b.bottom) < 0.5 &&
+        prev.containerWidth === next.containerWidth && prev.containerHeight === next.containerHeight;
+      return same ? prev : next;
+    });
+  }, [showAnimateBar, selectedIds, itemsMap]);
+
+  // Konva nodes are updated during commit; read their bounds after every render.
+  useLayoutEffect(() => {
+    measureSelectionAnchor();
+  });
+
   const updateSize = useCallback(() => {
     if (!containerRef.current) return;
     const w = containerRef.current.clientWidth;
@@ -746,12 +813,17 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
       <div
         ref={containerRef}
-        className="w-full h-full flex-1 min-h-0 rounded-pop overflow-hidden border border-rule bg-stage flex items-center justify-center"
+        className="relative w-full h-full flex-1 min-h-0 rounded-pop overflow-hidden border border-rule bg-stage flex items-center justify-center"
         style={{ cursor: regionCapture ? 'crosshair' : !isPlaying && !boardView ? 'grab' : 'default' }}
       >
         <Stage
+          ref={stageRef}
           width={size.width}
           height={size.height}
+          onDragStart={() => setStageGesture(true)}
+          onDragEnd={() => setStageGesture(false)}
+          onTransformStart={() => setStageGesture(true)}
+          onTransformEnd={() => setStageGesture(false)}
           onMouseDown={(e) => {
             const stage = e.target.getStage();
             const pos = stage?.getPointerPosition();
@@ -1024,7 +1096,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   itemsMap,
                 );
                 return (
-                  <PreviewWrap key={layer.axes.id} op={previewOps.get(layer.axes.id)}>
+                  <PreviewWrap key={layer.axes.id} itemId={layer.axes.id} op={previewOps.get(layer.axes.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(layer.axes.id, currentTime, itemsMap)}
                       blink={blinkPreviewForTarget(layer.axes.id, currentTime, itemsMap)}
@@ -1143,7 +1215,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     }
                   : null;
                 return (
-                  <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
+                  <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
                       blink={playbackBlink}
@@ -1191,7 +1263,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 const mx = (pos?.x ?? item.x) + fcShape.x;
                 const my = (pos?.y ?? item.y) + fcShape.y;
                 return (
-                  <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
+                  <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
                       blink={bShape}
@@ -1228,7 +1300,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 // exit fade inside PlaybackWrap, agent-preview dimming outside.
                 const introImg = imageIntroOpacity(item, currentTime, itemsMap, audioItems);
                 return (
-                  <PreviewWrap key={item.id} op={previewOps.get(item.id)}>
+                  <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
                       exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
                       blink={bImg}
@@ -1255,7 +1327,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               const srTa = targetAnimPreviewAccum(sr.id, currentTime, itemsMap);
               const srStroke = strokeAfterBlinkThenTa(sr.color, bSr, srTa);
               return (
-                <PreviewWrap key={sr.id} op={previewOps.get(sr.id)}>
+                <PreviewWrap key={sr.id} itemId={sr.id} op={previewOps.get(sr.id)}>
                   <PlaybackWrap
                     exit={exitPreviewForTarget(sr.id, currentTime, itemsMap)}
                     blink={bSr}
@@ -1296,6 +1368,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             </Group>
           </Layer>
         </Stage>
+        {showAnimateBar && selectionAnchor && (
+          <SelectionAnimateBar
+            anchor={selectionAnchor.rect}
+            containerWidth={selectionAnchor.containerWidth}
+            containerHeight={selectionAnchor.containerHeight}
+          />
+        )}
       </div>
     </div>
   );
@@ -1370,17 +1449,19 @@ function PlaybackWrap({
   return <Group opacity={opacity}>{children}</Group>;
 }
 
+/** Wraps one canvas entry: dims Copilot previews, and carries the id chrome uses to find it. */
 function PreviewWrap({
+  itemId,
   op,
   children,
 }: {
+  itemId: ItemId;
   op: PreviewOp | undefined;
   children: React.ReactNode;
 }) {
-  if (!op) return <>{children}</>;
-  const opacity = op === 'delete' ? 0.3 : 0.55;
+  const opacity = !op ? 1 : op === 'delete' ? 0.3 : 0.55;
   return (
-    <Group opacity={opacity} listening={op !== 'delete'}>
+    <Group id={canvasItemNodeId(itemId)} opacity={opacity} listening={op !== 'delete'}>
       {children}
     </Group>
   );
