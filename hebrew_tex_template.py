@@ -19,11 +19,16 @@ from manim.constants import DEFAULT_FONT_SIZE
 from manim.mobject.text.tex_mobject import SingleStringMathTex
 from manim.utils.tex import TexTemplate
 
+# English font value meaning "LaTeX default" (no ``\englishfont`` override).
+LATEX_DEFAULT_ENGLISH_FONT = "Latin Modern Roman"
+
 
 def get_hebrew_tex_template(
     hebrew_font: str = "David",
     hebrew_font_scale: float | str | None = None,
     math_font: str | None = None,
+    english_font: str | None = None,
+    mixed_language: bool = False,
 ) -> TexTemplate:
     """Create a TexTemplate that compiles Hebrew + inline math via XeTeX.
 
@@ -46,6 +51,14 @@ def get_hebrew_tex_template(
     math_font
         Optional OpenType math font (e.g. "XITS Math", "Libertinus Math").
         If None, falls back to the default Computer Modern via amsmath.
+    english_font
+        Font for English text (polyglossia ``\\englishfont``), applied only when
+        *mixed_language* is set.  ``None`` or ``"Latin Modern Roman"`` keeps the
+        LaTeX default.
+    mixed_language
+        Define ``\\en{…}`` / ``\\he{…}`` as language switches and apply
+        *english_font*.  Off for plain Hebrew + math lines, so their preamble
+        (and TeX cache) stays unchanged.
     """
     math_preamble = ""
     if math_font:
@@ -61,6 +74,16 @@ def get_hebrew_tex_template(
         else:
             font_options = f"[Scale={hebrew_font_scale}]"
 
+    language_preamble = ""
+    if mixed_language:
+        language_lines = [
+            r"\providecommand{\en}[1]{\textenglish{#1}}",
+            r"\providecommand{\he}[1]{\texthebrew{#1}}",
+        ]
+        if english_font and english_font != LATEX_DEFAULT_ENGLISH_FONT:
+            language_lines.append(rf"\newfontfamily\englishfont{{{english_font}}}")
+        language_preamble = "\n".join(language_lines)
+
     # amsmath must load before polyglossia (Hebrew loads bidi; bidi forbids amsmath after it).
     preamble = "\n".join(filter(None, [
         r"\usepackage{amsmath}",
@@ -70,6 +93,7 @@ def get_hebrew_tex_template(
         r"\setotherlanguage{english}",
         rf"\newfontfamily\hebrewfont{font_options}{{{hebrew_font}}}",
         math_preamble,
+        language_preamble,
     ]))
 
     return TexTemplate(

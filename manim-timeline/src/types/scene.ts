@@ -95,6 +95,15 @@ export interface SegmentStyle {
   animSec?: number;
 }
 
+/** Text line base direction: `rtl` = Hebrew base (default), `ltr` = English base. */
+export type TextBaseDir = 'rtl' | 'ltr';
+
+/** Language of a text-line segment's run (`\en{…}` / `\he{…}` or the line's base language). */
+export type TextLang = 'he' | 'en';
+
+/** English font value meaning the LaTeX default (no font override). */
+export const LATEX_DEFAULT_ENGLISH_FONT = 'Latin Modern Roman';
+
 /** How a text line is introduced or transitioned in the scene. */
 export type AnimStyle =
   | 'write'
@@ -520,8 +529,19 @@ export interface TextLineItem extends SceneItemBase {
   /** Gap used by editor-only text snapping, in Manim units. Defaults to 0.3. */
   snapBuffer?: number;
   raw: string;
+  /** Hebrew font (and the default English font). */
   font: string;
   fontSize: number;
+  /**
+   * Line direction. Omitted = `rtl`: plain text is Hebrew, English is marked `\en{…}`.
+   * `ltr`: plain text is English, Hebrew is marked `\he{…}`.
+   */
+  baseDir?: TextBaseDir;
+  /**
+   * Font for English text. Omitted = same as `font`. `Latin Modern Roman` = LaTeX default
+   * (no override; matches the math).
+   */
+  englishFont?: string;
   animStyle?: AnimStyle;
   /** When animStyle is `transform`, maps segments from `sourceLineId` into this line. */
   transformConfig?: TransformMapping | null;

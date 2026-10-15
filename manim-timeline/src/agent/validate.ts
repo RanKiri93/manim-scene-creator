@@ -846,6 +846,10 @@ function normalizeUpdates(
   if ('posSteps' in patch) {
     next.posSteps = normalizePosSteps(patch.posSteps);
   }
+  if (targetKind === 'textLine') {
+    if ('baseDir' in patch) next.baseDir = normalizeTextBaseDir(patch.baseDir);
+    if ('englishFont' in patch) next.englishFont = normalizeEnglishFont(patch.englishFont);
+  }
   if (targetKind === 'graphFunctionSeries') {
     if ('perN' in patch) {
       // Coerce perN entries: stringify integer keys, drop unknown fields,
@@ -1195,6 +1199,16 @@ function normalizeCameraMove(raw: Record<string, unknown>, errors: string[], pre
   return out as unknown as CameraMoveItem;
 }
 
+/** `ltr` or nothing: an absent base direction means right-to-left. */
+function normalizeTextBaseDir(v: unknown): TextLineItem['baseDir'] {
+  return v === 'ltr' ? 'ltr' : undefined;
+}
+
+/** Trimmed font name, or nothing for "same as the Hebrew font". */
+function normalizeEnglishFont(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+}
+
 function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
   const rawForBase =
     raw.animStyle === 'transform' && raw.visibleAtSceneStart === true
@@ -1218,6 +1232,8 @@ function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
     raw: texSource,
     font: asStr(raw.font, DEFAULT_FONT),
     fontSize: asNum(raw.fontSize, DEFAULT_FONT_SIZE),
+    baseDir: normalizeTextBaseDir(raw.baseDir),
+    englishFont: normalizeEnglishFont(raw.englishFont),
     animStyle: raw.animStyle as TextLineItem['animStyle'],
     transformConfig: sanitizeTransformConfig(raw.transformConfig),
     segments,

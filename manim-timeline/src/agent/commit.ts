@@ -12,7 +12,7 @@ import type {
   TargetAnimationTargetSpec,
   TextLineItem,
 } from '@/types/scene';
-import { parseSegments } from '@/codegen/texUtils';
+import { parseSegments } from '@/lib/textSegments';
 import { createSegmentStyle } from '@/store/factories';
 import type { AgentAction } from './types';
 
@@ -51,7 +51,7 @@ function ensureTextLineSegments(
   if (item.kind !== 'textLine') return item;
   const tl = item as TextLineItem;
   if (!tl.raw.trim() || tl.segments.length > 0) return item;
-  const parsed = parseSegments(tl.raw);
+  const parsed = parseSegments(tl.raw, tl.baseDir ?? 'rtl');
   const segments = parsed.map((p) => createSegmentStyle(p.text, p.isMath, defaults));
   return { ...tl, segments };
 }

@@ -1,11 +1,19 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { useMeasureLine } from '@/services/measureHooks';
-import { parseSegments } from '@/codegen/texUtils';
+import { parseSegments } from '@/lib/textSegments';
+import { findUnwrappedForeignRuns, foreignLangOf, wrapForeignRuns } from '@/lib/textDirectionLint';
 import { createSegmentStyle } from '@/store/factories';
 import { effectiveStart } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
-import type { AnimStyle, TextLineItem, SegmentStyle, TransformMapping } from '@/types/scene';
+import {
+  LATEX_DEFAULT_ENGLISH_FONT,
+  type AnimStyle,
+  type TextBaseDir,
+  type TextLineItem,
+  type SegmentStyle,
+  type TransformMapping,
+} from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import SegmentEditor from './SegmentEditor';
 import SegmentMapperModal from './SegmentMapperModal';
@@ -15,7 +23,12 @@ import PropertyTabs from './PropertyTabs';
 import { appendCenterXStep, inkEdgeSteps, updateAxisStep, type ToEdgeCardinal } from '@/lib/quickLayout';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
-import { IconButton } from '@/components/ui';
+import { Button, IconButton, Segmented } from '@/components/ui';
+
+const BASE_DIR_OPTIONS = [
+  { value: 'rtl', label: 'Hebrew base (RTL)' },
+  { value: 'ltr', label: 'English base (LTR)' },
+] as const;
 
 /** Remembered per browser: whether the LaTeX source box is forced left-to-right while editing. */
 const SOURCE_LTR_KEY = 'manim-timeline.lineEditor.sourceLtr';
@@ -104,8 +117,10 @@ export default function LineEditor({ item }: LineEditorProps) {
     set({ posSteps: appendCenterXStep(item.posSteps) });
   }, [item.posSteps, set]);
 
-  const onRawChange = (raw: string) => {
-    const parsed = parseSegments(raw);
+  const baseDir: TextBaseDir = item.baseDir ?? 'rtl';
+
+  const onRawChange = (raw: string, dir: TextBaseDir = baseDir) => {
+    const parsed = parseSegments(raw, dir);
     const segs: SegmentStyle[] = parsed.map((p, i) => {
       const existing = item.segments[i];
       if (existing && existing.text === p.text && existing.isMath === p.isMath) {
@@ -113,8 +128,18 @@ export default function LineEditor({ item }: LineEditorProps) {
       }
       return createSegmentStyle(p.text, p.isMath, defaults);
     });
-    set({ raw, segments: segs });
+    set({ raw, segments: segs, baseDir: dir === 'rtl' ? undefined : dir });
   };
+
+  const segmentLangs = useMemo(
+    () => parseSegments(item.raw, baseDir).map((s) => (s.isMath ? 'math' : s.lang)),
+    [item.raw, baseDir],
+  );
+  const foreignRuns = useMemo(
+    () => findUnwrappedForeignRuns(item.raw, baseDir),
+    [item.raw, baseDir],
+  );
+  const foreignWrapper = foreignLangOf(baseDir) === 'en' ? '\\en{…}' : '\\he{…}';
 
   const animStyle: AnimStyle = item.animStyle ?? 'write';
 
@@ -194,21 +219,63 @@ export default function LineEditor({ item }: LineEditorProps) {
           // Hebrew sentences with $math$: by default the first strong letter picks the direction,
           // so a Hebrew line reads right-to-left and a line starting with LaTeX stays left-to-right.
           // The toggle above forces left-to-right so $…$ delimiters show exactly as typed.
-          dir={sourceLtr ? 'ltr' : 'auto'}
+          // An English-base line is always shown left-to-right.
+          dir={sourceLtr || baseDir === 'ltr' ? 'ltr' : 'auto'}
           className="w-full bg-raised border border-rule rounded-ctl px-2 py-1.5 text-body text-chalk font-mono resize-y"
-          placeholder="Hebrew text with $math$ segments..."
+          placeholder={
+            baseDir === 'ltr'
+              ? 'English text with $math$ and \\he{עברית}…'
+              : 'Hebrew text with $math$ and \\en{English}…'
+          }
         />
+        {foreignRuns.length > 0 && (
+          <div className="mt-1 flex items-start gap-2">
+            <p className="flex-1 text-meta text-warn" dir="auto">
+              {baseDir === 'ltr' ? 'Hebrew' : 'English'} outside {foreignWrapper} comes out in
+              reverse word order and writes the wrong way: {foreignRuns.map((r) => `“${r.text}”`).join(', ')}
+            </p>
+            <Button size="sm" onClick={() => onRawChange(wrapForeignRuns(item.raw, baseDir))}>
+              Wrap in {foreignWrapper}
+            </Button>
+          </div>
+        )}
       </div>
+
+      <Segmented
+        aria-label="Line direction"
+        size="sm"
+        options={BASE_DIR_OPTIONS}
+        value={baseDir}
+        onChange={(dir) => onRawChange(item.raw, dir)}
+      />
 
       <div className="flex items-end gap-3 flex-wrap">
         <label className="text-ctl text-chalk-dim">
-          Font
+          Hebrew font
           <input
             type="text"
             value={item.font}
             onChange={(e) => set({ font: e.target.value })}
             className="ml-1 w-24 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk"
           />
+        </label>
+        <label
+          className="text-ctl text-chalk-dim"
+          title={`Empty = same as the Hebrew font. "${LATEX_DEFAULT_ENGLISH_FONT}" = the LaTeX default, which matches the math.`}
+        >
+          English font
+          <input
+            type="text"
+            list={`english-fonts-${item.id}`}
+            value={item.englishFont ?? ''}
+            onChange={(e) => set({ englishFont: e.target.value.trim() ? e.target.value : undefined })}
+            placeholder={item.font || 'Hebrew font'}
+            dir="ltr"
+            className="ml-1 w-28 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-ctl text-chalk placeholder:text-chalk-faint"
+          />
+          <datalist id={`english-fonts-${item.id}`}>
+            <option value={LATEX_DEFAULT_ENGLISH_FONT} />
+          </datalist>
         </label>
         <NumberInput
           label="Size"
@@ -374,6 +441,8 @@ export default function LineEditor({ item }: LineEditorProps) {
                   onClose={() => setMapperOpen(false)}
                   sourceRaw={sourceLineItem.raw}
                   targetRaw={item.raw}
+                  sourceBaseDir={sourceLineItem.baseDir}
+                  targetBaseDir={baseDir}
                   initialSegmentPairs={item.transformConfig?.segmentPairs ?? {}}
                   onApply={(segmentPairs) => {
                     const tc = item.transformConfig ?? defaultTransformMapping(sourceLineItem.id);
@@ -530,6 +599,7 @@ export default function LineEditor({ item }: LineEditorProps) {
     <div className="flex flex-col gap-3">
       <SegmentEditor
         segments={item.segments}
+        kinds={segmentLangs}
         animDuration={item.duration}
         onChange={(s) => set({ segments: s })}
       />

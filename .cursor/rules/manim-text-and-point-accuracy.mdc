@@ -69,6 +69,24 @@ line = HebrewMathLine(r"חלק א ||חלק ב|| $f(x)$", font_size=36, hebrew_fo
 
 ---
 
+### English text: `\en{…}`, and left-to-right lines
+
+In a (default) right-to-left line, wrap English in `\en{…}`. Math and `||` may sit inside it;
+every segment inside is English and writes left to right, and the run keeps its reading order.
+Unwrapped English in a Hebrew line comes out in reverse word order.
+
+```python
+line = HebrewMathLine(r"אם \en{the function $f$ || is continuous} אז", hebrew_font="Alef")
+```
+
+For a line that is mainly English, pass `base_dir="ltr"`, write English plainly and wrap Hebrew
+in `\he{…}`. English uses the Hebrew font unless `english_font=` is given
+(`"Latin Modern Roman"` = the LaTeX default).
+
+```python
+line = HebrewMathLine(r"The function $f$ is \he{רציפה}", hebrew_font="Alef", base_dir="ltr")
+```
+
 ## Segment addressing
 
 After construction, `line[i]` addresses the i-th **segment in the order it was given**

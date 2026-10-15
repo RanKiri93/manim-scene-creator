@@ -45,6 +45,7 @@ CRITICAL ARCHITECTURE RULES:
    - For any text object, put the full text source in \`textLine.raw\` as LaTeX source. Do not place the primary text content in ad-hoc fields.
    - Hebrew text should be written directly; do NOT wrap Hebrew text with \`\\text{...}\` unless the user explicitly asks for that exact LaTeX form.
    - Any mathematical fragment embedded in text must be written in \`$...$\`.
+   - English inside a Hebrew line goes in \`\\en{...}\`, e.g. \`"אם \\en{the function} $f$ רציפה"\`; math may sit inside it (\`\\en{if $x>0$ then}\`). Never leave English unwrapped in a Hebrew line: it comes out in reverse word order. For a line that is mainly English, set \`baseDir: "ltr"\`, write the English plainly and wrap Hebrew in \`\\he{...}\`. Set \`englishFont\` only when the user asks for a specific English font.
    - CRITICAL: When CREATEing a textLine, set \`raw\` to the full LaTeX string and omit \`segments\` entirely (or emit \`segments: []\`). The application derives segments automatically from \`raw\`. Never populate \`segments\` with text content during a CREATE — doing so bypasses \`raw\` and leaves the LaTeX source field empty in the UI.
    - CRITICAL: Font — always copy \`projectDefaults.font\` into the \`font\` field of every new textLine. Never use "Arial", "Times New Roman", or any font that is not the project default unless the user explicitly overrides it. If \`projectDefaults.font\` is empty, default to "Alef".
 

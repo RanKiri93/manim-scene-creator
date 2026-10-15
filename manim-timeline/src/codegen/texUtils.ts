@@ -1,4 +1,14 @@
-import type { SegmentStyle } from '@/types/scene';
+import type { SegmentStyle, TextBaseDir } from '@/types/scene';
+import { baseLangOf, LANG_WRAPPER, parseSegments } from '@/lib/textSegments';
+
+export {
+  baseLangOf,
+  isRtlSegment,
+  LANG_WRAPPER,
+  parseSegments,
+  reconstructLine,
+  type RawSegment,
+} from '@/lib/textSegments';
 
 /**
  * Encode arbitrary text as a valid Python `str` literal (safe for LaTeX, quotes, newlines, Hebrew).
@@ -6,70 +16,6 @@ import type { SegmentStyle } from '@/types/scene';
  */
 export function pythonStringLiteral(s: string): string {
   return JSON.stringify(s);
-}
-
-interface RawSegment {
-  text: string;
-  isMath: boolean;
-}
-
-/**
- * Parse a raw LaTeX string (Hebrew + $math$ segments, || splits)
- * into an ordered list of segments. Segment `i` is `line[i]` in export and measure.
- * `\$` stays escaped so LaTeX prints a literal dollar.
- * Kept in step with hebrew_math_parser.parse_segments (still used for labels) by
- * `__fixtures__/segmentParse.json`, which both test suites read.
- */
-export function parseSegments(raw: string): RawSegment[] {
-  const parts: string[] = [];
-  let i = 0;
-  while (i < raw.length) {
-    let chunk = '';
-    while (i < raw.length) {
-      if (raw[i] === '\\' && i + 1 < raw.length && raw[i + 1] === '$') {
-        chunk += '\\$';
-        i += 2;
-        continue;
-      }
-      if (raw[i] === '$') break;
-      chunk += raw[i++];
-    }
-    parts.push(chunk);
-    if (i >= raw.length) break;
-    i++;
-    chunk = '';
-    while (i < raw.length) {
-      if (raw[i] === '\\' && i + 1 < raw.length && raw[i + 1] === '$') {
-        chunk += '\\$';
-        i += 2;
-        continue;
-      }
-      if (raw[i] === '$') break;
-      chunk += raw[i++];
-    }
-    parts.push(chunk);
-    if (i < raw.length) i++;
-  }
-
-  const segments: RawSegment[] = [];
-  for (let j = 0; j < parts.length; j++) {
-    const text = parts[j];
-    if (!text) continue;
-    if (j % 2 === 1) {
-      segments.push({ text, isMath: true });
-    } else if (text.includes('||')) {
-      for (const bit of text.split('||')) {
-        if (bit) segments.push({ text: bit, isMath: false });
-      }
-    } else {
-      segments.push({ text, isMath: false });
-    }
-  }
-  return segments.length ? segments : [{ text: raw || '', isMath: false }];
-}
-
-export function reconstructLine(segments: RawSegment[]): string {
-  return segments.map((s) => (s.isMath ? `$${s.text}$` : s.text)).join('');
 }
 
 /**
@@ -98,9 +44,16 @@ export function wrapSegmentForTex(
 
 /**
  * Build per-segment LaTeX parts for HebrewMathLine(...) multi-arg constructor.
+ * A segment in a language other than the base is wrapped as a whole part (`\en{…}`), which
+ * hebrew_math_parser.classify_segments reads back.
  */
-export function buildExportParts(raw: string, segments: SegmentStyle[]): string[] {
-  const parsed = parseSegments(raw);
+export function buildExportParts(
+  raw: string,
+  segments: SegmentStyle[],
+  baseDir: TextBaseDir = 'rtl',
+): string[] {
+  const baseLang = baseLangOf(baseDir);
+  const parsed = parseSegments(raw, baseDir);
   return parsed.map((p, i) => {
     const st = segments[i] ?? p;
     const wrapped = wrapSegmentForTex(
@@ -109,6 +62,7 @@ export function buildExportParts(raw: string, segments: SegmentStyle[]): string[
       'bold' in st ? st.bold : false,
       'italic' in st ? st.italic : false,
     );
-    return p.isMath ? `$${wrapped}$` : wrapped;
+    const part = p.isMath ? `$${wrapped}$` : wrapped;
+    return p.lang === baseLang ? part : `${LANG_WRAPPER[p.lang]}${part}}`;
   });
 }

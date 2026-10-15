@@ -348,21 +348,21 @@ export function generateLineDef(
   indent: number,
 ): string {
   const pad = ' '.repeat(indent);
-  const parts = buildExportParts(item.raw, item.segments);
+  const baseDir = item.baseDir ?? 'rtl';
+  const parts = buildExportParts(item.raw, item.segments, baseDir);
   const fontLit = pythonStringLiteral(item.font ?? '');
-
-  if (parts.length === 1) {
-    return `${pad}${varName} = HebrewMathLine(\n` +
-      `${pad}    ${pythonStringLiteral(parts[0]!)},\n` +
-      `${pad}    font_size=${item.fontSize}, hebrew_font=${fontLit},\n` +
-      `${pad})\n`;
+  // Defaults (RTL, English font = Hebrew font) are omitted so existing exports are unchanged.
+  let kwargs = `font_size=${item.fontSize}, hebrew_font=${fontLit},`;
+  if (baseDir === 'ltr') kwargs += ` base_dir="ltr",`;
+  if (item.englishFont?.trim()) {
+    kwargs += ` english_font=${pythonStringLiteral(item.englishFont.trim())},`;
   }
 
   let s = `${pad}${varName} = HebrewMathLine(\n`;
   for (const part of parts) {
     s += `${pad}    ${pythonStringLiteral(part)},\n`;
   }
-  s += `${pad}    font_size=${item.fontSize}, hebrew_font=${fontLit},\n`;
+  s += `${pad}    ${kwargs}\n`;
   s += `${pad})\n`;
   return s;
 }

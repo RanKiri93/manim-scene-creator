@@ -84,6 +84,10 @@ or be excluded explicitly.
   measure server builds the line from the same parts and returns boxes in that order.
 - Bold/italic go into the LaTeX source (`\textbf`, `\mathbf`, …), not Python calls.
 - `||` is a text-segment separator consumed by the parser; it never reaches the render.
+- A segment in a language other than the line's base is emitted as its own `\en{…}` / `\he{…}`
+  part; Python groups neighbouring ones into one `\textenglish` / `\texthebrew` run.
+  `base_dir="ltr"` and `english_font=` are emitted only when not default, so RTL lines with
+  the Hebrew font export exactly as before.
 
 ## Before you finish
 

@@ -1852,3 +1852,55 @@ describe('frameId validation', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('textLine base direction and English font', () => {
+  it('keeps ltr and a trimmed English font on CREATE, and drops other directions', () => {
+    const result = validateAgentResponse(
+      {
+        reply: 'add lines',
+        actions: [
+          {
+            action: 'CREATE',
+            item: {
+              id: 'tlE', kind: 'textLine', raw: 'The function $f$', font: 'Alef',
+              startTime: 0, duration: 2, baseDir: 'ltr', englishFont: '  Latin Modern Roman ',
+            },
+          },
+          {
+            action: 'CREATE',
+            item: {
+              id: 'tlH', kind: 'textLine', raw: 'שלום', font: 'Alef',
+              startTime: 0, duration: 2, baseDir: 'sideways', englishFont: ' ',
+            },
+          },
+        ],
+      },
+      new Map<string, SceneItem>(),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [ltr, rtl] = result.response.actions.map((a) =>
+      a.action === 'CREATE' && a.item.kind === 'textLine' ? a.item : null,
+    );
+    expect(ltr?.baseDir).toBe('ltr');
+    expect(ltr?.englishFont).toBe('Latin Modern Roman');
+    expect(rtl?.baseDir).toBeUndefined();
+    expect(rtl?.englishFont).toBeUndefined();
+  });
+
+  it('normalizes baseDir on UPDATE', () => {
+    const map = new Map<string, SceneItem>([['tl1', textLine('tl1')]]);
+    const result = validateAgentResponse(
+      {
+        reply: 'switch direction',
+        actions: [{ action: 'UPDATE', itemId: 'tl1', updates: { baseDir: 'LTR!' } }],
+      },
+      map,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    expect('baseDir' in act.updates && act.updates.baseDir).toBeUndefined();
+  });
+});

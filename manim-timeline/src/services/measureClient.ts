@@ -5,6 +5,7 @@ import type {
   MeasureResult,
   SegmentStyle,
   SegmentLocalBox,
+  TextBaseDir,
   MathChildLocalBox,
   AxesItem,
   AxisPreviewBounds,
@@ -27,6 +28,9 @@ interface MeasureRequestBody {
   hebrew_font: string | null;
   font_size: number;
   math_font: null;
+  /** `null` = same as the Hebrew font. */
+  english_font: string | null;
+  base_dir: TextBaseDir;
   include_preview: boolean;
   segment_styles: {
     parse_index: number;
@@ -140,7 +144,9 @@ export async function measureLine(
 ): Promise<{ result: MeasureResult | null; error: string | null }> {
   const body: MeasureRequestBody = {
     tex: item.raw,
-    parts: buildExportParts(item.raw, item.segments),
+    parts: buildExportParts(item.raw, item.segments, item.baseDir ?? 'rtl'),
+    english_font: item.englishFont?.trim() || null,
+    base_dir: item.baseDir ?? 'rtl',
     hebrew_font: item.font?.trim() || null,
     font_size: item.fontSize,
     math_font: null,

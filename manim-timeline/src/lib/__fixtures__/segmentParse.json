@@ -1,0 +1,477 @@
+[
+  {
+    "name": "plain Hebrew",
+    "raw": "שלום עולם",
+    "segments": [
+      {
+        "text": "שלום עולם",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "Hebrew with math",
+    "raw": "אם $f(x)$ רציפה",
+    "segments": [
+      {
+        "text": "אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "f(x)",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " רציפה",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "math first",
+    "raw": "$x^2$ הוא פולינום",
+    "segments": [
+      {
+        "text": "x^2",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " הוא פולינום",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "math last",
+    "raw": "הפתרון הוא $x=5$",
+    "segments": [
+      {
+        "text": "הפתרון הוא ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "x=5",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "adjacent math",
+    "raw": "$a$$b$",
+    "segments": [
+      {
+        "text": "a",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": "b",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "math, space, math",
+    "raw": "$a$ $b$",
+    "segments": [
+      {
+        "text": "a",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "b",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "pipe splits",
+    "raw": "חלק א || חלק ב || חלק ג",
+    "segments": [
+      {
+        "text": "חלק א ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": " חלק ב ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": " חלק ג",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "leading and trailing pipes",
+    "raw": "||א||ב||",
+    "segments": [
+      {
+        "text": "א",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "ב",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "pipe-only run between math",
+    "raw": "$a$||$b$",
+    "segments": [
+      {
+        "text": "a",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": "b",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "pipe inside math is kept",
+    "raw": "אם $a||b$ אז",
+    "segments": [
+      {
+        "text": "אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "a||b",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " אז",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "whitespace-only piece",
+    "raw": "א||   ||ב",
+    "segments": [
+      {
+        "text": "א",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "   ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "ב",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "escaped dollar in text",
+    "raw": "המחיר הוא \\$5",
+    "segments": [
+      {
+        "text": "המחיר הוא \\$5",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "escaped dollar in math",
+    "raw": "$a\\$b$",
+    "segments": [
+      {
+        "text": "a\\$b",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "unclosed math",
+    "raw": "אם $x",
+    "segments": [
+      {
+        "text": "אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "x",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "long theorem line",
+    "raw": "משפט: אם $f(x)$ פונקציה רציפה בקטע $[a,b]$, אזי $\\int_a^x f(t)\\,{\\rm d}t$ פונקציה גזירה.",
+    "segments": [
+      {
+        "text": "משפט: אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "f(x)",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " פונקציה רציפה בקטע ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "[a,b]",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": ", אזי ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "\\int_a^x f(t)\\,{\\rm d}t",
+        "isMath": true,
+        "lang": "he"
+      },
+      {
+        "text": " פונקציה גזירה.",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "English run in a Hebrew line",
+    "baseDir": "rtl",
+    "raw": "אם \\en{the function} רציפה",
+    "segments": [
+      {
+        "text": "אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "the function",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": " רציפה",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "English run with math and a split",
+    "baseDir": "rtl",
+    "raw": "אם \\en{the function $f$ || is continuous} אז $x>0$",
+    "segments": [
+      {
+        "text": "אם ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "the function ",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": "f",
+        "isMath": true,
+        "lang": "en"
+      },
+      {
+        "text": " ",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": " is continuous",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": " אז ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": "x>0",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "adjacent English wrappers",
+    "baseDir": "rtl",
+    "raw": "\\en{a}\\en{b}",
+    "segments": [
+      {
+        "text": "a",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": "b",
+        "isMath": false,
+        "lang": "en"
+      }
+    ]
+  },
+  {
+    "name": "Hebrew wrapper in a Hebrew line",
+    "baseDir": "rtl",
+    "raw": "\\he{שלום} עולם",
+    "segments": [
+      {
+        "text": "שלום",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": " עולם",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "unclosed wrapper is plain text",
+    "baseDir": "rtl",
+    "raw": "אם \\en{word",
+    "segments": [
+      {
+        "text": "אם \\en{word",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "nested wrapper is plain text",
+    "baseDir": "rtl",
+    "raw": "\\textbf{\\en{x}}",
+    "segments": [
+      {
+        "text": "\\textbf{\\en{x}}",
+        "isMath": false,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "wrapper inside math is math",
+    "baseDir": "rtl",
+    "raw": "$\\en{x}$",
+    "segments": [
+      {
+        "text": "\\en{x}",
+        "isMath": true,
+        "lang": "he"
+      }
+    ]
+  },
+  {
+    "name": "escaped brace inside wrapper",
+    "baseDir": "rtl",
+    "raw": "\\en{a \\} b}",
+    "segments": [
+      {
+        "text": "a \\} b",
+        "isMath": false,
+        "lang": "en"
+      }
+    ]
+  },
+  {
+    "name": "LTR line, plain English",
+    "baseDir": "ltr",
+    "raw": "The function $f$ is continuous",
+    "segments": [
+      {
+        "text": "The function ",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": "f",
+        "isMath": true,
+        "lang": "en"
+      },
+      {
+        "text": " is continuous",
+        "isMath": false,
+        "lang": "en"
+      }
+    ]
+  },
+  {
+    "name": "LTR line with Hebrew run",
+    "baseDir": "ltr",
+    "raw": "on \\he{רציפה || בקטע} $[a,b]$",
+    "segments": [
+      {
+        "text": "on ",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": "רציפה ",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": " בקטע",
+        "isMath": false,
+        "lang": "he"
+      },
+      {
+        "text": " ",
+        "isMath": false,
+        "lang": "en"
+      },
+      {
+        "text": "[a,b]",
+        "isMath": true,
+        "lang": "en"
+      }
+    ]
+  }
+]

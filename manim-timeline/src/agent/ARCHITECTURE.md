@@ -211,7 +211,7 @@ interface PreviewState {
 - `UPDATE` → re-read state, then `s.updateItem(id, updates)` if the id still exists
 - `DELETE` → re-read state, then `s.removeItem(id)` if the id still exists
 
-**`ensureTextLineSegments`** (added in `commit.ts`): when a `textLine` arrives with `raw` set but `segments: []`, it calls `parseSegments(raw)` and `createSegmentStyle(...)` to populate the segments array before the item reaches the store. This mirrors `LineEditor.onRawChange` so that segment styling can be applied in a subsequent turn immediately after approval, without the user having to touch the LaTeX source field manually. Text segments default to `color: "#ffffff"`; math segments default to `color: defaults.mathColor` (`"#00FFFF"` by default).
+**`ensureTextLineSegments`** (added in `commit.ts`): when a `textLine` arrives with `raw` set but `segments: []`, it calls `parseSegments(raw, baseDir)` (`src/lib/textSegments.ts`) and `createSegmentStyle(...)` to populate the segments array before the item reaches the store. This mirrors `LineEditor.onRawChange` so that segment styling can be applied in a subsequent turn immediately after approval, without the user having to touch the LaTeX source field manually. Text segments default to `color: "#ffffff"`; math segments default to `color: defaults.mathColor` (`"#00FFFF"` by default).
 
 The message's `actionsStatus` flips to `'approved'` and `activePreviewMessageId` is cleared. `rejectMessage(id)` flips to `'rejected'` without committing. Each commit call produces its own `zundo` snapshot today. Batching to a single undo entry is an open TODO noted in the file.
 
@@ -334,6 +334,7 @@ Real LLM responses are noisy. The validator has two responsibilities:
 
 - `font` falls back to `DEFAULT_FONT` (`"Alef"`, from `src/lib/constants.ts`) — **not** `"Arial"`. This ensures that even if the model omits `font`, the rendered output uses the project's Hebrew font.
 - `fontSize` falls back to `DEFAULT_FONT_SIZE` (`36`).
+- `baseDir` keeps only `"ltr"` (anything else means the default right-to-left line); `englishFont` keeps a trimmed non-empty string. `normalizeUpdates` applies the same two rules to UPDATEs. Both fields are declared in the canonical and Gemini item and updates schemas (`providers/schema.test.ts`).
 - **`rawFromSegments` recovery**: if `raw` is empty but `segments` is non-empty, the normalizer reconstructs `raw` from the segments array: text segments are concatenated as-is, math segments are wrapped in `$…$`. This rescues the common model error of putting text in `segments[0].text` instead of `raw`, which would otherwise leave the LaTeX Source field empty in the UI.
 - The validation error for empty `raw` is only triggered when *both* `raw` **and** `segments` are empty, since the recovery pass may have already filled `raw` from segments.
 
@@ -390,6 +391,7 @@ Current rules:
 5. **textLine strict workflow** — all rules apply to CREATE:
    - Put the full LaTeX source in `raw`. Do **not** put Hebrew text in `\text{…}`.
    - Math fragments must be written in `$…$`.
+   - English inside a Hebrew line goes in `\en{…}` (math may sit inside it). A mainly-English line sets `baseDir: "ltr"` and wraps Hebrew in `\he{…}`. `englishFont` only on request.
    - Omit `segments` (or emit `segments: []`) — the app derives them automatically from `raw`.
    - Copy `projectDefaults.font` into `font`. If `projectDefaults.font` is empty, default to `"Alef"`. Never use `"Arial"` or other non-Hebrew fonts.
    - **Two-step rule for CREATE only**: do not include segment styling (color/bold/italic) in the same response as the CREATE. Style in a later turn after the user approves.

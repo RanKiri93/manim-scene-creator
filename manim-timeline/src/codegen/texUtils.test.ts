@@ -1,19 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import fixtureJson from './__fixtures__/segmentParse.json?raw';
-import { buildExportParts, parseSegments, reconstructLine } from './texUtils';
-import type { SegmentStyle } from '@/types/scene';
+import { buildExportParts, parseSegments } from './texUtils';
+import type { SegmentStyle, TextBaseDir } from '@/types/scene';
 
-interface FixtureCase {
-  name: string;
-  raw: string;
-  segments: { text: string; isMath: boolean }[];
-}
-
-/** Shared with test_parser.py so the editor and Python parsers cannot drift. */
-const cases = JSON.parse(fixtureJson) as FixtureCase[];
-
-function plainStyles(raw: string): SegmentStyle[] {
-  return parseSegments(raw).map((p) => ({
+function plainStyles(raw: string, baseDir: TextBaseDir = 'rtl'): SegmentStyle[] {
+  return parseSegments(raw, baseDir).map((p) => ({
     text: p.text,
     isMath: p.isMath,
     color: '#ffffff',
@@ -22,31 +12,42 @@ function plainStyles(raw: string): SegmentStyle[] {
   }));
 }
 
-describe('parseSegments', () => {
-  it('has fixture cases', () => {
-    expect(cases.length).toBeGreaterThan(0);
+describe('buildExportParts language runs', () => {
+  it('wraps each English segment of a Hebrew line as its own part', () => {
+    const raw = String.raw`אם \en{the function $f$ || is continuous} אז`;
+    expect(buildExportParts(raw, plainStyles(raw))).toEqual([
+      'אם ',
+      String.raw`\en{the function }`,
+      String.raw`\en{$f$}`,
+      String.raw`\en{ }`,
+      String.raw`\en{ is continuous}`,
+      ' אז',
+    ]);
   });
 
-  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
-    expect(parseSegments(c.raw)).toEqual(c.segments);
+  it('wraps Hebrew, not English, in a left-to-right line', () => {
+    const raw = String.raw`on \he{רציפה} $x$`;
+    expect(buildExportParts(raw, plainStyles(raw, 'ltr'), 'ltr')).toEqual([
+      'on ',
+      String.raw`\he{רציפה}`,
+      ' ',
+      '$x$',
+    ]);
   });
 
-  it('returns one empty text segment for an empty source', () => {
-    expect(parseSegments('')).toEqual([{ text: '', isMath: false }]);
+  it('keeps bold inside the language wrapper', () => {
+    const raw = String.raw`\en{word}`;
+    const styles = plainStyles(raw).map((s) => ({ ...s, bold: true }));
+    expect(buildExportParts(raw, styles)).toEqual([String.raw`\en{\textbf{word}}`]);
   });
 });
 
-describe('escaped dollar', () => {
+describe('buildExportParts escaped dollar', () => {
   it('reaches the HebrewMathLine part still escaped', () => {
     const raw = String.raw`המחיר הוא \$5 ולא $x$`;
     expect(buildExportParts(raw, plainStyles(raw))).toEqual([
       String.raw`המחיר הוא \$5 ולא `,
       '$x$',
     ]);
-  });
-
-  it('round-trips through reconstructLine', () => {
-    const raw = String.raw`עולה \$5 ו $a\$b$`;
-    expect(reconstructLine(parseSegments(raw))).toBe(raw);
   });
 });

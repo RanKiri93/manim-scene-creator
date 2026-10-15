@@ -20,3 +20,19 @@ describe('camera provider schema parity', () => {
     expect(AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items.anyOf).toHaveLength(3);
   });
 });
+
+describe('text line provider schema parity', () => {
+  it('declares baseDir and englishFont in canonical and Gemini create and update schemas', () => {
+    const actionItems = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items as unknown as { anyOf: { properties: Record<string, { properties?: Record<string, unknown> }> }[] };
+    const schemas = [
+      actionItems.anyOf[0]!.properties.item!.properties!,
+      actionItems.anyOf[1]!.properties.updates!.properties!,
+      GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties.item.properties as Record<string, unknown>,
+      GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties.updates.properties as Record<string, unknown>,
+    ];
+    for (const schema of schemas) {
+      expect(schema).toHaveProperty('baseDir');
+      expect(schema).toHaveProperty('englishFont');
+    }
+  });
+});

@@ -73,6 +73,8 @@ export const GEMINI_RESPONSE_SCHEMA = {
               targetWidth: { type: 'number', description: 'Positive absolute target camera width in Manim units.' },
               offsetX: { type: 'number', description: 'Optional finite horizontal offset from the frame center.' },
               offsetY: { type: 'number', description: 'Optional finite vertical offset from the frame center.' },
+              baseDir: { type: 'string', enum: ['rtl', 'ltr'], description: "textLine: 'ltr' for an English-base line (plain text is English, Hebrew is marked \\he{...}). Omit for the default right-to-left Hebrew line (English is marked \\en{...})." },
+              englishFont: { type: 'string', description: "textLine: font for English text. Omit to use the Hebrew font; 'Latin Modern Roman' = LaTeX default." },
               startTime: { type: 'number', description: 'Start time in seconds. For “now”, use frozen currentTimeSec.' },
               duration: { type: 'number', description: 'Transition duration in seconds, at least 0.05.' },
               axesId: {
@@ -465,6 +467,8 @@ export const GEMINI_RESPONSE_SCHEMA = {
               targetWidth: { type: 'number', description: 'camera_move UPDATE: positive absolute target frame width.' },
               offsetX: { type: 'number', description: 'camera_move UPDATE: finite horizontal offset.' },
               offsetY: { type: 'number', description: 'camera_move UPDATE: finite vertical offset.' },
+              baseDir: { type: 'string', enum: ['rtl', 'ltr'], description: "textLine: 'ltr' for an English-base line (plain text is English, Hebrew is marked \\he{...}). Omit for the default right-to-left Hebrew line (English is marked \\en{...})." },
+              englishFont: { type: 'string', description: "textLine: font for English text. Omit to use the Hebrew font; 'Latin Modern Roman' = LaTeX default." },
               startTime: { type: 'number', description: 'camera_move UPDATE: finite start time in seconds.' },
               duration: { type: 'number', description: 'camera_move UPDATE: transition duration, minimum 0.05 seconds.' },
             },

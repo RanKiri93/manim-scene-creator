@@ -9,12 +9,17 @@ interface SegmentEditorProps {
   segments: SegmentStyle[];
   /** Animation-only line duration; per-segment anim times sum to this. */
   animDuration: number;
+  /** Per segment, from the parsed source: `he`, `en` or `math`. */
+  kinds?: readonly ('he' | 'en' | 'math')[];
   onChange: (segments: SegmentStyle[]) => void;
 }
+
+const KIND_LABEL = { he: 'Hebrew', en: 'English', math: 'math' } as const;
 
 export default function SegmentEditor({
   segments,
   animDuration,
+  kinds,
   onChange,
 }: SegmentEditorProps) {
   if (segments.length === 0) {
@@ -35,7 +40,9 @@ export default function SegmentEditor({
             <span className={`truncate flex-1 ${seg.isMath ? 'text-kind-graph' : 'text-chalk-dim'}`}>
               {seg.isMath ? `$${seg.text}$` : seg.text}
             </span>
-            <span className="text-meta text-chalk-faint">{seg.isMath ? 'math' : 'text'}</span>
+            <span className="text-meta text-chalk-faint">
+              {kinds?.[i] ? KIND_LABEL[kinds[i]] : seg.isMath ? 'math' : 'text'}
+            </span>
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">

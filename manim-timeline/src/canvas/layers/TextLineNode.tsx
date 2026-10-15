@@ -8,6 +8,7 @@ import type {
   TextLineItem,
 } from '@/types/scene';
 import { resolveTextBlinkPieces } from '@/lib/blinkTextTargets';
+import { isRtlSegment, parseSegments } from '@/lib/textSegments';
 import { useDragSnap } from '@/canvas/hooks/useDragSnap';
 import type { TextSnapContext } from '@/canvas/hooks/useDragSnap';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
@@ -95,8 +96,9 @@ function segmentRevealDirection(
   item: TextLineItem,
   index: number,
 ): 'ltr' | 'rtl' {
-  const measuredKind = item.segmentMeasures?.[index]?.isMath;
-  if (typeof measuredKind === 'boolean') return measuredKind ? 'ltr' : 'rtl';
+  // Same order as export `line[i]`; English text and math write left to right.
+  const seg = parseSegments(item.raw, item.baseDir ?? 'rtl')[index];
+  if (seg) return isRtlSegment(seg) ? 'rtl' : 'ltr';
   return item.segments[index]?.isMath ? 'ltr' : 'rtl';
 }
 

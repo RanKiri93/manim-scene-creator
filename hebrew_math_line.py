@@ -63,6 +63,14 @@ class HebrewMathLine(VGroup):
             font_size=36,
         )
 
+    English inside a Hebrew line goes in ``\en{…}``; a mainly-English line
+    passes ``base_dir="ltr"`` and wraps Hebrew in ``\he{…}``.  English uses
+    the Hebrew font unless ``english_font`` is given (``"Latin Modern Roman"``
+    = the LaTeX default)::
+
+        line = HebrewMathLine(r"אם \en{the function $f$} רציפה", hebrew_font="Alef")
+        line = HebrewMathLine(r"The function is \he{רציפה}", base_dir="ltr")
+
     Access individual segments for styling / animation.  ``line[i]`` is
     the i-th segment in the order it was given (typed order), which is
     also reading order, so ``Write(line)`` reveals the line as it is read::
@@ -81,8 +89,23 @@ class HebrewMathLine(VGroup):
         tex_environment: str | None = "center",
         font_size: float = DEFAULT_FONT_SIZE,
         color: Any = WHITE,
+        base_dir: str = "rtl",
+        english_font: str | None = None,
         **kwargs: Any,
     ):
+        if base_dir not in ("rtl", "ltr"):
+            raise ValueError(f"base_dir must be 'rtl' or 'ltr', got {base_dir!r}")
+        self.base_dir = base_dir
+        self._base_lang = "en" if base_dir == "ltr" else "he"
+        self._tex_environment = tex_environment
+        self._target_color = color
+
+        # ── 1. Parse ────────────────────────────────────────────────
+        if len(args) == 1:
+            self.segments: list[Segment] = parse_segments(args[0], self._base_lang)
+        else:
+            self.segments = classify_segments(*args, base_lang=self._base_lang)
+
         if tex_template is not None:
             self._tex_template = tex_template
         else:
@@ -93,17 +116,15 @@ class HebrewMathLine(VGroup):
                 tmpl_kwargs["hebrew_font_scale"] = hebrew_font_scale
             if math_font is not None:
                 tmpl_kwargs["math_font"] = math_font
+            if self._uses_english():
+                # English font defaults to the Hebrew font so a mixed line reads as one typeface.
+                tmpl_kwargs["mixed_language"] = True
+                tmpl_kwargs["english_font"] = (
+                    english_font if english_font is not None else (hebrew_font or "David")
+                )
             self._tex_template = get_hebrew_tex_template(**tmpl_kwargs)
-        self._tex_environment = tex_environment
-        self._target_color = color
 
-        # ── 1. Parse ────────────────────────────────────────────────
-        if len(args) == 1:
-            self.segments: list[Segment] = parse_segments(args[0])
-        else:
-            self.segments = classify_segments(*args)
-
-        self.full_tex: str = reconstruct_line(self.segments)
+        self.full_tex: str = reconstruct_line(self.segments, self._base_lang)
 
         # ── 2. Compile each segment via phantom overlay ─────────────
         seg_mobs = self._compile_all_segments()
@@ -121,6 +142,15 @@ class HebrewMathLine(VGroup):
             self.center()
 
     # ── compilation internals ───────────────────────────────────────
+
+    def _uses_english(self) -> bool:
+        r"""Whether the line needs the language preamble (English run, LTR base, or a nested ``\en{}``)."""
+        if self._base_lang == "en":
+            return True
+        return any(
+            seg.lang == "en" or r"\en{" in seg.content or r"\he{" in seg.content
+            for seg in self.segments
+        )
 
     def _compile_all_segments(self) -> list[VMobject]:
         """Return one SVGMobject per segment, all in the same coordinate frame.
@@ -146,7 +176,7 @@ class HebrewMathLine(VGroup):
 
     def _compile_one_segment(self, idx: int) -> VMobject:
         """Compile the line with only segment *idx* visible (rest phantom)."""
-        phantom_src = generate_phantom_source(self.segments, visible=idx)
+        phantom_src = generate_phantom_source(self.segments, visible=idx, base_lang=self._base_lang)
         svg_file = tex_to_svg_file(
             phantom_src,
             environment=self._tex_environment,
@@ -179,9 +209,9 @@ class HebrewMathLine(VGroup):
     def _sort_glyphs_for_bidi(self) -> None:
         """Order glyphs inside each segment for direction-aware ``Write``.
 
-        * **TEXT** (Hebrew / RTL) segments: glyphs sorted right → left
-          so ``Write`` reveals them in natural Hebrew reading order.
-        * **MATH** (LTR) segments: glyphs sorted left → right (default).
+        * Hebrew text segments: glyphs sorted right → left so ``Write``
+          reveals them in natural Hebrew reading order.
+        * English text and math segments: glyphs sorted left → right.
 
         The segments themselves keep the order they were given in, so
         ``line[i]`` always matches the i-th parsed / passed segment.
@@ -189,7 +219,7 @@ class HebrewMathLine(VGroup):
         for seg, mob in zip(self.segments, self.submobjects):
             if not mob.submobjects:
                 continue
-            reverse = seg.is_text  # RTL for Hebrew text
+            reverse = seg.is_rtl
             mob.submobjects.sort(
                 key=lambda m: m.get_center()[0],
                 reverse=reverse,

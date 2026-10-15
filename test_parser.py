@@ -213,15 +213,46 @@ if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
 
 
-# ── parity with the editor's parser (manim-timeline/src/codegen/texUtils.ts) ──
+# ── parity with the editor's parser (manim-timeline/src/lib/textSegments.ts) ──
 
 def test_matches_shared_fixture():
     import json
     from pathlib import Path
 
-    path = Path(__file__).parent / "manim-timeline" / "src" / "codegen" / "__fixtures__" / "segmentParse.json"
+    path = Path(__file__).parent / "manim-timeline" / "src" / "lib" / "__fixtures__" / "segmentParse.json"
     cases = json.loads(path.read_text(encoding="utf-8"))
     assert cases
     for case in cases:
-        got = [{"text": s.content, "isMath": s.is_math} for s in parse_segments(case["raw"])]
+        base_lang = "en" if case.get("baseDir") == "ltr" else "he"
+        got = [
+            {"text": s.content, "isMath": s.is_math, "lang": s.lang}
+            for s in parse_segments(case["raw"], base_lang)
+        ]
         assert got == case["segments"], case["name"]
+
+
+def test_parts_round_trip_through_classify():
+    """The exporter's parts (segment_part) classify back to the same segments."""
+    from hebrew_math_parser import segment_part
+
+    for raw, base in [
+        (r"אם \en{the function $f$ || is continuous} אז $x>0$", "he"),
+        (r"on \he{רציפה || בקטע} $[a,b]$", "en"),
+    ]:
+        segs = parse_segments(raw, base)
+        parts = [segment_part(s, base) for s in segs]
+        assert classify_segments(*parts, base_lang=base) == segs
+
+
+def test_phantom_groups_foreign_run():
+    segs = parse_segments(r"אם \en{a || b} אז", "he")
+    assert generate_phantom_source(segs, visible=1) == (
+        r"\phantom{אם }\textenglish{a \phantom{ b}}\phantom{ אז}"
+    )
+
+
+def test_phantom_ltr_line_uses_english_environment():
+    segs = parse_segments(r"x \he{א}", "en")
+    assert generate_phantom_source(segs, visible=0, base_lang="en") == (
+        r"\begin{english}x \texthebrew{\phantom{א}}\end{english}"
+    )

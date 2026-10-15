@@ -6,7 +6,7 @@ import type { TextLineItem } from '@/types/scene';
 
 /**
  * Debounced measurement hook. Attach to the property panel:
- * whenever the inspected TextLineItem's raw/font/fontSize/segments change,
+ * whenever the inspected TextLineItem's raw/font/fontSize/baseDir/englishFont/segments change,
  * fire a measure request and write the result into the store.
  */
 export function useMeasureLine(item: TextLineItem | null) {
@@ -17,6 +17,8 @@ export function useMeasureLine(item: TextLineItem | null) {
   const raw = item?.raw;
   const font = item?.font;
   const fontSize = item?.fontSize;
+  const baseDir = item?.baseDir;
+  const englishFont = item?.englishFont;
   const segJson = item ? JSON.stringify(item.segments.map((s) => [s.color, s.bold, s.italic])) : '';
   const itemId = item?.id;
 
@@ -39,5 +41,5 @@ export function useMeasureLine(item: TextLineItem | null) {
 
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raw, font, fontSize, segJson, itemId, measureConfig.enabled, measureConfig.url, measureConfig.includePreview]);
+  }, [raw, font, fontSize, baseDir, englishFont, segJson, itemId, measureConfig.enabled, measureConfig.url, measureConfig.includePreview]);
 }

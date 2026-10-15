@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { parseSegments } from '@/codegen/texUtils';
+import { parseSegments } from '@/lib/textSegments';
+import type { TextBaseDir } from '@/types/scene';
 
 export interface SegmentMapperModalProps {
   open: boolean;
   onClose: () => void;
   sourceRaw: string;
   targetRaw: string;
+  sourceBaseDir?: TextBaseDir;
+  targetBaseDir?: TextBaseDir;
   /** target segment index -> source segment index */
   initialSegmentPairs: Record<number, number>;
   onApply: (segmentPairs: Record<number, number>) => void;
@@ -33,6 +36,8 @@ export default function SegmentMapperModal({
   onClose,
   sourceRaw,
   targetRaw,
+  sourceBaseDir = 'rtl',
+  targetBaseDir = 'rtl',
   initialSegmentPairs,
   onApply,
 }: SegmentMapperModalProps) {
@@ -41,8 +46,8 @@ export default function SegmentMapperModal({
   const targetRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [paths, setPaths] = useState<string[]>([]);
 
-  const sourceSegs = parseSegments(sourceRaw);
-  const targetSegs = parseSegments(targetRaw);
+  const sourceSegs = parseSegments(sourceRaw, sourceBaseDir);
+  const targetSegs = parseSegments(targetRaw, targetBaseDir);
 
   const [pairs, setPairs] = useState<{ source: number; target: number }[]>([]);
   const [dragSource, setDragSource] = useState<number | null>(null);

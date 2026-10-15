@@ -87,6 +87,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from io import BytesIO
+from typing import Literal
 
 import numpy as np
 from PIL import Image
@@ -105,7 +106,9 @@ except ImportError:  # older Manim CE: no ManimColor wrapper
 config.renderer = "cairo"
 
 from hebrew_math_line import HebrewMathLine
-from hebrew_math_parser import Segment, parse_segments
+from dataclasses import replace as dc_replace
+
+from hebrew_math_parser import Segment, parse_segments, segment_part
 
 # Set to False to disable LaTeX wrapping for bold/italic (instant rollback if TeX breaks).
 APPLY_TEX_BOLD_ITALIC: bool = True
@@ -132,6 +135,10 @@ class MeasureRequest(BaseModel):
     )
     hebrew_font: str | None = Field(None, description="Font passed to get_hebrew_tex_template")
     math_font: str | None = None
+    english_font: str | None = Field(
+        None, description="English font; None = same as the Hebrew font, 'Latin Modern Roman' = LaTeX default"
+    )
+    base_dir: Literal["rtl", "ltr"] = Field("rtl", description="Line base direction")
     font_size: float = 48.0
     include_preview: bool = Field(
         False,
@@ -358,12 +365,14 @@ def _wrap_segment_for_style(seg: Segment, bold: bool, italic: bool) -> Segment:
             c = rf"\textbf{{{c}}}"
         else:
             c = rf"\textit{{{c}}}"
-    return Segment(c, seg.seg_type)
+    return dc_replace(seg, content=c)
 
 
-def _segments_with_style_wraps(tex: str, styles: list[SegmentStyleIn] | None) -> list[Segment]:
+def _segments_with_style_wraps(
+    tex: str, styles: list[SegmentStyleIn] | None, base_lang: str = "he"
+) -> list[Segment]:
     """Same segment list as ``parse_segments(tex)``, with bold/italic LaTeX wraps applied per style."""
-    parsed = parse_segments(tex)
+    parsed = parse_segments(tex, base_lang)
     if not APPLY_TEX_BOLD_ITALIC or not styles:
         return parsed
     if not any(s.bold or s.italic for s in styles):
@@ -402,13 +411,17 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             kwargs["hebrew_font"] = req.hebrew_font
         if req.math_font is not None:
             kwargs["math_font"] = req.math_font
+        kwargs["base_dir"] = req.base_dir
+        if req.english_font is not None:
+            kwargs["english_font"] = req.english_font
+        base_lang = "en" if req.base_dir == "ltr" else "he"
 
         # Always the multi-arg form the exporter emits, so line[i] is segment i as typed.
         if req.parts:
             line = HebrewMathLine(*req.parts, **kwargs)
         else:
-            styled_segs = _segments_with_style_wraps(req.tex, req.segment_styles)
-            line = HebrewMathLine(*[s.latex for s in styled_segs], **kwargs)
+            styled_segs = _segments_with_style_wraps(req.tex, req.segment_styles, base_lang)
+            line = HebrewMathLine(*[segment_part(s, base_lang) for s in styled_segs], **kwargs)
         w = float(line.get_width())
         h = float(line.get_height())
 

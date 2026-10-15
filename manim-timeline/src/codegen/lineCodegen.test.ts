@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateLinePlay, generateLinePos, pickAudioTrackForClip } from './lineCodegen';
+import { generateLineDef, generateLinePlay, generateLinePos, pickAudioTrackForClip } from './lineCodegen';
 import { AUDIO_BINDING_NONE } from '@/lib/audioBinding';
 import type { AudioTrackItem, MeasureResult, TextLineItem } from '@/types/scene';
 
@@ -286,3 +286,45 @@ describe('pickAudioTrackForClip', () => {
   });
 });
 
+describe('generateLineDef language options', () => {
+  function withRaw(raw: string, patch: Partial<TextLineItem> = {}): TextLineItem {
+    return { ...textLine([{ kind: 'absolute' }]), raw, segments: [], ...patch };
+  }
+
+  it('emits no direction or English font for a default Hebrew line', () => {
+    expect(generateLineDef(withRaw('שלום'), 'line_1', 8)).toBe(
+      '        line_1 = HebrewMathLine(\n' +
+        '            "שלום",\n' +
+        '            font_size=36, hebrew_font="Alef",\n' +
+        '        )\n',
+    );
+  });
+
+  it('wraps English segments of a Hebrew line in an en wrapper', () => {
+    const code = generateLineDef(withRaw(String.raw`אם \en{the || function} אז`), 'line_1', 0);
+    // Python literals escape the backslash.
+    expect(code).toContain(String.raw`"\\en{the }",`);
+    expect(code).toContain(String.raw`"\\en{ function}",`);
+    expect(code).not.toContain('base_dir');
+  });
+
+  it('emits base_dir and english_font for a left-to-right line', () => {
+    const code = generateLineDef(
+      withRaw(String.raw`The function $f$ is \he{רציפה}`, {
+        baseDir: 'ltr',
+        englishFont: 'Latin Modern Roman',
+      }),
+      'line_1',
+      0,
+    );
+    expect(code).toBe(
+      'line_1 = HebrewMathLine(\n' +
+        '    "The function ",\n' +
+        '    "$f$",\n' +
+        '    " is ",\n' +
+        String.raw`    "\\he{רציפה}",` + '\n' +
+        '    font_size=36, hebrew_font="Alef", base_dir="ltr", english_font="Latin Modern Roman",\n' +
+        ')\n',
+    );
+  });
+});
