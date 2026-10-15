@@ -5,12 +5,14 @@ import type { ProviderId } from './providers';
 import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
 import { useSceneStore } from '@/store/useSceneStore';
 import { summarizeCameraProposal } from './cameraProposalSummary';
+import { signInWithChatgpt } from './providers/chatgptLoop';
 
 const PROVIDER_OPTIONS: { id: ProviderId; label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
   { id: 'anthropic', label: 'Anthropic' },
   { id: 'gemini', label: 'Google Gemini' },
   { id: 'customOpenAI', label: 'Custom (OpenAI-compatible)' },
+  { id: 'chatgpt', label: 'OpenAI via ChatGPT subscription' },
 ];
 
 export default function AgentPanel() {
@@ -588,6 +590,10 @@ function SettingsBlock({
         />
       </label>
 
+      {provider === 'chatgpt' ? (
+        <ChatgptAccount />
+      ) : (
+      <>
       <label className="flex flex-col gap-1">
         <span className="text-chalk-dim">API key</span>
         <input
@@ -633,6 +639,8 @@ function SettingsBlock({
           disabled={provider === 'anthropic'}
         />
       </label>
+      </>
+      )}
 
       <label className="flex items-center gap-2">
         <input
@@ -674,13 +682,14 @@ function LoopSettings({ provider }: { provider: ProviderId }) {
   const autoApply = useAgentStore((s) => s.autoApply);
   const updateSettings = useAgentStore((s) => s.updateSettings);
   const supported = provider !== 'gemini';
+  const loopOnly = provider === 'chatgpt';
   return (
     <>
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
-          checked={useToolLoop && supported}
-          disabled={!supported}
+          checked={(useToolLoop || loopOnly) && supported}
+          disabled={!supported || loopOnly}
           onChange={(e) => updateSettings({ useToolLoop: e.target.checked })}
           className="accent-highlight"
         />
@@ -695,7 +704,7 @@ function LoopSettings({ provider }: { provider: ProviderId }) {
         <input
           type="checkbox"
           checked={autoApply}
-          disabled={!supported || !useToolLoop}
+          disabled={!supported || (!useToolLoop && !loopOnly)}
           onChange={(e) => updateSettings({ autoApply: e.target.checked })}
           className="accent-highlight"
         />
@@ -705,5 +714,69 @@ function LoopSettings({ provider }: { provider: ProviderId }) {
         </span>
       </label>
     </>
+  );
+}
+
+/** Sign-in for the ChatGPT-subscription provider (through the measure server). */
+function ChatgptAccount() {
+  const auth = useAgentStore((s) => s.chatgptAuth);
+  const updateSettings = useAgentStore((s) => s.updateSettings);
+  const measureUrl = useSceneStore((s) => s.measureConfig.url);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const signIn = async () => {
+    setBusy(true);
+    setError(null);
+    // Open the window now, while the click still counts as a user gesture; point it at the
+    // OpenAI page once the measure server has made the URL.
+    const popup = window.open('', 'chatgpt-sign-in', 'width=520,height=720');
+    try {
+      const tokens = await signInWithChatgpt(measureUrl, (url) => {
+        if (popup) popup.location.href = url;
+        else window.open(url, '_blank');
+      });
+      updateSettings({ chatgptAuth: tokens });
+    } catch (e) {
+      popup?.close();
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-chalk-dim">ChatGPT account</span>
+      {auth ? (
+        <div className="flex items-center gap-2">
+          <span className="text-chalk min-w-0 truncate" dir="auto">
+            {auth.email ?? 'Signed in'}
+            {auth.plan ? <span className="text-chalk-faint"> · {auth.plan}</span> : null}
+          </span>
+          <button
+            type="button"
+            onClick={() => updateSettings({ chatgptAuth: null })}
+            className="ml-auto px-2 py-0.5 bg-raised hover:bg-rule rounded-ctl border border-rule"
+          >
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void signIn()}
+          className="self-start px-3 py-1 bg-highlight font-semibold text-highlight-ink enabled:hover:bg-highlight/90 rounded-ctl disabled:opacity-60"
+        >
+          {busy ? 'Waiting for sign-in…' : 'Sign in with ChatGPT'}
+        </button>
+      )}
+      {error && <span className="text-meta text-danger break-words">{error}</span>}
+      <span className="text-meta text-chalk-faint">
+        Uses your ChatGPT plan through the Codex sign-in (like OpenCode); needs the measure server.
+        Tokens stay in this browser&apos;s localStorage. Set the model to one your plan offers in Codex.
+      </span>
+    </div>
   );
 }

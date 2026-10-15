@@ -1,7 +1,7 @@
 import { createOpenAIProvider } from './openai';
 import { createAnthropicProvider } from './anthropic';
 import { createGeminiProvider } from './gemini';
-import type { AgentProvider, ProviderConfig } from './types';
+import { AgentProviderError, type AgentProvider, type ProviderConfig } from './types';
 import type { LoopProvider } from '../loop/types';
 import { createAnthropicLoopProvider } from './anthropicLoop';
 import { createOpenAILoopProvider } from './openaiLoop';
@@ -20,6 +20,13 @@ export function getProvider(cfg: ProviderConfig): AgentProvider {
       return createAnthropicProvider(cfg);
     case 'gemini':
       return createGeminiProvider(cfg);
+    case 'chatgpt':
+      return {
+        id: 'chatgpt',
+        generate: async () => {
+          throw new AgentProviderError('The ChatGPT subscription works only with "Check its own work" (the tool loop).');
+        },
+      };
     default:
       return createOpenAIProvider(cfg);
   }

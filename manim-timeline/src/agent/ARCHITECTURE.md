@@ -586,6 +586,16 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   (`loop/manimFrame.ts`) and call `POST /api/render_frame` (low-quality render + ffmpeg frame grab).
   Anthropic gets the PNG as an image block inside the tool result; OpenAI as a user message after the
   tool messages.
+- **ChatGPT subscription (`chatgpt`).** `providers/chatgptLoop.ts`: Responses-format conversation
+  sent to the measure server (`/api/chatgpt/responses`), which adds the Codex instructions and
+  forwards to the ChatGPT Codex backend (`chatgpt_auth.py`). Our system prompt is a `developer`
+  message; output items (reasoning with encrypted content, function calls) are replayed without ids
+  (`store: false`); tool results are `function_call_output` items, images a following user message.
+  Tokens (`chatgptAuth` in the persisted settings) are refreshed 2 minutes before expiry and once
+  more after a 401. Sign-in: `signInWithChatgpt` → `/api/chatgpt/login/start` (PKCE, listener on
+  `localhost:1455`) → poll `/login/status`. This provider always runs the loop
+  (`getProvider('chatgpt')` refuses single-shot). It relies on the Codex CLI's OAuth client and
+  backend, which are undocumented and may change.
 - **Prompt.** `buildSystemPrompt(rules, 'loop')` swaps the JSON-envelope section for
   `LOOP_FORMAT_SECTION`; the rules are shared.
 - **Store / UI.** While the loop runs, `draftActions` drives the canvas preview (`previewSelectors`) and

@@ -18,6 +18,7 @@ import { runAgentLoop } from './loop/runAgentLoop';
 import { loopToolSpecs } from './loop/tools';
 import { loopToolEnv } from './loop/env';
 import type { LoopLogEntry, LoopProvider } from './loop/types';
+import { createChatgptLoopProvider, DEFAULT_CHATGPT_MODEL, type ChatgptAuth } from './providers/chatgptLoop';
 import { DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
 import { DEFAULT_OPENAI_MODEL } from './providers/openai';
 import { resolveCameraRequests } from './cameraRequests';
@@ -36,6 +37,8 @@ export interface AgentSettings extends ProviderConfig {
   useToolLoop: boolean;
   /** Apply the loop's finished draft immediately as one undo step instead of waiting for Approve. */
   autoApply: boolean;
+  /** ChatGPT-subscription sign-in (provider `chatgpt`); kept in localStorage like API keys. */
+  chatgptAuth: ChatgptAuth | null;
 }
 
 /** Cap on persisted message history to keep localStorage bounded. */
@@ -85,6 +88,7 @@ const INITIAL_SETTINGS: AgentSettings = {
   showThinking: true,
   useToolLoop: true,
   autoApply: true,
+  chatgptAuth: null,
 };
 
 function nextId(prefix: string): string {
@@ -248,14 +252,22 @@ export const useAgentStore = create<AgentStoreShape>()(
         const lastUserIdx = messages.lastIndexOf(lastUser);
         const history = messages.slice(0, lastUserIdx);
 
-        const loopProvider = state.useToolLoop
-          ? getLoopProvider({
-              provider: state.provider,
-              apiKey: state.apiKey,
-              baseUrl: state.baseUrl,
-              model: state.model,
-            })
-          : null;
+        const loopProvider =
+          state.provider === 'chatgpt'
+            ? createChatgptLoopProvider({
+                model: state.model,
+                measureUrl: sceneState.measureConfig.url,
+                getAuth: () => get().chatgptAuth,
+                saveAuth: (chatgptAuth) => set({ chatgptAuth }),
+              })
+            : state.useToolLoop
+              ? getLoopProvider({
+                  provider: state.provider,
+                  apiKey: state.apiKey,
+                  baseUrl: state.baseUrl,
+                  model: state.model,
+                })
+              : null;
         if (loopProvider) {
           await runLoopTurn(loopProvider, {
             controller,
@@ -505,6 +517,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         showThinking: s.showThinking,
         useToolLoop: s.useToolLoop,
         autoApply: s.autoApply,
+        chatgptAuth: s.chatgptAuth,
         messages: s.messages.slice(-MAX_PERSISTED_MESSAGES),
         activePreviewMessageId: s.activePreviewMessageId,
       }),
@@ -542,6 +555,10 @@ function pickDefaultModel(provider: ProviderId, current: string): string {
   if (provider === 'openai') {
     if (current.startsWith('gpt-') || /^o\d/.test(current)) return current;
     return DEFAULT_OPENAI_MODEL;
+  }
+  if (provider === 'chatgpt') {
+    if (current.startsWith('gpt-')) return current;
+    return DEFAULT_CHATGPT_MODEL;
   }
   if (provider === 'gemini') {
     if (current.startsWith('gemini-')) return current;

@@ -148,6 +148,20 @@ Snapshots still show the axes' editor chrome drawn by `GraphNode.tsx` (someone e
 moving dot, R5 emphasise then remove, R6 sequencing; R7 (loop only) check before finishing. Appended
 by `buildSystemPrompt` in both modes; test in `systemPrompt.test.ts`.
 
+**Step 7.** Provider `chatgpt` ("OpenAI via ChatGPT subscription"): `chatgpt_auth.py` (PKCE sign-in
+with the Codex public client, one-shot callback listener on `localhost:1455`, refresh, Codex
+instructions fetched from the latest `openai/codex` release and cached an hour, SSE forwarder) and
+routes in `measure_server.py`; `providers/chatgptLoop.ts`, settings sign-in UI, store
+`chatgptAuth`. Tokens only in browser localStorage; the server keeps them in memory during sign-in.
+Checked: `test_chatgpt_auth.py` (8) + the two gate files = 49 passed; `/health` ok; sign-in start /
+status / failed-callback path exercised for real; `/api/chatgpt/responses` with a fake token reaches
+chatgpt.com and returns its 401 (so the Codex instructions download and the request path work);
+vitest for request shape, token refresh, 401 retry and sign-in polling. **Not verified:** a real
+sign-in and a real model call (needs the user's ChatGPT account; the OpenAI sign-in page shows a
+Cloudflare check to headless browsers). Default model `gpt-5.2`; the user may need a newer one their
+plan offers in Codex. Suggest adding `test_chatgpt_auth.py` to the server gate in AGENTS.md (not
+edited here: AGENTS.md has someone else's uncommitted changes).
+
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)

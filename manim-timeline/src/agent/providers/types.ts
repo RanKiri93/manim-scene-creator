@@ -33,7 +33,8 @@ export interface AgentProvider {
   generate(input: ProviderGenerateInput): Promise<RawAgentResponse>;
 }
 
-export type ProviderId = 'openai' | 'anthropic' | 'gemini' | 'customOpenAI';
+/** `chatgpt` = OpenAI through a ChatGPT subscription (sign-in via the measure server; tool loop only). */
+export type ProviderId = 'openai' | 'anthropic' | 'gemini' | 'customOpenAI' | 'chatgpt';
 
 /** Persisted settings shape; one active provider at a time. */
 export interface ProviderConfig {

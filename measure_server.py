@@ -1033,7 +1033,7 @@ def _snap_boundaries_to_onsets(
 
 
 try:
-    from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+    from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
@@ -2509,6 +2509,49 @@ try:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # ── Copilot: OpenAI through a ChatGPT subscription (see chatgpt_auth.py) ──
+    import chatgpt_auth
+
+    class ChatgptRefreshRequest(BaseModel):
+        refresh_token: str = Field(..., min_length=1)
+
+    @app.post("/api/chatgpt/login/start")
+    def chatgpt_login_start() -> dict[str, str]:
+        try:
+            return chatgpt_auth.start_login()
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
+
+    @app.get("/api/chatgpt/login/status")
+    def chatgpt_login_status(state: str) -> dict:
+        return chatgpt_auth.login_status(state)
+
+    @app.post("/api/chatgpt/refresh")
+    def chatgpt_refresh(req: ChatgptRefreshRequest) -> dict:
+        try:
+            return chatgpt_auth.refresh_tokens(req.refresh_token)
+        except RuntimeError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from None
+
+    @app.post("/api/chatgpt/responses")
+    def chatgpt_responses(
+        body: dict,
+        authorization: str = Header(...),
+        chatgpt_account_id: str = Header(..., alias="chatgpt-account-id"),
+    ) -> dict:
+        """Forward one Responses request to the ChatGPT Codex backend; return the final response."""
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            raise HTTPException(status_code=401, detail="Missing ChatGPT access token")
+        try:
+            return chatgpt_auth.send_responses(body, token, chatgpt_account_id)
+        except PermissionError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from None
 
     class RenderRequest(BaseModel):
         python_code: str = Field(..., description="Full Manim scene Python source")
