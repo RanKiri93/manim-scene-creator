@@ -213,7 +213,7 @@ interface PreviewState {
 
 **`ensureTextLineSegments`** (added in `commit.ts`): when a `textLine` arrives with `raw` set but `segments: []`, it calls `parseSegments(raw, baseDir)` (`src/lib/textSegments.ts`) and `createSegmentStyle(...)` to populate the segments array before the item reaches the store. This mirrors `LineEditor.onRawChange` so that segment styling can be applied in a subsequent turn immediately after approval, without the user having to touch the LaTeX source field manually. Text segments default to `color: "#ffffff"`; math segments default to `color: defaults.mathColor` (`"#00FFFF"` by default).
 
-The message's `actionsStatus` flips to `'approved'` and `activePreviewMessageId` is cleared. `rejectMessage(id)` flips to `'rejected'` without committing. Each commit call produces its own `zundo` snapshot today. Batching to a single undo entry is an open TODO noted in the file.
+The message's `actionsStatus` flips to `'approved'` and `activePreviewMessageId` is cleared. `rejectMessage(id)` flips to `'rejected'` without committing. The whole batch is **one undo entry**: `commitActions` pauses zundo, applies every action, resumes, and pushes the pre-batch state once (nothing is pushed when the batch changed nothing).
 
 ---
 
@@ -248,7 +248,7 @@ Each provider is responsible for turning `{payload, systemPrompt, history, userP
 ### 6.2 OpenAI & Anthropic
 
 - **OpenAI** uses Chat Completions with `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema: AGENT_CHAT_RESPONSE_JSON_SCHEMA } }`. The response body is a JSON string that parses directly into `AgentChatResponse`. Historical assistant turns are re-emitted as `{role:'assistant', content: JSON.stringify({reply, actions})}`. When `includeThinking` is true and the selected model matches the o-series / gpt-5 family (`supportsReasoning`), the adapter sets `reasoning_effort: 'medium'` and surfaces any `reasoning_content` / `reasoning.summary` returned by the endpoint as `thinking`.
-- **Anthropic** uses the Messages API with a single tool (`emit_response`) whose `input_schema` is `AGENT_CHAT_RESPONSE_JSON_SCHEMA`, then forces `tool_choice: { type: 'tool', name: 'emit_response' }`. We read `content[*].input` for the first matching `tool_use` block. Historical assistant turns are re-emitted as a `tool_use` block with the original envelope (filtered per §6.1); Anthropic requires a following `tool_result` block, so we synthesize a trivial `"ok"` result on the next user turn. When `includeThinking` is true and the model supports extended thinking (claude-3.7 / claude-4 family), the adapter enables `thinking: {type:'enabled', budget_tokens: 4000}` and concatenates any returned `thinking` content blocks into the `thinking` field.
+- **Anthropic** uses the Messages API with a single tool (`emit_response`) whose `input_schema` is `AGENT_CHAT_RESPONSE_JSON_SCHEMA`. Without thinking it forces `tool_choice: { type: 'tool', name: 'emit_response' }`; with thinking it uses `tool_choice: auto` (the API rejects a forced tool together with extended thinking) and accepts a plain-text or fenced-JSON answer as a fallback. `thinkingModesFor(model)` tries `thinking: {type:'adaptive'}` on Claude 4.6+ / 5, then `enabled` with a 4000-token budget, then no thinking, moving on only when the API answers 400 about the thinking field. `max_tokens` is 16000 (plus the budget). We read `content[*].input` for the first matching `tool_use` block. Historical assistant turns are re-emitted as a `tool_use` block with the original envelope (filtered per §6.1); Anthropic requires a following `tool_result` block, so we synthesize a trivial `"ok"` result on the next user turn. When `includeThinking` is true and the model supports extended thinking (claude-3.7 / claude-4 family), the adapter enables `thinking: {type:'enabled', budget_tokens: 4000}` and concatenates any returned `thinking` content blocks into the `thinking` field.
 - **customOpenAI** reuses the OpenAI adapter; the `baseUrl` setting lets you point at any OpenAI-compatible endpoint (vLLM, LM Studio, proxies, etc.).
 
 Both providers accept the canonical schema verbatim (they understand `const`, `additionalProperties`, and `oneOf`).
@@ -312,6 +312,14 @@ Real LLM responses are noisy. The validator has two responsibilities:
 
 1. **Fail loudly** on anything genuinely wrong (bad ids, dangling `axesId`, UI-field leakage, disallowed kinds, `id`/`kind` mutations via UPDATE).
 2. **Silently fix** common hallucinations that do not carry semantic ambiguity. These rescues are what turn `gemini-2.5-flash` and similarly flaky models into something usable.
+
+### 7.0 Guard rails
+
+- An unknown `target_animation.mode` (CREATE or UPDATE) is an error; only a missing mode defaults to `scale`.
+- UPDATE is only allowed on kinds in `AGENT_ALLOWED_KINDS`; DELETE works on any kind.
+- UPDATE keys that are neither on the stored item nor in the kind's known optional fields
+  (`knownUpdateFields`) are dropped and reported as `warnings` on the ok result; the panel shows them
+  under the reply.
 
 ### 7.1 Pre-pass auto-repairs
 
@@ -518,7 +526,6 @@ Segment indices are in **parse order** (left to right in `raw`), even though Heb
 
 - Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence`; `graphArea` / `graphField` remain UI-only.
 - The Copilot is frame-aware in context (frame catalog + active frame in the payload, `frameId` validated per §7.5), but there are no dedicated frame actions yet — no `CREATE_FRAME` / `UPDATE_FRAME`, and no agent-driven camera panning between frames.
-- Each approved action produces its own `zundo` snapshot rather than one batched undo entry.
 - No token streaming: the UI shows a "Thinking…" indicator and waits for the full response. Reasoning/thinking output is surfaced as a collapsible block only after the turn completes.
 - The full chat history is re-sent on every turn; token usage grows linearly with conversation length. `MAX_PERSISTED_MESSAGES` (100) caps the persisted log but does not summarize older turns — long conversations may need a manual "New chat".
 - When a prior proposal is rejected or superseded, the model only sees a short parenthetical note in the re-sent assistant turn rather than the full diff of what was proposed. If this causes the model to re-propose the same edit, consider expanding the note to include the action list.

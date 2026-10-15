@@ -1904,3 +1904,50 @@ describe('textLine base direction and English font', () => {
     expect('baseDir' in act.updates && act.updates.baseDir).toBeUndefined();
   });
 });
+
+describe('validator guard rails', () => {
+  it('rejects an unknown target_animation mode instead of turning it into scale', () => {
+    const result = validateAgentResponse(
+      {
+        reply: 'wiggle',
+        actions: [{ action: 'CREATE', item: { id: 'ta1', kind: 'target_animation', label: 'x', mode: 'wiggle', startTime: 1, duration: 1, targets: [{ targetId: 'tl1' }] } }],
+      },
+      new Map<string, SceneItem>([['tl1', textLine('tl1')]]),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(' ')).toMatch(/"wiggle" is not a target_animation mode/);
+  });
+
+  it('rejects an UPDATE that switches a clip to an unknown mode', () => {
+    const clip = { id: 'ta1', kind: 'target_animation', label: '', layer: 0, startTime: 1, duration: 1, mode: 'scale', targets: [{ targetId: 'tl1' }] } as SceneItem;
+    const result = validateAgentResponse(
+      { reply: 'x', actions: [{ action: 'UPDATE', itemId: 'ta1', updates: { mode: 'spin' } }] },
+      new Map<string, SceneItem>([['tl1', textLine('tl1')], ['ta1', clip]]),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses UPDATE of a kind the Copilot may not create, but allows DELETE', () => {
+    const image = { id: 'img1', kind: 'image', label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], srcUrl: '', fileName: 'a.png', mimeType: 'image/png', width: 1, height: 1, opacity: 1, rotationDeg: 0 } as SceneItem;
+    const items = new Map<string, SceneItem>([['img1', image]]);
+    const update = validateAgentResponse({ reply: 'x', actions: [{ action: 'UPDATE', itemId: 'img1', updates: { opacity: 0.5 } }] }, items);
+    expect(update.ok).toBe(false);
+    if (!update.ok) expect(update.errors[0]).toMatch(/may not edit/);
+    const del = validateAgentResponse({ reply: 'x', actions: [{ action: 'DELETE', itemId: 'img1' }] }, items);
+    expect(del.ok).toBe(true);
+  });
+
+  it('drops unknown UPDATE fields with a warning and keeps known ones', () => {
+    const result = validateAgentResponse(
+      { reply: 'x', actions: [{ action: 'UPDATE', itemId: 'tl1', updates: { fontSize: 40, sparkle: true } }] },
+      new Map<string, SceneItem>([['tl1', textLine('tl1')]]),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    expect(act.updates).toEqual({ fontSize: 40 });
+    expect(result.warnings).toEqual(['actions[0].updates.sparkle is not a textLine field and was ignored.']);
+  });
+});

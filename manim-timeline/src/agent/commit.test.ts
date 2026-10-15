@@ -297,3 +297,32 @@ describe('commitActions — textLine source updates', () => {
     expect(bl.targets[0]!.segmentIndices).toEqual([2]);
   });
 });
+
+describe('commitActions undo', () => {
+  beforeEach(() => {
+    resetStore();
+    useSceneStore.temporal.setState({ pastStates: [], futureStates: [] });
+  });
+
+  it('records a whole approved proposal as one undo step', () => {
+    makeAxes('ax0');
+    useSceneStore.temporal.setState({ pastStates: [], futureStates: [] });
+    commitActions([
+      { action: 'CREATE', item: { id: 'ax1', kind: 'axes', label: '', layer: 0, startTime: 0, duration: 2, x: 0, y: 0, scale: 1, scaleX: 1, scaleY: 1, posSteps: [{ kind: 'absolute' }], audioTrackId: null, xRange: [0, 1, 0.5], yRange: [0, 1, 0.5], xLabel: 'x', yLabel: 'y', includeNumbers: false, includeTip: true } },
+      { action: 'UPDATE', itemId: 'ax1', updates: { duration: 3 } },
+      { action: 'DELETE', itemId: 'ax0' },
+    ] as never);
+    const s = useSceneStore.getState();
+    expect(s.items.has('ax1')).toBe(true);
+    expect(s.items.has('ax0')).toBe(false);
+    expect(useSceneStore.temporal.getState().pastStates).toHaveLength(1);
+    useSceneStore.temporal.getState().undo();
+    expect(useSceneStore.getState().items.has('ax1')).toBe(false);
+    expect(useSceneStore.getState().items.has('ax0')).toBe(true);
+  });
+
+  it('records nothing when the proposal changes nothing', () => {
+    commitActions([{ action: 'DELETE', itemId: 'missing' }]);
+    expect(useSceneStore.temporal.getState().pastStates).toHaveLength(0);
+  });
+});

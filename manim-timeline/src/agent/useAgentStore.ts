@@ -12,6 +12,8 @@ import {
   type ProviderId,
 } from './providers';
 import type { AgentChatMessage } from './types';
+import { DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
+import { DEFAULT_OPENAI_MODEL } from './providers/openai';
 import { resolveCameraRequest } from './cameraRequests';
 
 export type AgentStatus = 'idle' | 'loading' | 'error';
@@ -59,7 +61,7 @@ const INITIAL_SETTINGS: AgentSettings = {
   provider: 'openai',
   apiKey: '',
   baseUrl: '',
-  model: 'gpt-4o-mini',
+  model: DEFAULT_OPENAI_MODEL,
   customRules: '',
   showThinking: true,
 };
@@ -184,6 +186,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             role: 'assistant',
             content: resp.reply,
             ...(resp.thinking ? { thinking: resp.thinking } : {}),
+            ...(result.warnings.length ? { warnings: result.warnings } : {}),
             ...(hasActions
               ? {
                   actions: resp.actions,
@@ -355,19 +358,23 @@ export const useAgentStore = create<AgentStoreShape>()(
         messages: s.messages.slice(-MAX_PERSISTED_MESSAGES),
         activePreviewMessageId: s.activePreviewMessageId,
       }),
-      version: 2,
+      version: 3,
       migrate: (persisted, fromVersion) => {
+        let state = (persisted ?? {}) as Partial<AgentStoreShape>;
         // v1 persisted only the provider settings; chat state starts empty.
         if (fromVersion < 2) {
-          const prev = (persisted ?? {}) as Partial<AgentSettings>;
-          return {
+          state = {
             ...INITIAL_SETTINGS,
-            ...prev,
+            ...(state as Partial<AgentSettings>),
             messages: [],
             activePreviewMessageId: null,
           };
         }
-        return persisted as Partial<AgentStoreShape>;
+        // v3: the old default models were retired.
+        if (fromVersion < 3 && typeof state.model === 'string' && RETIRED_DEFAULT_MODELS[state.model]) {
+          state = { ...state, model: RETIRED_DEFAULT_MODELS[state.model] };
+        }
+        return state;
       },
     },
   ),
@@ -380,18 +387,24 @@ export const useAgentStore = create<AgentStoreShape>()(
 function pickDefaultModel(provider: ProviderId, current: string): string {
   if (provider === 'anthropic') {
     if (current.startsWith('claude-')) return current;
-    return 'claude-3-5-sonnet-latest';
+    return DEFAULT_ANTHROPIC_MODEL;
   }
   if (provider === 'openai') {
-    if (current.startsWith('gpt-') || current.startsWith('o')) return current;
-    return 'gpt-4o-mini';
+    if (current.startsWith('gpt-') || /^o\d/.test(current)) return current;
+    return DEFAULT_OPENAI_MODEL;
   }
   if (provider === 'gemini') {
     if (current.startsWith('gemini-')) return current;
     return 'gemini-2.5-flash';
   }
-  return current || 'gpt-4o-mini';
+  return current || DEFAULT_OPENAI_MODEL;
 }
+
+/** Former built-in defaults that are retired or far behind; replaced on load. */
+const RETIRED_DEFAULT_MODELS: Record<string, string> = {
+  'claude-3-5-sonnet-latest': DEFAULT_ANTHROPIC_MODEL,
+  'gpt-4o-mini': DEFAULT_OPENAI_MODEL,
+};
 
 function cameraContextKey(items: Map<string, import('@/types/scene').SceneItem>, frames: readonly import('@/types/scene').FrameDef[], startFrameId: string | null): string {
   const serialized = [...items.values()].sort((a, b) => a.id.localeCompare(b.id)).map((item) => {

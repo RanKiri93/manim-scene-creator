@@ -16,17 +16,37 @@ import { parseSegments } from '@/lib/textSegments';
 import { createSegmentStyle } from '@/store/factories';
 import type { AgentAction } from './types';
 
+/** Same cap as the store's zundo `limit`. */
+const UNDO_LIMIT = 50;
+
 /**
  * Apply a validated list of agent actions to the main scene store. Actions are
  * applied in the order the agent emitted them so it can express dependencies
  * (e.g. create an axes before a graphPlot that references it, or create an item
- * and then update it in the same batch). Each action triggers one zundo
- * snapshot — batching into a single undo entry is a future follow-up.
+ * and then update it in the same batch). The whole batch is one undo entry:
+ * history is paused while it applies, then the pre-batch state is pushed once.
  *
  * We re-read `getState()` for every action so UPDATE / DELETE see the mutations
  * made by earlier CREATEs in the same batch, not a stale initial snapshot.
  */
 export function commitActions(actions: AgentAction[]): void {
+  const before = useSceneStore.getState();
+  const history = useSceneStore.temporal.getState();
+  history.pause();
+  try {
+    applyActions(actions);
+  } finally {
+    history.resume();
+  }
+  if (useSceneStore.getState() !== before) {
+    useSceneStore.temporal.setState((t) => ({
+      pastStates: [...t.pastStates, before].slice(-UNDO_LIMIT),
+      futureStates: [],
+    }));
+  }
+}
+
+function applyActions(actions: AgentAction[]): void {
   for (const action of actions) {
     const s = useSceneStore.getState();
     if (action.action === 'CREATE') {

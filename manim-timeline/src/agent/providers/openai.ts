@@ -9,7 +9,7 @@ import {
 } from './types';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.1';
 
 /**
  * OpenAI Chat Completions provider that uses Structured Outputs via
@@ -26,7 +26,7 @@ const DEFAULT_MODEL = 'gpt-4o-mini';
  */
 export function createOpenAIProvider(cfg: ProviderConfig): AgentProvider {
   const baseUrl = (cfg.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
-  const model = cfg.model || DEFAULT_MODEL;
+  const model = cfg.model || DEFAULT_OPENAI_MODEL;
 
   return {
     id: cfg.provider === 'customOpenAI' ? 'customOpenAI' : 'openai',

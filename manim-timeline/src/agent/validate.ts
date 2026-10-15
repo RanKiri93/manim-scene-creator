@@ -47,7 +47,7 @@ import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from
 import type { CameraMoveItem } from '@/types/scene';
 
 export type ValidationResult =
-  | { ok: true; response: AgentChatResponse }
+  | { ok: true; response: AgentChatResponse; warnings: string[] }
   | { ok: false; errors: string[] };
 
 /**
@@ -99,6 +99,8 @@ export function validateAgentResponse(
   frameCtx?: AgentFrameContext,
 ): ValidationResult {
   const errors: string[] = [];
+  /** Non-fatal repairs (dropped unknown fields …) the model should hear about. */
+  const warnings: string[] = [];
 
   if (!raw || typeof raw !== 'object') {
     return { ok: false, errors: ['Response is not an object.'] };
@@ -141,6 +143,7 @@ export function validateAgentResponse(
 
   const plannedCreates = new Map<ItemId, SceneItem['kind']>(); // id -> kind
   const plannedCreateRaw = new Map<ItemId, unknown>(); // id -> raw item for dedup
+  const plannedCreateNormalized = new Map<ItemId, SceneItem>();
   const normalizedActions: AgentAction[] = [];
 
   rawActions.forEach((raw, idx) => {
@@ -200,6 +203,7 @@ export function validateAgentResponse(
       }
       plannedCreates.set(id, normalized.kind);
       plannedCreateRaw.set(id, item);
+      plannedCreateNormalized.set(id, normalized);
       normalizedActions.push({ action: 'CREATE', item: normalized });
       return;
     }
@@ -237,6 +241,12 @@ export function validateAgentResponse(
       }
       const targetKind =
         currentItems.get(itemId)?.kind ?? plannedCreates.get(itemId) ?? '';
+      if (!isAgentAllowedKind(targetKind)) {
+        errors.push(
+          `${prefix}: UPDATE target "${itemId}" is a ${targetKind || 'unknown item'}, which the Copilot may not edit (allowed: ${AGENT_ALLOWED_KINDS.join(', ')}). It can still be deleted.`,
+        );
+        return;
+      }
       if (targetKind === 'camera_move') {
         for (const key of ['targetMode', 'targetId', 'region']) if (key in updates) {
           errors.push(`${prefix}.updates.${key} is request-only and cannot be persisted; use the resolved camera destination fields.`);
@@ -263,6 +273,17 @@ export function validateAgentResponse(
           );
           return;
         }
+      }
+      const known = knownUpdateFields(
+        targetKind,
+        currentItems.get(itemId) ?? plannedCreateNormalized.get(itemId),
+      );
+      for (const key of Object.keys(updates)) {
+        if (known.has(key)) continue;
+        delete (updates as Record<string, unknown>)[key];
+        warnings.push(
+          `${prefix}.updates.${key} is not a ${targetKind} field and was ignored.`,
+        );
       }
       normalizedActions.push({
         action: 'UPDATE',
@@ -450,7 +471,52 @@ export function validateAgentResponse(
       actions: normalizedActions,
       ...(thinking ? { thinking } : {}),
     },
+    warnings,
   };
+}
+
+/** Optional fields a kind may carry even when the stored item omits them. */
+const COMMON_OPTIONAL_FIELDS = [
+  'frameId',
+  'visibleAtSceneStart',
+  'audioTrackId',
+  'label',
+  'layer',
+  'startTime',
+  'duration',
+  'posSteps',
+  'x',
+  'y',
+  'scale',
+];
+const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string[]>> = {
+  textLine: ['snapBuffer', 'baseDir', 'englishFont', 'animStyle', 'transformConfig', 'raw', 'segments', 'font', 'fontSize'],
+  axes: [
+    'axisColor', 'axisStrokeWidth', 'tickLength', 'tickColor', 'tickStrokeWidth', 'numberColor',
+    'numberFontSize', 'tipShape', 'tipHeight', 'tipWidth', 'tipStrokeWidth', 'tipFillOpacity', 'tipLength',
+    'xRange', 'yRange', 'scaleX', 'scaleY', 'xLabel', 'yLabel', 'includeNumbers', 'includeTip',
+  ],
+  graphPlot: ['lineStyle', 'fn', 'xDomain', 'color', 'strokeWidth'],
+  graphCurve: ['lineStyle', 'curve', 'tDomain', 'color', 'strokeWidth', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr'],
+  graphDot: ['dot', 'axesId'],
+  graphFunctionSeries: ['displayMode', 'perN', 'defaults', 'jsExpr', 'pyExpr', 'nMin', 'nMax', 'mode', 'xDomain'],
+  graphPointSequence: ['perN', 'defaults', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr', 'nMin', 'nMax', 'mode'],
+  shape: ['endpoints'],
+  surroundingRect: ['segmentIndices', 'runTime'],
+  target_animation: ['targets', 'mode'],
+  exit_animation: ['targets'],
+  blink_animation: ['targets', 'repetitions'],
+  camera_move: ['offsetX', 'offsetY', 'targetFrameId', 'targetWidth'],
+};
+
+/** Field names an UPDATE may set on an item of this kind. */
+function knownUpdateFields(kind: string, existing: SceneItem | undefined): Set<string> {
+  const known = new Set<string>(COMMON_OPTIONAL_FIELDS);
+  for (const key of OPTIONAL_FIELDS_BY_KIND[kind as SceneItem['kind']] ?? []) known.add(key);
+  if (existing) for (const key of Object.keys(existing)) known.add(key);
+  known.delete('id');
+  known.delete('kind');
+  return known;
 }
 
 // ── Per-kind normalizers ─────────────────────────────────────────────────
@@ -1015,6 +1081,11 @@ function normalizeUpdates(
       }
       next.curve = mergedCurve;
     }
+  }
+  if (targetKind === 'target_animation' && 'mode' in patch) {
+    const mode = patch.mode == null ? null : asTargetAnimationMode(patch.mode);
+    if (mode) next.mode = mode;
+    else errors.push(`${prefix}.updates.mode "${String(patch.mode)}" is not a target_animation mode (${TA_MODES.join(', ')}).`);
   }
   if (targetKind === 'target_animation' && Array.isArray(patch.targets)) {
     // Repair `parametricPath` expressions inside UPDATE rows (`^` → `**`,
@@ -2139,10 +2210,12 @@ const TA_MODES: readonly TargetAnimationMode[] = [
   'rotate',
 ];
 
-function asTargetAnimationMode(v: unknown): TargetAnimationMode {
+/** Missing mode keeps the historical `scale` default; an unknown mode is an error, never a silent scale. */
+function asTargetAnimationMode(v: unknown): TargetAnimationMode | null {
+  if (v == null) return 'scale';
   return typeof v === 'string' && (TA_MODES as readonly string[]).includes(v)
     ? (v as TargetAnimationMode)
-    : 'scale';
+    : null;
 }
 
 function normalizeTargetAnimation(
@@ -2151,6 +2224,12 @@ function normalizeTargetAnimation(
   prefix: string,
 ): TargetAnimationItem | null {
   const mode = asTargetAnimationMode(raw.mode);
+  if (!mode) {
+    errors.push(
+      `${prefix}.item.mode "${String(raw.mode)}" is not a target_animation mode (${TA_MODES.join(', ')}).`,
+    );
+    return null;
+  }
   const targetsRaw = Array.isArray(raw.targets) ? raw.targets : [];
   const targets: TargetAnimationTargetSpec[] = targetsRaw
     .map((t) => t as Record<string, unknown>)

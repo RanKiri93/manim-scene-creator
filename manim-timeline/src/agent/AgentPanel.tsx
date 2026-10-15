@@ -330,6 +330,16 @@ function AssistantBubble({
           </ul>
         )}
 
+        {message.warnings && message.warnings.length > 0 && (
+          <ul className="list-disc pl-4 space-y-0.5 text-warn text-meta">
+            {message.warnings.map((w, i) => (
+              <li key={i} className="break-words">
+                {w}
+              </li>
+            ))}
+          </ul>
+        )}
+
         {cameraSummaries.length > 0 && <div className="rounded-ctl bg-ink/50 px-2 py-1 text-meta text-chalk">{cameraSummaries.map(({ clip, displayName, frameLabel, overrideLabel, overrideTime, returnStart, returnEnd, targetWidth }) => <div key={clip.id} dir="auto"><bdi dir="auto">{displayName}</bdi> → <bdi dir="auto">{frameLabel}</bdi>: <bdi dir="auto">{clip.startTime.toFixed(2)}–{(clip.startTime + clip.duration).toFixed(2)}s</bdi>, <bdi dir="auto">{clip.duration.toFixed(2)}s transition</bdi>, <bdi dir="auto">width {targetWidth.toFixed(2)} ({(clip.offsetX ?? 0).toFixed(2)}, {(clip.offsetY ?? 0).toFixed(2)})</bdi>{returnStart !== null && returnEnd !== null ? <>; full-frame return <bdi dir="auto">{returnStart.toFixed(2)}–{returnEnd.toFixed(2)}s</bdi></> : null}{overrideLabel ? <>; overridden by <bdi dir="auto">{overrideLabel}</bdi> at <bdi dir="auto">{overrideTime!.toFixed(2)}s</bdi></> : null}</div>)}</div>}
 
         {hasActions && (

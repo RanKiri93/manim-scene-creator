@@ -118,6 +118,8 @@ export interface AgentChatMessage {
   actionsStatus?: AgentMessageStatus;
   /** Attached to an assistant turn that failed validation or a provider error. */
   error?: string[];
+  /** Non-fatal repairs the validator made (e.g. ignored unknown fields). */
+  warnings?: string[];
   /** Frozen camera-relevant request fingerprint, used only to gate approval. */
   cameraSnapshotKey?: string;
 }
