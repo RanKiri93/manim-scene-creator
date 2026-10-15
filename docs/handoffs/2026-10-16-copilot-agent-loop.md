@@ -129,6 +129,20 @@ preview and progress list, messages keep `log` and `autoApplied`. Camera-request
 tool results, thinking fallback), store auto-apply vs Approve, prompt modes. Not exercised against a
 live API in this session (no key here): the request shapes follow the documented formats.
 
+**Step 5.** `snapshot_preview` and `render_manim_frame` tools; `canvas/agentSnapshot.ts`,
+SceneCanvas registration, `services/measureClient.ts` `renderSceneFrame`, `loop/manimFrame.ts`.
+Server: `/api/render` refactored onto `_run_manim_render` (same behaviour), new `/api/render_frame`
+(argument-list subprocesses only, scene name must be an identifier, time bounded 0–36000 s).
+Gates: `pytest test_parser.py test_script_alignment.py` 41 passed; `/health` ok; `/api/render_frame`
+called for real (connector scene, t = 4 s, about 6 s round trip, frame correct).
+End-to-end in headless Edge with a scripted OpenAI-compatible fake model (customOpenAI provider):
+the user's example (function on [0,1], point moving x = 0 → 1, vertical segment to the x-axis) went
+through propose (one deliberate domain error returned and fixed) → inspect → snapshot → Manim frame →
+export check → finish → auto-applied; both images reached the model and matched each other.
+Observed: at t = 5 s the `-ql` Manim frame has the dot about 0.1 s behind the preview; this is the
+export/preview timing topic of `2026-10-15-export-preview-timing-parity.md`, not changed here.
+Snapshots still show the axes' editor chrome drawn by `GraphNode.tsx` (someone else's WIP; untouched).
+
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)

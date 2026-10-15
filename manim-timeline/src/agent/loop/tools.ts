@@ -9,7 +9,7 @@ export interface LoopToolEnv {
   /** Picture of the draft on the canvas at `time` (camera view). */
   snapshot?: (time: number) => Promise<LoopImage>;
   /** One Manim frame of the draft at `time`, rendered by the measure server. */
-  renderFrame?: (time: number) => Promise<LoopImage>;
+  renderFrame?: (time: number, session: DraftSession) => Promise<LoopImage>;
 }
 
 export interface ToolOutcome {
@@ -152,7 +152,7 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
       case 'render_manim_frame': {
         const time = timeArg(input);
         if (time == null || !env.renderFrame) return fail('render_manim_frame needs a numeric `time`.', 'Manim frame failed');
-        const image = await env.renderFrame(time);
+        const image = await env.renderFrame(time, session);
         return ok(json({ time, note: 'Real Manim render of the draft at that time.' }), `Rendered a Manim frame at ${time.toFixed(2)}s`, [image]);
       }
       case 'finish': {

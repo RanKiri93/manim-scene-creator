@@ -2592,6 +2592,134 @@ try:
             if os.path.isfile(path):
                 shutil.copy2(path, os.path.join(dst, name))
 
+    def _run_manim_render(python_code: str, scene: str, quality: str, work_dir: str, timeout: int = 3600) -> str:
+        """Render *python_code* with the Manim CLI inside *work_dir*; return the scene's MP4 path.
+
+        The code is written to a file and run as an argument list (no shell), like the export it is.
+        """
+        script_path = os.path.join(work_dir, "timeline_export_scene.py")
+        _stage_project_assets_for_render(work_dir)
+        with open(script_path, "w", encoding="utf-8") as f:
+            f.write(python_code)
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = _ROOT + os.pathsep + env.get("PYTHONPATH", "")
+        # Windows defaults to cp1252; Manim + Rich log Unicode and crash when piping logs.
+        if sys.platform == "win32":
+            env.setdefault("PYTHONUTF8", "1")
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "manim",
+            "render",
+            script_path,
+            scene,
+            f"-q{quality}",
+            "--format=mp4",
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=work_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "manim failed"
+            raise HTTPException(status_code=500, detail=err)
+
+        media_videos = os.path.join(work_dir, "media", "videos")
+        candidates: list[str] = []
+        if os.path.isdir(media_videos):
+            for root, _dirs, files in os.walk(media_videos):
+                for fn in files:
+                    if fn.lower().endswith(".mp4"):
+                        candidates.append(os.path.join(root, fn))
+        if not candidates:
+            logs = "\n".join(
+                part
+                for part in ((proc.stderr or "").strip(), (proc.stdout or "").strip())
+                if part
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "No MP4 file found under media/videos after render."
+                    + (f"\n\nManim output:\n{logs[-3000:]}" if logs else "")
+                ),
+            )
+
+        for p in candidates:
+            if os.path.splitext(os.path.basename(p))[0] == scene:
+                return p
+        return max(candidates, key=lambda p: os.path.getmtime(p))
+
+    class RenderFrameRequest(BaseModel):
+        python_code: str = Field(..., description="Full Manim scene Python source")
+        scene_name: str = Field(..., description="Scene class name for manim CLI")
+        time: float = Field(..., ge=0, le=36000, description="Scene time in seconds")
+
+    class RenderFrameResponse(BaseModel):
+        png_base64: str
+        time: float
+        duration: float | None = None
+
+    @app.post("/api/render_frame", response_model=RenderFrameResponse)
+    def render_scene_frame(req: RenderFrameRequest) -> RenderFrameResponse:
+        """One frame of the scene at *time*: a low-quality render, then ffmpeg grabs the frame.
+
+        Used by the Copilot to look at what the export will show. Times past the end give the
+        last frame.
+        """
+        scene = req.scene_name.strip()
+        if not scene or not scene.isidentifier():
+            raise HTTPException(status_code=400, detail="scene_name must be a Python identifier")
+        ffmpeg = _which_ffmpeg()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="ffmpeg not found on PATH")
+        work_dir = tempfile.mkdtemp(prefix="manim_frame_")
+        try:
+            mp4_path = _run_manim_render(req.python_code, scene, "l", work_dir, timeout=900)
+            duration: float | None = None
+            ffprobe = _which_ffprobe()
+            if ffprobe:
+                probe = subprocess.run(
+                    [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp4_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                try:
+                    duration = float((probe.stdout or "").strip())
+                except ValueError:
+                    duration = None
+            t = float(req.time)
+            if duration is not None:
+                t = max(0.0, min(t, duration - 0.05))
+            png_path = os.path.join(work_dir, "frame.png")
+            proc = subprocess.run(
+                [ffmpeg, "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", mp4_path, "-frames:v", "1", png_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+            if proc.returncode != 0 or not os.path.isfile(png_path):
+                raise HTTPException(status_code=500, detail=(proc.stderr or "ffmpeg could not extract the frame")[-2000:])
+            with open(png_path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("ascii")
+            return RenderFrameResponse(png_base64=data, time=t, duration=duration)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Render timed out") from None
+        finally:
+            _cleanup_render_workdir(work_dir)
+
     @app.post("/api/render")
     def render_scene_mp4(req: RenderRequest) -> FileResponse:
         q = req.quality.strip().lower()
@@ -2605,74 +2733,10 @@ try:
             raise HTTPException(status_code=400, detail="scene_name is required")
 
         work_dir = tempfile.mkdtemp(prefix="manim_render_")
-        script_name = "timeline_export_scene.py"
-        script_path = os.path.join(work_dir, script_name)
 
         try:
             _write_render_debug_snapshot(req)
-            _stage_project_assets_for_render(work_dir)
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(req.python_code)
-
-            env = os.environ.copy()
-            env["PYTHONPATH"] = _ROOT + os.pathsep + env.get("PYTHONPATH", "")
-            # Windows defaults to cp1252; Manim + Rich log Unicode and crash when piping logs.
-            if sys.platform == "win32":
-                env.setdefault("PYTHONUTF8", "1")
-                env.setdefault("PYTHONIOENCODING", "utf-8")
-
-            cmd = [
-                sys.executable,
-                "-m",
-                "manim",
-                "render",
-                script_path,
-                scene,
-                f"-q{q}",
-                "--format=mp4",
-            ]
-            proc = subprocess.run(
-                cmd,
-                cwd=work_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=3600,
-            )
-            if proc.returncode != 0:
-                err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "manim failed"
-                raise HTTPException(status_code=500, detail=err)
-
-            media_videos = os.path.join(work_dir, "media", "videos")
-            candidates: list[str] = []
-            if os.path.isdir(media_videos):
-                for root, _dirs, files in os.walk(media_videos):
-                    for fn in files:
-                        if fn.lower().endswith(".mp4"):
-                            candidates.append(os.path.join(root, fn))
-            if not candidates:
-                logs = "\n".join(
-                    part
-                    for part in ((proc.stderr or "").strip(), (proc.stdout or "").strip())
-                    if part
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        "No MP4 file found under media/videos after render."
-                        + (f"\n\nManim output:\n{logs[-3000:]}" if logs else "")
-                    ),
-                )
-
-            mp4_path: str | None = None
-            for p in candidates:
-                if os.path.splitext(os.path.basename(p))[0] == scene:
-                    mp4_path = p
-                    break
-            if mp4_path is None:
-                mp4_path = max(candidates, key=lambda p: os.path.getmtime(p))
+            mp4_path = _run_manim_render(req.python_code, scene, q, work_dir)
 
             deliver_path = mp4_path
             if req.master_audio_path:

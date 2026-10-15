@@ -121,3 +121,25 @@ describe('agent loop', () => {
     expect(exportResult.text).toMatch(/Connector/);
   });
 });
+
+describe('optional seeing tools', () => {
+  it('offers snapshot and Manim-frame tools only when the host provides them and returns their images', async () => {
+    const { loopToolSpecs } = await import('./tools');
+    expect(loopToolSpecs({}).map((t) => t.name)).not.toContain('snapshot_preview');
+    const image = { mediaType: 'image/png' as const, base64: 'QUJD' };
+    const seen: number[] = [];
+    const env = {
+      snapshot: async (t: number) => { seen.push(t); return image; },
+      renderFrame: async (t: number) => { seen.push(-t); return image; },
+    };
+    expect(loopToolSpecs(env).map((t) => t.name)).toEqual(expect.arrayContaining(['snapshot_preview', 'render_manim_frame']));
+    const conversation = new ScriptedConversation([
+      () => step(call('snapshot_preview', { time: 2 }), call('render_manim_frame', { time: 3 })),
+      () => step(call('finish', { reply: 'looked' })),
+    ]);
+    const outcome = await runAgentLoop({ conversation, session: session(), env });
+    expect(seen).toEqual([2, -3]);
+    expect(conversation.received[0]!.map((r) => r.images)).toEqual([[image], [image]]);
+    expect(outcome.log.map((l) => l.summary)).toEqual(['Looked at the preview at 2.00s', 'Rendered a Manim frame at 3.00s', 'Finished']);
+  });
+});

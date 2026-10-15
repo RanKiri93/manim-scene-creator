@@ -16,6 +16,10 @@ import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
 import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
 import { isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
+import { registerLoopToolEnv } from '@/agent/loop/env';
+import { renderDraftFrame } from '@/agent/loop/manimFrame';
+import { cameraPoseAtTime } from '@/lib/camera';
+import { cameraCropRect, captureStageRect, nextPaint, withProposalsAsFinal } from './agentSnapshot';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
@@ -636,6 +640,44 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
 
   // ---- Animate bar over the selection ----
   const stageRef = useRef<Konva.Stage>(null);
+
+  // ---- Copilot tool loop: preview snapshots and Manim frames of its draft ----
+  const snapshotStateRef = useRef({ size, contentTransform, itemsMap, frames, startFrameId });
+  useEffect(() => {
+    snapshotStateRef.current = { size, contentTransform, itemsMap, frames, startFrameId };
+  });
+  useEffect(() => {
+    registerLoopToolEnv(() => ({
+      snapshot: async (time) => {
+        const scene = useSceneStore.getState();
+        const previousTime = scene.currentTime;
+        if (scene.isPlaying) scene.pause();
+        const history = useSceneStore.temporal.getState();
+        history.pause();
+        try {
+          scene.setCurrentTime(time);
+          await nextPaint();
+          const stage = stageRef.current;
+          if (!stage) throw new Error('The canvas is not visible.');
+          const latest = snapshotStateRef.current;
+          if (!latest.startFrameId) throw new Error('The scene has no start frame.');
+          const pose = cameraPoseAtTime(time, latest.itemsMap, latest.frames, latest.startFrameId);
+          const rect = cameraCropRect(pose, latest.size.width, latest.size.height, latest.contentTransform);
+          return { mediaType: 'image/png' as const, base64: withProposalsAsFinal(stage, () => captureStageRect(stage, rect)) };
+        } finally {
+          useSceneStore.getState().setCurrentTime(previousTime);
+          history.resume();
+        }
+      },
+      ...(useSceneStore.getState().measureConfig.enabled
+        ? {
+            renderFrame: (time: number, session: Parameters<typeof renderDraftFrame>[0]) =>
+              renderDraftFrame(session, time, useSceneStore.getState().measureConfig.url),
+          }
+        : {}),
+    }));
+    return () => registerLoopToolEnv(null);
+  }, []);
   const [stageGesture, setStageGesture] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<
     { rect: AnchorRect; containerWidth: number; containerHeight: number } | null
@@ -993,7 +1035,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             if (e.target === e.target.getStage()) clearSelection();
           }}
         >
-          <Layer>
+          <Layer name="editor-grid">
             <GridLayer
               canvasWidth={size.width}
               canvasHeight={size.height}

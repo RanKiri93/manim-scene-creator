@@ -576,6 +576,14 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   `providers/openaiLoop.ts`: Chat Completions function calling; tool messages are text, images follow
   in one user message. History is sent as plain alternating turns (`loop/history.ts`): applied
   proposals as a short action list, others marked NOT applied.
+- **Seeing.** `SceneCanvas` registers `LoopToolEnv` (`registerLoopToolEnv`) while mounted.
+  `snapshot_preview(time)`: pause playback and undo history, seek the playhead, wait two paints, crop
+  the camera's view at that time from the Konva stage (`canvas/agentSnapshot.ts`: proposals at full
+  opacity, deletions hidden, grid layer hidden, black background, ~960 px wide), restore the
+  playhead. `render_manim_frame(time)` (only when the measure server is enabled): export the draft
+  (`loop/manimFrame.ts`) and call `POST /api/render_frame` (low-quality render + ffmpeg frame grab).
+  Anthropic gets the PNG as an image block inside the tool result; OpenAI as a user message after the
+  tool messages.
 - **Prompt.** `buildSystemPrompt(rules, 'loop')` swaps the JSON-envelope section for
   `LOOP_FORMAT_SECTION`; the rules are shared.
 - **Store / UI.** While the loop runs, `draftActions` drives the canvas preview (`previewSelectors`) and

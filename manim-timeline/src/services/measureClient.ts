@@ -954,6 +954,38 @@ export async function renderSceneMp4(
 }
 
 /**
+ * One frame of a scene at `time` (low-quality Manim render on the measure server, frame grabbed
+ * with ffmpeg). Used by the Copilot's `render_manim_frame` tool. Returns PNG base64.
+ */
+export async function renderSceneFrame(
+  baseUrl: string,
+  code: string,
+  sceneName: string,
+  time: number,
+  signal?: AbortSignal,
+): Promise<{ pngBase64: string; time: number; duration: number | null }> {
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/render_frame`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ python_code: code, scene_name: sceneName, time }),
+    signal,
+  });
+  const text = await resp.text();
+  if (!resp.ok) {
+    let msg = text.trim() || `HTTP ${resp.status}`;
+    try {
+      const j = JSON.parse(text) as { detail?: unknown };
+      if (typeof j.detail === 'string') msg = j.detail;
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(msg.slice(-2000));
+  }
+  const j = JSON.parse(text) as { png_base64: string; time: number; duration?: number | null };
+  return { pngBase64: j.png_base64, time: j.time, duration: j.duration ?? null };
+}
+
+/**
  * Concatenate multiple MP4 files on the measure server (ffmpeg; requires ffmpeg on server PATH).
  * Files are joined in the order given.
  */
