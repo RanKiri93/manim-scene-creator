@@ -71,15 +71,15 @@ line = HebrewMathLine(r"חלק א ||חלק ב|| $f(x)$", font_size=36, hebrew_fo
 
 ## Segment addressing
 
-After construction, `line[i]` addresses the i-th **submobject**.
-Because Hebrew is RTL and segments are reordered after compilation, segment indices
-in Python correspond to **visual position** (right → left), NOT parse order.
-When you need a specific parse-order segment, use the multi-argument form and count
-from zero in the order you declared the arguments.
+After construction, `line[i]` addresses the i-th **segment in the order it was given**
+(parse order of the single string, or argument order of the multi-argument form).
+Segments are not reordered after compilation; typed order is reading order, so for a
+Hebrew line `line[0]` is the rightmost segment. Glyphs *inside* a segment are ordered for
+`Write`: right → left for Hebrew text, left → right for math.
 
 ```python
-line[0].set_color(YELLOW)        # first (rightmost) segment
-line[1].set_color(ManimColor("#00FFFF"))  # second segment
+line[0].set_color(YELLOW)        # first segment as typed (rightmost in a Hebrew line)
+line[1].set_color(ManimColor("#00FFFF"))  # second segment as typed
 ```
 
 ---

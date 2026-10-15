@@ -13,6 +13,7 @@ import {
   deriveAudioBedAssetRelPath,
 } from '@/lib/audioAssetPath';
 import type { AudioMixdownSpec } from '@/lib/audioMixdown';
+import { buildExportParts } from '@/codegen/texUtils';
 import {
   AXES_PREVIEW_METADATA_VERSION,
   type AxesPreviewRequestBody,
@@ -21,6 +22,8 @@ import {
 
 interface MeasureRequestBody {
   tex: string;
+  /** Exact `HebrewMathLine(...)` arguments the exporter emits; the server builds from these. */
+  parts: string[];
   hebrew_font: string | null;
   font_size: number;
   math_font: null;
@@ -137,6 +140,7 @@ export async function measureLine(
 ): Promise<{ result: MeasureResult | null; error: string | null }> {
   const body: MeasureRequestBody = {
     tex: item.raw,
+    parts: buildExportParts(item.raw, item.segments),
     hebrew_font: item.font?.trim() || null,
     font_size: item.fontSize,
     math_font: null,

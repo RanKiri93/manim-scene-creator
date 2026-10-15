@@ -80,8 +80,8 @@ or be excluded explicitly.
 ## Text (lineCodegen.ts, texUtils.ts)
 
 - Always `HebrewMathLine(...)`, `hebrew_font=` from item `font` (default `"Alef"`),
-  `font_size=` from item. Segment indices in Python are `line[i]`; the measure server returns
-  boxes in the same visual order.
+  `font_size=` from item. Segment indices in Python are `line[i]`, in typed (parse) order; the
+  measure server builds the line from the same parts and returns boxes in that order.
 - Bold/italic go into the LaTeX source (`\textbf`, `\mathbf`, …), not Python calls.
 - `||` is a text-segment separator consumed by the parser; it never reaches the render.
 

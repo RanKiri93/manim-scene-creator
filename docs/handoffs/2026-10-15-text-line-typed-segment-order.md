@@ -1,8 +1,8 @@
 ---
 slug: text-line-typed-segment-order
 created: 2026-10-15
-status: planned
-owner_role: server-dev
+status: done
+owner_role: docs-keeper
 next_tool: any
 source: user request (text-object rethink, step 1 of 4; see "Context" below)
 ---
@@ -181,25 +181,84 @@ the second in the Properties panel; the canvas preview colours the left one; exp
    remap migration.
 2. None other.
 
+**2026-10-15 note (architect):** Q1 resolved: the user reports no project is affected, so no
+audit script and no migration. Stages A, B and C were implemented in one Claude Code session
+(notes below).
+
 ## Implementation notes (server-dev)
+
+- `hebrew_math_line.py`: `_sort_glyphs_for_bidi` keeps the per-segment glyph sort and no longer
+  reorders `segments` / `submobjects`. Docstrings say `line[i]` is the i-th given segment.
+- `measure_server.py`: `MeasureRequest.parts` added; the line is always built with the
+  multi-arg form (from `parts`, else from `tex` parsed + bold/italic wraps). Colours go to
+  `line[parse_index]` directly. Removed `_build_styled_tex`, `_content_matches_after_style_wrap`,
+  `_map_parse_index_to_line_index`, the `reconstruct_line` import, and the old
+  "retry without bold" fallback.
+- `hebrew_math_parser.py` (deviation, not in Touched files): a text run made only of `||`
+  (e.g. `$a$||$b$`) produced an empty TEXT segment in Python but nothing in TS; Python now
+  returns no segment, matching TS.
+- Tests (deviation): `test_hebrew_math_line.py` holds Manim `Scene` classes, not pytest tests,
+  so the new compile tests live in `test_segment_order.py` (new). `test_parser.py` gains
+  `test_matches_shared_fixture`.
+- Finding: the old sort gave ink-less segments x=0, so blank pieces swap with neighbours. With
+  `חלק א || חלק ב || $f(x)$ || חלק ג` the legacy order was `[0,1,2,4,3,5]`: the export coloured
+  the blank piece instead of `f(x)` while the preview (text-matched) coloured `f(x)`. The new
+  order fixes this; `test_math_after_blank_piece_keeps_its_index` pins it. Lines without blank
+  pieces keep their order (`test_typed_order_matches_legacy_for_single_row_rtl`, 6 lines incl.
+  adjacent math, `||` splits, digits and punctuation).
+- `pytest test_parser.py test_script_alignment.py test_segment_order.py` → 42 passed.
+- Ran a separate server on port 8766 (the user's server on 8765 was left running):
+  `/health` → `{"status":"ok"}`; `POST /measure` with `parts` for `אם $x$ ו $x$`, colour on
+  index 3 → boxes in typed order (cx 0.43, 0.01, -0.26, -0.53) and red ink at x 3–26 of 174 px,
+  i.e. the left (second) `$x$`. `tex`-only body (`verify-server` example) → ok, 2 boxes.
+
+## Implementation notes (editor-dev)
+
+- `src/codegen/texUtils.ts`: `parseSegments` keeps `\$` escaped (was turned into a bare `$`,
+  which broke TeX in text and broke `reconstructLine` round trips). Doc comment points at the
+  fixture.
+- `src/codegen/__fixtures__/segmentParse.json` (new): 15 cases; Python and TS both match all.
+  Empty source is not in the fixture: TS returns one empty text segment (UI convenience), Python
+  returns none; both build an empty line.
+- `src/codegen/texUtils.test.ts` (new): loads the fixture via Vite `?raw` (tsconfig has no
+  `resolveJsonModule` / node types), plus `\$` through `buildExportParts` and `reconstructLine`.
+- `src/services/measureClient.ts`: sends `parts: buildExportParts(item.raw, item.segments)`.
+- `lineCodegen.ts` untouched (WIP of `export-preview-timing-parity`). Emitted Python unchanged
+  except that `\$` now stays escaped, so the timing sweep was not run.
+- `npm run build` ok; `npm run test` → 79 files, 650 tests passed; `npx eslint` on the three
+  touched TS files clean.
+- Not done: the manual check (two `$x$`, colour the second, render `-ql`). The measure-server
+  PNG check above covers the preview side; the export side is the same constructor call.
 
 ## Implementation notes (editor-dev)
 
 ## Verification (verifier)
 
+No independent verifier pass. The gates below were run by the implementing session; the user
+approved committing on that basis (2026-10-15).
+
 | Gate | Command | Result |
 |---|---|---|
-| … | … | pass / fail + one-line evidence |
+| Python tests | `pytest test_parser.py test_script_alignment.py test_segment_order.py` | pass, 42 passed |
+| Server liveness | `/health` on a separate :8766 instance | pass, `{"status":"ok"}` |
+| Endpoint | `POST /measure` with `parts`, and with `tex` only | pass, typed-order boxes, colour on intended segment |
+| Frontend build | `npm run build` | pass |
+| Frontend tests | `npm run test` | pass, 650 passed |
+| Lint | `npx eslint` on touched TS files | pass, clean |
 
-- Out-of-scope changes found in the diff (files not in "Touched files"):
-- Claims in "Implementation notes" that could not be confirmed:
+- Out-of-scope changes found in the diff: `hebrew_math_parser.py`, `test_segment_order.py`
+  (both explained in server-dev notes).
+- Not run: manual two-`$x$` colour check with an `-ql` render.
 
-Verdict: **pass** / **fail** (fail sends `status` back to `implementing`).
+Verdict: **pass** (self-verified, see above).
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
 
-- README sections touched, `*Last updated:*` trailer extended: yes/no
-- ARCHITECTURE.md touched: yes/no
-- idea.md item closed or updated: which
+- README sections touched, `*Last updated:*` trailer extended: yes. Feature table row
+  "Text line" and a new trailer entry (prepended; the rest of the trailer is the user's WIP).
+- ARCHITECTURE.md touched: no (l.501 already says parse order).
+- `.cursor/rules/manim-text-and-point-accuracy.mdc` "Segment addressing" rewritten to typed order.
+- `.agents/skills/codegen-invariants/SKILL.md`: only the Text bullet about box order changed.
+- idea.md item closed or updated: none.

@@ -63,7 +63,9 @@ class HebrewMathLine(VGroup):
             font_size=36,
         )
 
-    Access individual segments for styling / animation::
+    Access individual segments for styling / animation.  ``line[i]`` is
+    the i-th segment in the order it was given (typed order), which is
+    also reading order, so ``Write(line)`` reveals the line as it is read::
 
         line[0].set_color(YELLOW)       # first text segment
         self.play(Write(line[1]))       # animate the math f(x)
@@ -109,7 +111,7 @@ class HebrewMathLine(VGroup):
         # ── 3. Assemble VGroup ──────────────────────────────────────
         super().__init__(*seg_mobs, **kwargs)
 
-        # ── 4. Reorder glyphs for RTL-aware Write animation ────────
+        # ── 4. Order glyphs inside each segment for Write ─────────
         self._sort_glyphs_for_bidi()
 
         # ── 5. Scale to desired font_size and centre ────────────────
@@ -175,14 +177,14 @@ class HebrewMathLine(VGroup):
     # ── bidi glyph ordering ───────────────────────────────────────
 
     def _sort_glyphs_for_bidi(self) -> None:
-        """Reorder glyphs inside each segment for bidi-aware ``Write``.
+        """Order glyphs inside each segment for direction-aware ``Write``.
 
         * **TEXT** (Hebrew / RTL) segments: glyphs sorted right → left
           so ``Write`` reveals them in natural Hebrew reading order.
         * **MATH** (LTR) segments: glyphs sorted left → right (default).
 
-        The top-level segment order is also set to right → left so that
-        ``Write(line)`` reveals the line in Hebrew reading order.
+        The segments themselves keep the order they were given in, so
+        ``line[i]`` always matches the i-th parsed / passed segment.
         """
         for seg, mob in zip(self.segments, self.submobjects):
             if not mob.submobjects:
@@ -192,12 +194,6 @@ class HebrewMathLine(VGroup):
                 key=lambda m: m.get_center()[0],
                 reverse=reverse,
             )
-
-        # Top-level: reveal segments right → left (Hebrew reading order)
-        paired = list(zip(self.segments, self.submobjects))
-        paired.sort(key=lambda p: p[1].get_center()[0] if p[1].submobjects else 0, reverse=True)
-        self.segments = [s for s, _ in paired]
-        self.submobjects = [m for _, m in paired]
 
     # ── convenience accessors ───────────────────────────────────────
 

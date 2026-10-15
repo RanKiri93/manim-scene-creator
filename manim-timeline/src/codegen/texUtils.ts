@@ -15,7 +15,10 @@ interface RawSegment {
 
 /**
  * Parse a raw LaTeX string (Hebrew + $math$ segments, || splits)
- * into an ordered list of segments. Mirrors hebrew_math_parser.parse_segments.
+ * into an ordered list of segments. Segment `i` is `line[i]` in export and measure.
+ * `\$` stays escaped so LaTeX prints a literal dollar.
+ * Kept in step with hebrew_math_parser.parse_segments (still used for labels) by
+ * `__fixtures__/segmentParse.json`, which both test suites read.
  */
 export function parseSegments(raw: string): RawSegment[] {
   const parts: string[] = [];
@@ -24,7 +27,7 @@ export function parseSegments(raw: string): RawSegment[] {
     let chunk = '';
     while (i < raw.length) {
       if (raw[i] === '\\' && i + 1 < raw.length && raw[i + 1] === '$') {
-        chunk += '$';
+        chunk += '\\$';
         i += 2;
         continue;
       }
@@ -37,7 +40,7 @@ export function parseSegments(raw: string): RawSegment[] {
     chunk = '';
     while (i < raw.length) {
       if (raw[i] === '\\' && i + 1 < raw.length && raw[i + 1] === '$') {
-        chunk += '$';
+        chunk += '\\$';
         i += 2;
         continue;
       }

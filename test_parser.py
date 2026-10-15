@@ -211,3 +211,17 @@ def test_segment_phantom_property():
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── parity with the editor's parser (manim-timeline/src/codegen/texUtils.ts) ──
+
+def test_matches_shared_fixture():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "manim-timeline" / "src" / "codegen" / "__fixtures__" / "segmentParse.json"
+    cases = json.loads(path.read_text(encoding="utf-8"))
+    assert cases
+    for case in cases:
+        got = [{"text": s.content, "isMath": s.is_math} for s in parse_segments(case["raw"])]
+        assert got == case["segments"], case["name"]

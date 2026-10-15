@@ -86,7 +86,8 @@ def _split_text_run_into_segments(text: str) -> list[Segment]:
         if piece == "":
             continue
         out.append(Segment(content=piece, seg_type=SegmentType.TEXT))
-    return out if out else [Segment(content="", seg_type=SegmentType.TEXT)]
+    # A run made only of ``||`` contributes no segment (same as the editor's parser).
+    return out
 
 
 def parse_segments(raw: str) -> list[Segment]:

@@ -105,14 +105,14 @@ except ImportError:  # older Manim CE: no ManimColor wrapper
 config.renderer = "cairo"
 
 from hebrew_math_line import HebrewMathLine
-from hebrew_math_parser import Segment, parse_segments, reconstruct_line
+from hebrew_math_parser import Segment, parse_segments
 
 # Set to False to disable LaTeX wrapping for bold/italic (instant rollback if TeX breaks).
 APPLY_TEX_BOLD_ITALIC: bool = True
 
 
 class SegmentStyleIn(BaseModel):
-    """Style for segment at *parse_index* (same order as ``parse_segments(tex)``)."""
+    """Style for segment *parse_index*, which is also ``line[parse_index]`` (typed order)."""
 
     parse_index: int = Field(..., ge=0)
     color: str | None = Field(None, description="CSS hex, e.g. #ffcc00")
@@ -122,6 +122,14 @@ class SegmentStyleIn(BaseModel):
 
 class MeasureRequest(BaseModel):
     tex: str = Field(..., description="Full line: Hebrew + $math$ segments")
+    parts: list[str] | None = Field(
+        None,
+        description=(
+            "Exact HebrewMathLine(...) arguments the exporter emits (math $-wrapped, "
+            "bold/italic already applied). When set, the line is built from these and "
+            "`tex` is not parsed."
+        ),
+    )
     hebrew_font: str | None = Field(None, description="Font passed to get_hebrew_tex_template")
     math_font: str | None = None
     font_size: float = 48.0
@@ -131,7 +139,7 @@ class MeasureRequest(BaseModel):
     )
     segment_styles: list[SegmentStyleIn] | None = Field(
         None,
-        description="Per-segment colours (parse order); applied before rasterizing preview.",
+        description="Per-segment colours (typed order = line[i]); applied before rasterizing preview.",
     )
 
 
@@ -146,7 +154,7 @@ class SegmentBoxOut(BaseModel):
 
 
 class MathChildBoxOut(BaseModel):
-    """Nested submobject inside one math segment; index matches ``line[seg][child]`` after BIDI sort."""
+    """Nested submobject inside one math segment; index matches ``line[seg][child]``."""
 
     child_index: int
     cx: float
@@ -371,56 +379,12 @@ def _segments_with_style_wraps(tex: str, styles: list[SegmentStyleIn] | None) ->
     return new_segs
 
 
-def _build_styled_tex(tex: str, styles: list[SegmentStyleIn] | None) -> str:
-    """Legacy single-string reconstruction (merges adjacent TEXT segments — do not use for HebrewMathLine)."""
-    segs = _segments_with_style_wraps(tex, styles)
-    return reconstruct_line(segs)
-
-
-def _content_matches_after_style_wrap(pu: Segment, ls: Segment) -> bool:
-    """Whether *ls* is *pu* or the result of ``_wrap_segment_for_style`` on *pu* for some bold/italic flags."""
-    if pu.seg_type != ls.seg_type:
-        return False
-    if pu.content == ls.content:
-        return True
-    for bold in (False, True):
-        for italic in (False, True):
-            if not bold and not italic:
-                continue
-            w = _wrap_segment_for_style(pu, bold, italic)
-            if w.content == ls.content:
-                return True
-    return False
-
-
-def _map_parse_index_to_line_index(line: HebrewMathLine, req_tex: str) -> list[int]:
-    """Map client parse-order index *j* (``parse_segments(req_tex)``) to ``line`` submobject index after RTL reorder."""
-    parsed = parse_segments(req_tex)
-    line_segs = list(line.segments)
-    n = len(parsed)
-    if n != len(line_segs) or n != len(line.submobjects):
-        return [min(i, len(line.submobjects) - 1) for i in range(min(n, len(line.submobjects)))]
-    remaining: list[tuple[int, object]] = list(enumerate(line_segs))
-    out = [-1] * n
-    for j, ps in enumerate(parsed):
-        for k, (li, ls) in enumerate(remaining):
-            if _content_matches_after_style_wrap(ps, ls):
-                out[j] = li
-                remaining.pop(k)
-                break
-    return out
-
-
-def _apply_segment_styles(line: HebrewMathLine, req_tex: str, styles: list[SegmentStyleIn]) -> None:
-    mapping = _map_parse_index_to_line_index(line, req_tex)
+def _apply_segment_styles(line: HebrewMathLine, styles: list[SegmentStyleIn]) -> None:
     for st in styles:
         j = st.parse_index
-        if j < 0 or j >= len(mapping):
+        if j < 0 or j >= len(line.submobjects):
             continue
-        li = mapping[j]
-        if li < 0 or li >= len(line.submobjects):
-            continue
-        mob = line[li]
+        mob = line[j]
         if st.color:
             try:
                 if ManimColor is not None:
@@ -439,25 +403,12 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
         if req.math_font is not None:
             kwargs["math_font"] = req.math_font
 
-        use_multi_arg = bool(
-            req.segment_styles
-            and APPLY_TEX_BOLD_ITALIC
-            and any(s.bold or s.italic for s in req.segment_styles)
-        )
-        try:
-            if use_multi_arg:
-                styled_segs = _segments_with_style_wraps(req.tex, req.segment_styles)
-                line = HebrewMathLine(*[s.latex for s in styled_segs], **kwargs)
-            else:
-                line = HebrewMathLine(req.tex, **kwargs)
-        except Exception:
-            if use_multi_arg:
-                try:
-                    line = HebrewMathLine(req.tex, **kwargs)
-                except Exception:
-                    raise
-            else:
-                raise
+        # Always the multi-arg form the exporter emits, so line[i] is segment i as typed.
+        if req.parts:
+            line = HebrewMathLine(*req.parts, **kwargs)
+        else:
+            styled_segs = _segments_with_style_wraps(req.tex, req.segment_styles)
+            line = HebrewMathLine(*[s.latex for s in styled_segs], **kwargs)
         w = float(line.get_width())
         h = float(line.get_height())
 
@@ -471,7 +422,7 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
         ilx = irx = ity = iby = None
         if req.include_preview:
             if req.segment_styles:
-                _apply_segment_styles(line, req.tex, req.segment_styles)
+                _apply_segment_styles(line, req.segment_styles)
             (
                 png_b64,
                 pw,
