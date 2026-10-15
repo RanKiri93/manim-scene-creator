@@ -123,6 +123,16 @@ CRITICAL ARCHITECTURE RULES:
    - Minimal CREATE example:
      { "kind": "graphPointSequence", "axesId": "ax1", "jsXExpr": "n", "pyXExpr": "n", "jsYExpr": "Math.sin(n)", "pyYExpr": "np.sin(n)", "nMin": 1, "nMax": 8, "mode": "accumulation" }
 
+8d. Graph dots and Move along graph:
+   - A dot that sits ON a function plot: \`dot.attachment = { "kind": "function", "graphPlotId": "<plot id>", "x": <x> }\`. The app computes y from the plot; do not compute it yourself. On a parametric curve: \`{ "kind": "parametric", "graphCurveId": "<curve id>", "t": <t> }\`. The plot/curve must be on the dot's axes.
+   - \`dot.showCoordinates: true\` adds a live "(x, y)" label that follows the dot. \`dot.showProjectionGuides: true\` draws dashed guides to BOTH axes; for a single guide (e.g. only the vertical drop to the x-axis) use a connector line shape (rule 8e) instead.
+   - To move a dot along its plot, CREATE \`kind: "target_animation"\` with \`mode: "graphFollow"\` and one row per dot: \`{ "targetId": "<dot id>", "targetX": <destination x>, "easing": "smooth" | "linear" }\` (\`targetT\` instead of \`targetX\` for a dot on a parametric curve). The dot starts from where it is at the clip's startTime (its attachment x, or where an earlier Move-along-graph clip left it), so the motion goes from there to targetX over \`duration\` seconds.
+   - \`startTime\` must be ≥ the dot's \`startTime\`; the path must stay inside the plot's domain (\`xDomain\`, else the axes' x range). Do not overlap two position clips (graphFollow / move / path) on the same dot; chain them instead.
+   Example — plot sin on [0, 3.14], a dot at x=0 that travels to x=3.14 in 2 s with a live coordinate label:
+     { "action": "CREATE", "item": { "id": "p1", "kind": "graphPlot", "axesId": "ax1", "label": "sin", "fn": { "jsExpr": "Math.sin(x)", "pyExpr": "np.sin(x)" }, "xDomain": [0, 3.14] } }
+     { "action": "CREATE", "item": { "id": "d1", "kind": "graphDot", "axesId": "ax1", "label": "נקודה", "startTime": 2, "duration": 0.5, "dot": { "color": "#fbbf24", "showCoordinates": true, "attachment": { "kind": "function", "graphPlotId": "p1", "x": 0 } } } }
+     { "action": "CREATE", "item": { "id": "m1", "kind": "target_animation", "label": "תנועה על הגרף", "mode": "graphFollow", "startTime": 2.5, "duration": 2, "targets": [ { "targetId": "d1", "targetX": 3.14, "easing": "linear" } ] } }
+
 8b. Shapes (\`kind: "shape"\`):
    - \`shapeType\`: "circle" | "rectangle" | "arrow" | "line" | "polyline".
    - For \`shapeType: "polyline"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points. Use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).
@@ -161,7 +171,7 @@ CRITICAL ARCHITECTURE RULES:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "blink_animation", "label": "הדגשה", "startTime": 2, "duration": 0.5, "repetitions": 1, "targets": [ { "targetId": "t1", "mode": "scale", "scaleFactor": 1.12 } ] } }
 
   10b. target_animation workflow (permanent effects that leave targets in a new steady state):
-   - \`mode\`: "scale" | "color" | "move" | "path" | "rotate" (one mode per clip).
+   - \`mode\`: "scale" | "color" | "move" | "path" | "rotate" | "graphFollow" (one mode per clip; graphFollow is rule 8d).
    - \`targets\`: required, non-empty. Each row is \`{ targetId, ...mode fields }\`: scale → \`scaleFactor\`; color → \`color\` hex; move → \`dx\`/\`dy\`; rotate → \`angleDeg\`; path → \`pathKind\` ("polyline" with \`pathPoints\` offsets, or "parametric" with \`parametricPath\`).
    - Parametric paths (\`pathKind: "parametric"\`): \`parametricPath\` holds \`jsXExpr\` / \`pyXExpr\` and \`jsYExpr\` / \`pyYExpr\` (offset curves in parameter \`t\`; JS \`Math.*\`, Python \`np.*\`, "**" never "^") plus numeric \`tMin\` / \`tMax\`. Offsets are relative — the first sample is subtracted automatically.
    - \`startTime\` must be ≥ each target's timeline \`startTime\`. Do NOT set \`frameId\` — effect clips follow their targets' frames.

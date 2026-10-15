@@ -1951,3 +1951,100 @@ describe('validator guard rails', () => {
     expect(result.warnings).toEqual(['actions[0].updates.sparkle is not a textLine field and was ignored.']);
   });
 });
+
+describe('graph dots and Move along graph', () => {
+  const plotCreate = (xDomain: [number, number] = [0, 1]) => ({
+    action: 'CREATE',
+    item: { id: 'p1', kind: 'graphPlot', axesId: 'ax1', label: 'f', fn: { jsExpr: 'x*x + 1', pyExpr: 'x**2 + 1' }, xDomain },
+  });
+  const dotCreate = (extra: Record<string, unknown> = {}) => ({
+    action: 'CREATE',
+    item: { id: 'd1', kind: 'graphDot', axesId: 'ax1', label: 'P', startTime: 1, duration: 0.5, dot: { color: '#fbbf24', attachment: { kind: 'function', graphPlotId: 'p1', x: 0 } }, ...extra },
+  });
+  const follow = (row: Record<string, unknown>, startTime = 2) => ({
+    action: 'CREATE',
+    item: { id: 'm1', kind: 'target_animation', label: 'move', mode: 'graphFollow', startTime, duration: 2, targets: [{ targetId: 'd1', ...row }] },
+  });
+  const base = () => new Map<string, SceneItem>([['ax1', axes('ax1')]]);
+
+  it('creates an attached dot and a Move-along-graph clip, syncing the dot to the plot', () => {
+    const result = validateAgentResponse({ reply: 'ok', actions: [plotCreate(), dotCreate(), follow({ targetX: 1, easing: 'linear' })] }, base());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [, dot, clip] = result.response.actions;
+    if (dot?.action !== 'CREATE' || dot.item.kind !== 'graphDot') throw new Error('expected dot');
+    expect(dot.item.dot.attachment).toEqual({ kind: 'function', graphPlotId: 'p1', x: 0 });
+    expect([dot.item.dot.dx, dot.item.dot.dy]).toEqual([0, 1]);
+    expect(dot.item.dot.color).toBe('#fbbf24');
+    if (clip?.action !== 'CREATE' || clip.item.kind !== 'target_animation') throw new Error('expected clip');
+    expect(clip.item.mode).toBe('graphFollow');
+    expect(clip.item.targets[0]).toMatchObject({ targetId: 'd1', targetX: 1, easing: 'linear' });
+  });
+
+  it('accepts dot fields at the item top level', () => {
+    const result = validateAgentResponse({
+      reply: 'ok',
+      actions: [plotCreate(), { action: 'CREATE', item: { id: 'd1', kind: 'graphDot', axesId: 'ax1', label: 'P', showCoordinates: true, attachment: { graphPlotId: 'p1', x: 0.5 } } }],
+    }, base());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const dot = result.response.actions[1]!;
+    if (dot.action !== 'CREATE' || dot.item.kind !== 'graphDot') throw new Error('expected dot');
+    expect(dot.item.dot.showCoordinates).toBe(true);
+    expect(dot.item.dot.attachment).toEqual({ kind: 'function', graphPlotId: 'p1', x: 0.5 });
+    expect(dot.item.dot.dy).toBeCloseTo(1.25);
+  });
+
+  it('reports motion that leaves the plot domain', () => {
+    const result = validateAgentResponse({ reply: 'ok', actions: [plotCreate(), dotCreate(), follow({ targetX: 3 })] }, base());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(' ')).toMatch(/leaves plot source domain/);
+  });
+
+  it('reports a clip that starts before its dot appears', () => {
+    const result = validateAgentResponse({ reply: 'ok', actions: [plotCreate(), dotCreate(), follow({ targetX: 1 }, 0.5)] }, base());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.join(' ')).toMatch(/cannot start before its graph dot appears/);
+  });
+
+  it('requires targetX and a graph dot target', () => {
+    const missing = validateAgentResponse({ reply: 'ok', actions: [plotCreate(), dotCreate(), follow({})] }, base());
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors.join(' ')).toMatch(/needs targetX/);
+    const items = base();
+    items.set('tl1', textLine('tl1'));
+    const wrong = validateAgentResponse({ reply: 'ok', actions: [{ action: 'CREATE', item: { id: 'm1', kind: 'target_animation', label: 'm', mode: 'graphFollow', startTime: 1, duration: 1, targets: [{ targetId: 'tl1', targetX: 1 }] } }] }, items);
+    expect(wrong.ok).toBe(false);
+  });
+
+  it('fills the plot of a free dot when its axes have exactly one plot', () => {
+    const result = validateAgentResponse({
+      reply: 'ok',
+      actions: [plotCreate(), { action: 'CREATE', item: { id: 'd1', kind: 'graphDot', axesId: 'ax1', label: 'P', startTime: 1, dot: { dx: 0, dy: 1 } } }, follow({ targetX: 1 })],
+    }, base());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const clip = result.response.actions[2]!;
+    if (clip.action !== 'CREATE' || clip.item.kind !== 'target_animation') throw new Error('expected clip');
+    expect(clip.item.targets[0]!.graphPlotId).toBe('p1');
+    expect(result.warnings.join(' ')).toMatch(/using the only plot "p1"/);
+  });
+
+  it('merges a partial dot UPDATE over the stored dot', () => {
+    const first = validateAgentResponse({ reply: 'ok', actions: [plotCreate(), dotCreate()] }, base());
+    if (!first.ok) throw new Error(first.errors.join(' '));
+    const items = base();
+    for (const a of first.response.actions) if (a.action === 'CREATE') items.set(a.item.id, a.item);
+    const result = validateAgentResponse({ reply: 'ok', actions: [{ action: 'UPDATE', itemId: 'd1', updates: { dot: { showCoordinates: true, attachment: { kind: 'function', graphPlotId: 'p1', x: 1 } } } }] }, items);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    const dot = (act.updates as { dot: { color: string; showCoordinates: boolean; dy: number } }).dot;
+    expect(dot.color).toBe('#fbbf24');
+    expect(dot.showCoordinates).toBe(true);
+    expect(dot.dy).toBe(2);
+  });
+});

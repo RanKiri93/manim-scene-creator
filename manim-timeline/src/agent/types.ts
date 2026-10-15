@@ -1,3 +1,4 @@
+import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
@@ -178,6 +179,8 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   baseDir: { type: 'string', enum: ['rtl', 'ltr'], description: "textLine: 'ltr' for an English-base line (plain text is English, Hebrew is marked \\he{...}). Omit for the default right-to-left Hebrew line (English is marked \\en{...})." },
                   englishFont: { type: 'string', description: "textLine: font for English text. Omit to use the Hebrew font; 'Latin Modern Roman' = LaTeX default." },
                   startTime: { type: 'number' }, duration: { type: 'number' },
+                  dot: GRAPH_DOT_SCHEMA,
+                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES } } },
                 },
             },
           },
@@ -204,6 +207,8 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   englishFont: { type: 'string', description: "textLine: font for English text. Omit to use the Hebrew font; 'Latin Modern Roman' = LaTeX default." },
                   startTime: { type: 'number', description: 'camera_move UPDATE: finite start time in seconds.' },
                   duration: { type: 'number', description: 'camera_move UPDATE: duration at least 0.05 seconds.' },
+                  dot: GRAPH_DOT_SCHEMA,
+                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES } } },
                 },
               },
             },

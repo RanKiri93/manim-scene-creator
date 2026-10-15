@@ -1,4 +1,5 @@
 import { AGENT_ALLOWED_KINDS } from '../types';
+import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES, TARGET_ANIMATION_MODES } from '../schemaFragments';
 import type { AgentChatMessage, AgentContextPayload } from '../types';
 import {
   AgentProviderError,
@@ -186,19 +187,16 @@ export const GEMINI_RESPONSE_SCHEMA = {
                 description:
                   'Largest integer index n (inclusive). Required for kind="graphFunctionSeries" and kind="graphPointSequence". Must satisfy nMax ≥ nMin after normalization.',
               },
+              dot: GRAPH_DOT_SCHEMA,
               mode: {
                 type: 'string',
                 enum: [
                   'accumulation',
                   'replacement',
-                  'scale',
-                  'color',
-                  'move',
-                  'path',
-                  'rotate',
+                  ...TARGET_ANIMATION_MODES,
                 ],
                 description:
-                  'For kind="graphFunctionSeries" or "graphPointSequence": "accumulation" keeps every curve/point on screen; "replacement" morphs/fades the previous into the next. For kind="target_animation": the effect mode — "scale" | "color" | "move" | "path" | "rotate" (one per clip).',
+                  'For kind="graphFunctionSeries" or "graphPointSequence": "accumulation" keeps every curve/point on screen; "replacement" morphs/fades the previous into the next. For kind="target_animation": the effect mode — "scale" | "color" | "move" | "path" | "rotate" | "graphFollow" (Move along graph: moves a graph dot along its plot; rows use targetX). One mode per clip.',
               },
               displayMode: {
                 type: 'string',
@@ -421,6 +419,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                         samples: { type: 'integer' },
                       },
                     },
+                    ...GRAPH_FOLLOW_ROW_PROPERTIES,
                     segmentIndices: {
                       type: 'array',
                       description: 'blink_animation on textLine: segment indices (line[i]); omit for whole line.',
@@ -471,6 +470,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               englishFont: { type: 'string', description: "textLine: font for English text. Omit to use the Hebrew font; 'Latin Modern Roman' = LaTeX default." },
               startTime: { type: 'number', description: 'camera_move UPDATE: finite start time in seconds.' },
               duration: { type: 'number', description: 'camera_move UPDATE: transition duration, minimum 0.05 seconds.' },
+              dot: GRAPH_DOT_SCHEMA,
             },
           },
         },

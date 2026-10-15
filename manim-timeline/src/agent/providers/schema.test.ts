@@ -36,3 +36,19 @@ describe('text line provider schema parity', () => {
     }
   });
 });
+
+describe('graph motion provider schema parity', () => {
+  it('declares dot fields and Move-along-graph rows in both schemas', () => {
+    const actionItems = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items as unknown as { anyOf: { properties: Record<string, { properties?: Record<string, { items?: { properties?: Record<string, unknown> } }> }> }[] };
+    const canonicalCreate = actionItems.anyOf[0]!.properties.item!.properties!;
+    const canonicalUpdate = actionItems.anyOf[1]!.properties.updates!.properties!;
+    const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
+    for (const schema of [canonicalCreate, canonicalUpdate, gemini.item.properties as Record<string, unknown>, gemini.updates.properties as Record<string, unknown>]) {
+      expect(schema).toHaveProperty('dot.properties.attachment');
+      expect(schema).toHaveProperty('dot.properties.showCoordinates');
+    }
+    expect(canonicalCreate.targets!.items!.properties).toHaveProperty('targetX');
+    expect(gemini.item.properties.targets.items.properties).toHaveProperty('targetX');
+    expect(gemini.item.properties.mode.enum).toContain('graphFollow');
+  });
+});

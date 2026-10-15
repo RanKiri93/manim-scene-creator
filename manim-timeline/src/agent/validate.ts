@@ -17,6 +17,8 @@ import {
   type FunctionSeriesPerN,
   type PointSequenceDefaults,
   type PointSequencePerN,
+  type GraphDot,
+  type GraphDotAttachment,
   type GraphDotItem,
   type GraphCurveItem,
   type GraphFunctionSeriesItem,
@@ -43,6 +45,11 @@ import {
   isAgentAllowedKind,
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
+import {
+  graphFollowStartTimeError,
+  resolveAttachedGraphDot,
+  resolveGraphDotPosition,
+} from '@/lib/graphMotion';
 import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
 import type { CameraMoveItem } from '@/types/scene';
 
@@ -81,6 +88,17 @@ const EXIT_TARGET_KINDS: ReadonlySet<SceneItem['kind']> = new Set<SceneItem['kin
   'shape',
   'surroundingRect',
 ]);
+
+/** Dot fields an LLM tends to put at the item's top level instead of under `dot`. */
+const GRAPH_DOT_TOP_LEVEL_ALIASES = [
+  'attachment',
+  'showCoordinates',
+  'showProjectionGuides',
+  'dx',
+  'dy',
+  'radius',
+  'color',
+] as const;
 
 /**
  * Validate and normalize an `AgentChatResponse`. The LLM's JSON schema enforces
@@ -293,6 +311,7 @@ export function validateAgentResponse(
           targetKind,
           errors,
           prefix,
+          currentItems.get(itemId) ?? plannedCreateNormalized.get(itemId),
         ),
       });
       return;
@@ -403,7 +422,11 @@ export function validateAgentResponse(
           );
           continue;
         }
-        if (!canBeTargetAnimationTargetKind(ta.mode, resolvedKind)) {
+        if (
+          ta.mode === 'graphFollow'
+            ? resolvedKind !== 'graphDot'
+            : !canBeTargetAnimationTargetKind(ta.mode, resolvedKind)
+        ) {
           errors.push(
             `actions[${i}].item "${item.id}" targets[${ti}] "${targetId}" is a ${resolvedKind}, which cannot be the target of a target_animation (${ta.mode}).`,
           );
@@ -431,6 +454,8 @@ export function validateAgentResponse(
       }
     }
   }
+
+  checkGraphMotion(normalizedActions, currentItems, errors, warnings);
 
   // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
@@ -498,7 +523,7 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
   ],
   graphPlot: ['lineStyle', 'fn', 'xDomain', 'color', 'strokeWidth'],
   graphCurve: ['lineStyle', 'curve', 'tDomain', 'color', 'strokeWidth', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr'],
-  graphDot: ['dot', 'axesId'],
+  graphDot: ['dot', 'axesId', ...GRAPH_DOT_TOP_LEVEL_ALIASES],
   graphFunctionSeries: ['displayMode', 'perN', 'defaults', 'jsExpr', 'pyExpr', 'nMin', 'nMax', 'mode', 'xDomain'],
   graphPointSequence: ['perN', 'defaults', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr', 'nMin', 'nMax', 'mode'],
   shape: ['endpoints'],
@@ -906,9 +931,22 @@ function normalizeUpdates(
   targetKind: string,
   errors: string[],
   prefix: string,
+  existing?: SceneItem,
 ): Partial<SceneItem> {
   const patch = updates as Record<string, unknown>;
   const next: Record<string, unknown> = { ...patch };
+  if (targetKind === 'graphDot') {
+    // `dot` is one nested object in the store; merge the patch over the stored dot so a partial
+    // patch (e.g. only `attachment`) never wipes color/label. Top-level aliases fold into it.
+    const dotPatch = collectDotPatch(patch);
+    for (const key of GRAPH_DOT_TOP_LEVEL_ALIASES) delete next[key];
+    if (dotPatch) {
+      const base = existing?.kind === 'graphDot' ? existing.dot : undefined;
+      const merged = normalizeGraphDotFields(dotPatch, base, `${prefix}.updates.dot`, errors);
+      if (merged) next.dot = merged;
+      else delete next.dot;
+    }
+  }
   if ('posSteps' in patch) {
     next.posSteps = normalizePosSteps(patch.posSteps);
   }
@@ -1682,6 +1720,115 @@ function resolveGraphFunctionSeriesExprs(
   };
 }
 
+function collectDotPatch(raw: Record<string, unknown>): Record<string, unknown> | null {
+  const nested =
+    raw.dot && typeof raw.dot === 'object' && !Array.isArray(raw.dot)
+      ? { ...(raw.dot as Record<string, unknown>) }
+      : null;
+  const out: Record<string, unknown> = nested ?? {};
+  let any = nested != null;
+  for (const key of GRAPH_DOT_TOP_LEVEL_ALIASES) {
+    if (key in raw && !(key in out)) {
+      out[key] = raw[key];
+      any = true;
+    }
+  }
+  return any ? out : null;
+}
+
+function normalizeDotAttachment(
+  v: unknown,
+  path: string,
+  errors: string[],
+): GraphDotAttachment | undefined | null {
+  if (v == null) return undefined;
+  if (v === 'free') return { kind: 'free' };
+  if (typeof v !== 'object' || Array.isArray(v)) {
+    errors.push(`${path} must be an object like { kind: "function", graphPlotId, x }.`);
+    return null;
+  }
+  const r = v as Record<string, unknown>;
+  const kind =
+    typeof r.kind === 'string'
+      ? r.kind
+      : typeof r.graphPlotId === 'string'
+        ? 'function'
+        : typeof r.graphCurveId === 'string'
+          ? 'parametric'
+          : '';
+  if (kind === 'free') return { kind: 'free' };
+  if (kind === 'function') {
+    const graphPlotId = typeof r.graphPlotId === 'string' ? r.graphPlotId.trim() : '';
+    const x = typeof r.x === 'number' ? r.x : Number(r.x);
+    if (!graphPlotId || !Number.isFinite(x)) {
+      errors.push(`${path}: a function attachment needs graphPlotId and a finite x.`);
+      return null;
+    }
+    return { kind: 'function', graphPlotId, x };
+  }
+  if (kind === 'parametric') {
+    const graphCurveId = typeof r.graphCurveId === 'string' ? r.graphCurveId.trim() : '';
+    const t = typeof r.t === 'number' ? r.t : Number(r.t);
+    if (!graphCurveId || !Number.isFinite(t)) {
+      errors.push(`${path}: a parametric attachment needs graphCurveId and a finite t.`);
+      return null;
+    }
+    return { kind: 'parametric', graphCurveId, t };
+  }
+  errors.push(`${path}.kind must be "free", "function" or "parametric".`);
+  return null;
+}
+
+/**
+ * Normalize a (possibly partial) dot over `base`. Returns null after pushing an error.
+ * Optional annotation fields are only set when valid; invalid ones are ignored.
+ */
+function normalizeGraphDotFields(
+  raw: Record<string, unknown>,
+  base: GraphDot | undefined,
+  path: string,
+  errors: string[],
+  fallbackId = 'dot',
+): GraphDot | null {
+  const dot: GraphDot = {
+    ...(base ?? {}),
+    id: asStr(raw.id, base?.id ?? fallbackId),
+    dx: asNum(raw.dx, base?.dx ?? 0),
+    dy: asNum(raw.dy, base?.dy ?? 0),
+    color: asStr(raw.color, base?.color ?? '#ef4444'),
+    radius: asNum(raw.radius, base?.radius ?? 0.08),
+    label: asStr(raw.label, base?.label ?? ''),
+    labelDir: asDir(raw.labelDir, base?.labelDir ?? 'UP'),
+  };
+  const attachment = normalizeDotAttachment(raw.attachment, `${path}.attachment`, errors);
+  if (attachment === null) return null;
+  if (attachment) {
+    if (attachment.kind === 'free') delete dot.attachment;
+    else dot.attachment = attachment;
+  }
+  for (const key of ['showCoordinates', 'showProjectionGuides'] as const) {
+    if (typeof raw[key] === 'boolean') dot[key] = raw[key] as boolean;
+  }
+  for (const key of ['labelFontSize', 'coordinateFontSize'] as const) {
+    const n = asOptionalPositiveNum(raw[key]);
+    if (n != null) dot[key] = n;
+  }
+  for (const key of ['labelSpacing', 'coordinateSpacing'] as const) {
+    const n = raw[key];
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0) dot[key] = n;
+  }
+  if (typeof raw.coordinatePrecision === 'number' && Number.isFinite(raw.coordinatePrecision)) {
+    dot.coordinatePrecision = Math.max(0, Math.min(6, Math.round(raw.coordinatePrecision)));
+  }
+  for (const key of ['labelColor', 'coordinateColor'] as const) {
+    const c = asOptionalTrimmedStr(raw[key]);
+    if (c) dot[key] = c;
+  }
+  const coordinateDir = asNullableDir(raw.coordinateDir);
+  if (coordinateDir) dot.coordinateDir = coordinateDir;
+  return dot;
+}
+
 function normalizeGraphDot(
   raw: Record<string, unknown>,
   errors: string[],
@@ -1693,22 +1840,121 @@ function normalizeGraphDot(
     errors.push(`${prefix}.item.axesId is required for graphDot.`);
     return null;
   }
-  const dotRaw = (raw.dot ?? {}) as Record<string, unknown>;
+  const dotRaw = collectDotPatch(raw) ?? {};
+  const dot = normalizeGraphDotFields(dotRaw, undefined, `${prefix}.item.dot`, errors, base.id + '_dot');
+  if (!dot) return null;
   return {
     ...base,
     kind: 'graphDot',
     axesId,
-    dot: {
-      id: asStr(dotRaw.id, base.id + '_dot'),
-      dx: asNum(dotRaw.dx, 0),
-      dy: asNum(dotRaw.dy, 0),
-      color: asStr(dotRaw.color, '#ef4444'),
-      radius: asNum(dotRaw.radius, 0.08),
-      label: asStr(dotRaw.label, ''),
-      labelDir:
-        (dotRaw.labelDir as GraphDotItem['dot']['labelDir']) ?? 'UP',
-    },
+    dot,
   };
+}
+
+/** Item map as it would look after `actions` (shallow UPDATE merge, as in the preview). */
+export function virtualSceneAfter(
+  currentItems: ReadonlyMap<ItemId, SceneItem>,
+  actions: readonly AgentAction[],
+): Map<ItemId, SceneItem> {
+  const virtual = new Map(currentItems);
+  for (const action of actions) {
+    if (action.action === 'CREATE') virtual.set(action.item.id, action.item);
+    else if (action.action === 'UPDATE') {
+      const previous = virtual.get(action.itemId);
+      if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
+    } else virtual.delete(action.itemId);
+  }
+  return virtual;
+}
+
+/**
+ * Check attached dots and Move-along-graph clips against the scene they would produce, with the
+ * same resolver the canvas and the exporter use. Attached dots get their fallback dx/dy synced to
+ * the resolved point; a free dot's clip without a plot picks the only plot on the dot's axes.
+ */
+function checkGraphMotion(
+  actions: AgentAction[],
+  currentItems: Map<ItemId, SceneItem>,
+  errors: string[],
+  warnings: string[],
+): void {
+  const touchesMotion = actions.some((a) =>
+    a.action === 'CREATE'
+      ? a.item.kind === 'graphDot' || a.item.kind === 'target_animation'
+      : a.action === 'UPDATE' &&
+        ['dot', 'targets', 'mode', 'startTime', 'duration', 'fn', 'curve', 'xDomain', 'tDomain'].some((k) => k in a.updates),
+  );
+  if (!touchesMotion) return;
+  const errorCount = errors.length;
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i]!;
+    if (action.action === 'DELETE') continue;
+    const id = action.action === 'CREATE' ? action.item.id : action.itemId;
+    const virtual = virtualSceneAfter(currentItems, actions);
+    const item = virtual.get(id);
+    if (!item) continue;
+    const values = [...virtual.values()];
+    if (item.kind === 'graphDot' && item.dot.attachment && item.dot.attachment.kind !== 'free') {
+      const resolved = resolveAttachedGraphDot(item, values);
+      if (resolved.error) {
+        errors.push(`actions[${i}]: graph dot "${id}": ${resolved.error}`);
+        continue;
+      }
+      const synced = { ...item.dot, dx: resolved.point.x, dy: resolved.point.y };
+      if (action.action === 'CREATE') action.item = { ...item, dot: synced };
+      else if ('dot' in action.updates) action.updates = { ...action.updates, dot: synced } as Partial<SceneItem>;
+      continue;
+    }
+    if (item.kind !== 'target_animation' || item.mode !== 'graphFollow') continue;
+    let rows = item.targets;
+    let repaired = false;
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r]!;
+      const dot = virtual.get(row.targetId);
+      if (dot?.kind !== 'graphDot') continue;
+      const attachment = dot.dot.attachment ?? { kind: 'free' as const };
+      const where = `actions[${i}]: Move-along-graph clip "${id}" row ${r}`;
+      if (attachment.kind === 'parametric') {
+        if (!Number.isFinite(row.targetT)) errors.push(`${where} needs targetT (the dot is attached to a parametric curve).`);
+        continue;
+      }
+      if (!Number.isFinite(row.targetX)) {
+        errors.push(`${where} needs targetX (destination x in graph units).`);
+        continue;
+      }
+      if (attachment.kind === 'free' && !row.graphPlotId) {
+        const plots = values.filter((it) => it.kind === 'graphPlot' && it.axesId === dot.axesId);
+        if (plots.length === 1) {
+          rows = rows.map((x, k) => (k === r ? { ...x, graphPlotId: plots[0]!.id } : x));
+          repaired = true;
+          warnings.push(`${where}: graphPlotId was missing; using the only plot "${plots[0]!.id}" on the dot's axes.`);
+        } else {
+          errors.push(`${where} needs graphPlotId (a function plot on the dot's axes), or attach the dot to a plot.`);
+        }
+      }
+    }
+    if (repaired) {
+      if (action.action === 'CREATE') action.item = { ...item, targets: rows };
+      else action.updates = { ...action.updates, targets: rows } as Partial<SceneItem>;
+    }
+  }
+  if (errors.length > errorCount) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  const values = [...virtual.values()];
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i]!;
+    if (action.action === 'DELETE') continue;
+    const clip = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
+    if (clip?.kind !== 'target_animation' || clip.mode !== 'graphFollow') continue;
+    const startError = graphFollowStartTimeError(clip, virtual);
+    if (startError) errors.push(`actions[${i}]: ${startError}`);
+    for (const row of clip.targets) {
+      const dot = virtual.get(row.targetId);
+      if (dot?.kind !== 'graphDot') continue;
+      const end = resolveGraphDotPosition({ dot, items: values, time: clip.startTime + clip.duration });
+      if (end.error) errors.push(`actions[${i}]: Move-along-graph clip "${clip.id}": ${end.error}`);
+    }
+  }
 }
 
 const FUNCTION_LINE_STYLES: readonly FunctionLineStyle[] = [
@@ -2208,7 +2454,19 @@ const TA_MODES: readonly TargetAnimationMode[] = [
   'move',
   'path',
   'rotate',
+  'graphFollow',
 ];
+
+/** Move-along-graph row fields (`mode === 'graphFollow'`); `toX` / `toT` are accepted aliases. */
+function applyGraphFollowRowFields(row: TargetAnimationTargetSpec, t: Record<string, unknown>): void {
+  if (typeof t.graphPlotId === 'string' && t.graphPlotId.trim()) row.graphPlotId = t.graphPlotId.trim();
+  if (typeof t.graphCurveId === 'string' && t.graphCurveId.trim()) row.graphCurveId = t.graphCurveId.trim();
+  const targetX = typeof t.targetX === 'number' ? t.targetX : t.toX;
+  if (typeof targetX === 'number' && Number.isFinite(targetX)) row.targetX = targetX;
+  const targetT = typeof t.targetT === 'number' ? t.targetT : t.toT;
+  if (typeof targetT === 'number' && Number.isFinite(targetT)) row.targetT = targetT;
+  if (t.easing === 'linear' || t.easing === 'smooth') row.easing = t.easing;
+}
 
 /** Missing mode keeps the historical `scale` default; an unknown mode is an error, never a silent scale. */
 function asTargetAnimationMode(v: unknown): TargetAnimationMode | null {
@@ -2299,6 +2557,7 @@ function normalizeTargetAnimation(
         }
       }
       if (segmentIndices != null) row.segmentIndices = segmentIndices;
+      applyGraphFollowRowFields(row, t);
       const subRaw = t.mathSubtargets;
       if (Array.isArray(subRaw)) {
         const mrows: { segmentIndex: number; childIndices: number[] }[] = [];
@@ -2331,7 +2590,7 @@ function normalizeTargetAnimation(
     label: asStr(raw.label, ''),
     layer: Math.max(0, asNum(raw.layer, 0)),
     startTime: Math.max(0, asNum(raw.startTime, 0)),
-    duration: Math.max(0.05, asNum(raw.duration, 1)),
+    duration: Math.max(mode === 'graphFollow' ? 0.01 : 0.05, asNum(raw.duration, 1)),
     mode,
     targets,
   };

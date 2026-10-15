@@ -321,6 +321,20 @@ Real LLM responses are noisy. The validator has two responsibilities:
   (`knownUpdateFields`) are dropped and reported as `warnings` on the ok result; the panel shows them
   under the reply.
 
+### 7.0a Graph dots and Move along graph
+
+- `graphDot.dot` accepts `attachment` (`function` / `parametric` / `free`), `showCoordinates`,
+  `showProjectionGuides` and the label / coordinate styling fields; the same fields at the item top level
+  are folded into `dot`. A dot UPDATE is merged over the stored dot, so the patch can be partial.
+- `target_animation` accepts `mode: "graphFollow"` with rows `{ targetId, targetX | targetT, graphPlotId?,
+  easing? }`; targets must be graph dots.
+- `checkGraphMotion` runs `lib/graphMotion.ts` (the resolver the canvas and exporter use) on the scene the
+  actions would produce: attached dots must resolve (their fallback `dx/dy` is synced to the resolved
+  point), a clip must not start before its dot, and the end position must resolve (domain, continuity,
+  overlapping position clips). A free dot's clip without `graphPlotId` takes the only plot on the dot's
+  axes, with a warning.
+- Shared schema pieces live in `schemaFragments.ts` and are used by both the canonical and Gemini schemas.
+
 ### 7.1 Pre-pass auto-repairs
 
 - **`autoLinkAxesIds(actions)`** — if exactly one `axes` CREATE exists in the response and one or more `graphPlot` / `graphDot` / `graphFunctionSeries` CREATEs are missing `axesId`, the axes' id is copied onto them. In ambiguous cases (0 or ≥2 axes CREATEs), this is a no-op and the "axesId is required" error still fires.
