@@ -15,6 +15,7 @@ import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
 import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
+import { isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
@@ -1260,8 +1261,18 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   item.fillColor !== ''
                     ? strokeAfterBlinkThenTa(item.fillColor, bShape, taShape)
                     : undefined;
-                const mx = (pos?.x ?? item.x) + fcShape.x;
-                const my = (pos?.y ?? item.y) + fcShape.y;
+                let mx = (pos?.x ?? item.x) + fcShape.x;
+                let my = (pos?.y ?? item.y) + fcShape.y;
+                // Connector: both ends follow their anchors at the playhead.
+                let drawnShape = item;
+                if (isConnectorShape(item)) {
+                  const ends = resolveConnectorEndpoints(item, { items: itemsMap, time: currentTime, frames, startFrameId });
+                  if (ends.error == null) {
+                    mx = (ends.start.x + ends.end.x) / 2;
+                    my = (ends.start.y + ends.end.y) / 2;
+                    drawnShape = { ...item, endX: ends.end.x - ends.start.x, endY: ends.end.y - ends.start.y, rotationDeg: 0, scale: 1 };
+                  }
+                }
                 return (
                   <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
@@ -1271,7 +1282,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
                     >
                       <ShapeNode
-                        item={item}
+                        item={drawnShape}
+                        locked={drawnShape !== item}
                         canvasWidth={size.width}
                         canvasHeight={size.height}
                         isSelected={selected}

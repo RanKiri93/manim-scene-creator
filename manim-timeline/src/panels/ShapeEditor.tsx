@@ -9,6 +9,7 @@ import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
+import ConnectorEndsEditor from './ConnectorEndsEditor';
 
 const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'circle', label: 'Circle' },
@@ -135,7 +136,9 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         </div>
       )}
 
-      {(item.shapeType === 'arrow' || item.shapeType === 'line') && (
+      {(item.shapeType === 'arrow' || item.shapeType === 'line') && <ConnectorEndsEditor item={item} />}
+
+      {(item.shapeType === 'arrow' || item.shapeType === 'line') && !item.endpoints && (
         <div className="flex flex-wrap gap-3">
           <NumberInput
             label="End ΔX"
@@ -396,7 +399,12 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
     </div>
   );
 
-  const positionContent = (
+  const positionContent = item.endpoints ? (
+    <p className="text-meta text-chalk-faint leading-snug">
+      This line’s ends follow other objects (see Base → Connector ends), so it has no position of
+      its own.
+    </p>
+  ) : (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
         <NumberInput

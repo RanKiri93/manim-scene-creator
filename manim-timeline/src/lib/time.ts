@@ -82,6 +82,8 @@ export function canBeTargetAnimationTarget(
   item: SceneItem,
   mode: TargetAnimationMode,
 ): boolean {
+  // A connector's ends follow its anchors, so only its colour can be animated.
+  if (item.kind === 'shape' && item.endpoints != null && mode !== 'color') return false;
   return canBeTargetAnimationTargetKind(mode, item.kind);
 }
 

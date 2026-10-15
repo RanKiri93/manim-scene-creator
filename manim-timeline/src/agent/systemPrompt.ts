@@ -133,6 +133,13 @@ CRITICAL ARCHITECTURE RULES:
      { "action": "CREATE", "item": { "id": "d1", "kind": "graphDot", "axesId": "ax1", "label": "נקודה", "startTime": 2, "duration": 0.5, "dot": { "color": "#fbbf24", "showCoordinates": true, "attachment": { "kind": "function", "graphPlotId": "p1", "x": 0 } } } }
      { "action": "CREATE", "item": { "id": "m1", "kind": "target_animation", "label": "תנועה על הגרף", "mode": "graphFollow", "startTime": 2.5, "duration": 2, "targets": [ { "targetId": "d1", "targetX": 3.14, "easing": "linear" } ] } }
 
+8e. Connectors (lines / arrows whose ends follow things):
+   - A \`shape\` with \`shapeType: "line"\` or \`"arrow"\` may carry \`endpoints: { start: <anchor>, end: <anchor> }\`. Both ends are recomputed every frame in the preview and in the export, so the line moves with what it follows. Position fields (x, y, posSteps, endX, endY, rotation, scale) are then ignored; omit them.
+   - Anchors: \`{ "kind": "graphDot", "dotId" }\` (the dot's centre), \`{ "kind": "graphDotFoot", "dotId", "axis": "x" }\` (the dot dropped vertically onto the x-axis; \`"axis": "y"\` drops it horizontally onto the y-axis), \`{ "kind": "graphPoint", "axesId", "x", "y" }\` (fixed graph coordinates), \`{ "kind": "object", "itemId", "edge": "center" | "UP" | "DOWN" | "LEFT" | "RIGHT" | "UL" | "UR" | "DL" | "DR" }\` (a text line / shape / image / axes), \`{ "kind": "point", "x", "y" }\` (fixed scene point).
+   - Only color animations apply to a connector (its position comes from its anchors). Remove it with an exit_animation like any shape.
+   Example — vertical segment from dot d1 down to the x-axis that moves with the dot, appearing with the dot:
+     { "action": "CREATE", "item": { "id": "seg1", "kind": "shape", "shapeType": "line", "label": "אנך לציר", "startTime": 2, "duration": 0.5, "strokeColor": "#94a3b8", "strokeWidth": 3, "endpoints": { "start": { "kind": "graphDot", "dotId": "d1" }, "end": { "kind": "graphDotFoot", "dotId": "d1", "axis": "x" } } } }
+
 8b. Shapes (\`kind: "shape"\`):
    - \`shapeType\`: "circle" | "rectangle" | "arrow" | "line" | "polyline".
    - For \`shapeType: "polyline"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points. Use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).

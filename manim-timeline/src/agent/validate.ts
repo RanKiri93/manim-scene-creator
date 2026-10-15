@@ -29,6 +29,8 @@ import {
   type PosStep,
   type SceneItem,
   type ShapeItem,
+  type ShapeAnchor,
+  type ShapeEndpoints,
   type ShapeKind,
   type ShapePoint,
   type SurroundingRectItem,
@@ -45,6 +47,11 @@ import {
   isAgentAllowedKind,
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
+import {
+  connectorStaticGeometry,
+  isConnectorShape,
+  resolveConnectorEndpoints,
+} from '@/lib/shapeAnchors';
 import {
   graphFollowStartTimeError,
   resolveAttachedGraphDot,
@@ -456,6 +463,7 @@ export function validateAgentResponse(
   }
 
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
+  checkConnectors(normalizedActions, currentItems, frameCtx, errors);
 
   // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
@@ -568,7 +576,7 @@ function normalizeCreateItem(
     case 'graphPointSequence':
       return normalizeGraphPointSequence(raw, errors, prefix);
     case 'shape':
-      return normalizeShape(raw);
+      return normalizeShape(raw, errors, prefix);
     case 'surroundingRect':
       return normalizeSurroundingRect(raw, errors, prefix);
     case 'exit_animation':
@@ -949,6 +957,11 @@ function normalizeUpdates(
   }
   if ('posSteps' in patch) {
     next.posSteps = normalizePosSteps(patch.posSteps);
+  }
+  if (targetKind === 'shape' && 'endpoints' in patch && patch.endpoints != null) {
+    const endpoints = normalizeShapeEndpoints(patch.endpoints, `${prefix}.updates.endpoints`, errors);
+    if (endpoints) next.endpoints = endpoints;
+    else delete next.endpoints;
   }
   if (targetKind === 'textLine') {
     if ('baseDir' in patch) next.baseDir = normalizeTextBaseDir(patch.baseDir);
@@ -2248,13 +2261,95 @@ function normalizeShapePoints(rawPoints: unknown): ShapePoint[] {
   return DEFAULT_SHAPE_POLYLINE_POINTS.map((p) => ({ ...p }));
 }
 
-function normalizeShape(raw: Record<string, unknown>): ShapeItem {
+const ANCHOR_EDGES = new Set(['center', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'UL', 'UR', 'DL', 'DR']);
+
+/** One connector end. Aliases: `dotFoot` for `graphDotFoot`, `id` for the referenced id. */
+function normalizeShapeAnchor(v: unknown, path: string, errors: string[]): ShapeAnchor | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    errors.push(`${path} must be an anchor object such as { kind: "graphDot", dotId }.`);
+    return null;
+  }
+  const r = v as Record<string, unknown>;
+  const kind = r.kind === 'dotFoot' ? 'graphDotFoot' : r.kind;
+  const ref = (key: string) => {
+    const value = typeof r[key] === 'string' ? (r[key] as string) : typeof r.id === 'string' ? r.id : '';
+    return value.trim();
+  };
+  const num = (key: string) => (typeof r[key] === 'number' ? (r[key] as number) : Number(r[key]));
+  switch (kind) {
+    case 'point': {
+      const x = num('x');
+      const y = num('y');
+      if (Number.isFinite(x) && Number.isFinite(y)) return { kind: 'point', x, y };
+      errors.push(`${path}: a "point" anchor needs finite x and y.`);
+      return null;
+    }
+    case 'graphPoint': {
+      const axesId = ref('axesId');
+      const x = num('x');
+      const y = num('y');
+      if (axesId && Number.isFinite(x) && Number.isFinite(y)) return { kind: 'graphPoint', axesId, x, y };
+      errors.push(`${path}: a "graphPoint" anchor needs axesId and finite graph x, y.`);
+      return null;
+    }
+    case 'graphDot': {
+      const dotId = ref('dotId');
+      if (dotId) return { kind: 'graphDot', dotId };
+      errors.push(`${path}: a "graphDot" anchor needs dotId.`);
+      return null;
+    }
+    case 'graphDotFoot': {
+      const dotId = ref('dotId');
+      const axis = r.axis === 'y' ? 'y' : r.axis == null || r.axis === 'x' ? 'x' : null;
+      if (dotId && axis) return { kind: 'graphDotFoot', dotId, axis };
+      errors.push(`${path}: a "graphDotFoot" anchor needs dotId and axis "x" or "y".`);
+      return null;
+    }
+    case 'object': {
+      const itemId = ref('itemId');
+      if (!itemId) {
+        errors.push(`${path}: an "object" anchor needs itemId.`);
+        return null;
+      }
+      const edge = typeof r.edge === 'string' && ANCHOR_EDGES.has(r.edge) ? (r.edge as ManimDirection | 'center') : 'center';
+      return { kind: 'object', itemId, edge };
+    }
+    default:
+      errors.push(`${path}.kind must be point, graphPoint, graphDot, graphDotFoot or object.`);
+      return null;
+  }
+}
+
+function normalizeShapeEndpoints(v: unknown, path: string, errors: string[]): ShapeEndpoints | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    errors.push(`${path} must be { start: <anchor>, end: <anchor> }.`);
+    return null;
+  }
+  const r = v as Record<string, unknown>;
+  const start = normalizeShapeAnchor(r.start, `${path}.start`, errors);
+  const end = normalizeShapeAnchor(r.end, `${path}.end`, errors);
+  return start && end ? { start, end } : null;
+}
+
+function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: string): ShapeItem | null {
   const base = baseDefaults(raw);
   const rawSt = raw.shapeType;
+  const hasEndpoints = raw.endpoints != null;
   const shapeType: ShapeKind =
     typeof rawSt === 'string' && AGENT_SHAPE_KINDS.has(rawSt as ShapeKind)
       ? (rawSt as ShapeKind)
-      : 'circle';
+      : hasEndpoints
+        ? 'line'
+        : 'circle';
+  let endpoints: ShapeEndpoints | null = null;
+  if (hasEndpoints) {
+    if (shapeType !== 'line' && shapeType !== 'arrow') {
+      errors.push(`${prefix}.item.endpoints needs shapeType "line" or "arrow".`);
+      return null;
+    }
+    endpoints = normalizeShapeEndpoints(raw.endpoints, `${prefix}.item.endpoints`, errors);
+    if (!endpoints) return null;
+  }
   return {
     ...base,
     kind: 'shape',
@@ -2275,7 +2370,39 @@ function normalizeShape(raw: Record<string, unknown>): ShapeItem {
     fillOpacity: asNum(raw.fillOpacity, 0.25),
     introStyle:
       (raw.introStyle as ShapeItem['introStyle']) ?? 'create',
+    ...(endpoints ? { endpoints } : {}),
   };
+}
+
+/**
+ * Resolve every created / updated connector against the scene the actions produce (same resolver
+ * as the canvas) and sync its static x / y / endX / endY to the geometry at its start time.
+ */
+function checkConnectors(
+  actions: AgentAction[],
+  currentItems: Map<ItemId, SceneItem>,
+  frameCtx: AgentFrameContext | undefined,
+  errors: string[],
+): void {
+  if (!actions.some((a) => (a.action === 'CREATE' ? isConnectorShape(a.item) : a.action === 'UPDATE' && 'endpoints' in a.updates))) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  const ctx = { items: virtual, frames: frameCtx?.frames ?? [], startFrameId: frameCtx?.startFrameId ?? null };
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i]!;
+    if (action.action === 'DELETE') continue;
+    if (action.action === 'UPDATE' && !('endpoints' in action.updates)) continue;
+    const shape = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
+    if (!isConnectorShape(shape)) continue;
+    const result = resolveConnectorEndpoints(shape, { ...ctx, time: shape.startTime });
+    if (result.error != null) {
+      errors.push(`actions[${i}]: connector "${shape.id}": ${result.error}`);
+      continue;
+    }
+    const geometry = connectorStaticGeometry(shape, { ...ctx, time: shape.startTime });
+    if (!geometry) continue;
+    if (action.action === 'CREATE') action.item = { ...shape, ...geometry };
+    else action.updates = { ...action.updates, ...geometry } as Partial<SceneItem>;
+  }
 }
 
 function normalizeSurroundingRect(

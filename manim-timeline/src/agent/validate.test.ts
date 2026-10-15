@@ -2048,3 +2048,57 @@ describe('graph dots and Move along graph', () => {
     expect(dot.dy).toBe(2);
   });
 });
+
+describe('connectors', () => {
+  const setup = () => {
+    const first = validateAgentResponse({
+      reply: 'ok',
+      actions: [
+        { action: 'CREATE', item: { id: 'p1', kind: 'graphPlot', axesId: 'ax1', label: 'f', fn: { jsExpr: 'x', pyExpr: 'x' }, xDomain: [0, 2] } },
+        { action: 'CREATE', item: { id: 'd1', kind: 'graphDot', axesId: 'ax1', label: 'P', startTime: 1, dot: { attachment: { kind: 'function', graphPlotId: 'p1', x: 2 } } } },
+      ],
+    }, new Map<string, SceneItem>([['ax1', axes('ax1')]]));
+    if (!first.ok) throw new Error(first.errors.join(' '));
+    const items = new Map<string, SceneItem>([['ax1', axes('ax1')]]);
+    for (const a of first.response.actions) if (a.action === 'CREATE') items.set(a.item.id, a.item);
+    return items;
+  };
+
+  it('creates a dot-to-axis connector and syncs its static geometry', () => {
+    const result = validateAgentResponse({
+      reply: 'ok',
+      actions: [{ action: 'CREATE', item: { id: 's1', kind: 'shape', label: 'drop', startTime: 1, endpoints: { start: { kind: 'graphDot', dotId: 'd1' }, end: { kind: 'dotFoot', dotId: 'd1' } } } }],
+    }, setup());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'CREATE' || act.item.kind !== 'shape') throw new Error('expected shape');
+    expect(act.item.shapeType).toBe('line');
+    expect(act.item.endpoints?.end).toEqual({ kind: 'graphDotFoot', dotId: 'd1', axis: 'x' });
+    // Default axes are centred at the origin with unit scale: dot (2, 2) → foot (2, 0).
+    expect(act.item.x).toBeCloseTo(2);
+    expect(act.item.y).toBeCloseTo(1);
+    expect(act.item.endX).toBeCloseTo(0);
+    expect(act.item.endY).toBeCloseTo(-2);
+  });
+
+  it('rejects unknown anchors, missing dots and endpoints on a circle', () => {
+    const items = setup();
+    const bad = (endpoints: unknown, shapeType = 'line') =>
+      validateAgentResponse({ reply: 'x', actions: [{ action: 'CREATE', item: { id: 's1', kind: 'shape', shapeType, label: 'x', endpoints } }] }, items);
+    expect(bad({ start: { kind: 'graphDot', dotId: 'nope' }, end: { kind: 'point', x: 0, y: 0 } }).ok).toBe(false);
+    expect(bad({ start: { kind: 'wormhole' }, end: { kind: 'point', x: 0, y: 0 } }).ok).toBe(false);
+    expect(bad({ start: { kind: 'point', x: 0, y: 0 }, end: { kind: 'point', x: 1, y: 0 } }, 'circle').ok).toBe(false);
+  });
+
+  it('accepts an endpoints UPDATE on an existing line', () => {
+    const items = setup();
+    items.set('s1', { id: 's1', kind: 'shape', label: '', layer: 0, startTime: 1, duration: 1, x: 0, y: 0, scale: 1, posSteps: [{ kind: 'absolute' }], shapeType: 'arrow', rotationDeg: 0, radius: 0.5, width: 2, height: 1, endX: 1, endY: 0, points: [], tailArrow: false, headArrow: false, strokeColor: '#fff', strokeWidth: 3, fillColor: null, fillOpacity: 0, introStyle: 'create' } as SceneItem);
+    const result = validateAgentResponse({ reply: 'x', actions: [{ action: 'UPDATE', itemId: 's1', updates: { endpoints: { start: { kind: 'point', x: -1, y: 0 }, end: { kind: 'graphDot', dotId: 'd1' } } } }] }, items);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const act = result.response.actions[0]!;
+    if (act.action !== 'UPDATE') throw new Error('expected UPDATE');
+    expect(act.updates).toMatchObject({ endX: 3, endY: 2 });
+  });
+});

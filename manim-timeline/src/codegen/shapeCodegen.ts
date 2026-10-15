@@ -1,7 +1,8 @@
-import type { ItemId, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
+import type { ItemId, ShapeAnchor, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
+import { isConnectorShape, OBJECT_ANCHOR_KINDS } from '@/lib/shapeAnchors';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
-import { manimColor } from './graphCodegen';
+import { manimColor, overlayDotVar } from './graphCodegen';
 import {
   type BoundAudioTailOpts,
   appendAudioTailAfterLeafPlayback,
@@ -57,6 +58,7 @@ export function generateShapeDef(
   varName: string,
   indent: number,
 ): string {
+  if (isConnectorShape(item)) return generateConnectorDef(item, varName, indent);
   const pad = ' '.repeat(indent);
   const stroke = manimColor(item.strokeColor);
   const sw = item.strokeWidth.toFixed(4);
@@ -145,6 +147,8 @@ export function generateShapePos(
   itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
+  // Connectors are drawn by their updater (`generateConnectorBind`), not placed.
+  if (isConnectorShape(item)) return '';
   const lines: string[] = [
     `${pad}# timeline shape ${pyCommentValue({
       id: item.id,
@@ -317,4 +321,118 @@ export function generateShapePlay(
   }
   const rt = Math.max(0.05, item.duration).toFixed(6);
   return `${pad}self.play(${intro}, run_time=${rt})\n`;
+}
+
+function pyNum(n: number): string {
+  return Number.isFinite(n) ? n.toFixed(6) : '0.0';
+}
+
+/** Python expression for one connector anchor's live position (world coordinates). */
+export function connectorAnchorExpr(
+  anchor: ShapeAnchor,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+  ownerFrameCenter: { x: number; y: number },
+): string {
+  switch (anchor.kind) {
+    case 'point':
+      return `np.array([${pyNum(anchor.x + ownerFrameCenter.x)}, ${pyNum(anchor.y + ownerFrameCenter.y)}, 0.0])`;
+    case 'graphPoint': {
+      const axVar = idToVarName.get(anchor.axesId);
+      if (!axVar || itemsMap.get(anchor.axesId)?.kind !== 'axes') {
+        throw new Error(`Connector anchor axes "${anchor.axesId}" is missing.`);
+      }
+      return `${axVar}.c2p(${pyNum(anchor.x)}, ${pyNum(anchor.y)})`;
+    }
+    case 'graphDot':
+    case 'graphDotFoot': {
+      const dot = itemsMap.get(anchor.dotId);
+      const axes = dot?.kind === 'graphDot' ? itemsMap.get(dot.axesId) : undefined;
+      const axVar = dot?.kind === 'graphDot' ? idToVarName.get(dot.axesId) : undefined;
+      if (dot?.kind !== 'graphDot' || axes?.kind !== 'axes' || !axVar) {
+        throw new Error(`Connector anchor "${anchor.dotId}" is not a graph dot on exported axes.`);
+      }
+      const dVar = overlayDotVar(axVar, dot.id);
+      if (anchor.kind === 'graphDot') return `${dVar}.get_center()`;
+      // Same foot as `graphProjectionGuides`: 0 when inside the range, else the nearest range edge.
+      const [lo, hi] = anchor.axis === 'y' ? axes.xRange : axes.yRange;
+      const c = anchor.axis === 'y' ? '_c[0]' : '_c[1]';
+      const foot =
+        lo <= 0 && hi >= 0
+          ? '0.0'
+          : `(${pyNum(lo)} if abs(${c} - ${pyNum(lo)}) <= abs(${c} - ${pyNum(hi)}) else ${pyNum(hi)})`;
+      return anchor.axis === 'y'
+        ? `(lambda _c: ${axVar}.c2p(${foot}, _c[1]))(${axVar}.p2c(${dVar}.get_center()))`
+        : `(lambda _c: ${axVar}.c2p(_c[0], ${foot}))(${axVar}.p2c(${dVar}.get_center()))`;
+    }
+    case 'object': {
+      const target = itemsMap.get(anchor.itemId);
+      const v = idToVarName.get(anchor.itemId);
+      if (!target || !v || !OBJECT_ANCHOR_KINDS.has(target.kind) || isConnectorShape(target)) {
+        throw new Error(`Connector anchor "${anchor.itemId}" must be an exported text line, shape, image or axes.`);
+      }
+      const edge = anchor.edge ?? 'center';
+      if (edge === 'center') return `${v}.get_center()`;
+      return edge.length === 2 ? `${v}.get_corner(${edge})` : `${v}.get_edge_center(${edge})`;
+    }
+    default:
+      throw new Error('Unknown connector anchor.');
+  }
+}
+
+/** Placeholder mobject for a connector; its updater draws the real geometry (see below). */
+export function generateConnectorDef(item: ShapeItem, varName: string, indent: number): string {
+  const pad = ' '.repeat(indent);
+  return `${pad}${varName} = ${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}\n`;
+}
+
+function connectorMobjectCall(item: ShapeItem, a: string, b: string, color?: string): string {
+  const stroke = color ?? manimColor(item.strokeColor);
+  const sw = item.strokeWidth.toFixed(4);
+  return item.shapeType === 'arrow'
+    ? `Arrow(${a}, ${b}, color=${stroke}, stroke_width=${sw}, buff=0)`
+    : `Line(${a}, ${b}, color=${stroke}, stroke_width=${sw})`;
+}
+
+/**
+ * Bind a connector to its anchors. Emitted after every object is positioned and shifted into its
+ * frame. The connector's own updater redraws it every frame while it is on screen; a driver that
+ * is always in the scene keeps it current before its intro (intro animations suspend the
+ * connector's own updaters and start from its geometry at that moment).
+ */
+export function generateConnectorBind(
+  item: ShapeItem,
+  varName: string,
+  indent: number,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+  ownerFrameCenter: { x: number; y: number },
+): string {
+  if (!item.endpoints) return '';
+  const pad = ' '.repeat(indent);
+  const label = item.label || item.id;
+  let a: string;
+  let b: string;
+  try {
+    a = connectorAnchorExpr(item.endpoints.start, idToVarName, itemsMap, ownerFrameCenter);
+    b = connectorAnchorExpr(item.endpoints.end, idToVarName, itemsMap, ownerFrameCenter);
+  } catch (e) {
+    throw new Error(`Connector "${label}": ${(e as Error).message}`);
+  }
+  const fn = `_${varName}_redraw`;
+  return (
+    `${pad}# connector ${pyCommentValue({ id: item.id, endpoints: item.endpoints })}\n` +
+    `${pad}def ${fn}(m):\n` +
+    `${pad}    _a = ${a}\n` +
+    `${pad}    _b = ${b}\n` +
+    `${pad}    if np.linalg.norm(_b - _a) < 1e-6:\n` +
+    `${pad}        _b = _a + RIGHT * 1e-4\n` +
+    // Keep the current colour so color animations on the connector persist.
+    `${pad}    m.become(${connectorMobjectCall(item, '_a', '_b', 'm.get_color()')})\n` +
+    `${pad}${varName}.add_updater(${fn})\n` +
+    `${pad}_${varName}_driver = Mobject()\n` +
+    `${pad}_${varName}_driver.add_updater(lambda _d: None if ${varName} in self.mobjects else ${fn}(${varName}))\n` +
+    `${pad}self.add(_${varName}_driver)\n` +
+    `${pad}${fn}(${varName})\n`
+  );
 }

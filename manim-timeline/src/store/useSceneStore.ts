@@ -1,3 +1,4 @@
+import { connectorReferencedIds, connectorStaticGeometry } from '@/lib/shapeAnchors';
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
@@ -1004,6 +1005,18 @@ export const useSceneStore = create<SceneStore>()(
               sr.segmentIndices = null;
             }
           }
+        }
+        // Connectors that follow the doomed item keep their current geometry as a plain line.
+        for (const sh of s.items.values()) {
+          if (sh.kind !== 'shape' || !sh.endpoints || !connectorReferencedIds(sh.endpoints).includes(id)) continue;
+          const geometry = connectorStaticGeometry(sh, {
+            items: s.items,
+            time: sh.startTime,
+            frames: s.frames,
+            startFrameId: s.startFrameId,
+          });
+          if (geometry) Object.assign(sh, geometry);
+          sh.endpoints = null;
         }
         s.items.delete(id);
         s.selectedIds.delete(id);

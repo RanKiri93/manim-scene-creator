@@ -52,3 +52,13 @@ describe('graph motion provider schema parity', () => {
     expect(gemini.item.properties.mode.enum).toContain('graphFollow');
   });
 });
+
+describe('connector provider schema parity', () => {
+  it('declares shape endpoints in both schemas', () => {
+    const actionItems = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items as unknown as { anyOf: { properties: Record<string, { properties?: Record<string, unknown> }> }[] };
+    const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
+    for (const schema of [actionItems.anyOf[0]!.properties.item!.properties!, actionItems.anyOf[1]!.properties.updates!.properties!, gemini.item.properties as Record<string, unknown>, gemini.updates.properties as Record<string, unknown>]) {
+      expect(schema).toHaveProperty('endpoints.properties.start.properties.kind.enum');
+    }
+  });
+});

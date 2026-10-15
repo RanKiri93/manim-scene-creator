@@ -78,6 +78,8 @@ interface ShapeNodeProps {
   previewFillColor?: string | null;
   /** Playback preview: added to Konva CW rotation (`item.rotationDeg`), e.g. -Manim/CCW TA degrees. */
   previewRotationDeltaDeg?: number;
+  /** Connector drawn from its anchors: selectable, but not draggable or resizable. */
+  locked?: boolean;
 }
 
 export default function ShapeNode({
@@ -91,6 +93,7 @@ export default function ShapeNode({
   previewStrokeColor,
   previewFillColor,
   previewRotationDeltaDeg = 0,
+  locked = false,
 }: ShapeNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -109,7 +112,7 @@ export default function ShapeNode({
     my: (0.5 - cy / canvasHeight) * FRAME_H - frameOffset.y,
   });
 
-  const draggable = isFreelyDraggable(item.posSteps);
+  const draggable = !locked && isFreelyDraggable(item.posSteps);
   const showTransformer =
     item.shapeType !== 'polyline' &&
     isSelected &&

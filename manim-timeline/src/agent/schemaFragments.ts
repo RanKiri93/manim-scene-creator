@@ -64,3 +64,30 @@ export const GRAPH_FOLLOW_ROW_PROPERTIES = {
 } as const;
 
 export const TARGET_ANIMATION_MODES = ['scale', 'color', 'move', 'path', 'rotate', 'graphFollow'] as const;
+
+const SHAPE_ANCHOR_SCHEMA = {
+  type: 'object',
+  description:
+    'One connector end. kind "graphDot" { dotId } follows a graph dot; "graphDotFoot" { dotId, axis: "x" | "y" } is the dot dropped onto the x-axis (vertical drop) or y-axis; "graphPoint" { axesId, x, y } is a fixed point in graph coordinates; "object" { itemId, edge? } is a text line / shape / image / axes centre or edge; "point" { x, y } is a fixed scene point.',
+  properties: {
+    kind: { type: 'string', enum: ['graphDot', 'graphDotFoot', 'graphPoint', 'object', 'point'] },
+    dotId: { type: 'string' },
+    axis: { type: 'string', enum: ['x', 'y'] },
+    axesId: { type: 'string' },
+    itemId: { type: 'string' },
+    edge: { type: 'string', enum: ['center', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'UL', 'UR', 'DL', 'DR'] },
+    x: { type: 'number' },
+    y: { type: 'number' },
+  },
+} as const;
+
+/** `shape.endpoints` (line / arrow): ends that follow other things every frame ("connector"). */
+export const SHAPE_ENDPOINTS_SCHEMA = {
+  type: 'object',
+  description:
+    'shape with shapeType "line" or "arrow": make it a connector whose ends follow anchors every frame (preview and export). Position fields are then ignored.',
+  properties: {
+    start: SHAPE_ANCHOR_SCHEMA,
+    end: SHAPE_ANCHOR_SCHEMA,
+  },
+} as const;

@@ -1,5 +1,5 @@
 import { AGENT_ALLOWED_KINDS } from '../types';
-import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES, TARGET_ANIMATION_MODES } from '../schemaFragments';
+import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA, TARGET_ANIMATION_MODES } from '../schemaFragments';
 import type { AgentChatMessage, AgentContextPayload } from '../types';
 import {
   AgentProviderError,
@@ -188,6 +188,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                   'Largest integer index n (inclusive). Required for kind="graphFunctionSeries" and kind="graphPointSequence". Must satisfy nMax ≥ nMin after normalization.',
               },
               dot: GRAPH_DOT_SCHEMA,
+              endpoints: SHAPE_ENDPOINTS_SCHEMA,
               mode: {
                 type: 'string',
                 enum: [
@@ -471,6 +472,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               startTime: { type: 'number', description: 'camera_move UPDATE: finite start time in seconds.' },
               duration: { type: 'number', description: 'camera_move UPDATE: transition duration, minimum 0.05 seconds.' },
               dot: GRAPH_DOT_SCHEMA,
+              endpoints: SHAPE_ENDPOINTS_SCHEMA,
             },
           },
         },

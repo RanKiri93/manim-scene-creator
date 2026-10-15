@@ -1,3 +1,4 @@
+import { isConnectorShape } from '@/lib/shapeAnchors';
 import type {
   SceneItem,
   SceneDefaults,
@@ -69,6 +70,7 @@ import {
   generateShapeDef,
   generateShapePos,
   generateShapePlay,
+  generateConnectorBind,
 } from './shapeCodegen';
 import {
   generateImageDef,
@@ -119,6 +121,7 @@ import { timelineWaitHelperSource, timelineWaitLine } from './timelineWaitCodege
 import {
   ensureFrameConfig,
   frameCenter,
+  frameCenterById,
 } from '@/lib/frameGrid';
 
 type PlaybackEvent =
@@ -217,7 +220,8 @@ function leafNeedsNumpy(it: ExportLeaf): boolean {
     it.kind === 'graphField' ||
     it.kind === 'graphFunctionSeries' ||
     it.kind === 'graphPointSequence' ||
-    it.kind === 'graphArea'
+    it.kind === 'graphArea' ||
+    isConnectorShape(it)
   );
 }
 
@@ -776,6 +780,18 @@ function exportManimCodeInner(
     const vars = [...(frameVars.get(frame.id) ?? [])];
     if (vars.length === 0) continue;
     posStr += `${' '.repeat(base)}VGroup(${vars.join(', ')}).shift(${manimVectorExpr(center.x, center.y)})\n`;
+  }
+  // Connectors follow their anchors, so they bind only after everything is placed and shifted.
+  for (const it of flat) {
+    if (!isConnectorShape(it)) continue;
+    posStr += generateConnectorBind(
+      it,
+      idToVarName.get(it.id)!,
+      base,
+      idToVarName,
+      itemsMap,
+      frameCenterById(frames, frameIdFor(it)),
+    );
   }
 
   const playPad = ' '.repeat(base);

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateShapeDef, generateShapePos } from '@/codegen/shapeCodegen';
+import { exportManimCode } from '@/codegen/manimExporter';
+import { createAxes, createGraphDotItem, createGraphPlot, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
 import type { ShapeItem } from '@/types/scene';
 import { DEFAULT_SHAPE_POLYLINE_POINTS } from '@/types/scene';
 
@@ -134,5 +136,57 @@ describe('generateShapePos placement', () => {
     expect(code).toContain('about_point=[0.500000, -0.250000, 0]');
     expect(code).toMatch(/\.rotate\(.*about_point=\[0\.500000, -0\.250000, 0\]/);
     expect(code).toMatch(/\.scale\(1\.500000, about_point=\[0\.500000, -0\.250000, 0\]/);
+  });
+});
+
+describe('connector export', () => {
+  const scene = () => {
+    const axes = createAxes(defaultSceneDefaults());
+    axes.id = 'ax';
+    axes.xRange = [0, 1, 0.5];
+    axes.yRange = [0, 2, 1];
+    const plot = createGraphPlot(axes.id, 0);
+    plot.id = 'p';
+    plot.fn = { ...plot.fn, jsExpr: 'x*x + 1', pyExpr: 'x**2 + 1' };
+    plot.xDomain = [0, 1];
+    const dot = createGraphDotItem(axes.id, 2);
+    dot.id = 'd';
+    dot.dot.attachment = { kind: 'function', graphPlotId: 'p', x: 0 };
+    const follow = createTargetAnimation('graphFollow', [dot.id], 3, 2);
+    follow.id = 'f';
+    follow.targets[0] = { targetId: dot.id, targetX: 1, easing: 'smooth' };
+    const seg = baseShape({
+      id: 'seg',
+      shapeType: 'line',
+      startTime: 2.5,
+      duration: 0.5,
+      endpoints: { start: { kind: 'graphDot', dotId: 'd' }, end: { kind: 'graphDotFoot', dotId: 'd', axis: 'x' } },
+    });
+    return [axes, plot, dot, follow, seg];
+  };
+
+  it('binds the connector after placement with a redraw updater and a driver', () => {
+    const code = exportManimCode(scene(), { fullFile: true, defaults: defaultSceneDefaults() });
+    expect(code).not.toContain('EXPORT ERROR');
+    const bind = code.indexOf('.add_updater(_');
+    expect(bind).toBeGreaterThan(code.indexOf('Line(ORIGIN, RIGHT * 0.001'));
+    expect(bind).toBeLessThan(code.indexOf('self.play('));
+    expect(code).toMatch(/_a = axes_\d+_dot_d\.get_center\(\)/);
+    expect(code).toMatch(/_b = \(lambda _c: axes_\d+\.c2p\(_c\[0\], 0\.0\)\)\(axes_\d+\.p2c\(axes_\d+_dot_d\.get_center\(\)\)\)/);
+    expect(code).toContain('m.become(Line(_a, _b, color=m.get_color()');
+    expect(code).toMatch(/self\.add\(_\w+_driver\)/);
+    expect(code).toContain('import numpy as np');
+  });
+
+  it('reports a connector whose anchor is missing as an export error', () => {
+    const items = scene().filter((it) => it.id !== 'd' && it.id !== 'f');
+    expect(exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() })).toMatch(/EXPORT ERROR: Connector/);
+  });
+
+  it('emits the foot with the nearest range edge when 0 is outside the range', () => {
+    const items = scene();
+    (items[0] as { yRange: [number, number, number] }).yRange = [1, 3, 1];
+    const code = exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() });
+    expect(code).toContain('(1.000000 if abs(_c[1] - 1.000000) <= abs(_c[1] - 3.000000) else 3.000000)');
   });
 });

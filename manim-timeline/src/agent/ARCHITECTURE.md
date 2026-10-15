@@ -335,6 +335,15 @@ Real LLM responses are noisy. The validator has two responsibilities:
   axes, with a warning.
 - Shared schema pieces live in `schemaFragments.ts` and are used by both the canonical and Gemini schemas.
 
+### 7.0b Connectors
+
+- `shape` (line / arrow) accepts `endpoints: { start, end }` with anchors `graphDot`, `graphDotFoot` (alias
+  `dotFoot`, axis `x` default), `graphPoint`, `object` (edge default `center`) and `point`; a CREATE with
+  endpoints and no shapeType becomes a line, endpoints on other shape types are an error.
+- `checkConnectors` resolves each connector with `lib/shapeAnchors.ts` on the scene the actions produce and
+  writes the geometry at its start time into `x/y/endX/endY` (used by bounding boxes and camera fitting).
+- Only `color` target animations may target a connector (`canBeTargetAnimationTarget`).
+
 ### 7.1 Pre-pass auto-repairs
 
 - **`autoLinkAxesIds(actions)`** — if exactly one `axes` CREATE exists in the response and one or more `graphPlot` / `graphDot` / `graphFunctionSeries` CREATEs are missing `axesId`, the axes' id is copied onto them. In ambiguous cases (0 or ≥2 axes CREATEs), this is a no-op and the "axesId is required" error still fires.

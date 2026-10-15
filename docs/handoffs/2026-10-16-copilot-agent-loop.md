@@ -96,6 +96,30 @@ None (answered above).
 
 ## Implementation notes (copilot-dev)
 
+**Step 1 (1152ce8).** `validate.ts`: unknown `target_animation.mode` → error (missing → `scale`);
+UPDATE only on `AGENT_ALLOWED_KINDS` (DELETE on any kind); unknown UPDATE keys dropped and returned
+as `warnings` (shown under the reply). `providers/anthropic.ts`: `thinkingModesFor` (adaptive →
+enabled → off, retried on a 400 about thinking), `tool_choice: auto` with thinking plus a text/JSON
+fallback, `max_tokens` 16000, default `claude-sonnet-5-5`; OpenAI default `gpt-5.1`; persisted
+settings v3 replaces the retired defaults. `commit.ts`: one undo entry per approved proposal.
+
+**Step 2 (5cd3dfc).** Dot attachment / annotation fields and `graphFollow` rows normalized;
+`checkGraphMotion` runs `lib/graphMotion.ts` on the virtual scene (start time, end position, domain,
+conflicts), syncs attached dots' `dx/dy`, fills a missing `graphPlotId` when the axes have one plot.
+Dot UPDATEs merge over the stored dot. `schemaFragments.ts` feeds both schemas.
+
+**Step 3.** `ShapeItem.endpoints` (optional, no version bump per the migration skill: every reader
+tolerates `undefined`). `lib/shapeAnchors.ts` resolves anchors (graph→world mapping matches the
+canvas: measured raster transform when current, else the ideal layout). Canvas draws connectors from
+the resolver and locks drag/transform; Properties → Base → Connector ends edits them. Export:
+placeholder `Line`/`Arrow` in defs, `generateConnectorBind` after frame shifts (redraw updater using
+the current colour + an always-in-scene driver so the intro starts from current geometry; zero-length
+guard). `removeItem` bakes connectors that follow the removed item; fragment import remaps anchors;
+only colour target animations accept connectors. Validator `checkConnectors` + prompt rule 8e.
+Checked with a real `manim -ql` render (dot moving along y = x² + 1 with a drop line and an arrow):
+both follow the dot every frame. Lint: no new errors (remaining ones in `lib/time.ts` / `ShapeNode.tsx`
+exist in HEAD).
+
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)

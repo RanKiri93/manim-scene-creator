@@ -1,3 +1,4 @@
+import { remapShapeAnchor } from '@/lib/shapeAnchors';
 import { newId } from '@/lib/ids';
 import {
   type AudioTrackItem,
@@ -121,6 +122,12 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
     case 'axes':
     case 'shape':
       it.posSteps = remapPosSteps(it.posSteps, m);
+      if (it.kind === 'shape' && it.endpoints) {
+        it.endpoints = {
+          start: remapShapeAnchor(it.endpoints.start, m),
+          end: remapShapeAnchor(it.endpoints.end, m),
+        };
+      }
       if (it.audioTrackId) {
         const aid = m.get(it.audioTrackId);
         if (aid) it.audioTrackId = aid;

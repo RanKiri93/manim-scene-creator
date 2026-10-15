@@ -471,8 +471,40 @@ export const DEFAULT_SHAPE_POLYLINE_POINTS: ShapePoint[] = [
   { x: 1, y: 0 },
 ];
 
+/**
+ * Something a connector end can follow. Positions are recomputed every frame (preview and export),
+ * so a connector bound to a moving graph dot moves with it.
+ */
+export type ShapeAnchor =
+  /** Fixed point in the connector's own frame (Manim units, frame-local like `x`/`y`). */
+  | { kind: 'point'; x: number; y: number }
+  /** Fixed point in an axes' graph coordinates. */
+  | { kind: 'graphPoint'; axesId: ItemId; x: number; y: number }
+  /** Centre of a graph dot, wherever it is at that moment. */
+  | { kind: 'graphDot'; dotId: ItemId }
+  /**
+   * The dot dropped onto an axis: `axis: 'x'` is (dot x, 0) on the x-axis (the vertical drop),
+   * `axis: 'y'` is (0, dot y). Falls back to the nearest range edge when 0 is outside the range,
+   * like the dot's projection guides.
+   */
+  | { kind: 'graphDotFoot'; dotId: ItemId; axis: 'x' | 'y' }
+  /** Centre (default) or an edge / corner of a text line, shape, image or axes. */
+  | { kind: 'object'; itemId: ItemId; edge?: ManimDirection | 'center' };
+
+/** Both ends of a connector line / arrow. */
+export interface ShapeEndpoints {
+  start: ShapeAnchor;
+  end: ShapeAnchor;
+}
+
 /** Primitive shape: circle, rectangle, arrow, line, or polyline; positioned like other scene objects. */
 export interface ShapeItem extends SceneItemBase {
+  /**
+   * Line / arrow only: when set, the ends follow these anchors every frame (a "connector") and
+   * `x`/`y`/`endX`/`endY`/`rotationDeg`/`scale`/`posSteps` are ignored for drawing. Unset = a
+   * normal static shape.
+   */
+  endpoints?: ShapeEndpoints | null;
   kind: 'shape';
   shapeType: ShapeKind;
   /** Degrees, CCW; applied in Manim after move_to. */
