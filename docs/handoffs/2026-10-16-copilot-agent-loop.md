@@ -143,6 +143,11 @@ Observed: at t = 5 s the `-ql` Manim frame has the dot about 0.1 s behind the pr
 export/preview timing topic of `2026-10-15-export-preview-timing-parity.md`, not changed here.
 Snapshots still show the axes' editor chrome drawn by `GraphNode.tsx` (someone else's WIP; untouched).
 
+**Step 6.** `agent/recipes.ts`: R1 graph sized to the frame, R2 point along a graph with drop line
+(the user's example, same pieces as the end-to-end run), R3 live values, R4 arrow from text to a
+moving dot, R5 emphasise then remove, R6 sequencing; R7 (loop only) check before finishing. Appended
+by `buildSystemPrompt` in both modes; test in `systemPrompt.test.ts`.
+
 ## Verification (verifier)
 
 ## Docs delta (docs-keeper)

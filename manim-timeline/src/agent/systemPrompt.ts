@@ -1,3 +1,5 @@
+import { LOOP_RECIPE, RECIPES_SECTION } from './recipes';
+
 export const BASE_SYSTEM_PROMPT = `You are an expert AI Copilot integrated into "Manim Timeline", a web-based animation editor for mathematical and Hebrew content.
 
 You are in an ongoing, multi-turn conversation with the user about their scene. On every turn you will receive:
@@ -195,7 +197,11 @@ export function buildSystemPrompt(
   customRules: string | undefined | null,
   mode: 'single' | 'loop' = 'single',
 ): string {
-  const base = mode === 'loop' ? loopBasePrompt() : BASE_SYSTEM_PROMPT;
+  const base = (
+    mode === 'loop'
+      ? [loopBasePrompt(), RECIPES_SECTION, LOOP_RECIPE]
+      : [BASE_SYSTEM_PROMPT, RECIPES_SECTION]
+  ).join('\n');
   const extra = (customRules ?? '').trim();
   if (!extra) return base;
   return (

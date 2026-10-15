@@ -409,6 +409,8 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 for multi-part requests) + in loop mode `LOOP_RECIPE` (R7, check before finishing) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 
 Current rules:
