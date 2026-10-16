@@ -37,6 +37,7 @@ import {
 } from '@/lib/graphCreatePreview';
 import {
   exitPreviewForTarget,
+  graphAreaIntroProgress,
   graphDotIntroOpacity,
   graphFollowPreviewPosition,
   type ExitPreviewState,
@@ -44,6 +45,7 @@ import {
 import { axesRasterCoordinateGeometry, axesRasterGeometry, axesRasterLocalToGraph, axesVectorOverlayOffset, axesOverlayPoint } from '@/lib/axesRasterPreview';
 import { resolveGraphDotPosition } from '@/lib/graphMotion';
 import { CANVAS_CHROME } from '@/lib/theme';
+import { areaCanReveal, areaRevealWindow, effectiveAreaIntroStyle, type AreaRevealWindow } from '@/lib/graphAreaReveal';
 
 function evalGraphY(jsExpr: string, x: number): number | null {
   try {
@@ -75,14 +77,17 @@ function graphAreaPreviewPoints(
   _yMin: number,
   _yMax: number,
   toLocal: (gx: number, gy: number) => { lx: number; ly: number },
+  /** Part of a curve area shown during a sweep / rise entrance (null = all of it). */
+  reveal: AreaRevealWindow | null = null,
 ): number[] | null {
   const m = area.mode;
   const axLo = xMin;
   const axHi = xMax;
+  const k = reveal?.k ?? 1;
 
   if (m.areaKind === 'underCurve') {
-    const xa = Math.max(axLo, Math.min(axHi, m.xMin));
-    const xb = Math.max(axLo, Math.min(axHi, m.xMax));
+    const xa = Math.max(axLo, Math.min(axHi, reveal?.lo ?? m.xMin));
+    const xb = Math.max(axLo, Math.min(axHi, reveal?.hi ?? m.xMax));
     if (!(xb > xa)) return null;
     const steps = 80;
     const pts: number[] = [];
@@ -91,7 +96,7 @@ function graphAreaPreviewPoints(
       const gx = xa + t * (xb - xa);
       const y = yFromAreaCurveSource(m.curve, gx, itemsMap);
       if (y == null) continue;
-      const { lx, ly } = toLocal(gx, y);
+      const { lx, ly } = toLocal(gx, k * y);
       pts.push(lx, ly);
     }
     if (pts.length < 4) return null;
@@ -101,8 +106,8 @@ function graphAreaPreviewPoints(
   }
 
   if (m.areaKind === 'betweenCurves') {
-    const xa = Math.max(axLo, Math.min(axHi, m.xMin));
-    const xb = Math.max(axLo, Math.min(axHi, m.xMax));
+    const xa = Math.max(axLo, Math.min(axHi, reveal?.lo ?? m.xMin));
+    const xb = Math.max(axLo, Math.min(axHi, reveal?.hi ?? m.xMax));
     if (!(xb > xa)) return null;
     const steps = 80;
     const lower: { lx: number; ly: number }[] = [];
@@ -113,7 +118,8 @@ function graphAreaPreviewPoints(
       const y1 = yFromAreaCurveSource(m.lower, gx, itemsMap);
       const y2 = yFromAreaCurveSource(m.upper, gx, itemsMap);
       if (y1 != null) lower.push(toLocal(gx, y1));
-      if (y2 != null) upper.push(toLocal(gx, y2));
+      // Rise: the top climbs from the lower curve to the upper one.
+      if (y2 != null) upper.push(toLocal(gx, y1 != null ? y1 + k * (y2 - y1) : y2));
     }
     if (lower.length < 2 || upper.length < 2) return null;
     const pts: number[] = [];
@@ -721,7 +727,15 @@ export default function GraphNode({
           if (!it || it.kind !== 'graphArea') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
           const fill = it.fillColor;
-          const fo = Math.max(0, Math.min(1, it.fillOpacity));
+          // Entrance: a fade scales the opacity; a sweep / rise draws part of the area.
+          const introP = graphAreaIntroProgress(it, currentTime, itemsMap, audioItems);
+          const introStyle = effectiveAreaIntroStyle(it);
+          const reveal =
+            introStyle !== 'fade_in' && areaCanReveal(it.mode) && introP < 1
+              ? areaRevealWindow(introStyle, it.mode.xMin, it.mode.xMax, introP)
+              : null;
+          if (introP <= 0) return null;
+          const fo = Math.max(0, Math.min(1, it.fillOpacity)) * (introStyle === 'fade_in' ? introP : 1);
           const sw = Math.max(0, it.strokeWidth);
           const sc = it.strokeColor;
           const m = it.mode;
@@ -748,7 +762,7 @@ export default function GraphNode({
               </GraphPlaybackWrap>
             );
           }
-          const poly = graphAreaPreviewPoints(it, itemsMap, xMin, xMax, yMin, yMax, toLocal);
+          const poly = graphAreaPreviewPoints(it, itemsMap, xMin, xMax, yMin, yMax, toLocal, reveal);
           if (!poly || poly.length < 6) return null;
           return (
             <GraphPlaybackWrap key={key} exit={exit}>

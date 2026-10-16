@@ -31,6 +31,7 @@ import {
 import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 import { emitNextToPython } from './nextToCodegen';
 import { resolveAttachedGraphDot, graphProjectionGuides } from '@/lib/graphMotion';
+import { areaCanReveal, effectiveAreaIntroStyle } from '@/lib/graphAreaReveal';
 
 export function manimColor(hex: string): string {
   return `ManimColor("${hex}")`;
@@ -1151,6 +1152,85 @@ export function generateGraphAreaDef(
   return s;
 }
 
+/** Python class for sweep / rise entrances of graph areas (see `graphAreaRevealSource`). */
+export const GRAPH_AREA_REVEAL_CLASS = '_AreaReveal';
+
+/** True when some area enters with a sweep or rise (the scene then needs `_AreaReveal`). */
+export function anyGraphAreaReveal(items: readonly SceneItem[]): boolean {
+  return items.some((it) => it.kind === 'graphArea' && !it.visibleAtSceneStart && effectiveAreaIntroStyle(it) !== 'fade_in');
+}
+
+/**
+ * `_AreaReveal(area, axes, upper, lower, x0, x1, style)`: redraws the area's outline every frame
+ * from its boundary functions (graph coordinates) — x from `lo` to `hi`, filled from the lower
+ * boundary `k` of the way to the upper one, as in `areaRevealWindow` — and ends on the exact
+ * `get_area` shape, so exits and later animations see the usual mobject. An introducer like
+ * `FadeIn`: inside a `Succession` the area is added only when its turn starts.
+ */
+export function graphAreaRevealSource(indent = 0): string {
+  const p = ' '.repeat(indent);
+  return [
+    `class ${GRAPH_AREA_REVEAL_CLASS}(Animation):`,
+    `    """Graph-area entrance: sweep from the left or right edge, or rise from the lower boundary."""`,
+    `    def __init__(self, area, axes, upper, lower, x0, x1, style, samples=72, **kwargs):`,
+    `        self._axes, self._upper, self._lower = axes, upper, lower`,
+    `        self._x0, self._x1, self._style, self._samples = x0, x1, style, samples`,
+    `        self._final = area.points.copy()`,
+    `        super().__init__(area, introducer=True, **kwargs)`,
+    ``,
+    `    def interpolate_mobject(self, alpha):`,
+    `        if alpha >= 1:`,
+    `            self.mobject.set_points(self._final.copy())`,
+    `            return`,
+    `        a = min(1.0, max(1e-3, alpha))`,
+    `        x0, x1 = self._x0, self._x1`,
+    `        if self._style == "sweep_left":`,
+    `            lo, hi, k = x1 - (x1 - x0) * a, x1, 1.0`,
+    `        elif self._style == "rise":`,
+    `            lo, hi, k = x0, x1, a`,
+    `        else:`,
+    `            lo, hi, k = x0, x0 + (x1 - x0) * a, 1.0`,
+    `        n = self._samples`,
+    `        xs = [lo + (hi - lo) * i / n for i in range(n + 1)]`,
+    `        bottom = [float(self._lower(x)) for x in xs]`,
+    `        top = [b + k * (float(self._upper(x)) - b) for x, b in zip(xs, bottom)]`,
+    `        pts = [self._axes.c2p(x, y) for x, y in zip(xs, top)]`,
+    `        pts += [self._axes.c2p(x, y) for x, y in zip(reversed(xs), reversed(bottom))]`,
+    `        self.mobject.set_points_as_corners(pts + [pts[0]])`,
+  ]
+    .map((line) => (line ? p + line : line))
+    .join('\n') + '\n';
+}
+
+function areaBoundaryLambda(src: GraphAreaCurveSource, itemsMap: Map<ItemId, SceneItem>): string {
+  if (src.sourceKind === 'plot') {
+    const plot = itemsMap.get(src.plotId);
+    const expr = plot?.kind === 'graphPlot' ? plot.fn.pyExpr || 'x' : '0';
+    return `lambda x: (${expr})`;
+  }
+  return `lambda x: (${(src.pyExpr ?? '0').trim() || '0'})`;
+}
+
+/**
+ * The entrance animation of a graph area: `FadeIn(area)` or `_AreaReveal(...)` for a sweep /
+ * rise, with `, run_time=…` when `runTime` is given.
+ */
+export function graphAreaIntroAnim(
+  item: GraphAreaItem,
+  axVar: string,
+  itemsMap: Map<ItemId, SceneItem>,
+  runTime?: string,
+): string {
+  const areaVar = overlayAreaVar(axVar, item.id);
+  const rt = runTime != null ? `, run_time=${runTime}` : '';
+  const style = effectiveAreaIntroStyle(item);
+  const m = item.mode;
+  if (style === 'fade_in' || !areaCanReveal(m)) return `FadeIn(${areaVar}${rt})`;
+  const upper = areaBoundaryLambda(m.areaKind === 'underCurve' ? m.curve : m.upper, itemsMap);
+  const lower = m.areaKind === 'underCurve' ? 'lambda x: 0.0' : areaBoundaryLambda(m.lower, itemsMap);
+  return `${GRAPH_AREA_REVEAL_CLASS}(${areaVar}, ${axVar}, ${upper}, ${lower}, ${m.xMin}, ${m.xMax}, "${style}"${rt})`;
+}
+
 export function generateGraphAreaPlay(
   item: GraphAreaItem,
   axVar: string,
@@ -1161,7 +1241,6 @@ export function generateGraphAreaPlay(
 ): string {
   const pad = ' '.repeat(indent);
   if (item.visibleAtSceneStart) return '';
-  const areaVar = overlayAreaVar(axVar, item.id);
   const boundaries = graphAreaBoundaryPlotVars(item, axVar);
   const bRt = Math.max(0.05, Math.min(0.75, item.duration * 0.35)).toFixed(4);
 
@@ -1181,7 +1260,7 @@ export function generateGraphAreaPlay(
   }
 
   if (recorded) {
-    s += `${pad}self.play(FadeIn(${areaVar}), run_time=${rt})\n`;
+    s += `${pad}self.play(${graphAreaIntroAnim(item, axVar, itemsMap)}, run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
       pad,
       recorded,
@@ -1191,7 +1270,7 @@ export function generateGraphAreaPlay(
       tailOpts,
     );
   } else {
-    s += `${pad}self.play(FadeIn(${areaVar}), run_time=${item.duration})\n`;
+    s += `${pad}self.play(${graphAreaIntroAnim(item, axVar, itemsMap)}, run_time=${item.duration})\n`;
   }
 
   return s;

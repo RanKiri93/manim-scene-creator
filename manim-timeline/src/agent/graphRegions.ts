@@ -1,8 +1,10 @@
 import { newId } from '@/lib/ids';
 import { DEFAULT_FIELD_ARROW_STROKE_WIDTH } from '@/types/scene';
+import { GRAPH_AREA_INTRO_STYLES } from '@/lib/graphAreaReveal';
 import type {
   AxesItem,
   GraphAreaCurveSource,
+  GraphAreaIntroStyle,
   GraphAreaItem,
   GraphAreaMode,
   GraphFieldColormap,
@@ -211,7 +213,16 @@ export function normalizeGraphArea(
     fillOpacity: Math.max(0, Math.min(1, num(raw.fillOpacity, 0.35))),
     strokeColor: str(raw.strokeColor) || '#1e40af',
     strokeWidth: Math.max(0, num(raw.strokeWidth, 0)),
+    introStyle: normalizeAreaIntroStyle(raw.introStyle, `${prefix}.item.introStyle`, errors) ?? 'fade_in',
   };
+}
+
+/** `introStyle` of an area: fade_in, sweep_right, sweep_left or rise. */
+export function normalizeAreaIntroStyle(v: unknown, path: string, errors: string[]): GraphAreaIntroStyle | undefined {
+  if (v == null) return undefined;
+  if (GRAPH_AREA_INTRO_STYLES.includes(v as GraphAreaIntroStyle)) return v as GraphAreaIntroStyle;
+  errors.push(`${path} must be one of ${GRAPH_AREA_INTRO_STYLES.join(', ')}.`);
+  return undefined;
 }
 
 // ── Fields ────────────────────────────────────────────────────────────────

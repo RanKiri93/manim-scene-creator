@@ -5,6 +5,7 @@ import type {
   BlinkAnimationItem,
   BlinkTargetSpec,
   FrameDef,
+  GraphAreaItem,
   GraphDotItem,
   ImageItem,
   ItemId,
@@ -257,9 +258,22 @@ export function graphDotIntroOpacity(
   return fadeInIntroOpacity(item, time, items, audioItems);
 }
 
+/**
+ * Graph-area entrance progress (0–1, Manim `smooth`) over the clip's run time: the fade-in
+ * opacity, or how far a sweep / rise has got (`areaRevealWindow`).
+ */
+export function graphAreaIntroProgress(
+  item: GraphAreaItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  return fadeInIntroOpacity(item, time, items, audioItems);
+}
+
 /** Manim-smooth `FadeIn` opacity over the item's preview run time (`previewRunTime`). */
 function fadeInIntroOpacity(
-  item: ImageItem | GraphDotItem,
+  item: ImageItem | GraphDotItem | GraphAreaItem,
   time: number,
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],

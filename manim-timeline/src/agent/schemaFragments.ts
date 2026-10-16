@@ -219,6 +219,12 @@ export const GRAPH_AREA_PROPERTIES = {
   fillOpacity: { type: 'number', description: 'For kind="graphArea": 0–1. Default 0.35.' },
   strokeColor: { type: 'string', description: 'For kind="graphArea": outline colour (polygons and disks).' },
   strokeWidth: { type: 'number', description: 'For kind="graphArea": outline width; 0 = none (default).' },
+  introStyle: {
+    type: 'string',
+    enum: ['fade_in', 'sweep_right', 'sweep_left', 'rise'],
+    description:
+      'For kind="graphArea": how it enters over its duration. "sweep_right" fills from xMin to xMax (accumulating area), "sweep_left" from xMax back, "rise" grows from the axis (or the lower curve) up to the curve. Sweeps and rise apply to underCurve / betweenCurves; other areas fade. Default "fade_in".',
+  },
 } as const;
 
 /** textLine entrance: `animStyle` and, for equation steps, the line it morphs from. */

@@ -829,6 +829,13 @@ export type GraphAreaMode =
       radius: number;
     };
 
+/**
+ * How a graph area enters over its clip: fade in, sweep across from the left or the right edge
+ * of its interval, or rise from its lower boundary (the x-axis for an area under a curve) up to
+ * the curve. Sweeps and rise apply to areas under / between curves; other areas fade.
+ */
+export type GraphAreaIntroStyle = 'fade_in' | 'sweep_right' | 'sweep_left' | 'rise';
+
 /** Filled region on an axes: under/between curves, parallelogram, or ellipse from graph disk. */
 export interface GraphAreaItem extends SceneItemBase {
   kind: 'graphArea';
@@ -839,6 +846,8 @@ export interface GraphAreaItem extends SceneItemBase {
   strokeColor: string;
   /** 0 = no stroke (polygon / ellipse only; `get_area` uses fill only). */
   strokeWidth: number;
+  /** Entrance; omitted (older projects) = `fade_in`. */
+  introStyle?: GraphAreaIntroStyle;
 }
 
 // ── Function series (family of curves f(n, x)) ──

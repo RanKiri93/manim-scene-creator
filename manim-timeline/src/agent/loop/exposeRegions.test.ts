@@ -32,9 +32,9 @@ const plot = (id: string, axesId = 'ax1', xDomain: [number, number] = [0, 3]) =>
   action: 'CREATE',
   item: { id, kind: 'graphPlot', axesId, label: 'f', fn: { jsExpr: 'x*x', pyExpr: 'x**2' }, xDomain },
 });
-const area = (areaSpec: Record<string, unknown>, id = 'a1') => ({
+const area = (areaSpec: Record<string, unknown>, id = 'a1', introStyle?: unknown) => ({
   action: 'CREATE',
-  item: { id, kind: 'graphArea', axesId: 'ax1', label: 'area', startTime: 2, duration: 1, area: areaSpec, fillOpacity: 0.4 },
+  item: { id, kind: 'graphArea', axesId: 'ax1', label: 'area', startTime: 2, duration: 1, area: areaSpec, fillOpacity: 0.4, ...(introStyle !== undefined ? { introStyle } : {}) },
 });
 
 async function tool(s: DraftSession, name: string, input: Record<string, unknown> = {}) {
@@ -137,5 +137,33 @@ describe('schemas and prompt', () => {
       expect(prompt).toContain('"$\\int_{1}^{3} f(x)\\,dx$"');
       expect(prompt).not.toContain('not agent-created');
     }
+  });
+});
+
+describe('area entrances', () => {
+  const sweep = (introStyle: unknown) => area({ areaKind: 'underCurve', xMin: 1, xMax: 3, curve: { plotId: 'p1' } }, 'a1', introStyle);
+
+  it('defaults to a fade, keeps a sweep or rise, and rejects other values', () => {
+    const s = session();
+    expect(s.propose([plot('p1'), area({ areaKind: 'underCurve', xMin: 1, xMax: 3, curve: { plotId: 'p1' } })])).toMatchObject({ ok: true });
+    expect((s.scene().get('a1') as GraphAreaItem).introStyle).toBe('fade_in');
+    s.reset();
+    expect(s.propose([plot('p1'), sweep('sweep_right')])).toMatchObject({ ok: true });
+    expect((s.scene().get('a1') as GraphAreaItem).introStyle).toBe('sweep_right');
+    expect(s.propose([{ action: 'UPDATE', itemId: 'a1', updates: { introStyle: 'rise' } }])).toMatchObject({ ok: true });
+    expect((s.scene().get('a1') as GraphAreaItem).introStyle).toBe('rise');
+    s.reset();
+    expect(errorsOf(s, [plot('p1'), sweep('wipe')])).toMatch(/introStyle must be one of fade_in, sweep_right, sweep_left, rise/);
+  });
+
+  it('is declared in both schemas and taught in the prompt', () => {
+    const anyOf = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items.anyOf as unknown as { properties: Record<string, { properties?: Record<string, unknown> }> }[];
+    const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
+    for (const schema of [anyOf[0]!.properties.item!.properties!, anyOf[1]!.properties.updates!.properties!, gemini.item.properties as Record<string, unknown>, gemini.updates.properties as Record<string, unknown>]) {
+      expect(schema).toHaveProperty('introStyle.enum', ['fade_in', 'sweep_right', 'sweep_left', 'rise']);
+    }
+    const prompt = buildSystemPrompt('', 'loop');
+    expect(prompt).toContain('Never fake a sweep with many small areas');
+    expect(prompt).toContain('use introStyle "sweep_right"');
   });
 });

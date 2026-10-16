@@ -34,7 +34,7 @@ import { segmentWaitTotal } from '@/lib/time';
 import {
   exitAnimationExpr,
   graphDotIntroParts,
-  overlayAreaVar,
+  graphAreaIntroAnim,
   overlayCurveVar,
   overlayDotVar,
   overlayPlotVar,
@@ -531,7 +531,6 @@ function concurrentBranchForLeaf(
 
   if (leaf.kind === 'graphArea') {
     const axVar = idToVarName.get(leaf.axesId)!;
-    const areaVar = overlayAreaVar(axVar, leaf.id);
     const suf = pythonOverlaySuffix(leaf.id);
     const base = `${axVar}_areaplot_${suf}_`;
     const m = leaf.mode;
@@ -548,10 +547,11 @@ function concurrentBranchForLeaf(
     const rtStr = recorded ? recorded.runTime.toFixed(6) : leaf.duration.toFixed(6);
     const tail = concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts);
     const bCreates = boundaries.map((bv) => `Create(${bv}, run_time=${bRt})`).join(', ');
+    const intro = graphAreaIntroAnim(leaf, axVar, itemsMap, rtStr);
     if (boundaries.length > 0) {
-      return `Succession(Wait(${wStr}), AnimationGroup(${bCreates}, lag_ratio=0), FadeIn(${areaVar}, run_time=${rtStr})${tail})`;
+      return `Succession(Wait(${wStr}), AnimationGroup(${bCreates}, lag_ratio=0), ${intro}${tail})`;
     }
-    return `Succession(Wait(${wStr}), FadeIn(${areaVar}, run_time=${rtStr})${tail})`;
+    return `Succession(Wait(${wStr}), ${intro}${tail})`;
   }
 
   if (leaf.kind === 'shape') {

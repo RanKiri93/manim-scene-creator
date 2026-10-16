@@ -564,6 +564,7 @@ export function createGraphArea(axesId: ItemId, startTime = 0): GraphAreaItem {
     fillOpacity: 0.35,
     strokeColor: '#1e40af',
     strokeWidth: 0,
+    introStyle: 'fade_in',
   };
 }
 

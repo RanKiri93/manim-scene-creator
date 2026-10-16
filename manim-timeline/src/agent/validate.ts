@@ -63,7 +63,7 @@ import { checkTextTransforms, normalizeAnimStyle, normalizeTransformConfig } fro
 import { checkTimelineEdits, normalizeTimelineEdit } from './timelineEdits';
 import { applyTimelineEdit } from '@/lib/timelineSurgery';
 import type { AudioTrackItem } from '@/types/scene';
-import { checkGraphRegions, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
+import { checkGraphRegions, normalizeAreaIntroStyle, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
 
 export type ValidationResult =
   | { ok: true; response: AgentChatResponse; warnings: string[] }
@@ -565,7 +565,7 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
   graphDot: ['dot', 'axesId', ...GRAPH_DOT_TOP_LEVEL_ALIASES],
   graphFunctionSeries: ['displayMode', 'perN', 'defaults', 'jsExpr', 'pyExpr', 'nMin', 'nMax', 'mode', 'xDomain'],
   graphPointSequence: ['perN', 'defaults', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr', 'nMin', 'nMax', 'mode'],
-  graphArea: ['area', 'mode', 'fillColor', 'fillOpacity', 'strokeColor', 'strokeWidth'],
+  graphArea: ['area', 'mode', 'fillColor', 'fillOpacity', 'strokeColor', 'strokeWidth', 'introStyle'],
   graphField: [
     'fieldMode', 'jsExprSlope', 'pyExprSlope', 'slopeArrowLength', 'jsExprP', 'pyExprP', 'jsExprQ', 'pyExprQ',
     'fieldGridStep', 'fieldColormap', 'colorSchemeMin', 'colorSchemeMax', 'arrowStrokeWidth', 'streamPoints',
@@ -1012,6 +1012,11 @@ function normalizeUpdates(
       if (mode) next.mode = mode;
     }
     if ('fillOpacity' in patch) next.fillOpacity = Math.max(0, Math.min(1, asNum(patch.fillOpacity, 0.35)));
+    if ('introStyle' in patch) {
+      const style = normalizeAreaIntroStyle(patch.introStyle, `${prefix}.updates.introStyle`, errors);
+      if (style) next.introStyle = style;
+      else delete next.introStyle;
+    }
   }
   if (targetKind === 'graphField') {
     const fieldKeys = OPTIONAL_FIELDS_BY_KIND.graphField!;

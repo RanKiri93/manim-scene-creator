@@ -49,7 +49,7 @@ R11. Camera story beats (zoom in on the action at a moment, then return).
    Check: the camera rectangle at the beat holds the target, and the view is back to the full frame after the return.
 
 R12. Shaded area labelled as an integral ("shade the area under f between 1 and 3 and label it").
-   1. The plot (R1, rule 8f), then a graphArea underCurve with curve { "plotId" } and the requested xMin / xMax, starting after the plot finishes; fillColor close to the plot's colour.
+   1. The plot (R1, rule 8f), then a graphArea underCurve with curve { "plotId" } and the requested xMin / xMax, starting after the plot finishes; fillColor close to the plot's colour. When the area should build up ("accumulate", "from left to right", "progressively") use introStyle "sweep_right" with a duration of 1.5–3 s; "rise" when it should grow up from the axis.
    2. The label: a textLine such as "$\\int_{1}^{3} f(x)\\,dx$" (add "= <value>" when the user wants the number), fontSize about 30, starting when the area starts. In the tool loop place it at the area's labelAtWorld from inspect_scene (posSteps [{ "kind": "absolute" }] with x, y) or just above the area; otherwise next to the axes.
    3. Between two curves: betweenCurves with lower / upper. When they cross inside the interval, say so or split it at the crossing (one area per piece).
    4. A curve below the x-axis gives a negative integral: say "signed area" or split at the root when the user means the geometric area.

@@ -150,7 +150,8 @@ CRITICAL ARCHITECTURE RULES:
 8f. Shaded areas (\`kind: "graphArea"\`, on axes like a plot):
    - The geometry goes under \`area\` (not \`mode\`): \`{ "areaKind": "underCurve", "xMin", "xMax", "curve": <boundary> }\` (between the curve and y = 0), \`{ "areaKind": "betweenCurves", "xMin", "xMax", "lower": <boundary>, "upper": <boundary> }\`, \`{ "areaKind": "parallelogramFour", "corners": [4 × { x, y }] }\`, \`{ "areaKind": "parallelogramVec", "ox", "oy", "ux", "uy", "vx", "vy" }\` (corner + two edge vectors) or \`{ "areaKind": "disk", "cx", "cy", "radius" }\`, all in graph coordinates.
    - A boundary is \`{ "plotId": <graphPlot id> }\` (preferred when the curve is drawn: same axes, and xMin..xMax inside its xDomain) or \`{ "jsExpr", "pyExpr" }\` in x (add \`"showBoundaryPlot": true\` to draw it). xMin < xMax.
-   - Style: \`fillColor\`, \`fillOpacity\` (0.3–0.5 reads well), \`strokeColor\` / \`strokeWidth\` for polygons and disks. \`duration\` is the fade-in. Start it after its plots finish.
+   - Style: \`fillColor\`, \`fillOpacity\` (0.3–0.5 reads well), \`strokeColor\` / \`strokeWidth\` for polygons and disks. Start it after its plots finish.
+   - Entrance (\`introStyle\`, over \`duration\`): "fade_in" (default), "sweep_right" (fills continuously from xMin to xMax — the accumulating-area picture), "sweep_left" (from xMax back), "rise" (grows from the axis, or the lower curve, up to the curve). Sweeps and rise work for underCurve / betweenCurves only. Never fake a sweep with many small areas.
    Example — shade under plot p1 from x = 1 to 3:
      { "action": "CREATE", "item": { "id": "a1", "kind": "graphArea", "axesId": "ax1", "label": "שטח", "startTime": 3, "duration": 1, "area": { "areaKind": "underCurve", "xMin": 1, "xMax": 3, "curve": { "plotId": "p1" } }, "fillColor": "#3b82f6", "fillOpacity": 0.4 } }
 

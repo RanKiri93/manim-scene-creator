@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type {
   GraphAreaCurveSource,
+  GraphAreaIntroStyle,
   GraphAreaItem,
   GraphAreaMode,
   GraphPoint2,
@@ -14,6 +15,7 @@ import AxesIdSelect from './AxesIdSelect';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import MathExpressionEditor from './MathExpressionEditor';
+import { areaCanReveal } from '@/lib/graphAreaReveal';
 
 interface GraphAreaEditorProps {
   item: GraphAreaItem;
@@ -299,6 +301,23 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
         <ColorPicker value={item.strokeColor} onChange={(c) => set({ strokeColor: c })} />
         <NumberInput label="Stroke width" value={item.strokeWidth} onChange={(v) => set({ strokeWidth: Math.max(0, v) })} min={0} step={0.5} />
       </div>
+
+      <label className="text-ctl text-chalk-dim block">
+        Entrance
+        <select
+          value={item.introStyle ?? 'fade_in'}
+          onChange={(e) => set({ introStyle: e.target.value as GraphAreaIntroStyle })}
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
+        >
+          <option value="fade_in">Fade in</option>
+          <option value="sweep_right" disabled={!areaCanReveal(m)}>Sweep left → right</option>
+          <option value="sweep_left" disabled={!areaCanReveal(m)}>Sweep right → left</option>
+          <option value="rise" disabled={!areaCanReveal(m)}>Rise from the axis</option>
+        </select>
+        {!areaCanReveal(m) && (item.introStyle ?? 'fade_in') !== 'fade_in' && (
+          <span className="block mt-1 text-meta text-chalk-faint">Parallelograms and disks fade in.</span>
+        )}
+      </label>
 
       <VisibleAtSceneStartRow
         checked={item.visibleAtSceneStart === true}

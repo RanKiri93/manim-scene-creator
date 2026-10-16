@@ -50,6 +50,8 @@ import {
   generateGraphFieldPlay,
   generateGraphAreaDef,
   generateGraphAreaPlay,
+  anyGraphAreaReveal,
+  graphAreaRevealSource,
   validateAxesExit,
   formatExitGroupPlayLine,
   overlayAreaVar,
@@ -1420,7 +1422,8 @@ function exportManimCodeInner(
     const hasGraphDots = items.some((it) => it.kind === 'graphDot');
     const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
     const dotHelper = hasGraphDots ? `${graphDotAnnotationHelperSource(0, hasCoordinateDots)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const areaHelper = anyGraphAreaReveal(items) ? `${graphAreaRevealSource(0)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1448,6 +1451,9 @@ function exportManimCodeInner(
   // Successions and standalone `self.play(...)` calls can reference it.
   if (anyReplacementFunctionSeries(items)) {
     header += '\n\n' + functionSeriesRevealTransformSource(0);
+  }
+  if (anyGraphAreaReveal(items)) {
+    header += '\n\n' + graphAreaRevealSource(0);
   }
   if (cameraItems.length > 0) {
     header += '\n\n' + cameraPoseAnimationHelperSource(0);
