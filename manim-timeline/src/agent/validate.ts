@@ -58,7 +58,8 @@ import {
   resolveGraphDotPosition,
 } from '@/lib/graphMotion';
 import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
-import type { CameraMoveItem } from '@/types/scene';
+import type { CameraMoveItem, SceneDefaults } from '@/types/scene';
+import { mergeTextLineUpdate, withParsedSegments } from './textDraft';
 
 export type ValidationResult =
   | { ok: true; response: AgentChatResponse; warnings: string[] }
@@ -75,6 +76,15 @@ export interface AgentFrameContext {
   activeFrameId: ItemId | null;
   startFrameId: ItemId | null;
   frames?: readonly import('@/types/scene').FrameDef[];
+}
+
+export interface ValidateOptions {
+  /**
+   * Tool loop: the draft is checked and previewed before the user approves it, so a text line
+   * created in this draft may be styled by a later UPDATE in the same draft. (A styled CREATE is
+   * still rejected: its segments come from `raw`.)
+   */
+  allowStyleAfterCreate?: boolean;
 }
 
 /**
@@ -122,6 +132,7 @@ export function validateAgentResponse(
   raw: unknown,
   currentItems: Map<ItemId, SceneItem>,
   frameCtx?: AgentFrameContext,
+  options: ValidateOptions = {},
 ): ValidationResult {
   const errors: string[] = [];
   /** Non-fatal repairs (dropped unknown fields …) the model should hear about. */
@@ -464,6 +475,7 @@ export function validateAgentResponse(
 
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
+  checkSegmentIndices(normalizedActions, currentItems, errors);
 
   // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
@@ -482,11 +494,14 @@ export function validateAgentResponse(
     }
     if (hasTextStyleChange(act.item.segments)) {
       errors.push(
-        `CREATE textLine "${act.item.id}" includes segment styling. Create text first, then propose styling in a separate turn.`,
+        options.allowStyleAfterCreate
+          ? `CREATE textLine "${act.item.id}" includes segment styling. Create it with \`raw\` only, then style its segments with an UPDATE (raw with || splits + segments).`
+          : `CREATE textLine "${act.item.id}" includes segment styling. Create text first, then propose styling in a separate turn.`,
       );
     }
   }
   for (const act of normalizedActions) {
+    if (options.allowStyleAfterCreate) break;
     if (act.action !== 'UPDATE') continue;
     if (!createdTextLineIds.has(act.itemId)) continue;
     if (updateHasTextStyleChange(act.updates)) {
@@ -1868,16 +1883,56 @@ function normalizeGraphDot(
 export function virtualSceneAfter(
   currentItems: ReadonlyMap<ItemId, SceneItem>,
   actions: readonly AgentAction[],
+  defaults?: SceneDefaults,
 ): Map<ItemId, SceneItem> {
   const virtual = new Map(currentItems);
   for (const action of actions) {
-    if (action.action === 'CREATE') virtual.set(action.item.id, action.item);
+    if (action.action === 'CREATE') virtual.set(action.item.id, withParsedSegments(action.item, defaults));
     else if (action.action === 'UPDATE') {
       const previous = virtual.get(action.itemId);
-      if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
+      if (previous?.kind === 'textLine') {
+        virtual.set(action.itemId, mergeTextLineUpdate(previous, action.updates as Partial<TextLineItem>, defaults));
+      } else if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
     } else virtual.delete(action.itemId);
   }
   return virtual;
+}
+
+/**
+ * Segment indices on blink / target animation rows and surrounding rects must exist on the text
+ * line they point at (segments as they will be after the draft: `raw` with its `||` splits).
+ */
+function checkSegmentIndices(
+  actions: AgentAction[],
+  currentItems: Map<ItemId, SceneItem>,
+  errors: string[],
+): void {
+  const uses: { at: string; lineId: string; indices: number[] }[] = [];
+  actions.forEach((action, i) => {
+    if (action.action !== 'CREATE') return;
+    const item = action.item;
+    if (item.kind === 'surroundingRect' && item.segmentIndices?.length && item.targetIds.length === 1) {
+      uses.push({ at: `actions[${i}] surroundingRect "${item.id}"`, lineId: item.targetIds[0]!, indices: item.segmentIndices });
+    }
+    if (item.kind === 'blink_animation' || item.kind === 'target_animation') {
+      item.targets.forEach((row, ti) => {
+        const indices = (row as { segmentIndices?: number[] | null }).segmentIndices;
+        if (indices?.length) uses.push({ at: `actions[${i}] ${item.kind} "${item.id}" targets[${ti}]`, lineId: row.targetId, indices });
+      });
+    }
+  });
+  if (!uses.length) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  for (const use of uses) {
+    const line = virtual.get(use.lineId);
+    if (line?.kind !== 'textLine') continue;
+    const count = line.segments.length;
+    const bad = use.indices.filter((n) => !Number.isInteger(n) || n < 0 || n >= count);
+    if (bad.length) {
+      const list = line.segments.map((seg, n) => `${n}: ${JSON.stringify(seg.text)}`).join(', ');
+      errors.push(`${use.at}: segment ${bad.join(', ')} does not exist on text line "${use.lineId}" (segments ${list}).`);
+    }
+  }
 }
 
 /**

@@ -1,4 +1,5 @@
-import type { ItemId, SceneItem } from '@/types/scene';
+import type { GraphFunctionSeriesItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
+import { functionSeriesChildStartOffset, functionSeriesIndices, resolveFunctionSeriesN } from '@/types/scene';
 import { FRAME_H, FRAME_W } from '@/lib/constants';
 import { cameraPoseAtTime } from '@/lib/camera';
 import { frameCenterById } from '@/lib/frameGrid';
@@ -15,6 +16,73 @@ const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pt = (p: { x: number; y: number }) => [r3(p.x), r3(p.y)];
 
 const CLIP_KINDS = new Set(['exit_animation', 'blink_animation', 'target_animation', 'camera_move']);
+
+interface Rect {
+  left: number;
+  right: number;
+  bottom: number;
+  top: number;
+}
+
+/** What the camera shows at `time` (world units), or null without a start frame. */
+function cameraRect(session: DraftSession, scene: Map<ItemId, SceneItem>, time: number): Rect | null {
+  const { frames, startFrameId } = session.base;
+  if (!startFrameId) return null;
+  const pose = cameraPoseAtTime(time, scene, frames, startFrameId);
+  const h = (pose.width * FRAME_H) / FRAME_W;
+  return { left: pose.x - pose.width / 2, right: pose.x + pose.width / 2, bottom: pose.y - h / 2, top: pose.y + h / 2 };
+}
+
+function rectOf(center: { x: number; y: number }, w: number, h: number): Rect {
+  return { left: center.x - w / 2, right: center.x + w / 2, bottom: center.y - h / 2, top: center.y + h / 2 };
+}
+
+/** Sides of `inner` that stick out of `outer` (empty when it fits; 0.02 units of slack). */
+function outsideSides(inner: Rect, outer: Rect): string[] {
+  const eps = 0.02;
+  const out: string[] = [];
+  if (inner.left < outer.left - eps) out.push('left');
+  if (inner.right > outer.right + eps) out.push('right');
+  if (inner.top > outer.top + eps) out.push('top');
+  if (inner.bottom < outer.bottom - eps) out.push('bottom');
+  return out;
+}
+
+/** Segment list of a text line with the indices blink / surround / styling use (line[i]). */
+function segmentFacts(item: TextLineItem): Record<string, unknown>[] {
+  return item.segments.map((seg, i) => ({
+    i,
+    text: seg.text,
+    ...(seg.isMath ? { math: true } : {}),
+    color: seg.color,
+    ...(seg.bold ? { bold: true } : {}),
+    ...(seg.italic ? { italic: true } : {}),
+  }));
+}
+
+interface CurveWindow {
+  n: number;
+  from: number;
+  to: number;
+}
+
+/** When each curve of a function series animates (scene seconds). */
+function seriesSchedule(item: GraphFunctionSeriesItem, start: number): CurveWindow[] {
+  return functionSeriesIndices(item).map((n) => {
+    const from = start + functionSeriesChildStartOffset(item, n);
+    return { n, from: r3(from), to: r3(from + Math.max(0, resolveFunctionSeriesN(item, n).animDuration)) };
+  });
+}
+
+/** Which curves of a series show at `time`: replacement shows one (or a morph), accumulation all drawn so far. */
+function seriesShowing(item: GraphFunctionSeriesItem, schedule: CurveWindow[], time: number): (number | string)[] {
+  const begun = schedule.filter((c) => time >= c.from);
+  if (!begun.length) return [];
+  if (item.mode !== 'replacement') return begun.map((c) => (time < c.to ? `${c.n} (drawing)` : c.n));
+  const last = begun[begun.length - 1]!;
+  if (time >= last.to) return [last.n];
+  return begun.length > 1 ? [`${begun[begun.length - 2]!.n}→${last.n} (morphing)`] : [`${last.n} (drawing)`];
+}
 
 /** Default times: request time, plus the start, middle and end of every draft-touched clip. */
 function defaultTimes(session: DraftSession, scene: Map<ItemId, SceneItem>): number[] {
@@ -39,14 +107,29 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
   if (CLIP_KINDS.has(item.kind)) {
     const duration = 'duration' in item ? item.duration : 0;
     facts.window = [r3(item.startTime), r3(item.startTime + duration)];
+    if (item.kind === 'camera_move') {
+      const cam = cameraRect(session, scene, item.startTime + item.duration);
+      if (cam) {
+        facts.endsAt = { center: pt({ x: (cam.left + cam.right) / 2, y: (cam.bottom + cam.top) / 2 }), width: r3(cam.right - cam.left) };
+      }
+    }
     return facts;
   }
   const start = effectiveStart(item, scene);
   const end = effectiveEnd(item, scene);
   facts.visible = [r3(start), Number.isFinite(end) ? r3(end) : 'end of scene'];
-  if (item.kind === 'textLine' && !item.measure) facts.note = 'not measured yet: size is a placeholder';
+  if (item.kind === 'textLine') {
+    if (!item.measure) facts.note = 'not measured yet: size is a placeholder';
+    facts.segments = segmentFacts(item);
+  }
+  const schedule = item.kind === 'graphFunctionSeries' ? seriesSchedule(item, start) : null;
+  if (schedule) facts.curves = schedule;
   facts.at = times.map((time) => {
     const row: Record<string, unknown> = { t: time, onScreen: time >= start && time < end };
+    if (item.kind === 'graphFunctionSeries' && schedule) {
+      row.showing = row.onScreen ? seriesShowing(item, schedule, time) : [];
+      return row;
+    }
     if (item.kind === 'graphDot') {
       const axes = scene.get(item.axesId);
       const motion = resolveGraphDotPosition({ dot: item, items: [...scene.values()], time });
@@ -74,11 +157,53 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
     const fc = frameCenterById(frames, item.frameId ?? startFrameId);
     const ta = targetAnimPreviewAccum(item.id, time, scene);
     const box = getItemBBox(item);
-    row.center = pt({ x: center.x + fc.x + ta.dx, y: center.y + fc.y + ta.dy });
-    row.size = [r3(box.w * ta.scaleMul), r3(box.h * ta.scaleMul)];
+    const world = { x: center.x + fc.x + ta.dx, y: center.y + fc.y + ta.dy };
+    const w = box.w * ta.scaleMul;
+    const h = box.h * ta.scaleMul;
+    row.center = pt(world);
+    row.size = [r3(w), r3(h)];
+    const cam = cameraRect(session, scene, time);
+    if (cam && !(item.kind === 'textLine' && !item.measure)) {
+      const sides = outsideSides(rectOf(world, w, h), cam);
+      row.inCamera = sides.length === 0;
+      if (sides.length) row.outside = sides;
+    }
     return row;
   });
   return facts;
+}
+
+/**
+ * Pairs of measured text lines whose boxes overlap while both are on screen, at the inspected
+ * times (at most 10).
+ */
+function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, times: number[]) {
+  const { frames, startFrameId } = session.base;
+  const lines = [...scene.values()].filter((it): it is TextLineItem => it.kind === 'textLine' && !!it.measure);
+  const out: { t: number; ids: [string, string]; overlap: [number, number] }[] = [];
+  for (const time of times) {
+    const boxes = lines
+      .filter((line) => time >= effectiveStart(line, scene) && time < effectiveEnd(line, scene))
+      .map((line) => {
+        const center = resolvePosition(line, scene);
+        const fc = frameCenterById(frames, line.frameId ?? startFrameId);
+        const ta = targetAnimPreviewAccum(line.id, time, scene);
+        const box = getItemBBox(line);
+        const world = { x: center.x + fc.x + ta.dx, y: center.y + fc.y + ta.dy };
+        return { id: line.id, rect: rectOf(world, box.w * ta.scaleMul, box.h * ta.scaleMul) };
+      });
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!.rect;
+        const b = boxes[j]!.rect;
+        const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const h = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+        if (w > 0.02 && h > 0.02) out.push({ t: time, ids: [boxes[i]!.id, boxes[j]!.id], overlap: [r3(w), r3(h)] });
+        if (out.length >= 10) return out;
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -113,6 +238,7 @@ export function inspectDraft(session: DraftSession, input: { times?: unknown; it
     units: 'Manim scene units; the default camera frame is 14.22 × 8 centred on (0, 0) of the home frame',
     camera,
     items,
+    textOverlaps: textOverlaps(scene, session, times),
     draftActions: session.actions.length,
   };
 }

@@ -409,7 +409,7 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
-`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 for multi-part requests) + in loop mode `LOOP_RECIPE` (R7, check before finishing) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R11 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
 
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 
@@ -427,7 +427,8 @@ Current rules:
    - English inside a Hebrew line goes in `\en{…}` (math may sit inside it). A mainly-English line sets `baseDir: "ltr"` and wraps Hebrew in `\he{…}`. `englishFont` only on request.
    - Omit `segments` (or emit `segments: []`) — the app derives them automatically from `raw`.
    - Copy `projectDefaults.font` into `font`. If `projectDefaults.font` is empty, default to `"Alef"`. Never use `"Arial"` or other non-Hebrew fonts.
-   - **Two-step rule for CREATE only**: do not include segment styling (color/bold/italic) in the same response as the CREATE. Style in a later turn after the user approves.
+   - **Two-step rule for CREATE only**: do not include segment styling (color/bold/italic) in the same response as the CREATE. Style in a later turn after the user approves. In loop mode (`validateAgentResponse(..., { allowStyleAfterCreate: true })`) a later UPDATE in the same draft may style the new line; a styled CREATE is still rejected.
+   - Segment indices on blink / target-animation rows and surrounding rects must exist on the line after the draft (`checkSegmentIndices`); the error lists the line's segments.
     - 5a. `graphPlot` functions **MUST** use `fn.jsExpr` (JS) and `fn.pyExpr` (NumPy). Power is `**`, never `^`.
     - 5a2. `graphCurve` coordinates live under `curve` (`jsXExpr`/`pyXExpr`, `jsYExpr`/`pyYExpr`, parameter `t`) plus top-level `tDomain`; same `**` rule.
     - 5a3. Expression UPDATEs use the CREATE field shapes; the validator repairs `^` and derives missing dialects, and `commit.ts` preserves unrelated nested fields.
@@ -560,7 +561,7 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
 - **`loop/draft.ts` — `DraftSession`.** Ordered raw actions plus their normalized form. `propose(actions)`
   validates *the whole draft* (`[...previous, ...new]`, camera descriptors resolved first) with
   `validateAgentResponse`; on failure the draft is unchanged and the errors (with an index offset note)
-  go back to the model. `scene()` is the virtual item map.
+  go back to the model. `scene()` is the virtual item map: text lines as Approve will leave them (`textDraft.ts`: segments parsed from `raw`, UPDATEs merged like `setTextLineSource`), plus measures from `measureText(env.measureText)`, which measures draft lines without one through the measure server (cached by source and font).
 - **`loop/tools.ts` — tools.** `propose_changes`, `reset_draft`, `inspect_scene`, `check_export`, `finish`,
   plus `snapshot_preview` / `render_manim_frame` when the host provides them (`loop/env.ts`,
   `LoopToolEnv`). `runLoopTool` never throws except on abort; failures are `isError` results.
@@ -568,7 +569,11 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   and per item its visible window and at each time: graph dots in graph and world coordinates
   (`resolveGraphDotPosition` + `axesGraphToWorld`), connectors as both ends, other drawables as centre +
   size (frame offset and move/path/scale target animations applied). Default times: request time and
-  start / middle / end of every draft-touched item (max 8).
+  start / middle / end of every draft-touched item (max 8). Also: `inCamera` / `outside` for measured
+  drawables, `textOverlaps` between measured text lines, each text line's `segments` (index, text, math,
+  colour), each function series' `curves` (when each n draws) and per time `showing`, and each camera
+  clip's `endsAt` (centre and width). `inspect_scene` measures new text first when the host provides
+  `measureText`.
 - **`loop/runAgentLoop.ts`.** At most `MAX_LOOP_STEPS` (10) model calls. Ends on `finish({reply})`, on a
   plain answer without tool calls, or at the limit (`stoppedEarly`, never auto-applied). Progress
   (`draftActions`, `loopLog`) goes to the store as tools run.

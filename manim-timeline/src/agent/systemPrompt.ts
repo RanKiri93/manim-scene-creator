@@ -212,6 +212,10 @@ export function buildSystemPrompt(
 }
 
 const SINGLE_FORMAT_START = 'CONVERSATION & RESPONSE FORMAT';
+const TWO_STEP_RULE =
+  '   - Two-step rule for CREATE: when CREATEing a new textLine, do NOT include segment styling (color / bold / italic) in the same response. Create the text first; propose styling only after the user approves the creation.';
+const LOOP_STYLE_RULE =
+  '   - Styling a new textLine: do NOT put segment styling in its CREATE. Create it with `raw` only, then style it with an UPDATE (raw + segments, rule 5b) in the same draft; inspect_scene lists its segments with their indices.';
 const RULES_START = 'CRITICAL ARCHITECTURE RULES:';
 
 /** Replaces the JSON-envelope section when the Copilot works through tools (agent loop). */
@@ -233,5 +237,5 @@ How to work: for anything beyond a one-line edit, propose → inspect the moment
 export function loopBasePrompt(): string {
   const start = BASE_SYSTEM_PROMPT.indexOf(SINGLE_FORMAT_START);
   const end = BASE_SYSTEM_PROMPT.indexOf(RULES_START);
-  return BASE_SYSTEM_PROMPT.slice(0, start) + LOOP_FORMAT_SECTION + BASE_SYSTEM_PROMPT.slice(end);
+  return (BASE_SYSTEM_PROMPT.slice(0, start) + LOOP_FORMAT_SECTION + BASE_SYSTEM_PROMPT.slice(end)).replace(TWO_STEP_RULE, LOOP_STYLE_RULE);
 }

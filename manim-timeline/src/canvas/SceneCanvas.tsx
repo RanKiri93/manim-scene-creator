@@ -18,6 +18,7 @@ import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from '
 import { isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
 import { registerLoopToolEnv } from '@/agent/loop/env';
 import { renderDraftFrame } from '@/agent/loop/manimFrame';
+import { measureLine } from '@/services/measureClient';
 import { cameraPoseAtTime } from '@/lib/camera';
 import { cameraCropRect, captureStageRect, nextPaint, withProposalsAsFinal } from './agentSnapshot';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
@@ -673,6 +674,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
         ? {
             renderFrame: (time: number, session: Parameters<typeof renderDraftFrame>[0]) =>
               renderDraftFrame(session, time, useSceneStore.getState().measureConfig.url),
+            measureText: async (item: TextLineItem) =>
+              (await measureLine(useSceneStore.getState().measureConfig.url, item, false)).result,
           }
         : {}),
     }));

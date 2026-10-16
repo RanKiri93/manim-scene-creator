@@ -1,6 +1,6 @@
 import { exportManimCode } from '@/codegen/manimExporter';
 import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
-import type { DraftSession } from './draft';
+import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
 import type { LoopImage, LoopToolCall, LoopToolResult, LoopToolSpec } from './types';
 
@@ -10,6 +10,8 @@ export interface LoopToolEnv {
   snapshot?: (time: number) => Promise<LoopImage>;
   /** One Manim frame of the draft at `time`, rendered by the measure server. */
   renderFrame?: (time: number, session: DraftSession) => Promise<LoopImage>;
+  /** Measure a draft text line with the measure server, so inspect uses its real size. */
+  measureText?: MeasureText;
 }
 
 export interface ToolOutcome {
@@ -42,7 +44,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
     {
       name: 'inspect_scene',
       description:
-        'Exact facts about the scene with the draft applied: scene length, camera view, and per item its visible window and resolved position at the given times (world units; graph dots also in graph coordinates; connectors as both ends). Defaults: the items the draft touches, at the start / middle / end of each.',
+        'Exact facts about the scene with the draft applied: scene length, camera view, and per item its visible window and resolved position at the given times (world units; graph dots also in graph coordinates; connectors as both ends; inCamera / outside for things that leave the camera view). Text lines list their segments with the index blink, surround and styling use; function series list when each curve draws and which one shows; camera clips where they end. textOverlaps lists text lines that overlap. New text is measured first when the measure server is on. Defaults: the items the draft touches, at the start / middle / end of each.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -127,8 +129,12 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
       case 'reset_draft':
         session.reset();
         return ok(json({ draftActions: 0 }), 'Draft cleared');
-      case 'inspect_scene':
-        return ok(json(inspectDraft(session, input)), 'Inspected the scene');
+      case 'inspect_scene': {
+        const unmeasured = env.measureText ? await session.measureText(env.measureText) : null;
+        const facts = inspectDraft(session, input);
+        if (unmeasured) facts.measureNote = `${unmeasured} text line(s) could not be measured; their sizes are placeholders.`;
+        return ok(json(facts), 'Inspected the scene');
+      }
       case 'check_export': {
         const scene = session.scene();
         const code = exportManimCode([...scene.values()], {
