@@ -337,6 +337,12 @@ Real LLM responses are noisy. The validator has two responsibilities:
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
 - `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
   `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
+- Practice set (`practice/cases.ts`, `practice/run.ts`; runner `manim-timeline/practice/practice.run.test.ts`):
+  25 requests with starting scenes and checks that find items by kind, never by id. `runPracticeCase` runs the
+  same tool loop as the app (no snapshots, no measure server) and scores the checks; 22 cases have a golden
+  answer that must pass every check, and doing nothing must fail every case (`practice.test.ts`). Each full run
+  appends provider, model, a fingerprint of the prompt and tools, and the scores to the git-ignored
+  `practice/history.jsonl`; the report names cases that got worse since the last run of that model.
 - `review_scene({ times? })` (`loop/review.ts`): findings with item ids and times — `offscreen` and `textOverlap`
   (via `inspectDraft` at each clip's entered / leaving times), `lowContrast` (WCAG 3:1 on black), `unwrappedText`
   (`findUnwrappedForeignRuns`), `idleGap` (≥ 4 s with no clip animating and no narration), `exportError`. The

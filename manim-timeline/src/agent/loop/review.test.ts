@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createShape, createTextLine, defaultSceneDefaults } from '@/store/factories';
 import type { FrameDef, ItemId, SceneItem, ShapeItem, TextLineItem } from '@/types/scene';
 import { buildSystemPrompt } from '../systemPrompt';
-import { REVIEW_PROMPT } from '../AgentPanel';
+import { REVIEW_PROMPT } from '../reviewPrompt';
 import { DraftSession } from './draft';
 import { contrastOnBlack, reviewScene } from './review';
 import { loopToolSpecs, runLoopTool } from './tools';

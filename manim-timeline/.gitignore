@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Copilot practice runs (local scores; see practice/practice.run.test.ts)
+practice/history.jsonl
+practice/last-report.txt
