@@ -6,17 +6,30 @@ import { frameCenterById } from '@/lib/frameGrid';
 import { resolveGraphDotPosition } from '@/lib/graphMotion';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { axesGraphToWorld, isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
-import { effectiveEnd, effectiveStart } from '@/lib/time';
+import { effectiveEnd, effectiveStart, isTransformSourceHiddenInPreview } from '@/lib/time';
+import { transformSourceIds } from '@/lib/transformMapping';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { computeSceneDurationSec } from '@/codegen/manimExporter';
 import type { DraftSession } from './draft';
 import { areaFacts, fieldFacts } from '../graphRegions';
+import { transformFacts } from '../textTransforms';
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pt = (p: { x: number; y: number }) => [r3(p.x), r3(p.y)];
 
 const CLIP_KINDS = new Set(['exit_animation', 'blink_animation', 'target_animation', 'camera_move']);
+
+/** Text lines that morph out of `lineId` (animStyle "transform" with it as a source). */
+function morphTargets(lineId: ItemId, scene: Map<ItemId, SceneItem>): ItemId[] {
+  const out: ItemId[] = [];
+  for (const it of scene.values()) {
+    if (it.kind === 'textLine' && it.animStyle === 'transform' && it.transformConfig && transformSourceIds(it.transformConfig).includes(lineId)) {
+      out.push(it.id);
+    }
+  }
+  return out;
+}
 
 interface Rect {
   left: number;
@@ -122,6 +135,10 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
   if (item.kind === 'textLine') {
     if (!item.measure) facts.note = 'not measured yet: size is a placeholder';
     facts.segments = segmentFacts(item);
+    const transform = transformFacts(item, scene);
+    if (transform) facts.transform = transform;
+    const into = morphTargets(item.id, scene);
+    if (into.length) facts.turnsInto = into;
   }
   const schedule = item.kind === 'graphFunctionSeries' ? seriesSchedule(item, start) : null;
   if (schedule) facts.curves = schedule;
@@ -140,6 +157,10 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
   }
   facts.at = times.map((time) => {
     const row: Record<string, unknown> = { t: time, onScreen: time >= start && time < end };
+    if (item.kind === 'textLine' && row.onScreen && isTransformSourceHiddenInPreview(item, time, scene)) {
+      row.onScreen = false;
+      row.note = 'morphed into the next line';
+    }
     if (item.kind === 'graphFunctionSeries' && schedule) {
       row.showing = row.onScreen ? seriesShowing(item, schedule, time) : [];
       return row;
@@ -194,10 +215,12 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
 function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, times: number[]) {
   const { frames, startFrameId } = session.base;
   const lines = [...scene.values()].filter((it): it is TextLineItem => it.kind === 'textLine' && !!it.measure);
+  const morphPair = (a: string, b: string) => morphTargets(a, scene).includes(b) || morphTargets(b, scene).includes(a);
   const out: { t: number; ids: [string, string]; overlap: [number, number] }[] = [];
   for (const time of times) {
     const boxes = lines
       .filter((line) => time >= effectiveStart(line, scene) && time < effectiveEnd(line, scene))
+      .filter((line) => !isTransformSourceHiddenInPreview(line, time, scene))
       .map((line) => {
         const center = resolvePosition(line, scene);
         const fc = frameCenterById(frames, line.frameId ?? startFrameId);
@@ -208,6 +231,7 @@ function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, time
       });
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
+        if (morphPair(boxes[i]!.id, boxes[j]!.id)) continue; // a line and the step it morphs into
         const a = boxes[i]!.rect;
         const b = boxes[j]!.rect;
         const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);

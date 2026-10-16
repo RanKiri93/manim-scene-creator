@@ -141,6 +141,8 @@ textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPoint
 graphArea, graphField, shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
 
+**Equation steps** (`textTransforms.ts`): `animStyle` is checked (`write` / `fade_in` / `transform`); `transformConfig` takes `pairs: [{ from, to }]` (source segment → this line's segment; stored as `segmentPairs`) and implies `animStyle: "transform"`. `checkTextTransforms` rejects a missing or exited source, a start before the source has appeared, indices the lines do not have and a source piece paired twice. Inspect lists each pair with its texts; a source line is off screen once it has morphed and never counts as overlapping its next step.
+
 **`graphArea` / `graphField`** (`graphRegions.ts`): the model sends an area's geometry as `area` (stored as `mode`, which the flat Gemini schema uses for a string enum); boundaries are `{ plotId }` or `{ jsExpr, pyExpr }`. UPDATEs merge `area` over the stored geometry. `checkGraphRegions` rejects xMin ≥ xMax, a plot on other axes or an interval outside its domain, expressions with names other than x (areas) or x and y (fields), more than `MAX_FIELD_ARROWS` arrows and stream seeds off the axes. Inspect reports an area's value and label spot and where each stream line ends.
 
 **`camera_move`** is a persisted snapshot clip. Providers may supply request-only `targetMode` (`frame | region | object`), exact `targetId`, or finite world-space `region`; `cameraRequests.ts` resolves and consumes those descriptors against request-time context before validation/preview/commit. Persisted items contain only ordinary camera fields (`targetFrameId`, absolute `targetWidth`, offsets, start and duration). Object fitting delegates to `lib/cameraBounds.ts`; unsupported bounds require clarification. Overlap is valid and schedule/return semantics remain owned by `lib/camera.ts`.
@@ -409,7 +411,7 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
-`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields, equation steps) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
 
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 

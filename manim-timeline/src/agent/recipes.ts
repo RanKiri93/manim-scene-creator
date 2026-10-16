@@ -59,6 +59,12 @@ R13. Slope or vector field with a solution ("the slope field of y' = x − y on 
    2. graphField fieldMode "slope" with jsExprSlope "x - y" / pyExprSlope "x - y". fieldGridStep so 12–20 arrows fit across: (xMax − xMin) / 15 rounded to 0.25 or 0.5. slopeArrowLength ≈ 0.7 × fieldGridStep; arrowStrokeWidth 2–3 for a dense field.
    3. The solution through (x0, y0): streamPoints [{ "x": x0, "y": y0 }] with streamVirtualTime ≈ 1.3 × (xMax − x0) / slopeArrowLength so it reaches the right edge. It only goes to the right of the point: when the user wants the whole curve and the solution has a formula (y' = x − y: y = x − 1 + C·e^(−x), C from the point), draw a graphPlot of it instead, in a contrasting colour after the field.
    4. Vector fields: the same with fieldMode "vector" (P, Q); a stream line follows the flow for streamVirtualTime seconds.
+
+R14. Equation steps that morph ("solve 2x + 3 = 7 step by step, each line turning into the next").
+   1. One textLine per step, formula-only lines with baseDir "ltr", one segment per term, and {} around an operator or relation that stands at the edge of a piece so spacing stays as in one formula: "$2x$\${}+3$\${}={}$$7$" → segments "2x", "{}+3", "{}={}", "7". Write equal terms the same way in every step so they pair up.
+   2. Step k + 1: same posSteps as step k (it replaces it in place), animStyle "transform", transformConfig { "sourceLineId": <step k>, "mode": "segments", "pairs": equal terms, plus the term that changes side (pair "{}+3" with "{}-3" so it flies across and turns into −3) }, unmappedSourceBehavior "fade_out", unmappedTargetBehavior "fade_in".
+   3. Timing: step k + 1 starts at step k's startTime + duration + a pause (about 1 s); duration about 1–1.5 s.
+   4. A worked solution that stays on screen (every step visible) is not a morph: write each step below the previous one (R9) instead.
 `;
 
 /** Tool-loop only: how to check a visual result before finishing. */
@@ -68,5 +74,6 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R10: the line's segments list gives the index to use (i); check it is the term you mean before the blink / surround / colour.
    - R12: the area's value is the integral; check its sign and that xMin..xMax is what was asked. The label sits at labelAtWorld (or just above it) and is inCamera.
    - R13: field.arrows stays below about 400; each stream that should cross the picture has endedBy "left the axes".
+   - R14: each step's transform lists pairs with their texts: "a → b" marks a piece that changes, check those are the moves you mean; the previous step shows onScreen false after the morph.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.
 `;

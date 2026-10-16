@@ -6,6 +6,7 @@ import {
   GRAPH_FOLLOW_ROW_PROPERTIES,
   SHAPE_ENDPOINTS_SCHEMA,
   TARGET_ANIMATION_MODES,
+  TEXT_ANIM_PROPERTIES,
 } from '../schemaFragments';
 import type { AgentChatMessage, AgentContextPayload } from '../types';
 import {
@@ -239,6 +240,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               },
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
+              ...TEXT_ANIM_PROPERTIES,
               targets: {
                 type: 'array',
                 description:
@@ -396,6 +398,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
+              ...TEXT_ANIM_PROPERTIES,
             },
           },
         },

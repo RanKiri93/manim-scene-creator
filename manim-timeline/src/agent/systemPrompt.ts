@@ -71,6 +71,11 @@ CRITICAL ARCHITECTURE RULES:
    - Two-step rule for CREATE: when CREATEing a new textLine, do NOT include segment styling (color / bold / italic) in the same response. Create the text first; propose styling only after the user approves the creation.
    - For UPDATE on an existing textLine (including adding \`||\` splits for styling): you MAY combine \`raw\` and \`segments\` changes in a single UPDATE — see rule 5b.
 
+5c. Text line entrance and equation steps:
+   - \`animStyle\`: "write" (default), "fade_in", or "transform" = the line enters by morphing an earlier line.
+   - For "transform" set \`transformConfig: { "sourceLineId": <earlier line id>, "mode": "segments" | "whole", "pairs": [{ "from": <source segment index>, "to": <this line's segment index> }], "unmappedSourceBehavior": "fade_out" | "leave", "unmappedTargetBehavior": "fade_in" | "write" }\`. "segments" moves each paired piece to its new place; "whole" morphs the whole line (no pairs). Each source piece may be paired once.
+   - The source must have finished appearing before the new line starts and must not have exited; it disappears when the morph ends (no exit clip needed). Segment indices are those inspect_scene lists (rule 5b order).
+
 6. Clean Data: Do not generate UI-only fields like measure, previewDataUrl, segmentMeasures, mathChildMeasures, or measureError. Leave them null or omitted.
 
 6b. Clip Name (label — MANDATORY on every CREATE): Whenever you CREATE any item, you MUST set its \`label\` field to a short, descriptive, human-readable name that reflects the object's role in the scene.

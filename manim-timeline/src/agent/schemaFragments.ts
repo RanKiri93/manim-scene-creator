@@ -220,3 +220,33 @@ export const GRAPH_AREA_PROPERTIES = {
   strokeColor: { type: 'string', description: 'For kind="graphArea": outline colour (polygons and disks).' },
   strokeWidth: { type: 'number', description: 'For kind="graphArea": outline width; 0 = none (default).' },
 } as const;
+
+/** textLine entrance: `animStyle` and, for equation steps, the line it morphs from. */
+export const TEXT_ANIM_PROPERTIES = {
+  animStyle: {
+    type: 'string',
+    enum: ['write', 'fade_in', 'transform'],
+    description: 'textLine: how the line enters. "transform" morphs an earlier line into this one (set transformConfig). Default "write".',
+  },
+  transformConfig: {
+    type: 'object',
+    description:
+      'textLine with animStyle "transform": the line it morphs from. mode "segments" moves paired pieces (pairs: from = source segment index, to = this line\'s segment index; unpaired source pieces fade out or stay, unpaired new pieces fade or write in); mode "whole" morphs the whole line. The source line disappears when the morph ends.',
+    properties: {
+      sourceLineId: { type: 'string', description: 'The earlier textLine this one morphs from.' },
+      mode: { type: 'string', enum: ['segments', 'whole'] },
+      pairs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            from: { type: 'integer', description: 'Segment index on the source line.' },
+            to: { type: 'integer', description: 'Segment index on this line.' },
+          },
+        },
+      },
+      unmappedSourceBehavior: { type: 'string', enum: ['fade_out', 'leave'] },
+      unmappedTargetBehavior: { type: 'string', enum: ['fade_in', 'write'] },
+    },
+  },
+} as const;

@@ -1,4 +1,3 @@
-import { normalizeTransformMapping } from '@/lib/transformMapping';
 import {
   functionSeriesTotalDuration,
   pointSequenceTotalDuration,
@@ -35,7 +34,6 @@ import {
   type ShapePoint,
   type SurroundingRectItem,
   type TextLineItem,
-  type TransformMapping,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, FRAME_W } from '@/lib/constants';
@@ -60,6 +58,7 @@ import {
 import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
 import type { CameraMoveItem, SceneDefaults } from '@/types/scene';
 import { mergeTextLineUpdate, withParsedSegments } from './textDraft';
+import { checkTextTransforms, normalizeAnimStyle, normalizeTransformConfig } from './textTransforms';
 import { checkGraphRegions, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
 
 export type ValidationResult =
@@ -472,11 +471,10 @@ export function validateAgentResponse(
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
-  checkGraphRegions(
-    virtualSceneAfter(currentItems, normalizedActions),
-    new Set(normalizedActions.map((a) => (a.action === 'CREATE' ? a.item.id : a.itemId))),
-    errors,
-  );
+  const draftScene = virtualSceneAfter(currentItems, normalizedActions);
+  const touchedIds = new Set(normalizedActions.map((a) => (a.action === 'CREATE' ? a.item.id : a.itemId)));
+  checkGraphRegions(draftScene, touchedIds, errors);
+  checkTextTransforms(draftScene, touchedIds, errors, warnings);
 
   // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
@@ -584,7 +582,7 @@ function normalizeCreateItem(
   const kind = raw.kind as string;
   switch (kind) {
     case 'textLine':
-      return normalizeTextLine(raw);
+      return normalizeTextLine(raw, errors, prefix);
     case 'axes':
       return normalizeAxes(raw);
     case 'graphPlot':
@@ -1014,6 +1012,11 @@ function normalizeUpdates(
   if (targetKind === 'textLine') {
     if ('baseDir' in patch) next.baseDir = normalizeTextBaseDir(patch.baseDir);
     if ('englishFont' in patch) next.englishFont = normalizeEnglishFont(patch.englishFont);
+    if ('animStyle' in patch) next.animStyle = normalizeAnimStyle(patch.animStyle, `${prefix}.updates.animStyle`, errors);
+    if ('transformConfig' in patch) {
+      next.transformConfig = normalizeTransformConfig(patch.transformConfig, `${prefix}.updates.transformConfig`, errors);
+      if (next.transformConfig && !('animStyle' in patch)) next.animStyle = 'transform';
+    }
   }
   if (targetKind === 'graphFunctionSeries') {
     if ('perN' in patch) {
@@ -1331,27 +1334,11 @@ function rawFromSegments(segments: TextLineItem['segments']): string {
     .join('');
 }
 
-function sanitizeTransformConfig(raw: unknown): TransformMapping | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const tc = raw as Record<string, unknown>;
-  const sourceLineId = asStr(tc.sourceLineId, '');
-  if (!sourceLineId) return null;
-  const sourceLineIds = Array.isArray(tc.sourceLineIds)
-    ? tc.sourceLineIds.filter((id): id is string => typeof id === 'string' && !!id)
-    : undefined;
-  return normalizeTransformMapping({
-    sourceLineId,
-    sourceLineIds,
-    mode: tc.mode === 'whole' || tc.mode === 'segments' ? tc.mode : undefined,
-    segmentPairs:
-      tc.segmentPairs && typeof tc.segmentPairs === 'object'
-        ? (tc.segmentPairs as TransformMapping['segmentPairs'])
-        : {},
-    unmappedSourceBehavior:
-      tc.unmappedSourceBehavior === 'leave' ? 'leave' : 'fade_out',
-    unmappedTargetBehavior:
-      tc.unmappedTargetBehavior === 'write' ? 'write' : 'fade_in',
-  });
+/** `animStyle` and `transformConfig` of a created line; a transform source implies animStyle "transform". */
+function textAnimFields(raw: Record<string, unknown>, errors: string[], prefix: string): Pick<TextLineItem, 'animStyle' | 'transformConfig'> {
+  const transformConfig = normalizeTransformConfig(raw.transformConfig, `${prefix}.item.transformConfig`, errors);
+  const animStyle = normalizeAnimStyle(raw.animStyle, `${prefix}.item.animStyle`, errors) ?? (transformConfig ? 'transform' : undefined);
+  return { animStyle, transformConfig };
 }
 
 function normalizeCameraMove(raw: Record<string, unknown>, errors: string[], prefix: string): CameraMoveItem | null {
@@ -1379,7 +1366,7 @@ function normalizeEnglishFont(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }
 
-function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
+function normalizeTextLine(raw: Record<string, unknown>, errors: string[], prefix: string): TextLineItem {
   const rawForBase =
     raw.animStyle === 'transform' && raw.visibleAtSceneStart === true
       ? { ...raw, visibleAtSceneStart: false }
@@ -1404,8 +1391,7 @@ function normalizeTextLine(raw: Record<string, unknown>): TextLineItem {
     fontSize: asNum(raw.fontSize, DEFAULT_FONT_SIZE),
     baseDir: normalizeTextBaseDir(raw.baseDir),
     englishFont: normalizeEnglishFont(raw.englishFont),
-    animStyle: raw.animStyle as TextLineItem['animStyle'],
-    transformConfig: sanitizeTransformConfig(raw.transformConfig),
+    ...textAnimFields(raw, errors, prefix),
     segments,
     measure: null,
     measureError: null,
