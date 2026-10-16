@@ -5,6 +5,7 @@ import type { ProviderId } from './providers';
 import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
 import { useSceneStore } from '@/store/useSceneStore';
 import { summarizeCameraProposal } from './cameraProposalSummary';
+import { describeTimelineEdit } from './timelineEdits';
 import { listChatgptModels, signInWithChatgpt, type ChatgptModel } from './providers/chatgptLoop';
 import { isTauriRuntime } from '@/lib/projectIO';
 
@@ -477,6 +478,13 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
             {detail.join(' | ')}
           </div>
         )}
+      </li>
+    );
+  }
+  if (action.action === 'TIMELINE') {
+    return (
+      <li className={`text-warn ${dimClass}`}>
+        <span className="text-warn">TIMELINE</span> {describeTimelineEdit(action.edit)}
       </li>
     );
   }

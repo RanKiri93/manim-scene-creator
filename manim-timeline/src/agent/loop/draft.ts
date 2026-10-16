@@ -1,6 +1,6 @@
 import type { AudioTrackItem, FrameDef, ItemId, MeasureResult, SceneDefaults, SceneItem, TextLineItem } from '@/types/scene';
 import type { AgentAction } from '../types';
-import { validateAgentResponse, virtualSceneAfter } from '../validate';
+import { validateAgentResponse, virtualStateAfter } from '../validate';
 import { resolveCameraRequests } from '../cameraRequests';
 
 /** Scene snapshot the loop works against (frozen at request time). */
@@ -59,13 +59,18 @@ export class DraftSession {
 
   /** Items as they would be after the draft. */
   scene(): Map<ItemId, SceneItem> {
-    const scene = virtualSceneAfter(this.base.items, this.normalized, this.base.defaults);
+    const scene = virtualStateAfter(this.base.items, this.base.audioItems, this.normalized, this.base.defaults).items;
     for (const [id, item] of scene) {
       if (item.kind !== 'textLine' || item.measure) continue;
       const measure = this.measures.get(measureKey(item));
       if (measure) scene.set(id, { ...item, measure, segmentMeasures: measure.segmentMeasures, mathChildMeasures: measure.mathChildMeasures });
     }
     return scene;
+  }
+
+  /** Narration tracks as they would be after the draft (TIMELINE edits move them). */
+  audio(): AudioTrackItem[] {
+    return virtualStateAfter(this.base.items, this.base.audioItems, this.normalized, this.base.defaults).audio;
   }
 
   /**
@@ -113,7 +118,7 @@ export class DraftSession {
       frames: this.base.frames,
       activeFrameId: this.base.activeFrameId,
       startFrameId: this.base.startFrameId,
-    }, { allowStyleAfterCreate: true });
+    }, { allowStyleAfterCreate: true, audioItems: this.base.audioItems });
     if (!result.ok) {
       const offset = this.raw.length;
       return {

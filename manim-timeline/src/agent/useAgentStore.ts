@@ -320,6 +320,7 @@ export const useAgentStore = create<AgentStoreShape>()(
               activeFrameId: sceneState.activeFrameId,
               startFrameId: sceneState.startFrameId,
             },
+            { audioItems: sceneState.audioItems },
           );
           if (!result.ok) {
             const errorMsg: AgentChatMessage = {

@@ -6,7 +6,8 @@ import type { LoopImage } from './types';
 
 /** Export the draft scene and have the measure server render one frame of it. */
 export async function renderDraftFrame(session: DraftSession, time: number, measureUrl: string): Promise<LoopImage> {
-  const { defaults, audioItems, frames, startFrameId } = session.base;
+  const { defaults, frames, startFrameId } = session.base;
+  const audioItems = session.audio();
   const code = exportManimCode([...session.scene().values()], {
     fullFile: true,
     defaults,

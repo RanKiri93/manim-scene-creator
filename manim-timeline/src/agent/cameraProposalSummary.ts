@@ -1,6 +1,7 @@
 import { FRAME_W } from '@/lib/constants';
 import { resolveCameraSchedule, resolveCameraTargetWidth } from '@/lib/camera';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { applyTimelineEdit } from '@/lib/timelineSurgery';
 import type { FrameDef, ItemId, SceneItem, CameraMoveItem } from '@/types/scene';
 import type { AgentAction } from './types';
 
@@ -22,7 +23,7 @@ export function summarizeCameraProposal(
   frames: readonly FrameDef[],
   startFrameId: ItemId | null,
 ): CameraProposalSummary[] {
-  const virtualItems = new Map<ItemId, SceneItem>(items);
+  let virtualItems = new Map<ItemId, SceneItem>(items);
   const proposedCameraIds = new Set<ItemId>();
   for (const action of actions ?? []) {
     if (action.action === 'CREATE') {
@@ -34,6 +35,8 @@ export function summarizeCameraProposal(
       const updated = { ...existing, ...action.updates } as SceneItem;
       virtualItems.set(action.itemId, updated);
       if (existing.kind === 'camera_move' || updated.kind === 'camera_move') proposedCameraIds.add(action.itemId);
+    } else if (action.action === 'TIMELINE') {
+      virtualItems = applyTimelineEdit(virtualItems, [], action.edit).items;
     } else {
       if (virtualItems.get(action.itemId)?.kind === 'camera_move') proposedCameraIds.add(action.itemId);
       virtualItems.delete(action.itemId);

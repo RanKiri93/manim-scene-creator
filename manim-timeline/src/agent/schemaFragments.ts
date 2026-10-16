@@ -250,3 +250,18 @@ export const TEXT_ANIM_PROPERTIES = {
     },
   },
 } as const;
+
+/** `TIMELINE` action: a time edit that moves every later clip and the narration with them. */
+export const TIMELINE_EDIT_SCHEMA = {
+  type: 'object',
+  description:
+    'TIMELINE action: op "insert" adds `seconds` of empty time at `at`; "remove" closes the empty range from `from` to `to`; "scale" stretches (factor > 1, slower) or squeezes (factor < 1) the clips starting in [from, to). Later clips and narration move along. Blocked when a clip crosses the point or an edge, or (scale) when narration plays inside the range.',
+  properties: {
+    op: { type: 'string', enum: ['insert', 'remove', 'scale'] },
+    at: { type: 'number', description: 'insert: scene time in seconds.' },
+    seconds: { type: 'number', description: 'insert: how much empty time to add.' },
+    from: { type: 'number', description: 'remove / scale: range start (s).' },
+    to: { type: 'number', description: 'remove / scale: range end (s).' },
+    factor: { type: 'number', description: 'scale: 1.25 = 25% slower, 0.8 = 20% faster (0.25–4).' },
+  },
+} as const;

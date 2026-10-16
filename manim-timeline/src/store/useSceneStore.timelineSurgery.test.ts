@@ -264,3 +264,32 @@ describe('useSceneStore timeline surgery', () => {
     expect(useSceneStore.getState().currentTime).toBe(2);
   });
 });
+
+describe('useSceneStore scaleTimelineRange', () => {
+  beforeEach(() => resetScene());
+
+  it('stretches the clips inside the range, shifts later clips and audio and moves the playhead', () => {
+    useSceneStore.setState((s) => {
+      s.items.set('a', minimalLine('a', 2));
+      s.items.set('b', minimalLine('b', 8));
+      s.audioItems = [track({ id: 'late', startTime: 12, duration: 1 })];
+      s.currentTime = 3;
+    });
+    expect(useSceneStore.getState().scaleTimelineRange(2, 6, 1.5)).toBe(true);
+    const a = useSceneStore.getState().items.get('a') as TextLineItem;
+    expect(a.startTime).toBe(2);
+    expect(a.duration).toBe(3);
+    expect(startOf('b')).toBe(10);
+    expect(audioStartOf('late')).toBe(14);
+    expect(useSceneStore.getState().currentTime).toBe(3.5);
+  });
+
+  it('refuses when narration plays inside the range and changes nothing', () => {
+    useSceneStore.setState((s) => {
+      s.items.set('a', minimalLine('a', 2));
+      s.audioItems = [track({ id: 'n', startTime: 3, duration: 1 })];
+    });
+    expect(useSceneStore.getState().scaleTimelineRange(2, 6, 1.5)).toBe(false);
+    expect((useSceneStore.getState().items.get('a') as TextLineItem).duration).toBe(2);
+  });
+});

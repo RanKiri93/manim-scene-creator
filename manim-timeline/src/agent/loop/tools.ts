@@ -3,6 +3,7 @@ import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
 import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
 import { findWords } from '../narration';
+import { describeTimelineEdit } from '../timelineEdits';
 import type { LoopImage, LoopToolCall, LoopToolResult, LoopToolSpec } from './types';
 
 /** Optional capabilities the host can add (e.g. preview snapshots). */
@@ -30,7 +31,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
     {
       name: 'propose_changes',
       description:
-        'Add CREATE / UPDATE / DELETE actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
+        'Add CREATE / UPDATE / DELETE / TIMELINE actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
       inputSchema: {
         type: 'object',
         properties: { actions: ACTIONS_SCHEMA },
@@ -110,6 +111,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
 function describeAction(a: AgentAction): string {
   if (a.action === 'CREATE') return `CREATE ${a.item.kind} ${a.item.id}`;
   if (a.action === 'UPDATE') return `UPDATE ${a.itemId} (${Object.keys(a.updates).join(', ')})`;
+  if (a.action === 'TIMELINE') return `TIMELINE ${describeTimelineEdit(a.edit)}`;
   return `DELETE ${a.itemId}`;
 }
 
@@ -149,7 +151,7 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
       case 'find_words': {
         const text = typeof input.text === 'string' ? input.text.trim() : '';
         if (!text) return fail('find_words needs `text`.', 'Word search without text');
-        const audio = session.base.audioItems;
+        const audio = session.audio();
         if (!audio.some((a) => (a.boundaries ?? a.word_boundaries ?? []).length)) {
           return ok(json({ matches: [], note: 'The scene has no narration with word timings.' }), `No narration to search for "${text}"`);
         }
@@ -161,7 +163,7 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
         const code = exportManimCode([...scene.values()], {
           fullFile: false,
           defaults: session.base.defaults,
-          audioItems: session.base.audioItems,
+          audioItems: session.audio(),
           frames: session.base.frames,
           startFrameId: session.base.startFrameId ?? undefined,
         });

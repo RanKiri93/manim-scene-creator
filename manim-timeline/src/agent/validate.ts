@@ -42,6 +42,7 @@ import {
   AGENT_UI_ONLY_FIELDS,
   type AgentAction,
   type AgentChatResponse,
+  actionItemId,
   isAgentAllowedKind,
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
@@ -59,6 +60,9 @@ import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from
 import type { CameraMoveItem, SceneDefaults } from '@/types/scene';
 import { mergeTextLineUpdate, withParsedSegments } from './textDraft';
 import { checkTextTransforms, normalizeAnimStyle, normalizeTransformConfig } from './textTransforms';
+import { checkTimelineEdits, normalizeTimelineEdit } from './timelineEdits';
+import { applyTimelineEdit } from '@/lib/timelineSurgery';
+import type { AudioTrackItem } from '@/types/scene';
 import { checkGraphRegions, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
 
 export type ValidationResult =
@@ -85,6 +89,8 @@ export interface ValidateOptions {
    * still rejected: its segments come from `raw`.)
    */
   allowStyleAfterCreate?: boolean;
+  /** Narration tracks at request time: TIMELINE edits move them and are blocked by them. */
+  audioItems?: readonly AudioTrackItem[];
 }
 
 /**
@@ -335,6 +341,12 @@ export function validateAgentResponse(
       return;
     }
 
+    if (a.action === 'TIMELINE') {
+      const edit = normalizeTimelineEdit(a, prefix, errors);
+      if (edit) normalizedActions.push({ action: 'TIMELINE', edit });
+      return;
+    }
+
     if (a.action === 'DELETE') {
       const itemId = typeof a.itemId === 'string' ? a.itemId : '';
       if (!itemId) {
@@ -350,7 +362,7 @@ export function validateAgentResponse(
     }
 
     errors.push(
-      `${prefix}.action must be CREATE / UPDATE / DELETE, got "${String(a.action)}".`,
+      `${prefix}.action must be CREATE / UPDATE / DELETE / TIMELINE, got "${String(a.action)}".`,
     );
   });
 
@@ -451,14 +463,18 @@ export function validateAgentResponse(
 
   // Third pass: enforce two-stage text workflow.
   if (frameCtx?.frames) {
-    const virtual = new Map(currentItems);
+    let virtual = new Map(currentItems);
     for (let i = 0; i < normalizedActions.length; i += 1) {
       const action = normalizedActions[i]!;
       if (action.action === 'CREATE') virtual.set(action.item.id, action.item);
       else if (action.action === 'UPDATE') {
         const previous = virtual.get(action.itemId);
         if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
-      } else virtual.delete(action.itemId);
+      } else if (action.action === 'DELETE') virtual.delete(action.itemId);
+      else {
+        virtual = applyTimelineEdit(virtual, options.audioItems ?? [], action.edit).items;
+        continue;
+      }
       if (action.action !== 'DELETE') {
         const candidate = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
         if (candidate?.kind === 'camera_move') {
@@ -471,8 +487,9 @@ export function validateAgentResponse(
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
-  const draftScene = virtualSceneAfter(currentItems, normalizedActions);
-  const touchedIds = new Set(normalizedActions.map((a) => (a.action === 'CREATE' ? a.item.id : a.itemId)));
+  checkTimelineEdits(currentItems, options.audioItems ?? [], normalizedActions, errors);
+  const draftScene = virtualSceneAfter(currentItems, normalizedActions, undefined, options.audioItems);
+  const touchedIds = new Set(normalizedActions.map(actionItemId).filter((id): id is ItemId => id != null));
   checkGraphRegions(draftScene, touchedIds, errors);
   checkTextTransforms(draftScene, touchedIds, errors, warnings);
 
@@ -1903,8 +1920,24 @@ export function virtualSceneAfter(
   currentItems: ReadonlyMap<ItemId, SceneItem>,
   actions: readonly AgentAction[],
   defaults?: SceneDefaults,
+  audioItems: readonly AudioTrackItem[] = [],
 ): Map<ItemId, SceneItem> {
-  const virtual = new Map(currentItems);
+  return virtualStateAfter(currentItems, audioItems, actions, defaults).items;
+}
+
+/**
+ * Items and narration as the actions leave them: text lines as Approve will (segments parsed,
+ * source edits merged) and TIMELINE edits applied like the editor's time edits (a blocked edit
+ * changes nothing here; the validator reports it).
+ */
+export function virtualStateAfter(
+  currentItems: ReadonlyMap<ItemId, SceneItem>,
+  audioItems: readonly AudioTrackItem[],
+  actions: readonly AgentAction[],
+  defaults?: SceneDefaults,
+): { items: Map<ItemId, SceneItem>; audio: AudioTrackItem[] } {
+  let virtual = new Map(currentItems);
+  let audio = [...audioItems];
   for (const action of actions) {
     if (action.action === 'CREATE') virtual.set(action.item.id, withParsedSegments(action.item, defaults));
     else if (action.action === 'UPDATE') {
@@ -1912,9 +1945,16 @@ export function virtualSceneAfter(
       if (previous?.kind === 'textLine') {
         virtual.set(action.itemId, mergeTextLineUpdate(previous, action.updates as Partial<TextLineItem>, defaults));
       } else if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
-    } else virtual.delete(action.itemId);
+    } else if (action.action === 'DELETE') virtual.delete(action.itemId);
+    else {
+      const result = applyTimelineEdit(virtual, audio, action.edit);
+      if (result.ok) {
+        virtual = result.items;
+        audio = result.audioItems;
+      }
+    }
   }
-  return virtual;
+  return { items: virtual, audio };
 }
 
 /**
@@ -1975,7 +2015,7 @@ function checkGraphMotion(
   const errorCount = errors.length;
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
     const id = action.action === 'CREATE' ? action.item.id : action.itemId;
     const virtual = virtualSceneAfter(currentItems, actions);
     const item = virtual.get(id);
@@ -2030,7 +2070,7 @@ function checkGraphMotion(
   const values = [...virtual.values()];
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
     const clip = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (clip?.kind !== 'target_animation' || clip.mode !== 'graphFollow') continue;
     const startError = graphFollowStartTimeError(clip, virtual);
@@ -2463,7 +2503,7 @@ function checkConnectors(
   const ctx = { items: virtual, frames: frameCtx?.frames ?? [], startFrameId: frameCtx?.startFrameId ?? null };
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
     if (action.action === 'UPDATE' && !('endpoints' in action.updates)) continue;
     const shape = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (!isConnectorShape(shape)) continue;

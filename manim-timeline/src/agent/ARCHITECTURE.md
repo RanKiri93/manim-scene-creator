@@ -141,6 +141,8 @@ textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPoint
 graphArea, graphField, shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
 
+**Timeline edits** (`timelineEdits.ts`): a fourth action, `{ action: "TIMELINE", edit: { op: "insert" | "remove" | "scale", … } }`, runs the editor's planners in `lib/timelineSurgery.ts` (`applyTimelineEdit`, new `planScaleRange` / `scaledDurationPatch`). Actions apply in order: the draft scene and its narration (`DraftSession.audio()`) move, later actions see the moved times, and `checkTimelineEdits` reports a refused edit with the clips or narration in the way (validation gets the request-time audio through `ValidateOptions.audioItems`). Approve calls the store's `insertEmptyTimelineTime` / `closeTimelineRange` / new `scaleTimelineRange`; the approve preview moves clips but not the audio lanes.
+
 **Narration** (`narration.ts`): the request payload carries `narration` (each audio track's text, window and words as `[word, scene start]`, at most `NARRATION_WORD_CAP` words). The tool loop adds `find_words({ text })`, which matches phrases within one track, ignores punctuation and niqqud and accepts Hebrew one-letter prefixes (נקודה finds בנקודה); inspect lists what is spoken during each item's clip window (`spoken`). Audio tracks are never edited by the Copilot.
 
 **Equation steps** (`textTransforms.ts`): `animStyle` is checked (`write` / `fade_in` / `transform`); `transformConfig` takes `pairs: [{ from, to }]` (source segment → this line's segment; stored as `segmentPairs`) and implies `animStyle: "transform"`. `checkTextTransforms` rejects a missing or exited source, a start before the source has appeared, indices the lines do not have and a source piece paired twice. Inspect lists each pair with its texts; a source line is off screen once it has morphed and never counts as overlapping its next step.
@@ -413,7 +415,7 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
-`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields, equation steps, timing to the narration) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields, equation steps, timing to the narration, retiming) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
 
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 

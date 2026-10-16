@@ -3,6 +3,7 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, SceneItem } from '@/types/scene';
 import { useAgentStore } from './useAgentStore';
 import type { AgentAction } from './types';
+import { applyTimelineEdit } from '@/lib/timelineSurgery';
 
 export type PreviewOp = 'create' | 'update' | 'delete';
 
@@ -60,7 +61,7 @@ export function buildPreviewState(
   items: Map<ItemId, SceneItem>,
   actions: AgentAction[],
 ): PreviewState {
-  const merged = new Map<ItemId, SceneItem>(items);
+  let merged = new Map<ItemId, SceneItem>(items);
   const ops = new Map<ItemId, PreviewOp>();
   for (const a of actions) {
     if (a.action === 'CREATE') {
@@ -74,6 +75,11 @@ export function buildPreviewState(
         ...(a.updates as Partial<SceneItem>),
       } as SceneItem);
       if (!ops.has(a.itemId)) ops.set(a.itemId, 'update');
+    } else if (a.action === 'TIMELINE') {
+      // Clips move like the editor's time edit; audio lanes are previewed where they are.
+      const before = merged;
+      merged = applyTimelineEdit(merged, [], a.edit).items;
+      for (const [id, item] of merged) if (before.get(id) !== item && !ops.has(id)) ops.set(id, 'update');
     } else {
       // DELETE — keep the item in the merged map so the UI can render it
       // with a "will be deleted" styling; `ops` flags it for the renderer

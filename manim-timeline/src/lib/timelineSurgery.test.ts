@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyTimelineEdit,
   mapCloseRangePlayhead,
   mapInsertPlayhead,
+  mapScaleRangePlayhead,
   nextClipStartAfter,
   planCloseRange,
   planInsertTime,
+  planScaleRange,
+  scaledDurationPatch,
   validateCloseRange,
   validateInsertTime,
   type SurgerySpan,
 } from '@/lib/timelineSurgery';
+import type { AudioTrackItem, ItemId, SceneItem } from '@/types/scene';
 
 function span(id: string, start: number, end: number): SurgerySpan {
   return { id, start, end, label: id };
@@ -125,5 +130,62 @@ describe('timelineSurgery insert empty time', () => {
     expect(nextClipStartAfter(items, audios, 0)).toBeCloseTo(4, 10);
     expect(nextClipStartAfter(items, audios, 4)).toBeCloseTo(6, 10);
     expect(nextClipStartAfter(items, audios, 6)).toBeNull();
+  });
+});
+
+describe('timelineSurgery scale range', () => {
+  it('stretches clips inside the range and shifts later clips and audio', () => {
+    const items = [span('before', 0, 2), span('a', 2, 3), span('b', 3.5, 4), span('after', 6, 7)];
+    const audios = [span('late', 8, 9)];
+    const plan = planScaleRange(items, audios, 2, 5, 1.5);
+    expect(plan.ok).toBe(true);
+    expect(plan.itemUpdates).toEqual([
+      { id: 'a', startTime: 2, scaled: true },
+      { id: 'b', startTime: 4.25, scaled: true },
+      { id: 'after', startTime: 7.5, scaled: false },
+    ]);
+    expect(plan.audioUpdates).toEqual([{ id: 'late', startTime: 9.5 }]);
+    expect(mapScaleRangePlayhead(3, 2, 5, 1.5)).toBe(3.5);
+    expect(mapScaleRangePlayhead(6, 2, 5, 1.5)).toBe(7.5);
+  });
+
+  it('refuses clips crossing an edge, narration inside the range and wild factors', () => {
+    expect(planScaleRange([span('x', 1, 3)], [], 2, 5, 2).blockers.map((b) => b.id)).toEqual(['x']);
+    const audio = planScaleRange([], [span('n', 3, 4)], 2, 5, 2);
+    expect(audio.ok).toBe(false);
+    expect(audio.error).toMatch(/Narration plays inside the range/);
+    expect(planScaleRange([], [], 2, 5, 10).error).toMatch(/between 0.25 and 4/);
+  });
+
+  it('scales the durations a clip owns', () => {
+    const line = { kind: 'textLine', id: 't', startTime: 0, duration: 2, segments: [{ text: 'a', isMath: false, color: '#fff', bold: false, italic: false, animSec: 1, waitAfterSec: 0.5 }] } as unknown as SceneItem;
+    expect(scaledDurationPatch(line, 2)).toMatchObject({ duration: 4, segments: [{ animSec: 2, waitAfterSec: 1 }] });
+    const rect = { kind: 'surroundingRect', id: 'r', startTime: 0, runTime: 0.5 } as unknown as SceneItem;
+    expect(scaledDurationPatch(rect, 2)).toEqual({ runTime: 1 });
+  });
+});
+
+describe('applyTimelineEdit', () => {
+  const clip = (id: string, startTime: number, duration: number, audioTrackId: string | null = null) =>
+    ({ kind: 'shape', id, label: id, startTime, duration, audioTrackId }) as unknown as SceneItem;
+  const audio = (id: string, startTime: number, duration: number) => ({ id, text: '', audioUrl: '', startTime, duration }) as AudioTrackItem;
+
+  it('moves clips and unlinked audio on copies, and linked audio with its owner', () => {
+    const items = new Map<ItemId, SceneItem>([['a', clip('a', 0, 1)], ['b', clip('b', 3, 1)], ['c', clip('c', 5, 2, 'voice')]]);
+    const tracks = [audio('voice', 5, 2), audio('free', 8, 1)];
+    const r = applyTimelineEdit(items, tracks, { op: 'insert', at: 2, seconds: 1.5 });
+    expect(r.ok).toBe(true);
+    expect([...r.items.values()].map((it) => it.startTime)).toEqual([0, 4.5, 6.5]);
+    expect(r.audioItems.map((t) => t.startTime)).toEqual([6.5, 9.5]);
+    expect(items.get('b')!.startTime).toBe(3);
+    expect(tracks[1]!.startTime).toBe(8);
+  });
+
+  it('changes nothing and names the blockers when refused', () => {
+    const items = new Map<ItemId, SceneItem>([['a', clip('a', 0, 4)]]);
+    const r = applyTimelineEdit(items, [], { op: 'remove', from: 1, to: 2 });
+    expect(r.ok).toBe(false);
+    expect(r.blockers.map((b) => b.id)).toEqual(['a']);
+    expect(r.items.get('a')!.startTime).toBe(0);
   });
 });

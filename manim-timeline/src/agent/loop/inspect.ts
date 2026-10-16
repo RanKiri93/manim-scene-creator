@@ -12,6 +12,7 @@ import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { computeSceneDurationSec } from '@/codegen/manimExporter';
 import type { DraftSession } from './draft';
+import { actionItemId } from '../types';
 import { areaFacts, fieldFacts } from '../graphRegions';
 import { transformFacts } from '../textTransforms';
 import { narrationWords, wordsDuring, type SpokenWord } from '../narration';
@@ -103,8 +104,8 @@ function seriesShowing(item: GraphFunctionSeriesItem, schedule: CurveWindow[], t
 function defaultTimes(session: DraftSession, scene: Map<ItemId, SceneItem>): number[] {
   const times = new Set<number>([r3(session.base.currentTimeSec)]);
   for (const action of session.actions) {
-    if (action.action === 'DELETE') continue;
-    const item = scene.get(action.action === 'CREATE' ? action.item.id : action.itemId);
+    const id = action.action === 'DELETE' ? null : actionItemId(action);
+    const item = id == null ? undefined : scene.get(id);
     if (!item) continue;
     const start = item.startTime;
     const duration = 'duration' in item ? item.duration : 'runTime' in item ? item.runTime : 0;
@@ -262,11 +263,12 @@ function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, time
  */
 export function inspectDraft(session: DraftSession, input: { times?: unknown; itemIds?: unknown }): Record<string, unknown> {
   const scene = session.scene();
-  const { frames, startFrameId, audioItems } = session.base;
+  const { frames, startFrameId } = session.base;
+  const audioItems = session.audio();
   const times = Array.isArray(input.times)
     ? input.times.filter((t): t is number => typeof t === 'number' && Number.isFinite(t)).slice(0, 8).map(r3)
     : defaultTimes(session, scene);
-  const touched = session.actions.map((a) => (a.action === 'CREATE' ? a.item.id : a.itemId));
+  const touched = session.actions.map(actionItemId).filter((id): id is ItemId => id != null);
   const requested = Array.isArray(input.itemIds)
     ? input.itemIds.filter((id): id is string => typeof id === 'string')
     : touched;

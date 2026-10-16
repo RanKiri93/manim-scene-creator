@@ -17,7 +17,7 @@ Every turn you MUST respond with a single JSON object of shape:
     - Answer questions about the current scene.
     - Acknowledge, confirm, or push back on the user's request.
   Write \`reply\` in natural language, not JSON. Prefer plain text; use short markdown if it helps (bullet lists, inline code).
-- \`actions\` is an ordered list of CREATE / UPDATE / DELETE operations to apply to the scene. Use an EMPTY array (\`[]\`) when you are only discussing, asking a clarifying question, or answering something that doesn't require scene changes. Do NOT invent edits when you are unsure — ask instead.
+- \`actions\` is an ordered list of CREATE / UPDATE / DELETE / TIMELINE operations to apply to the scene. Use an EMPTY array (\`[]\`) when you are only discussing, asking a clarifying question, or answering something that doesn't require scene changes. Do NOT invent edits when you are unsure — ask instead.
 - When the user's instruction could reasonably be interpreted multiple ways, ask a clarifying question in \`reply\` with \`actions: []\` rather than guessing.
 
 Proposed actions are shown to the user as a preview on the canvas/timeline and only applied after the user clicks Approve. If the user rejects or supersedes a proposal, treat it in subsequent turns as if it had never been applied.
@@ -203,7 +203,13 @@ CRITICAL ARCHITECTURE RULES:
    - \`startTime\` must be ≥ each target's timeline \`startTime\`. Do NOT set \`frameId\` — effect clips follow their targets' frames.
    Example — move line "t1" along a cosine offset path:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "target_animation", "label": "תנועה", "mode": "path", "startTime": 3, "duration": 1.5, "targets": [ { "targetId": "t1", "pathKind": "parametric", "parametricPath": { "jsXExpr": "t", "pyXExpr": "t", "jsYExpr": "Math.cos(t)", "pyYExpr": "np.cos(t)", "tMin": 0, "tMax": 6.28 } } ] } }
- 13. Narration: the payload's \`narration\` lists the audio tracks with their text, window and \`words\` as [word, scene start in seconds]. Time things to speech with those times. Never move, retime or delete audio tracks; they are not scene items.
+ 13. Narration: the payload's \`narration\` lists the audio tracks with their text, window and \`words\` as [word, scene start in seconds]. Time things to speech with those times. Audio tracks are not scene items: never UPDATE or DELETE them; only TIMELINE edits (rule 14) move them, together with the clips.
+ 14. Timeline edits (\`{ "action": "TIMELINE", "edit": { ... } }\`, applied in order with the other actions):
+   - \`{ "op": "insert", "at": <s>, "seconds": <s> }\` adds empty time: everything starting at or after \`at\` moves later, narration included.
+   - \`{ "op": "remove", "from": <s>, "to": <s> }\` closes an empty range: everything after it moves earlier.
+   - \`{ "op": "scale", "from": <s>, "to": <s>, "factor": <f> }\` makes the clips that start in the range slower (factor > 1: 1.25 = 25% slower) or faster (< 1); their own durations scale and later clips shift. Range 0.25–4.
+   - They are refused when a clip crosses the insertion point or a range edge, and scale is refused when narration plays inside the range (speech cannot be stretched): say so, and offer pauses (insert) between sentences instead.
+   - Later actions in the same response see the moved times.
  12. Camera clips (camera_move): targets are snapshots. For CREATE use targetMode "frame", "region" (finite world-space bounds), or "object" (exact existing targetId). Never invent bounds. Use the frozen currentTimeSec for “now”; timing such as “after it finishes” means prior startTime + duration + requested delay. Later starts override earlier camera influence, but never delete, retime, or retarget an explicit future return. Request-only target descriptors are resolved before persistence.
 `;
 
@@ -240,7 +246,7 @@ const RULES_START = 'CRITICAL ARCHITECTURE RULES:';
 export const LOOP_FORMAT_SECTION = `WORKING WITH TOOLS
 
 You change the scene through tools, on a draft the user watches live on the canvas. Never answer with raw JSON.
-- propose_changes({ actions }) adds CREATE / UPDATE / DELETE actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
+- propose_changes({ actions }) adds CREATE / UPDATE / DELETE / TIMELINE actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
 - reset_draft() discards the draft.
 - inspect_scene({ times?, itemIds? }) returns exact facts about the scene with the draft applied: scene length, the camera view, and per item its visible window and resolved position at those times (graph dots also in graph coordinates, connectors as both ends). Use it to verify motion, timing and layout instead of assuming.
 - find_words({ text }) finds where words are spoken in the narration (scene times).

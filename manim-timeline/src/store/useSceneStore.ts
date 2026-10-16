@@ -64,8 +64,11 @@ import {
   collectSurgerySpans,
   mapCloseRangePlayhead,
   mapInsertPlayhead,
+  mapScaleRangePlayhead,
   planCloseRange,
   planInsertTime,
+  planScaleRange,
+  scaledDurationPatch,
 } from '@/lib/timelineSurgery';
 import {
   deriveAudioAssetRelPath,
@@ -477,6 +480,12 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
    * change) when invalid or when a clip spans the insertion point.
    */
   insertEmptyTimelineTime: (at: number, durationSec: number) => boolean;
+  /**
+   * Stretch (factor > 1) or squeeze [rangeStart, rangeEnd): clips starting inside move and
+   * scale their durations, later clips and unlinked audio shift. Returns false (no state
+   * change) when invalid, when a clip crosses an edge or when narration plays inside.
+   */
+  scaleTimelineRange: (rangeStart: number, rangeEnd: number, factor: number) => boolean;
   /** Move many scene clips in one undo step; reclamps exit_animation starts. */
   setSceneItemStartTimes: (updates: { id: ItemId; startTime: number }[]) => void;
   /** Move many audio clips in one undo step. */
@@ -1241,6 +1250,35 @@ export const useSceneStore = create<SceneStore>()(
           for (const [id, t] of audioStarts) {
             // Skip linked tracks here; the binding sync below moves them with
             // their (possibly shifted) visual owner exactly once.
+            if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
+            const track = s.audioItems.find((a) => a.id === id);
+            if (track) track.startTime = Math.max(0, t);
+          }
+          s.currentTime = nextTime;
+          clampEffectClipStarts(s.items);
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+        return true;
+      },
+
+      scaleTimelineRange: (rangeStart, rangeEnd, factor) => {
+        const state = get();
+        const { itemSpans, audioSpans } = collectSurgerySpans(
+          state.items,
+          state.audioItems,
+        );
+        const plan = planScaleRange(itemSpans, audioSpans, rangeStart, rangeEnd, factor);
+        if (!plan.ok) return false;
+        const audioStarts = new Map(plan.audioUpdates.map((u) => [u.id, u.startTime]));
+        const nextTime = mapScaleRangePlayhead(state.currentTime, rangeStart, rangeEnd, factor);
+        set((s) => {
+          for (const u of plan.itemUpdates) {
+            const it = s.items.get(u.id);
+            if (!it) continue;
+            if (u.scaled) Object.assign(it, scaledDurationPatch(it, factor));
+            it.startTime = Math.max(0, u.startTime);
+          }
+          for (const [id, t] of audioStarts) {
             if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
             const track = s.audioItems.find((a) => a.id === id);
             if (track) track.startTime = Math.max(0, t);

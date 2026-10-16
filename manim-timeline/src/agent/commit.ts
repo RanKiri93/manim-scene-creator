@@ -53,6 +53,11 @@ function applyActions(actions: AgentAction[]): void {
       s.addItem(ensureTextLineSegments(action.item, s.defaults));
     } else if (action.action === 'UPDATE') {
       applyUpdate(action.itemId, action.updates);
+    } else if (action.action === 'TIMELINE') {
+      const e = action.edit;
+      if (e.op === 'insert') s.insertEmptyTimelineTime(e.at, e.seconds);
+      else if (e.op === 'remove') s.closeTimelineRange(e.from, e.to);
+      else s.scaleTimelineRange(e.from, e.to, e.factor);
     } else {
       if (s.items.has(action.itemId)) s.removeItem(action.itemId);
     }

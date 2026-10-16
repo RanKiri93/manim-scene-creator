@@ -1,13 +1,14 @@
-import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA, TEXT_ANIM_PROPERTIES } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
   SceneItem,
 } from '@/types/scene';
+import type { TimelineEdit } from '@/lib/timelineSurgery';
 
 /**
- * Whitelist of SceneItem kinds the agent is allowed to produce.
- * `graphArea` and `graphField` remain rejected — create those in the UI.
+ * Whitelist of SceneItem kinds the agent is allowed to produce (images and audio are created
+ * in the UI).
  */
 export const AGENT_ALLOWED_KINDS = [
   'textLine',
@@ -99,7 +100,14 @@ export interface AgentNarrationTrack {
 export type AgentAction =
   | { action: 'CREATE'; item: SceneItem }
   | { action: 'UPDATE'; itemId: ItemId; updates: Partial<SceneItem> }
-  | { action: 'DELETE'; itemId: ItemId };
+  | { action: 'DELETE'; itemId: ItemId }
+  /** Insert empty time, remove an empty range, or scale a range (moves clips and narration). */
+  | { action: 'TIMELINE'; edit: TimelineEdit };
+
+/** The item an action creates or changes (null for timeline edits, which move many). */
+export function actionItemId(a: AgentAction): ItemId | null {
+  return a.action === 'CREATE' ? a.item.id : a.action === 'TIMELINE' ? null : a.itemId;
+}
 
 /**
  * Validated envelope emitted by the LLM on every turn.
@@ -247,6 +255,15 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
             properties: {
               action: { type: 'string', enum: ['DELETE'] },
               itemId: { type: 'string', minLength: 1 },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['action', 'edit'],
+            properties: {
+              action: { type: 'string', enum: ['TIMELINE'] },
+              edit: TIMELINE_EDIT_SCHEMA,
             },
           },
         ],
