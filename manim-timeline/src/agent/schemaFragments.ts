@@ -233,9 +233,11 @@ export const GRAPH_AREA_PROPERTIES = {
   area: {
     type: 'object',
     description:
-      'For kind="graphArea": the shaded region in graph coordinates. underCurve: xMin < xMax and curve (between the curve and y = 0). betweenCurves: xMin, xMax, lower, upper. parallelogramFour: corners (4 points). parallelogramVec: corner ox, oy and edge vectors ux, uy, vx, vy. disk: cx, cy, radius. On UPDATE send only what changes; the rest is kept.',
+      'For kind="graphArea": the shaded region in graph coordinates. underCurve: xMin < xMax and curve (between the curve and y = 0). betweenCurves: xMin, xMax, lower, upper. riemann: xMin, xMax, curve, rule, counts (Riemann sums; the duration is split evenly between the counts). parallelogramFour: corners (4 points). parallelogramVec: corner ox, oy and edge vectors ux, uy, vx, vy. disk: cx, cy, radius. On UPDATE send only what changes; the rest is kept.',
     properties: {
-      areaKind: { type: 'string', enum: ['underCurve', 'betweenCurves', 'parallelogramFour', 'parallelogramVec', 'disk'] },
+      areaKind: { type: 'string', enum: ['underCurve', 'betweenCurves', 'riemann', 'parallelogramFour', 'parallelogramVec', 'disk'] },
+      rule: { type: 'string', enum: ['left', 'middle', 'right'], description: 'riemann: where each rectangle takes its height.' },
+      counts: { type: 'array', items: { type: 'integer' }, description: 'riemann: numbers of rectangles in order, each replacing the last, e.g. [4, 8, 16, 32] (1–200).' },
       xMin: { type: 'number' },
       xMax: { type: 'number' },
       curve: AREA_CURVE_SOURCE,

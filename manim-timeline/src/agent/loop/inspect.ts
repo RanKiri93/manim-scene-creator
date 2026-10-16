@@ -9,6 +9,7 @@ import { axesGraphToWorld, isConnectorShape, resolveConnectorEndpoints } from '@
 import { buildGraphAnnotationLayout } from '@/lib/graphAnnotationLayout';
 import { liveValueSlope } from '@/lib/graphLiveValue';
 import { graphDotTrail } from '@/lib/graphDotTrail';
+import { riemannPhase } from '@/lib/riemann';
 import { effectiveEnd, effectiveStart, isTransformSourceHiddenInPreview } from '@/lib/time';
 import { transformSourceIds } from '@/lib/transformMapping';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
@@ -172,6 +173,10 @@ function itemFacts(
   }
   facts.at = times.map((time) => {
     const row: Record<string, unknown> = { t: time, onScreen: time >= start && time < end };
+    if (item.kind === 'graphArea' && item.mode.areaKind === 'riemann') {
+      const phase = riemannPhase({ ...item, mode: item.mode }, time, scene, session.base.audioItems);
+      if (phase) row.riemannN = item.mode.counts[phase.progress >= 0.5 || phase.from == null ? phase.to : phase.from];
+    }
     if (item.kind === 'textLine' && row.onScreen && isTransformSourceHiddenInPreview(item, time, scene)) {
       row.onScreen = false;
       row.note = 'morphed into the next line';

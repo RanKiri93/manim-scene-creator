@@ -87,6 +87,11 @@ R20. Camera follows a point ("the graph is wide: keep the camera on the point wh
    2. Afterwards return to the whole picture with targetMode "frame" (start frame) or "region" around the graph, starting when the follow ends.
    3. A follow is not for things that stay put: use targetMode "object" or "region" for those.
 
+R21. Riemann sums ("left Riemann sums for f on [0, 3] with n = 4, 8, 16, 32, each replacing the last").
+   1. The plot (R1), then ONE graphArea with area { areaKind: "riemann", xMin, xMax, curve: { plotId }, rule, counts: [4, 8, 16, 32] } after the plot finishes. Never build rectangles from shapes or one area per n.
+   2. duration = about 1–1.5 s per count (the duration is split evenly); strokeWidth 1 so the rectangles read as separate, fillOpacity 0.5.
+   3. To show the value: inspect gives each count's sum; a text line such as "$L_{4} \\approx 2.53$" per count, timed to its share of the clip, or the integral at the end.
+
 R17. A tangent that rides along ("add the tangent line at the moving point, about 2 units long").
    1. The moving dot as in R2 (plot, dot attached to it, graphFollow).
    2. shape line with endpoints { start: { kind: "graphDot", dotId }, tangent: { length: 2 } }, starting with the dot (or when asked), a colour that stands out from the plot. It turns with the slope by itself; one connector is enough.
@@ -111,6 +116,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R3: inspect shows each dot's liveLabel text at the times asked; check it reads as intended (decimals, the right value).
    - R19: inspect during the motion: the dot's trail lists where it starts (from) and its length so far; with fadeSeconds the start follows the dot.
    - R20: inspect at the start, middle and end of the motion: the dot (world) stays near the camera centre and inCamera; the follow clip's endsAt is where the dot stops.
+   - R21: the area's sums list one value per count and should approach integral; check the rule (left / middle / right) is the one asked for.
    - R17: inspect at a few times during the motion: the tangent's slope matches f'(x) at the dot's graph x and changes as the dot moves.
    - R18: at the end Q's graph x is close to, not equal to, P's; the secant's ends lie beyond both dots.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.

@@ -1,6 +1,7 @@
 import { newId } from '@/lib/ids';
 import { DEFAULT_FIELD_ARROW_STROKE_WIDTH } from '@/types/scene';
 import { GRAPH_AREA_INTRO_STYLES } from '@/lib/graphAreaReveal';
+import { RIEMANN_MAX_COUNT, riemannRects, riemannSum } from '@/lib/riemann';
 import type {
   AxesItem,
   GraphAreaCurveSource,
@@ -118,7 +119,7 @@ export function normalizeAreaMode(
 ): GraphAreaMode | null {
   const o0 = obj(raw);
   if (!o0) {
-    errors.push(`${path} must be an object with areaKind ("underCurve" | "betweenCurves" | "parallelogramFour" | "parallelogramVec" | "disk").`);
+    errors.push(`${path} must be an object with areaKind ("underCurve" | "betweenCurves" | "riemann" | "parallelogramFour" | "parallelogramVec" | "disk").`);
     return null;
   }
   const o = base && (!o0.areaKind || o0.areaKind === base.areaKind) ? { ...base, ...o0 } as Record<string, unknown> : o0;
@@ -157,6 +158,23 @@ export function normalizeAreaMode(
       if (!r || !lower || !upper || errors.length > before) return null;
       return { areaKind: 'betweenCurves', ...r, lower, upper, showBoundaryPlot: o.showBoundaryPlot === true };
     }
+    case 'riemann': {
+      const r = range();
+      const curve = source('curve');
+      const ruleRaw = o.rule === 'center' || o.rule === 'midpoint' || o.rule === 'mid' ? 'middle' : o.rule ?? 'left';
+      if (ruleRaw !== 'left' && ruleRaw !== 'middle' && ruleRaw !== 'right') {
+        errors.push(`${path}.rule must be "left", "middle" or "right".`);
+        return null;
+      }
+      const rawCounts = Array.isArray(o.counts) ? o.counts : o.n != null ? [o.n] : [];
+      const counts = rawCounts.map((c) => num(c, NaN));
+      if (counts.length === 0 || counts.some((c) => !Number.isInteger(c) || c < 1 || c > RIEMANN_MAX_COUNT)) {
+        errors.push(`${path}.counts must be whole numbers of rectangles from 1 to ${RIEMANN_MAX_COUNT}, e.g. [4, 8, 16, 32].`);
+        return null;
+      }
+      if (!r || !curve || errors.length > before) return null;
+      return { areaKind: 'riemann', ...r, curve, rule: ruleRaw, counts };
+    }
     case 'parallelogramFour': {
       const corners = Array.isArray(o.corners) ? o.corners.map(point) : [];
       if (corners.length !== 4 || corners.some((c) => !c)) {
@@ -185,7 +203,7 @@ export function normalizeAreaMode(
       return { areaKind: 'disk', cx, cy, radius };
     }
     default:
-      errors.push(`${path}.areaKind must be "underCurve", "betweenCurves", "parallelogramFour", "parallelogramVec" or "disk".`);
+      errors.push(`${path}.areaKind must be "underCurve", "betweenCurves", "riemann", "parallelogramFour", "parallelogramVec" or "disk".`);
       return null;
   }
 }
@@ -377,8 +395,8 @@ export function checkGraphRegions(scene: Map<ItemId, SceneItem>, ids: Iterable<I
     const at = `${item.kind} "${id}"`;
     if (item.kind === 'graphArea') {
       const mode = item.mode;
-      if (mode.areaKind !== 'underCurve' && mode.areaKind !== 'betweenCurves') continue;
-      const sources = mode.areaKind === 'underCurve' ? [mode.curve] : [mode.lower, mode.upper];
+      if (mode.areaKind !== 'underCurve' && mode.areaKind !== 'betweenCurves' && mode.areaKind !== 'riemann') continue;
+      const sources = mode.areaKind === 'betweenCurves' ? [mode.lower, mode.upper] : [mode.curve];
       for (const src of sources) {
         if (src.sourceKind === 'plot') {
           const plot = scene.get(src.plotId);
@@ -468,6 +486,20 @@ export function areaFacts(item: GraphAreaItem, scene: Map<ItemId, SceneItem>): R
         x: [m.xMin, m.xMax],
         value: Number.isFinite(value) ? r3(value) : 'not finite',
         labelAt: [r3(xMid), r3((top(xMid) + bottom(xMid)) / 2)],
+      };
+    }
+    if (m.areaKind === 'riemann') {
+      const f = areaCurve(m.curve, scene);
+      if (!f) return { areaKind: m.areaKind, error: 'boundary could not be evaluated' };
+      const exact = integrate(f, m.xMin, m.xMax);
+      const xMid = (m.xMin + m.xMax) / 2;
+      return {
+        areaKind: m.areaKind,
+        x: [m.xMin, m.xMax],
+        rule: m.rule,
+        sums: m.counts.map((n) => ({ n, sum: r3(riemannSum(riemannRects(f, m.xMin, m.xMax, n, m.rule))) })),
+        integral: Number.isFinite(exact) ? r3(exact) : 'not finite',
+        labelAt: [r3(xMid), r3(f(xMid) / 2)],
       };
     }
     if (m.areaKind === 'disk') return { areaKind: 'disk', value: r3(Math.PI * m.radius * m.radius), labelAt: [m.cx, m.cy] };

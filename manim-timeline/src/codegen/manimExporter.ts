@@ -1,4 +1,5 @@
 import { isConnectorShape } from '@/lib/shapeAnchors';
+import { RIEMANN_MAX_COUNT } from '@/lib/riemann';
 import type {
   SceneItem,
   SceneDefaults,
@@ -64,6 +65,8 @@ import {
   graphDotExitCompanions,
   anyFadingTrail,
   graphFadingTrailSource,
+  anyRiemannArea,
+  riemannRectsSource,
 } from './graphCodegen';
 import {
   generateSurroundingRectPosBlock,
@@ -315,7 +318,17 @@ function validateGraphAreaExport(
     return null;
   };
   const m = item.mode;
-  if (m.areaKind === 'underCurve') {
+  if (m.areaKind === 'riemann') {
+    const xE = checkX(m.xMin, m.xMax);
+    if (xE) return `Graph area "${item.label || item.id}": ${xE}`;
+    if (m.counts.length === 0 || m.counts.some((n) => !Number.isInteger(n) || n < 1 || n > RIEMANN_MAX_COUNT)) {
+      return `Graph area "${item.label || item.id}": Riemann counts must be whole numbers from 1 to ${RIEMANN_MAX_COUNT}.`;
+    }
+    if (m.curve.sourceKind === 'plot') {
+      const pe = checkPlot(m.curve.plotId);
+      if (pe) return `Graph area "${item.label || item.id}": ${pe}`;
+    }
+  } else if (m.areaKind === 'underCurve') {
     const xE = checkX(m.xMin, m.xMax);
     if (xE) return `Graph area "${item.label || item.id}": ${xE}`;
     if (m.curve.sourceKind === 'plot') {
@@ -1429,7 +1442,8 @@ function exportManimCodeInner(
     const dotHelper = hasGraphDots ? `${graphDotAnnotationHelperSource(0, hasCoordinateDots)}\n` : '';
     const areaHelper = anyGraphAreaReveal(items) ? `${graphAreaRevealSource(0)}\n` : '';
     const trailHelper = anyFadingTrail(items) ? `${graphFadingTrailSource(0)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const riemannHelper = anyRiemannArea(items) ? `${riemannRectsSource(0)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1452,6 +1466,7 @@ function exportManimCodeInner(
   const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
   if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);
   if (anyFadingTrail(items)) header += '\n\n' + graphFadingTrailSource(0);
+  if (anyRiemannArea(items)) header += '\n\n' + riemannRectsSource(0);
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster

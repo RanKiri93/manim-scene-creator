@@ -7,6 +7,7 @@ import type {
   GraphAreaMode,
   GraphPoint2,
   ItemId,
+  RiemannRule,
   SceneItem,
 } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
@@ -16,6 +17,7 @@ import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import MathExpressionEditor from './MathExpressionEditor';
 import { areaCanReveal } from '@/lib/graphAreaReveal';
+import { curveSourceFunction, RIEMANN_MAX_COUNT, riemannRects, riemannSum } from '@/lib/riemann';
 
 interface GraphAreaEditorProps {
   item: GraphAreaItem;
@@ -71,6 +73,18 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
           upper: { sourceKind: 'expr', jsExpr: 'x', pyExpr: 'x' },
           showBoundaryPlot: false,
         });
+        break;
+      case 'riemann':
+        setMode({
+          areaKind: 'riemann',
+          xMin: 0,
+          xMax: 2,
+          curve: plotOptions[0] ? { sourceKind: 'plot', plotId: plotOptions[0].id } : { sourceKind: 'expr', jsExpr: 'x*x', pyExpr: 'x**2' },
+          rule: 'left',
+          counts: [4, 8, 16],
+        });
+        // Separate rectangles read best with a thin outline.
+        if (item.strokeWidth <= 0) set({ strokeWidth: 1.5 });
         break;
       case 'parallelogramFour':
         setMode({
@@ -158,6 +172,11 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
   );
 
   const m = item.mode;
+  const riemannSums = useMemo(() => {
+    if (m.areaKind !== 'riemann') return null;
+    const f = curveSourceFunction(m.curve, itemsMap);
+    return f ? m.counts.map((n) => ({ n, sum: riemannSum(riemannRects(f, m.xMin, m.xMax, n, m.rule)) })) : null;
+  }, [m, itemsMap]);
 
   const baseContent = (
     <div className="flex flex-col gap-3">
@@ -182,6 +201,7 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
         >
           <option value="underCurve">Under one curve (to x-axis)</option>
           <option value="betweenCurves">Between two curves</option>
+          <option value="riemann">Riemann sum (rectangles)</option>
           <option value="parallelogramFour">Parallelogram (4 corners)</option>
           <option value="parallelogramVec">Parallelogram (origin + 2 vectors)</option>
           <option value="disk">Disk (ellipse in preview)</option>
@@ -207,6 +227,53 @@ export default function GraphAreaEditor({ item }: GraphAreaEditorProps) {
             />
             Animate boundary plot (expr only)
           </label>
+        </>
+      )}
+
+      {m.areaKind === 'riemann' && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <NumberInput label="x min" value={m.xMin} onChange={(v) => setMode({ ...m, xMin: v })} />
+            <NumberInput label="x max" value={m.xMax} onChange={(v) => setMode({ ...m, xMax: v })} />
+          </div>
+          {curveSourceEditor('Curve', m.curve, (curve) => setMode({ ...m, curve }))}
+          <label className="text-ctl text-chalk-dim block">
+            Height from
+            <select
+              value={m.rule}
+              onChange={(e) => setMode({ ...m, rule: e.target.value as RiemannRule })}
+              className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
+            >
+              <option value="left">Left end (left sum)</option>
+              <option value="middle">Midpoint</option>
+              <option value="right">Right end (right sum)</option>
+            </select>
+          </label>
+          <label className="text-ctl text-chalk-dim block">
+            Numbers of rectangles, in order
+            <input
+              type="text"
+              defaultValue={m.counts.join(', ')}
+              key={m.counts.join(',')}
+              onBlur={(e) => {
+                const counts = e.target.value
+                  .split(/[\s,]+/)
+                  .map((v) => Math.round(Number(v)))
+                  .filter((n) => Number.isFinite(n) && n >= 1)
+                  .map((n) => Math.min(RIEMANN_MAX_COUNT, n));
+                if (counts.length > 0) setMode({ ...m, counts });
+              }}
+              className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk font-mono"
+            />
+            <span className="mt-1 block text-meta text-chalk-faint">
+              The clip is split evenly: the first count fades in, each next one replaces it.
+            </span>
+          </label>
+          {riemannSums && (
+            <div className="text-meta text-chalk-faint font-mono">
+              {riemannSums.map((r) => `n = ${r.n}: ${r.sum.toFixed(4)}`).join('  ·  ')}
+            </div>
+          )}
         </>
       )}
 

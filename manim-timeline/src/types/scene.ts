@@ -838,8 +838,21 @@ export type GraphAreaCurveSource =
   | { sourceKind: 'plot'; plotId: ItemId }
   | { sourceKind: 'expr'; jsExpr: string; pyExpr: string };
 
+/** Where a Riemann rectangle takes its height: left end, midpoint or right end. */
+export type RiemannRule = 'left' | 'middle' | 'right';
+
 /** Geometry + bounds for a filled region on an axes (exported after axes + plots are positioned). */
 export type GraphAreaMode =
+  | {
+      /** Riemann sum: equal rectangles under a curve, one count after another over the clip. */
+      areaKind: 'riemann';
+      xMin: number;
+      xMax: number;
+      curve: GraphAreaCurveSource;
+      rule: RiemannRule;
+      /** Numbers of rectangles in order (e.g. [4, 8, 16, 32]); each replaces the previous. */
+      counts: number[];
+    }
   | {
       areaKind: 'underCurve';
       xMin: number;

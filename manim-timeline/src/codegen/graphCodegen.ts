@@ -32,6 +32,7 @@ import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 import { emitNextToPython } from './nextToCodegen';
 import { resolveAttachedGraphDot, graphProjectionGuides } from '@/lib/graphMotion';
 import { areaCanReveal, effectiveAreaIntroStyle } from '@/lib/graphAreaReveal';
+import { riemannSampleShare } from '@/lib/riemann';
 import { effectiveTrace } from '@/lib/graphDotTrail';
 import {
   dotFunctionPlot,
@@ -1251,6 +1252,20 @@ export function generateGraphAreaDef(
 
   let s = '';
 
+  if (mode.areaKind === 'riemann') {
+    const f = areaBoundaryLambda(mode.curve, itemsMap);
+    const share = riemannSampleShare(mode.rule);
+    const rects = (n: number) =>
+      `${RIEMANN_RECTS_FN}(${axVar}, ${f}, ${mode.xMin}, ${mode.xMax}, ${Math.round(n)}, ${share}, ${fillC}, ${op}, ${strokeW.toFixed(4)}, ${strokeC})`;
+    // Shown from the start: just the last count. Otherwise the area starts as the first count and
+    // morphs into each later one (those are only Transform targets, never added to the scene).
+    const counts = item.visibleAtSceneStart ? mode.counts.slice(-1) : mode.counts;
+    counts.forEach((n, i) => {
+      s += `${pad}${riemannCountVar(areaVar, i)} = ${rects(n)}\n`;
+    });
+    return s;
+  }
+
   if (mode.areaKind === 'underCurve') {
     const { prelude, varName } = resolveGraphAreaCurve(item, axVar, mode.curve, 'c', pad, itemsMap);
     s += prelude;
@@ -1312,6 +1327,43 @@ export function generateGraphAreaDef(
   }
 
   return s;
+}
+
+/** Python helper that draws Riemann rectangles (see {@link riemannRectsSource}). */
+export const RIEMANN_RECTS_FN = '_riemann_rects';
+
+/** Variable of a Riemann area's `i`-th count: the first is the area itself, later ones its targets. */
+export function riemannCountVar(areaVar: string, i: number): string {
+  return i === 0 ? areaVar : `${areaVar}_n${i}`;
+}
+
+export function anyRiemannArea(items: readonly SceneItem[]): boolean {
+  return items.some((it) => it.kind === 'graphArea' && it.mode.areaKind === 'riemann');
+}
+
+/**
+ * `_riemann_rects(axes, f, x0, x1, n, share, …)`: n equal rectangles from y = 0 to f at
+ * `a + share·(b − a)` (0 left, 0.5 middle, 1 right), the last one ending exactly at x1 — the same
+ * rectangles as `src/lib/riemann.ts` (Manim's `get_riemann_rectangles` steps with a float
+ * `arange`, which can add a rectangle).
+ */
+export function riemannRectsSource(indent = 0): string {
+  const p = ' '.repeat(indent);
+  return [
+    `def ${RIEMANN_RECTS_FN}(axes, f, x0, x1, n, share, color, opacity, stroke_width, stroke_color):`,
+    `    dx = (x1 - x0) / n`,
+    `    rects = VGroup()`,
+    `    for i in range(n):`,
+    `        a = x0 + i * dx`,
+    `        b = x1 if i == n - 1 else x0 + (i + 1) * dx`,
+    `        h = float(f(a + share * (b - a)))`,
+    `        if not np.isfinite(h):`,
+    `            h = 0.0`,
+    `        rects.add(Polygon(axes.c2p(a, 0), axes.c2p(b, 0), axes.c2p(b, h), axes.c2p(a, h), fill_color=color, fill_opacity=opacity, stroke_width=stroke_width, stroke_color=stroke_color))`,
+    `    return rects`,
+  ]
+    .map((line) => p + line)
+    .join('\n') + '\n';
 }
 
 /** Python class for sweep / rise entrances of graph areas (see `graphAreaRevealSource`). */
@@ -1387,6 +1439,13 @@ export function graphAreaIntroAnim(
   const rt = runTime != null ? `, run_time=${runTime}` : '';
   const style = effectiveAreaIntroStyle(item);
   const m = item.mode;
+  if (m.areaKind === 'riemann' && m.counts.length > 1) {
+    // One mobject on screen the whole time (a Succession adds every mobject it names, so later
+    // counts are Transform targets of the area, not ReplacementTransform sources). Equal sub run
+    // times; the outer run_time scales them to the clip, as the preview splits it.
+    const steps = m.counts.slice(1).map((_, i) => `Transform(${areaVar}, ${riemannCountVar(areaVar, i + 1)})`);
+    return `Succession(FadeIn(${areaVar}), ${steps.join(', ')}${rt})`;
+  }
   if (style === 'fade_in' || !areaCanReveal(m)) return `FadeIn(${areaVar}${rt})`;
   const upper = areaBoundaryLambda(m.areaKind === 'underCurve' ? m.curve : m.upper, itemsMap);
   const lower = m.areaKind === 'underCurve' ? 'lambda x: 0.0' : areaBoundaryLambda(m.lower, itemsMap);

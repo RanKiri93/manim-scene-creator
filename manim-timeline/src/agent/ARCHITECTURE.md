@@ -337,6 +337,9 @@ Real LLM responses are noisy. The validator has two responsibilities:
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
 - `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
   `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
+- `graphArea` `area.areaKind: "riemann"` takes `curve`, `rule` (`left` / `middle` / `right`; `center` and
+  `midpoint` map to `middle`) and `counts` (1–200 each); inspect reports each count's `sums`, the `integral`, and
+  per time the count showing (`riemannN`).
 - Camera `targetMode: "follow"` with `targetId` (a graph dot or object, possibly created earlier in the same
   proposal) resolves to a persisted `follow: { targetId }`, frame = the target's frame, width default 7.1;
   `validateCameraMove` refuses a follow that starts before its target appears.

@@ -29,6 +29,7 @@ import {
 } from '@/canvas/layers/graphFieldPreview';
 import { FIELD_COLORMAP_HEX } from '@/codegen/fieldColormap';
 import { liveValueSlope } from '@/lib/graphLiveValue';
+import { curveSourceFunction, fillWithAlpha, riemannPhase, riemannRects } from '@/lib/riemann';
 import { effectiveTrace, graphDotTrail, TRAIL_STROKE_UNITS_PER_WIDTH } from '@/lib/graphDotTrail';
 import { createGraphStreamPoint } from '@/store/factories';
 import {
@@ -742,6 +743,40 @@ export default function GraphNode({
           const sw = Math.max(0, it.strokeWidth);
           const sc = it.strokeColor;
           const m = it.mode;
+          if (m.areaKind === 'riemann') {
+            // One count at a time; while a count replaces the previous one they cross-fade.
+            const phase = riemannPhase({ ...it, mode: m }, currentTime, itemsMap, audioItems);
+            const f = curveSourceFunction(m.curve, itemsMap);
+            if (!phase || !f) return null;
+            const rectFill = fillWithAlpha(fill, it.fillOpacity);
+            const layers: { count: number; alpha: number }[] = [];
+            if (phase.from != null) layers.push({ count: m.counts[phase.from]!, alpha: 1 - phase.progress });
+            layers.push({ count: m.counts[phase.to]!, alpha: phase.progress });
+            return (
+              <GraphPlaybackWrap key={key} exit={exit}>
+                {layers.map((layer, li) =>
+                  riemannRects(f, m.xMin, m.xMax, layer.count, m.rule).map((r, ri) => {
+                    const a = toLocal(r.x0, 0);
+                    const b = toLocal(r.x1, 0);
+                    const c = toLocal(r.x1, r.h);
+                    const d = toLocal(r.x0, r.h);
+                    return (
+                      <Line
+                        key={`r-${li}-${ri}`}
+                        points={[a.lx, a.ly, b.lx, b.ly, c.lx, c.ly, d.lx, d.ly]}
+                        closed
+                        fill={rectFill}
+                        opacity={layer.alpha}
+                        stroke={sw > 0 ? sc : undefined}
+                        strokeWidth={sw}
+                        listening={false}
+                      />
+                    );
+                  }),
+                )}
+              </GraphPlaybackWrap>
+            );
+          }
           if (m.areaKind === 'disk') {
             const c = toLocal(m.cx, m.cy);
             const pr = toLocal(m.cx + m.radius, m.cy);

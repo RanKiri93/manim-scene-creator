@@ -22,7 +22,7 @@ export function collectCodegenIdsFromItems(items: SceneItem[]): Set<string> {
     }
     if (it.kind === 'graphArea') {
       const mode = it.mode;
-      if (mode.areaKind === 'underCurve' && mode.curve.sourceKind === 'plot') {
+      if ((mode.areaKind === 'underCurve' || mode.areaKind === 'riemann') && mode.curve.sourceKind === 'plot') {
         s.add(mode.curve.plotId);
       }
       if (mode.areaKind === 'betweenCurves') {
@@ -79,7 +79,7 @@ function remapGraphAreaMode(
   mode: GraphAreaItem['mode'],
   m: Map<string, string>,
 ): GraphAreaItem['mode'] {
-  if (mode.areaKind === 'underCurve') {
+  if (mode.areaKind === 'underCurve' || mode.areaKind === 'riemann') {
     const c = mode.curve;
     if (c.sourceKind !== 'plot') return mode;
     const plotId = m.get(c.plotId) ?? c.plotId;
