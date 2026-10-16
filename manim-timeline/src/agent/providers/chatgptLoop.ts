@@ -175,16 +175,26 @@ export class ChatgptLoopConversation implements LoopConversation {
   }
 }
 
-/** Start a ChatGPT sign-in: opens the OpenAI page and waits for the measure server's callback. */
+/**
+ * Start a ChatGPT sign-in: opens the OpenAI page and waits for the measure server's callback.
+ * With `openOnServer` the measure server opens the page in the default browser (the desktop app's
+ * window cannot open other pages); `onUrl` always gets the URL so the UI can offer it as a link.
+ */
 export async function signInWithChatgpt(
   measureUrl: string,
-  openWindow: (url: string) => void,
+  onUrl: (url: string, openedByServer: boolean) => void,
   signal?: AbortSignal,
+  opts: { openOnServer?: boolean } = {},
 ): Promise<ChatgptAuth> {
-  const start = await fetch(`${base(measureUrl)}/api/chatgpt/login/start`, { method: 'POST', signal });
+  const query = opts.openOnServer ? '?open_browser=true' : '';
+  const start = await fetch(`${base(measureUrl)}/api/chatgpt/login/start${query}`, { method: 'POST', signal });
   if (!start.ok) throw new AgentProviderError(await errorText(start), start.status);
-  const { authorize_url: authorizeUrl, state } = (await start.json()) as { authorize_url: string; state: string };
-  openWindow(authorizeUrl);
+  const { authorize_url: authorizeUrl, state, browser_opened: browserOpened } = (await start.json()) as {
+    authorize_url: string;
+    state: string;
+    browser_opened?: boolean;
+  };
+  onUrl(authorizeUrl, browserOpened === true);
   const deadline = Date.now() + 5 * 60_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 1500));

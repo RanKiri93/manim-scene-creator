@@ -6,6 +6,7 @@ import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
 import { useSceneStore } from '@/store/useSceneStore';
 import { summarizeCameraProposal } from './cameraProposalSummary';
 import { signInWithChatgpt } from './providers/chatgptLoop';
+import { isTauriRuntime } from '@/lib/projectIO';
 
 const PROVIDER_OPTIONS: { id: ProviderId; label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
@@ -724,24 +725,46 @@ function ChatgptAccount() {
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<{ url: string; openedByServer: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const signIn = async () => {
     setBusy(true);
     setError(null);
-    // Open the window now, while the click still counts as a user gesture; point it at the
-    // OpenAI page once the measure server has made the URL.
-    const popup = window.open('', 'chatgpt-sign-in', 'width=520,height=720');
+    setLink(null);
+    setCopied(false);
+    // The desktop window cannot open other pages, so there the measure server opens the default
+    // browser. In a browser, open the popup now, while the click still counts as a user gesture,
+    // and point it at the OpenAI page once the measure server has made the URL.
+    const desktop = isTauriRuntime();
+    const popup = desktop ? null : window.open('', 'chatgpt-sign-in', 'width=520,height=720');
     try {
-      const tokens = await signInWithChatgpt(measureUrl, (url) => {
-        if (popup) popup.location.href = url;
-        else window.open(url, '_blank');
-      });
+      const tokens = await signInWithChatgpt(
+        measureUrl,
+        (url, openedByServer) => {
+          setLink({ url, openedByServer });
+          if (popup) popup.location.href = url;
+        },
+        undefined,
+        { openOnServer: desktop },
+      );
       updateSettings({ chatgptAuth: tokens });
     } catch (e) {
       popup?.close();
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setLink(null);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
     }
   };
 
@@ -771,6 +794,31 @@ function ChatgptAccount() {
         >
           {busy ? 'Waiting for sign-in…' : 'Sign in with ChatGPT'}
         </button>
+      )}
+      {busy && link && (
+        <div className="flex flex-col gap-1 text-meta">
+          <span className="text-chalk-dim">
+            {link.openedByServer
+              ? 'The sign-in page opened in your browser. If you don’t see it, copy the link and paste it into your browser.'
+              : 'Finish signing in on the OpenAI page. If no page opened, copy the link and paste it into your browser.'}
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={link.url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 bg-raised border border-rule rounded-ctl px-1.5 py-0.5 text-chalk-faint"
+              aria-label="Sign-in link"
+            />
+            <button
+              type="button"
+              onClick={() => void copyLink()}
+              className="px-2 py-0.5 bg-raised hover:bg-rule rounded-ctl border border-rule"
+            >
+              {copied ? 'Copied' : 'Copy link'}
+            </button>
+          </div>
+        </div>
       )}
       {error && <span className="text-meta text-danger break-words">{error}</span>}
       <span className="text-meta text-chalk-faint">

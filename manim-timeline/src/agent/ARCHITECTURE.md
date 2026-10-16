@@ -593,7 +593,9 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   (`store: false`); tool results are `function_call_output` items, images a following user message.
   Tokens (`chatgptAuth` in the persisted settings) are refreshed 2 minutes before expiry and once
   more after a 401. Sign-in: `signInWithChatgpt` → `/api/chatgpt/login/start` (PKCE, listener on
-  `localhost:1455`) → poll `/login/status`. This provider always runs the loop
+  `localhost:1455`) → poll `/login/status`. In the desktop app the window cannot open other pages,
+  so it passes `?open_browser=true` and the measure server opens the default browser; the panel
+  always shows the link with a Copy button as a fallback. This provider always runs the loop
   (`getProvider('chatgpt')` refuses single-shot). It relies on the Codex CLI's OAuth client and
   backend, which are undocumented and may change.
 - **Prompt.** `buildSystemPrompt(rules, 'loop')` swaps the JSON-envelope section for

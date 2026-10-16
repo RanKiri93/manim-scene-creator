@@ -24,6 +24,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from typing import Any
 
 CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -202,8 +203,12 @@ def _stop_listener() -> None:
         listener.server_close()
 
 
-def start_login() -> dict[str, str]:
-    """Begin a sign-in: returns the URL to open and the state to poll with."""
+def start_login(open_browser: bool = False) -> dict[str, Any]:
+    """Begin a sign-in: returns the URL to open and the state to poll with.
+
+    ``open_browser`` opens the URL in this machine's default browser. The desktop app needs that:
+    its window cannot open other pages.
+    """
     global _listener
     verifier, challenge = make_pkce()
     state = _b64url(secrets.token_bytes(24))
@@ -226,7 +231,14 @@ def start_login() -> dict[str, str]:
             _listener = listener
         threading.Thread(target=listener.serve_forever, daemon=True).start()
         threading.Timer(LOGIN_TIMEOUT_S, _stop_listener).start()
-    return {"authorize_url": build_authorize_url(challenge, state), "state": state}
+    url = build_authorize_url(challenge, state)
+    opened = False
+    if open_browser:
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+    return {"authorize_url": url, "state": state, "browser_opened": opened}
 
 
 def login_status(state: str) -> dict[str, Any]:

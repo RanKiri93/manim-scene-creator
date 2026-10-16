@@ -2517,9 +2517,9 @@ try:
         refresh_token: str = Field(..., min_length=1)
 
     @app.post("/api/chatgpt/login/start")
-    def chatgpt_login_start() -> dict[str, str]:
+    def chatgpt_login_start(open_browser: bool = False) -> dict:
         try:
-            return chatgpt_auth.start_login()
+            return chatgpt_auth.start_login(open_browser=open_browser)
         except RuntimeError as e:
             raise HTTPException(status_code=409, detail=str(e)) from None
 

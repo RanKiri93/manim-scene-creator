@@ -98,3 +98,17 @@ def test_login_status_lifecycle():
     assert ca.login_status("s1")["status"] == "error"  # handed out once
     ca._logins["s2"] = {"verifier": "v", "status": "pending", "started": time.time() - ca.LOGIN_TIMEOUT_S - 1}
     assert ca.login_status("s2") == {"status": "error", "error": "Sign-in timed out."}
+
+
+def test_start_login_opens_the_browser_only_when_asked(monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(ca, "_listener", object())  # pretend the callback listener is running
+    monkeypatch.setattr(ca.webbrowser, "open", lambda url: opened.append(url) or True)
+    plain = ca.start_login()
+    assert plain["browser_opened"] is False and opened == []
+    started = ca.start_login(open_browser=True)
+    assert started["browser_opened"] is True
+    assert opened == [started["authorize_url"]]
+    assert started["authorize_url"].startswith(ca.AUTHORIZE_URL)
+    for s in (plain["state"], started["state"]):
+        ca._logins.pop(s, None)

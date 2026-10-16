@@ -99,4 +99,20 @@ describe('ChatGPT sign-in', () => {
     expect(opened).toEqual(['https://auth.openai.com/oauth/authorize?x']);
     expect(String(fetchMock.mock.calls[1]![0])).toBe('http://m/api/chatgpt/login/status?state=s%201');
   });
+
+  it('asks the measure server to open the browser when told to', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ authorize_url: 'https://auth.openai.com/oauth/authorize?x', state: 's', browser_opened: true }))
+      .mockResolvedValueOnce(json({ status: 'done', tokens: fresh }));
+    vi.stubGlobal('fetch', fetchMock);
+    const opened: [string, boolean][] = [];
+    const pending = signInWithChatgpt('http://m', (url, byServer) => opened.push([url, byServer]), undefined, {
+      openOnServer: true,
+    });
+    await vi.advanceTimersByTimeAsync(1600);
+    await expect(pending).resolves.toEqual(fresh);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('http://m/api/chatgpt/login/start?open_browser=true');
+    expect(opened).toEqual([['https://auth.openai.com/oauth/authorize?x', true]]);
+  });
 });
