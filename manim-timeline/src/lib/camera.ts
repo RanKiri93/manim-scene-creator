@@ -1,6 +1,7 @@
 import { FRAME_H, FRAME_W } from '@/lib/constants';
 import { frameCenterById } from '@/lib/frameGrid';
-import type { CameraMoveItem, FrameDef, ItemId, SceneItem } from '@/types/scene';
+import type { CameraMoveItem, FrameDef, ItemId, SceneItem, ShapeAnchor } from '@/types/scene';
+import { OBJECT_ANCHOR_KINDS, isConnectorShape, resolveShapeAnchor } from '@/lib/shapeAnchors';
 
 export const MIN_CAMERA_DURATION = 0.05;
 export const DEFAULT_CAMERA_DURATION = 1;
@@ -24,8 +25,21 @@ export interface CameraDiagnostic {
   message: string;
 }
 
+/** A follow clip's live target (see {@link CameraMoveItem.follow}). */
+export interface CameraFollow {
+  targetId: ItemId;
+  /** Camera pose that centres the target at a time (offset and width applied); null if unresolved. */
+  poseAt: (time: number) => CameraPose | null;
+  /** Seconds over which the camera eases from where it was onto the target. */
+  blend: number;
+}
+
+/** Ease onto a follow target over this long at most (a third of the clip when shorter). */
+export const CAMERA_FOLLOW_BLEND = 0.6;
+
 export interface CameraTransitionSegment {
   clip: CameraMoveItem;
+  follow?: CameraFollow;
   source: CameraPose;
   destination: CameraPose;
   startTime: number;
@@ -113,11 +127,52 @@ export function resolveCameraTargetWidth(clip: CameraMoveItem): number {
   return legacyTargetWidth(clip);
 }
 
+/** Anchor whose world position a follow clip tracks, or an error for targets it cannot follow. */
+export function cameraFollowAnchor(targetId: ItemId, items: ReadonlyMap<ItemId, SceneItem>): ShapeAnchor | string {
+  const target = items.get(targetId);
+  if (!target) return `Camera follow target "${targetId}" is missing.`;
+  if (target.kind === 'graphDot') return { kind: 'graphDot', dotId: targetId };
+  if (OBJECT_ANCHOR_KINDS.has(target.kind) && !isConnectorShape(target)) return { kind: 'object', itemId: targetId };
+  return `Camera can follow a graph dot, text line, shape, image or axes, not a ${target.kind}.`;
+}
+
+function followFor(
+  clip: CameraMoveItem,
+  items: ReadonlyMap<ItemId, SceneItem>,
+  frames: readonly FrameDef[],
+  startFrameId: ItemId,
+): CameraFollow | null {
+  if (!clip.follow) return null;
+  const anchor = cameraFollowAnchor(clip.follow.targetId, items);
+  if (typeof anchor === 'string') return null;
+  const width = legacyTargetWidth(clip);
+  return {
+    targetId: clip.follow.targetId,
+    blend: Math.min(CAMERA_FOLLOW_BLEND, clip.duration / 3),
+    poseAt: (time) => {
+      const r = resolveShapeAnchor(anchor, clip as unknown as SceneItem, { items: items as Map<ItemId, SceneItem>, time, frames, startFrameId });
+      return r.error != null ? null : { x: r.point.x + (clip.offsetX ?? 0), y: r.point.y + (clip.offsetY ?? 0), width };
+    },
+  };
+}
+
 export function validateCameraMove(
   clip: CameraMoveItem,
   frames: readonly FrameDef[],
+  items?: ReadonlyMap<ItemId, SceneItem>,
 ): CameraDiagnostic[] {
   const out: CameraDiagnostic[] = [];
+  if (clip.follow && items) {
+    const anchor = cameraFollowAnchor(clip.follow.targetId, items);
+    if (typeof anchor === 'string') out.push({ clipId: clip.id, message: anchor });
+    else {
+      const target = items.get(clip.follow.targetId)!;
+      const shown = 'startTime' in target && typeof target.startTime === 'number' ? target.startTime : 0;
+      if (shown > clip.startTime + 1e-6) {
+        out.push({ clipId: clip.id, message: `Camera follow starts at ${clip.startTime.toFixed(2)}s, before "${clip.follow.targetId}" appears (${shown.toFixed(2)}s).` });
+      }
+    }
+  }
   const rawWidth = (clip as CameraMoveItem & { targetWidth?: unknown }).targetWidth;
   if (rawWidth != null && (typeof rawWidth !== 'number' || !Number.isFinite(rawWidth) || rawWidth <= 0)) {
     out.push({ clipId: clip.id, message: 'Camera target width must be finite and greater than zero.' });
@@ -158,6 +213,9 @@ export function resolveCameraSchedule(
 ): CameraSchedule {
   const initialCenter = frameCenterById(frames, startFrameId);
   const initialPose: CameraPose = { ...initialCenter, width: FRAME_W };
+  const itemMap: ReadonlyMap<ItemId, SceneItem> = Array.isArray(items)
+    ? new Map((items as readonly SceneItem[]).map((it) => [it.id, it]))
+    : (items as ReadonlyMap<ItemId, SceneItem>);
   const clips = cameraMovesFromItems(items, excludedIds).sort(
     (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
   );
@@ -171,18 +229,21 @@ export function resolveCameraSchedule(
     while (end < clips.length && clips[end]!.startTime === groupStart) end += 1;
     const group = clips.slice(i, end);
     const winner = group[group.length - 1]!;
-    const groupDiagnostics = group.flatMap((clip) => validateCameraMove(clip, frames));
+    const groupDiagnostics = group.flatMap((clip) => validateCameraMove(clip, frames, itemMap));
     diagnostics.push(...groupDiagnostics);
     const winnerDiagnostics = groupDiagnostics.filter((diagnostic) => diagnostic.clipId === winner.id);
     if (winnerDiagnostics.length === 0) {
       const targetCenter = frameCenterById(frames, winner.targetFrameId);
-      const destination: CameraPose = {
+      const follow = followFor(winner, itemMap, frames, startFrameId);
+      // A follow clip ends wherever its target is at the clip's end.
+      const destination: CameraPose = follow?.poseAt(groupStart + winner.duration) ?? {
         x: targetCenter.x + (winner.offsetX ?? 0),
         y: targetCenter.y + (winner.offsetY ?? 0),
         width: legacyTargetWidth(winner),
       };
       const segment: CameraTransitionSegment = {
         clip: winner,
+        ...(follow ? { follow } : {}),
         source: { ...current },
         destination,
         startTime: groupStart,
@@ -247,6 +308,11 @@ export function resolveCameraSchedule(
 function cameraPoseInSegment(segment: CameraTransitionSegment, time: number): CameraPose {
   if (time >= segment.nominalEndTime) return { ...segment.destination };
   if (time <= segment.startTime) return { ...segment.source };
+  if (segment.follow) {
+    const live = segment.follow.poseAt(time) ?? segment.destination;
+    const blend = segment.follow.blend > 0 ? (time - segment.startTime) / segment.follow.blend : 1;
+    return interpolateCameraPose(segment.source, live, Math.min(1, blend));
+  }
   return interpolateCameraPose(
     segment.source,
     segment.destination,

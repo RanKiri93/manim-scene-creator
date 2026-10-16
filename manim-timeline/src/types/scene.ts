@@ -425,6 +425,12 @@ export interface CameraMoveItem {
   targetWidth: number;
   offsetX?: number;
   offsetY?: number;
+  /**
+   * Follow a moving object for the whole clip instead of moving to a fixed spot: the camera eases
+   * onto it (width `targetWidth`, offset `offsetX/Y` from its centre), then keeps it centred until
+   * the clip ends and stays there. Graph dots and objects (text, shape, image, axes).
+   */
+  follow?: { targetId: ItemId } | null;
 }
 
 /** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */

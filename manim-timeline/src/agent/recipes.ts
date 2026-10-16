@@ -82,6 +82,11 @@ R19. Traced path ("let the point leave a trail as it goes around the curve", Lis
    2. dot.trace: {} keeps the whole path in the dot's colour; fadeSeconds 1–2 for a comet-like tail ("fading trail"); a lighter or thinner trail (width 2) when the curve itself is also drawn.
    3. To draw a figure only by its trail, give the curve a short duration and remove it (exit_animation) or skip creating its plot; the trail draws it as the dot moves.
 
+R20. Camera follows a point ("the graph is wide: keep the camera on the point while it travels from x = 0 to x = 20").
+   1. A camera_move with targetMode "follow", targetId = the dot, startTime = the motion clip's startTime (or a little before), duration = until the motion ends, targetWidth 5–8 (narrower = closer).
+   2. Afterwards return to the whole picture with targetMode "frame" (start frame) or "region" around the graph, starting when the follow ends.
+   3. A follow is not for things that stay put: use targetMode "object" or "region" for those.
+
 R17. A tangent that rides along ("add the tangent line at the moving point, about 2 units long").
    1. The moving dot as in R2 (plot, dot attached to it, graphFollow).
    2. shape line with endpoints { start: { kind: "graphDot", dotId }, tangent: { length: 2 } }, starting with the dot (or when asked), a colour that stands out from the plot. It turns with the slope by itself; one connector is enough.
@@ -105,6 +110,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R16: inspect after the edit: the clips moved as intended and the cue clip starts after the pause; a refused edit names the clip or narration in the way.
    - R3: inspect shows each dot's liveLabel text at the times asked; check it reads as intended (decimals, the right value).
    - R19: inspect during the motion: the dot's trail lists where it starts (from) and its length so far; with fadeSeconds the start follows the dot.
+   - R20: inspect at the start, middle and end of the motion: the dot (world) stays near the camera centre and inCamera; the follow clip's endsAt is where the dot stops.
    - R17: inspect at a few times during the motion: the tangent's slope matches f'(x) at the dot's graph x and changes as the dot moves.
    - R18: at the end Q's graph x is close to, not equal to, P's; the secant's ends lie beyond both dots.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.

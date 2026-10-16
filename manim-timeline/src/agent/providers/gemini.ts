@@ -78,7 +78,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                 type: 'string',
                 enum: [...AGENT_ALLOWED_KINDS],
               },
-              targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'camera_move request-only target descriptor; resolved before item persistence.' },
+              targetMode: { type: 'string', enum: ['frame', 'region', 'object', 'follow'], description: 'camera_move request-only target descriptor; resolved before item persistence. "follow" keeps the moving targetId centred for the whole clip.' },
               targetId: { type: 'string', description: 'camera_move object-fit descriptor: exact existing drawable item id.' },
               region: { type: 'object', description: 'camera_move region descriptor in world coordinates; requires finite left/right/bottom/top edges.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
               targetFrameId: { type: 'string', description: 'camera_move destination frame id from the existing frame catalog.' },
@@ -385,7 +385,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
             description:
               'Required for UPDATE only. Partial patch of fields to change on the target item. For graphFunctionSeries, include only the perN entries you want to change — the app deep-merges your patch with the existing dictionary so other indices are never dropped. Expression fields use the same paired shapes as CREATE (fn for graphPlot, curve coordinates for graphCurve, jsExpr/pyExpr for graphFunctionSeries, coordinate pairs for graphPointSequence, targets[].parametricPath for path-mode target_animation); the app rewrites "^" to "**" and derives a missing dialect.',
             properties: {
-              targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'camera_move UPDATE request-only target mode; resolved before persistence.' },
+              targetMode: { type: 'string', enum: ['frame', 'region', 'object', 'follow'], description: 'camera_move UPDATE request-only target mode; resolved before persistence.' },
               targetId: { type: 'string', description: 'camera_move UPDATE request-only exact existing object id.' },
               region: { type: 'object', description: 'camera_move UPDATE request-only finite world-space region.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
               targetFrameId: { type: 'string', description: 'camera_move UPDATE: destination frame id from the existing frame catalog.' },

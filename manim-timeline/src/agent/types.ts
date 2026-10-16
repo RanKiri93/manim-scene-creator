@@ -197,7 +197,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                     enum: [...AGENT_ALLOWED_KINDS],
                     description: 'For camera_move use targetMode (frame, region, or object), targetFrameId, targetId or region bounds as appropriate. Request-only descriptors are resolved and stripped before persistence.',
                   },
-                  targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'Request-only camera target mode; resolved and removed before persistence.' },
+                  targetMode: { type: 'string', enum: ['frame', 'region', 'object', 'follow'], description: 'Request-only camera target mode; resolved and removed before persistence. "follow" keeps the moving targetId centred for the whole clip (targetWidth = zoom width, default 7.1).' },
                   targetId: { type: 'string', description: 'Request-only exact existing object id for snapshot fitting.' },
                   region: { type: 'object', description: 'Request-only finite world-space rectangle.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
                   targetFrameId: { type: 'string', description: 'Existing camera destination frame id.' },
@@ -227,7 +227,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                 type: 'object',
                 additionalProperties: true,
                 properties: {
-                  targetMode: { type: 'string', enum: ['frame', 'region', 'object'], description: 'camera_move UPDATE request-only target descriptor; resolved before persistence.' },
+                  targetMode: { type: 'string', enum: ['frame', 'region', 'object', 'follow'], description: 'camera_move UPDATE request-only target descriptor; resolved before persistence.' },
                   targetId: { type: 'string', description: 'camera_move UPDATE request-only exact existing object id for snapshot fitting.' },
                   region: { type: 'object', description: 'camera_move UPDATE request-only finite world-space target rectangle.', properties: { left: { type: 'number' }, right: { type: 'number' }, bottom: { type: 'number' }, top: { type: 'number' } } },
                   targetFrameId: { type: 'string', description: 'camera_move UPDATE: existing destination frame id.' },

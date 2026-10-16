@@ -3,7 +3,7 @@ import { createFrame } from '@/store/factories';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { CameraMoveItem, FrameDef } from '@/types/scene';
 import { frameAtCell, frameDisplayName } from '@/lib/frameGrid';
-import { cameraMovesFromItems, resolveCameraSchedule } from '@/lib/camera';
+import { cameraFollowAnchor, resolveCameraSchedule } from '@/lib/camera';
 import { FRAME_W } from '@/lib/constants';
 import { usePreviewMergedItems, usePreviewOps } from '@/agent/previewSelectors';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
@@ -32,11 +32,7 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
     [previewOps],
   );
   const schedule = useMemo(
-    () => resolveCameraSchedule(
-      cameraMovesFromItems(itemsMap, deletedCameraIds),
-      frames,
-      startFrameId,
-    ),
+    () => resolveCameraSchedule(itemsMap, frames, startFrameId, deletedCameraIds),
     [itemsMap, deletedCameraIds, frames, startFrameId],
   );
   const ownSegment = schedule.segments.find((segment) => segment.clip.id === item.id);
@@ -47,6 +43,10 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
   });
   const { requestCameraObjectFit } = useCameraRegionSelection();
   const targetFrame = frames.find((f) => f.id === item.targetFrameId) ?? frames[0];
+  const followTargets = [...itemsMap.values()].filter(
+    (it) => it.id !== item.id && typeof cameraFollowAnchor(it.id, itemsMap) !== 'string',
+  );
+  const followProblem = schedule.diagnostics.find((d) => d.clipId === item.id && /follow/i.test(d.message))?.message;
 
   const set = useCallback(
     (patch: Partial<CameraMoveItem>) => updateItem(item.id, patch),
@@ -110,6 +110,28 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
           />
         </label>
       </div>
+
+      <label className="block">
+        <span className="block text-chalk-dim mb-1">Follow</span>
+        <select
+          value={item.follow?.targetId ?? ''}
+          onChange={(e) => set({ follow: e.target.value ? { targetId: e.target.value } : null, offsetX: 0, offsetY: 0 })}
+          className="w-full bg-raised border border-rule rounded-ctl px-2 py-1"
+        >
+          <option value="">Nothing (move to a fixed spot)</option>
+          {followTargets.map((it) => (
+            <option key={it.id} value={it.id}>
+              {itemClipDisplayName(it)}
+            </option>
+          ))}
+        </select>
+        {item.follow && (
+          <span className="mt-1 block text-meta text-chalk-faint">
+            Eases onto it, keeps it centred until the clip ends, then stays there. Width sets the zoom; offsets shift the view from its centre.
+          </span>
+        )}
+        {followProblem && <span className="mt-1 block text-meta text-warn">{followProblem}</span>}
+      </label>
 
       <div className="grid grid-cols-2 gap-2">
         <label>

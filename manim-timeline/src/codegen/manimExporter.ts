@@ -121,6 +121,7 @@ import {
   cameraPoseAnimationHelperSource,
   formatCameraFrameInitialization,
   formatStandaloneCameraPlay,
+  cameraFollowExprFor,
 } from './cameraCodegen';
 import { timelineWaitHelperSource, timelineWaitLine } from './timelineWaitCodegen';
 import {
@@ -1273,7 +1274,7 @@ function exportManimCodeInner(
     for (const cam of cameraMoves) {
       const segment = cameraSchedule.segments.find((candidate) => candidate.clip.id === cam.cam.id);
       if (segment && !segment.supersededByEqualStart) {
-        playStr += formatStandaloneCameraPlay(segment, playPad);
+        playStr += formatStandaloneCameraPlay(segment, playPad, cameraFollowExprFor(idToVarName, itemsMap));
       }
     }
 

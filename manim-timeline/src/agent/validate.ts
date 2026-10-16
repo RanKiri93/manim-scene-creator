@@ -479,7 +479,7 @@ export function validateAgentResponse(
       if (action.action !== 'DELETE') {
         const candidate = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
         if (candidate?.kind === 'camera_move') {
-          for (const diagnostic of validateCameraMove(candidate, frameCtx.frames)) errors.push(`actions[${i}]: ${diagnostic.message}`);
+          for (const diagnostic of validateCameraMove(candidate, frameCtx.frames, virtual)) errors.push(`actions[${i}]: ${diagnostic.message}`);
         }
       }
     }
@@ -578,7 +578,7 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
   target_animation: ['targets', 'mode'],
   exit_animation: ['targets'],
   blink_animation: ['targets', 'repetitions'],
-  camera_move: ['offsetX', 'offsetY', 'targetFrameId', 'targetWidth'],
+  camera_move: ['offsetX', 'offsetY', 'targetFrameId', 'targetWidth', 'follow'],
 };
 
 /** Field names an UPDATE may set on an item of this kind. */
@@ -1376,6 +1376,8 @@ function normalizeCameraMove(raw: Record<string, unknown>, errors: string[], pre
   if (typeof raw.startTime === 'number' && raw.startTime < 0) errors.push(`${prefix}.item.startTime must be non-negative.`);
   const base = baseDefaults({ ...raw, duration });
   const out: Record<string, unknown> = { id: base.id, kind: 'camera_move', label: base.label, layer: base.layer, startTime: base.startTime, duration, targetFrameId, targetWidth, offsetX: typeof raw.offsetX === 'number' ? raw.offsetX : 0, offsetY: typeof raw.offsetY === 'number' ? raw.offsetY : 0 };
+  const follow = raw.follow as { targetId?: unknown } | null | undefined;
+  if (follow && typeof follow === 'object' && typeof follow.targetId === 'string' && follow.targetId.trim()) out.follow = { targetId: follow.targetId.trim() };
   delete out.targetMode; delete out.targetId; delete out.region;
   return out as unknown as CameraMoveItem;
 }

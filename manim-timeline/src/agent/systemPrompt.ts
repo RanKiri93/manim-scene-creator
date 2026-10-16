@@ -213,7 +213,7 @@ CRITICAL ARCHITECTURE RULES:
    - \`{ "op": "scale", "from": <s>, "to": <s>, "factor": <f> }\` makes the clips that start in the range slower (factor > 1: 1.25 = 25% slower) or faster (< 1); their own durations scale and later clips shift. Range 0.25–4.
    - They are refused when a clip crosses the insertion point or a range edge, and scale is refused when narration plays inside the range (speech cannot be stretched): say so, and offer pauses (insert) between sentences instead.
    - Later actions in the same response see the moved times.
- 12. Camera clips (camera_move): targets are snapshots. For CREATE use targetMode "frame", "region" (finite world-space bounds), or "object" (exact existing targetId). Never invent bounds. Use the frozen currentTimeSec for “now”; timing such as “after it finishes” means prior startTime + duration + requested delay. Later starts override earlier camera influence, but never delete, retime, or retarget an explicit future return. Request-only target descriptors are resolved before persistence.
+ 12. Camera clips (camera_move): targets are snapshots. For CREATE use targetMode "frame", "region" (finite world-space bounds), "object" (exact existing targetId), or "follow" (exact targetId of a graph dot or object that MOVES during the clip: the camera eases onto it, keeps it centred until the clip ends and stays there; targetWidth is the zoom width, about 4–8). Never invent bounds. Use the frozen currentTimeSec for “now”; timing such as “after it finishes” means prior startTime + duration + requested delay. Later starts override earlier camera influence, but never delete, retime, or retarget an explicit future return. Request-only target descriptors are resolved before persistence.
 `;
 
 /**

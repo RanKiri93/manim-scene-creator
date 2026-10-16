@@ -15,7 +15,7 @@ describe('camera viewport emission', () => {
     const source = cameraPoseAnimationHelperSource();
     expect(source).toContain('progress = max(0.0, min(1.0, (sample_time - start) / (nominal_end - start)))');
     expect(source).toContain('eased = progress * progress * (3.0 - 2.0 * progress)');
-    expect(source).toContain('for start, nominal_end, effective_end, source, destination in self.camera_segments:');
+    expect(source).toContain('start, nominal_end, effective_end, source, destination = segment[:5]');
     expect(source).toContain('super().begin()');
   });
 

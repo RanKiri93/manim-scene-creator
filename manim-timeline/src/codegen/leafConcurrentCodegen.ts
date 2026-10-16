@@ -53,7 +53,7 @@ import {
 import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
 import { pointSequenceConcurrentBranch } from './pointSequenceCodegen';
 import type { CameraTransitionSegment } from '@/lib/camera';
-import { formatConcurrentCameraBranch } from './cameraCodegen';
+import { cameraFollowExprFor, formatConcurrentCameraBranch } from './cameraCodegen';
 
 const MANIM_DEFAULT_PLAY_SEC = 1;
 
@@ -846,6 +846,7 @@ export function buildConcurrentVisualClusterPlay(
         clusterEnd,
         cameraInitialPose,
         playPad,
+        cameraFollowExprFor(idToVarName, itemsMap),
       ).trimEnd();
     }
     return concurrentBranchForTargetAnimationClip(
@@ -871,7 +872,14 @@ export function buildConcurrentVisualClusterPlay(
     ),
   );
   const wallStr = wall.toFixed(4);
-  const joined = branches.join(`,\n${innerPad}`);
+  // Camera branch last: AnimationGroup interpolates in list order, so a camera following a dot
+  // reads where the dot is in this frame, not the frame before. Each branch has its own lead-in
+  // Wait, so the order does not change timing.
+  const ordered = [
+    ...branches.filter((_, i) => parts[i]!.kind !== 'camera'),
+    ...branches.filter((_, i) => parts[i]!.kind === 'camera'),
+  ];
+  const joined = ordered.join(`,\n${innerPad}`);
   return (
     soundBlock +
     `${playPad}self.play(AnimationGroup(\n${innerPad}${joined},\n${innerPad}lag_ratio=0,\n${playPad}), run_time=${wallStr})\n`

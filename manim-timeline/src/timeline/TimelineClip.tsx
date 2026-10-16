@@ -30,7 +30,7 @@ import {
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
-import { cameraMovesFromItems, resolveCameraSchedule } from '@/lib/camera';
+import { resolveCameraSchedule } from '@/lib/camera';
 import {
   cameraClipPresentation,
   cameraPreviewDeletedIds,
@@ -117,11 +117,7 @@ export default function TimelineClip({
   const cameraPresentation = useMemo(() => {
     if (item.kind !== 'camera_move') return null;
     const deleted = cameraPreviewDeletedIds(previewOps);
-    const schedule = resolveCameraSchedule(
-      cameraMovesFromItems(itemsMap, deleted),
-      frames,
-      startFrameId,
-    );
+    const schedule = resolveCameraSchedule(itemsMap, frames, startFrameId, deleted);
     return cameraClipPresentation(item, schedule);
   }, [item, previewOps, itemsMap, frames, startFrameId]);
 
