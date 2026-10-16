@@ -56,11 +56,29 @@ def test_tokens_payload_keeps_previous_refresh_and_requires_account():
 
 def test_prompt_file_candidates():
     assert ca.prompt_file_candidates("gpt-5.1-codex")[:3] == [
-        "gpt-5.1-codex_prompt.md",
-        "gpt_5_1_codex_prompt.md",
-        "gpt_5_codex_prompt.md",
+        "core/gpt-5.1-codex_prompt.md",
+        "core/gpt_5_1_codex_prompt.md",
+        "core/gpt_5_codex_prompt.md",
     ]
-    assert ca.prompt_file_candidates("gpt-5.2")[-1] == "prompt.md"
+    assert ca.prompt_file_candidates("gpt-5.2")[-2:] == ["models-manager/prompt.md", "core/prompt.md"]
+
+
+def test_instructions_come_from_the_bundled_model_list(monkeypatch):
+    models = {"models": [{"slug": "gpt-6.1-sol", "model_messages": {"instructions_template": "You are Codex."}}]}
+    fetched: list[str] = []
+
+    def fake_get(url, timeout=20):
+        fetched.append(url)
+        return json.dumps(models) if url.endswith("models-manager/models.json") else None
+
+    monkeypatch.setattr(ca, "_get_text", fake_get)
+    monkeypatch.setattr(ca, "latest_codex_tag", lambda: "rust-v0.163.0")
+    monkeypatch.setattr(ca, "_instructions_cache", {})
+    assert ca.codex_instructions("gpt-6.1-sol") == "You are Codex."
+    assert fetched == ["https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/codex-rs/models-manager/models.json"]
+    # A model missing from the list falls back to the prompt files, ending at the generic prompt.
+    monkeypatch.setattr(ca, "_get_text", lambda url, timeout=20: "generic" if url.endswith("models-manager/prompt.md") else None)
+    assert ca.codex_instructions("gpt-unknown") == "generic"
 
 
 def test_sse_returns_completed_response_and_raises_on_failure():

@@ -278,12 +278,16 @@ def _get_text(url: str, timeout: int = 20) -> str | None:
 
 
 def prompt_file_candidates(model: str) -> list[str]:
-    """Codex prompt files to try for a model, most specific first."""
+    """Codex prompt files (paths under ``codex-rs/``) to try for a model, most specific first.
+
+    Older releases kept every prompt in ``core/``; newer ones keep the per-model text in
+    ``models-manager/models.json`` and only the generic ``prompt.md`` as a file.
+    """
     m = model.strip().lower()
-    names = [f"{m}_prompt.md", f"{m.replace('-', '_').replace('.', '_')}_prompt.md"]
+    names = [f"core/{m}_prompt.md", f"core/{m.replace('-', '_').replace('.', '_')}_prompt.md"]
     if "codex" in m:
-        names.append("gpt_5_codex_prompt.md")
-    names.append("prompt.md")
+        names.append("core/gpt_5_codex_prompt.md")
+    names += ["models-manager/prompt.md", "core/prompt.md"]
     seen: list[str] = []
     for n in names:
         if n not in seen:
@@ -318,22 +322,52 @@ def client_version_from_tag(tag: str | None) -> str:
     return FALLBACK_CLIENT_VERSION
 
 
-def codex_instructions(model: str) -> str:
-    """The Codex CLI's base instructions for *model* from the latest release (cached an hour).
+def model_instructions(model: dict[str, Any]) -> str | None:
+    """The instructions a model-list entry carries (``model_messages.instructions_template``)."""
+    messages = model.get("model_messages")
+    text = messages.get("instructions_template") if isinstance(messages, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        text = model.get("base_instructions")
+    return text if isinstance(text, str) and text.strip() else None
 
-    The backend expects the Codex instructions; the app's own system prompt goes in as a developer
-    message instead.
+
+def _bundled_models(tag: str) -> list[dict[str, Any]]:
+    """The model list shipped with a Codex release (``codex-rs/models-manager/models.json``)."""
+    text = _get_text(f"https://raw.githubusercontent.com/openai/codex/{tag}/codex-rs/models-manager/models.json", timeout=30)
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    raw = data.get("models") if isinstance(data, dict) else data
+    return [m for m in raw if isinstance(m, dict)] if isinstance(raw, list) else []
+
+
+def codex_instructions(model: str) -> str:
+    """The Codex CLI's base instructions for *model* (cached an hour).
+
+    Taken from the account's model list when it has been loaded, else from the model list in the
+    latest Codex release, else from the release's prompt files. The backend expects the Codex
+    instructions; the app's own system prompt goes in as a developer message instead.
     """
     cached = _instructions_cache.get(model)
     if cached and time.time() - cached[0] < _INSTRUCTIONS_TTL_S:
         return cached[1]
     tag = latest_codex_tag() or "main"
-    for name in prompt_file_candidates(model):
-        text = _get_text(f"https://raw.githubusercontent.com/openai/codex/{tag}/codex-rs/core/{name}")
+    text = None
+    for entry in _bundled_models(tag):
+        if entry.get("slug") == model:
+            text = model_instructions(entry)
+            break
+    for path in [] if text else prompt_file_candidates(model):
+        text = _get_text(f"https://raw.githubusercontent.com/openai/codex/{tag}/codex-rs/{path}")
         if text:
-            _instructions_cache[model] = (time.time(), text)
-            return text
-    raise RuntimeError("Could not download the Codex instructions from GitHub.")
+            break
+    if not text:
+        raise RuntimeError(f"Could not download the Codex instructions for {model} from GitHub.")
+    _instructions_cache[model] = (time.time(), text)
+    return text
 
 
 def parse_sse_final_response(lines: Any) -> dict[str, Any]:
@@ -429,6 +463,11 @@ def list_models(access_token: str, account_id: str) -> list[dict[str, Any]]:
         raise RuntimeError(f"ChatGPT model list failed ({e.code}): {detail}") from None
     except (urllib.error.URLError, TimeoutError, ValueError) as e:
         raise RuntimeError(f"ChatGPT model list failed: {e}") from None
+    raw = data.get("models") if isinstance(data, dict) else data
+    for entry in raw if isinstance(raw, list) else []:
+        text = model_instructions(entry) if isinstance(entry, dict) else None
+        if text and isinstance(entry.get("slug"), str):
+            _instructions_cache[entry["slug"]] = (time.time(), text)
     return parse_models(data)
 
 
