@@ -145,7 +145,7 @@ export interface AgentChatMessage {
   /** Non-fatal repairs the validator made (e.g. ignored unknown fields). */
   warnings?: string[];
   /** Tool loop: the steps the Copilot took this turn. */
-  log?: { tool: string; summary: string; isError?: boolean }[];
+  log?: { tool: string; summary: string; isError?: boolean; image?: { src: string; time: number; source: 'preview' | 'manim' } }[];
   /** Tool loop: the proposal was applied right away (auto-apply), as one undo step. */
   autoApplied?: boolean;
   /** Frozen camera-relevant request fingerprint, used only to gate approval. */

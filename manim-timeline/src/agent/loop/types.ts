@@ -54,9 +54,19 @@ export interface LoopProvider {
   startConversation(input: LoopConversationInput): LoopConversation;
 }
 
+/** A picture the Copilot looked at, kept small for its Steps list. */
+export interface LoopSeenImage {
+  /** JPEG data URL, about 160 px wide. */
+  src: string;
+  /** Scene time of the picture (click jumps the playhead there). */
+  time: number;
+  source: 'preview' | 'manim';
+}
+
 /** One line of the visible work log for a turn. */
 export interface LoopLogEntry {
   tool: string;
   summary: string;
   isError?: boolean;
+  image?: LoopSeenImage;
 }

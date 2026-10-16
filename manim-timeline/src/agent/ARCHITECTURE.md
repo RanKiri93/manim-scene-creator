@@ -337,6 +337,9 @@ Real LLM responses are noisy. The validator has two responsibilities:
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
 - `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
   `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
+- Steps thumbnails: `snapshot_preview` / `render_manim_frame` outcomes carry `seen { time, source }`;
+  `runAgentLoop` shrinks the picture with `env.thumbnail` (`loop/thumbnail.ts`, ~160 px JPEG) into the log
+  entry's `image`. Only the last 10 saved messages keep them in localStorage (`withoutOldThumbnails`).
 - Geometry: `endpoints.ticks` (0–3) on connectors; `shape.angle: { vertex, from, to, radius?, mark? }` (shapeType
   `polyline` or omitted) is an angle mark resolved by `resolveAngleMark`; `checkConnectors` also resolves angle
   marks and syncs their static points; inspect reports `angleDegrees`, `rightAngle` and `labelAtWorld`.

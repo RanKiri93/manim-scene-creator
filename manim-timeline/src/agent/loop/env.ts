@@ -1,4 +1,5 @@
 import type { LoopToolEnv } from './tools';
+import { makeLoopThumbnail } from './thumbnail';
 
 let provider: (() => LoopToolEnv) | null = null;
 
@@ -11,5 +12,5 @@ export function registerLoopToolEnv(get: (() => LoopToolEnv) | null): void {
 }
 
 export function loopToolEnv(): LoopToolEnv {
-  return provider ? provider() : {};
+  return { thumbnail: makeLoopThumbnail, ...(provider ? provider() : {}) };
 }

@@ -41,6 +41,19 @@ export interface AgentSettings extends ProviderConfig {
   chatgptAuth: ChatgptAuth | null;
 }
 
+/** Messages that keep their Steps thumbnails in localStorage (older ones drop them). */
+const MESSAGES_WITH_THUMBNAILS = 10;
+
+/** Keep thumbnails only on the latest messages so localStorage stays small. */
+export function withoutOldThumbnails(messages: AgentChatMessage[]): AgentChatMessage[] {
+  const keepFrom = messages.length - MESSAGES_WITH_THUMBNAILS;
+  return messages.map((m, i) =>
+    i >= keepFrom || !m.log?.some((e) => e.image)
+      ? m
+      : { ...m, log: m.log.map((e) => ({ tool: e.tool, summary: e.summary, ...(e.isError ? { isError: true } : {}) })) },
+  );
+}
+
 /** Cap on persisted message history to keep localStorage bounded. */
 const MAX_PERSISTED_MESSAGES = 100;
 
@@ -520,7 +533,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         useToolLoop: s.useToolLoop,
         autoApply: s.autoApply,
         chatgptAuth: s.chatgptAuth,
-        messages: s.messages.slice(-MAX_PERSISTED_MESSAGES),
+        messages: withoutOldThumbnails(s.messages.slice(-MAX_PERSISTED_MESSAGES)),
         activePreviewMessageId: s.activePreviewMessageId,
       }),
       version: 3,

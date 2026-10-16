@@ -155,6 +155,7 @@ export default function AgentPanel() {
             {loopLog.map((entry, i) => (
               <div key={i} className={`text-meta ${entry.isError ? 'text-warn' : 'text-chalk-faint'}`}>
                 {entry.summary}
+                {entry.image && <SeenThumbnail image={entry.image} />}
               </div>
             ))}
             <div className="flex items-center gap-2">
@@ -352,6 +353,7 @@ function AssistantBubble({
               {message.log.map((entry, i) => (
                 <li key={i} className={entry.isError ? 'text-warn' : 'text-chalk-dim'}>
                   {entry.summary}
+                  {entry.image && <SeenThumbnail image={entry.image} />}
                 </li>
               ))}
             </ol>
@@ -882,5 +884,27 @@ function ChatgptAccount() {
         Tokens stay in this browser&apos;s localStorage. The model list comes from your plan.
       </span>
     </div>
+  );
+}
+
+/** A picture the Copilot looked at; click to move the playhead to its time (not an undo step). */
+function SeenThumbnail({ image }: { image: { src: string; time: number; source: 'preview' | 'manim' } }) {
+  const what = image.source === 'manim' ? 'Manim frame' : 'Preview';
+  return (
+    <button
+      type="button"
+      className="mt-1 block rounded-ctl border border-rule overflow-hidden hover:border-chalk-dim"
+      title={`${what} at ${image.time.toFixed(2)}s — click to go there`}
+      onClick={() => {
+        const scene = useSceneStore.getState();
+        if (scene.isPlaying) scene.pause();
+        const history = useSceneStore.temporal.getState();
+        history.pause();
+        scene.setCurrentTime(image.time);
+        history.resume();
+      }}
+    >
+      <img src={image.src} alt={`${what} at ${image.time.toFixed(2)}s`} className="block w-40 h-auto" />
+    </button>
   );
 }

@@ -14,6 +14,8 @@ export interface LoopToolEnv {
   renderFrame?: (time: number, session: DraftSession) => Promise<LoopImage>;
   /** Measure a draft text line with the measure server, so inspect uses its real size. */
   measureText?: MeasureText;
+  /** Shrink a picture the Copilot looked at for its Steps list (data URL), or null. */
+  thumbnail?: (image: LoopImage) => Promise<string | null>;
 }
 
 export interface ToolOutcome {
@@ -22,6 +24,8 @@ export interface ToolOutcome {
   finished?: { reply: string };
   /** One-line summary for the visible work log. */
   summary: string;
+  /** A picture tool: which time it showed and from where (for the Steps thumbnail). */
+  seen?: { time: number; source: 'preview' | 'manim' };
 }
 
 const ACTIONS_SCHEMA = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions;
@@ -176,13 +180,13 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
         const time = timeArg(input);
         if (time == null || !env.snapshot) return fail('snapshot_preview needs a numeric `time`.', 'Snapshot failed');
         const image = await env.snapshot(time);
-        return ok(json({ time, note: 'Editor preview at that time, camera view.' }), `Looked at the preview at ${time.toFixed(2)}s`, [image]);
+        return { ...ok(json({ time, note: 'Editor preview at that time, camera view.' }), `Looked at the preview at ${time.toFixed(2)}s`, [image]), seen: { time, source: 'preview' } };
       }
       case 'render_manim_frame': {
         const time = timeArg(input);
         if (time == null || !env.renderFrame) return fail('render_manim_frame needs a numeric `time`.', 'Manim frame failed');
         const image = await env.renderFrame(time, session);
-        return ok(json({ time, note: 'Real Manim render of the draft at that time.' }), `Rendered a Manim frame at ${time.toFixed(2)}s`, [image]);
+        return { ...ok(json({ time, note: 'Real Manim render of the draft at that time.' }), `Rendered a Manim frame at ${time.toFixed(2)}s`, [image]), seen: { time, source: 'manim' } };
       }
       case 'finish': {
         const reply = typeof input.reply === 'string' && input.reply.trim() ? input.reply.trim() : '';

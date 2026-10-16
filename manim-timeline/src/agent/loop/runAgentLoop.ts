@@ -51,7 +51,14 @@ export async function runAgentLoop(args: {
     let finished: { reply: string } | undefined;
     for (const call of response.toolCalls) {
       const outcome = await runLoopTool(call, session, env);
-      log.push({ tool: call.name, summary: outcome.summary, ...(outcome.result.isError ? { isError: true } : {}) });
+      const picture = outcome.seen && outcome.result.images?.[0];
+      const src = picture && env.thumbnail ? await env.thumbnail(picture).catch(() => null) : null;
+      log.push({
+        tool: call.name,
+        summary: outcome.summary,
+        ...(outcome.result.isError ? { isError: true } : {}),
+        ...(src && outcome.seen ? { image: { src, ...outcome.seen } } : {}),
+      });
       results.push(outcome.result);
       if (outcome.finished) finished = outcome.finished;
       report(step);

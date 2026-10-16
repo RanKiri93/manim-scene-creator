@@ -141,5 +141,43 @@ describe('optional seeing tools', () => {
     expect(seen).toEqual([2, -3]);
     expect(conversation.received[0]!.map((r) => r.images)).toEqual([[image], [image]]);
     expect(outcome.log.map((l) => l.summary)).toEqual(['Looked at the preview at 2.00s', 'Rendered a Manim frame at 3.00s', 'Finished']);
+    // No thumbnail maker in this env: the steps carry no pictures.
+    expect(outcome.log.some((l) => l.image)).toBe(false);
+  });
+
+  it('keeps a thumbnail of each picture it looked at in its steps, with the time and source', async () => {
+    const image = { mediaType: 'image/png' as const, base64: 'QUJD' };
+    const env = {
+      snapshot: async () => image,
+      renderFrame: async () => image,
+      thumbnail: async (img: { base64: string }) => `data:image/jpeg;base64,small-${img.base64}`,
+    };
+    const conversation = new ScriptedConversation([
+      () => step(call('snapshot_preview', { time: 2 }), call('render_manim_frame', { time: 3.5 }), call('inspect_scene', {})),
+      () => step(call('finish', { reply: 'looked' })),
+    ]);
+    const outcome = await runAgentLoop({ conversation, session: session(), env });
+    expect(outcome.log.map((l) => l.image)).toEqual([
+      { src: 'data:image/jpeg;base64,small-QUJD', time: 2, source: 'preview' },
+      { src: 'data:image/jpeg;base64,small-QUJD', time: 3.5, source: 'manim' },
+      undefined,
+      undefined,
+    ]);
+  });
+});
+
+describe('saved chat history', () => {
+  it('keeps step thumbnails only on the latest messages', async () => {
+    const { withoutOldThumbnails } = await import('../useAgentStore');
+    const msg = (i: number) => ({
+      id: `m${i}`,
+      createdAt: i,
+      role: 'assistant' as const,
+      content: 'x',
+      log: [{ tool: 'snapshot_preview', summary: 's', image: { src: 'data:', time: 1, source: 'preview' as const } }],
+    });
+    const out = withoutOldThumbnails(Array.from({ length: 12 }, (_, i) => msg(i)));
+    expect(out.slice(0, 2).every((m) => m.log!.every((e) => !('image' in e)))).toBe(true);
+    expect(out.slice(2).every((m) => m.log![0]!.image)).toBe(true);
   });
 });
