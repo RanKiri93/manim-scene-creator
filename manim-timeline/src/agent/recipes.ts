@@ -47,6 +47,18 @@ R11. Camera story beats (zoom in on the action at a moment, then return).
    3. Return: a second camera_move with targetMode "frame" and targetFrameId = the start frame (startFrameId in the payload), starting when the beat ends ("for three seconds" = zoom end + 3).
    4. Camera clips never overlap: each starts at or after the previous one's startTime + duration.
    Check: the camera rectangle at the beat holds the target, and the view is back to the full frame after the return.
+
+R12. Shaded area labelled as an integral ("shade the area under f between 1 and 3 and label it").
+   1. The plot (R1, rule 8f), then a graphArea underCurve with curve { "plotId" } and the requested xMin / xMax, starting after the plot finishes; fillColor close to the plot's colour.
+   2. The label: a textLine such as "$\\int_{1}^{3} f(x)\\,dx$" (add "= <value>" when the user wants the number), fontSize about 30, starting when the area starts. In the tool loop place it at the area's labelAtWorld from inspect_scene (posSteps [{ "kind": "absolute" }] with x, y) or just above the area; otherwise next to the axes.
+   3. Between two curves: betweenCurves with lower / upper. When they cross inside the interval, say so or split it at the crossing (one area per piece).
+   4. A curve below the x-axis gives a negative integral: say "signed area" or split at the root when the user means the geometric area.
+
+R13. Slope or vector field with a solution ("the slope field of y' = x − y on [−3, 3] × [−2, 2] and the solution through (−1, 0.8)").
+   1. Axes with exactly the requested ranges (R1); the field covers all of it.
+   2. graphField fieldMode "slope" with jsExprSlope "x - y" / pyExprSlope "x - y". fieldGridStep so 12–20 arrows fit across: (xMax − xMin) / 15 rounded to 0.25 or 0.5. slopeArrowLength ≈ 0.7 × fieldGridStep; arrowStrokeWidth 2–3 for a dense field.
+   3. The solution through (x0, y0): streamPoints [{ "x": x0, "y": y0 }] with streamVirtualTime ≈ 1.3 × (xMax − x0) / slopeArrowLength so it reaches the right edge. It only goes to the right of the point: when the user wants the whole curve and the solution has a formula (y' = x − y: y = x − 1 + C·e^(−x), C from the point), draw a graphPlot of it instead, in a contrasting colour after the field.
+   4. Vector fields: the same with fieldMode "vector" (P, Q); a stream line follows the flow for streamVirtualTime seconds.
 `;
 
 /** Tool-loop only: how to check a visual result before finishing. */
@@ -54,5 +66,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R8: the series' curves list when each n draws; at the end its showing is the last n (replacement) or every n (accumulation).
    - R9: inspect measures new text first; when a line has outside or a pair is in textOverlaps, shorten the line, split it, lower the fontSize or raise the buff, then inspect again.
    - R10: the line's segments list gives the index to use (i); check it is the term you mean before the blink / surround / colour.
+   - R12: the area's value is the integral; check its sign and that xMin..xMax is what was asked. The label sits at labelAtWorld (or just above it) and is inCamera.
+   - R13: field.arrows stays below about 400; each stream that should cross the picture has endedBy "left the axes".
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.
 `;

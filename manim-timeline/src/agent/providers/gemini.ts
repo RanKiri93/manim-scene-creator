@@ -1,5 +1,12 @@
 import { AGENT_ALLOWED_KINDS } from '../types';
-import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA, TARGET_ANIMATION_MODES } from '../schemaFragments';
+import {
+  GRAPH_AREA_PROPERTIES,
+  GRAPH_DOT_SCHEMA,
+  GRAPH_FIELD_PROPERTIES,
+  GRAPH_FOLLOW_ROW_PROPERTIES,
+  SHAPE_ENDPOINTS_SCHEMA,
+  TARGET_ANIMATION_MODES,
+} from '../schemaFragments';
 import type { AgentChatMessage, AgentContextPayload } from '../types';
 import {
   AgentProviderError,
@@ -54,10 +61,12 @@ export const GEMINI_RESPONSE_SCHEMA = {
             description:
               'Required for CREATE only. Full scene item with `id`, `kind`, and any kind-specific fields.\n' +
               'IMPORTANT:\n' +
-              '• When `kind` is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", or "graphPointSequence", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
+              '• When `kind` is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", "graphPointSequence", "graphArea", or "graphField", set `axesId` when referencing axes (existing id or same-batch CREATE).\n' +
               '• When `kind` is "graphPlot", the function goes under `fn` as `{ jsExpr, pyExpr, color, label }`. `jsExpr` is a JavaScript expression (e.g. "x*x" or "Math.sin(x)"), `pyExpr` is its NumPy equivalent (e.g. "x**2" or "np.sin(x)"). NEVER put the expression under `fn.expr` or as a bare string — always use `jsExpr` and `pyExpr` with the correct dialect. Use "**" (not "^") for power.\n' +
               '• When `kind` is "graphCurve", coordinates go under `curve` as `{ jsXExpr, pyXExpr, jsYExpr, pyYExpr, color, label }` with parameter `t`. Also set top-level `tDomain: [tMin, tMax]` (two numbers). Use "**" (not "^") for power.\n' +
-              '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement"). Vector/slope fields (`graphField`) and filled regions (`graphArea`) are not agent-created — use the editor UI.\n' +
+              '• When `kind` is "graphFunctionSeries", put expressions at the TOP LEVEL as `jsExpr` and `pyExpr` (or a single top-level `expr` alias); both dialects must be derivable. Reference BOTH `n` (integer index) and `x`. Set `nMin`, `nMax` (integers), `displayMode` ("individual" | "partialSum"), and `mode` ("accumulation" | "replacement").\n' +
+              '• When `kind` is "graphArea" (shaded region on axes), put the geometry under `area` with `areaKind`: underCurve / betweenCurves use xMin < xMax and curve (or lower + upper) = { plotId } of a graphPlot on the same axes or { jsExpr, pyExpr } in x; parallelogramFour uses four corners; parallelogramVec ox, oy, ux, uy, vx, vy; disk cx, cy, radius (graph coordinates).\n' +
+              '• When `kind` is "graphField", set `fieldMode` "slope" (jsExprSlope / pyExprSlope = dy/dx in x and y) or "vector" (jsExprP / pyExprP and jsExprQ / pyExprQ); expressions use only x and y.\n' +
               '• When `kind` is "graphPointSequence", put coordinates at the TOP LEVEL as `jsXExpr` / `pyXExpr` (for x(n)) and `jsYExpr` / `pyYExpr` (for y(n)) with variable `n` (integer index). Set integer `nMin`, `nMax`, and `mode` ("accumulation" | "replacement"). Use "**" (not "^") for power.\n' +
               '• When `kind` is "target_animation" with `mode: "path"` and a row `pathKind: "parametric"`, put offset curves under that row as `parametricPath: { jsXExpr, pyXExpr, jsYExpr, pyYExpr, tMin, tMax }` with parameter `t` (JS `Math.*`, Python `np.*`, "**" never "^"). Never set `frameId` on target_animation (it follows its targets).\n' +
               '• Set `frameId` on new drawable items (text, axes, graphs, shapes) to the payload `activeFrameId`, or to another frame id from the payload `frames` catalog when the user names a different frame. Never set `frameId` on exit_animation / blink_animation / target_animation (they follow their targets).\n',
@@ -81,7 +90,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               axesId: {
                 type: 'string',
                 description:
-                  'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", or "graphPointSequence". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
+                  'REQUIRED when kind is "graphPlot", "graphCurve", "graphDot", "graphFunctionSeries", "graphPointSequence", "graphArea", or "graphField". Must equal an existing axes id in the scene, or the id of an axes you are CREATE-ing earlier in this same actions array. Omit for other agent-created kinds.',
               },
               frameId: {
                 type: 'string',
@@ -228,96 +237,8 @@ export const GEMINI_RESPONSE_SCHEMA = {
                 description:
                   'For kind="graphFunctionSeries": per-index styling overrides. Keys are the stringified integer `n`, values are partial `{ color, strokeWidth, lineStyle, animDuration, waitAfter }` objects. Omit on CREATE unless the user asked for specific indices. On UPDATE, only include the indices you want to change — the app deep-merges this patch with the existing perN dictionary; indices you omit are preserved as-is.',
               },
-              fieldMode: {
-                type: 'string',
-                enum: ['vector', 'slope', 'none'],
-                description:
-                  'For kind="graphField": "slope" visualizes a scalar slope field dy/dx = f(x, y) (use jsExprSlope/pyExprSlope); "vector" visualizes a planar vector field (P(x,y), Q(x,y)) (use jsExprP/pyExprP and jsExprQ/pyExprQ); "none" disables arrow rendering (streamlines only).',
-              },
-              jsExprSlope: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="slope": JavaScript expression for dy/dx in terms of `x` and `y`. Example: "x - y" or "Math.sin(x) * y". Use "**" for power.',
-              },
-              pyExprSlope: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="slope": NumPy expression for dy/dx in terms of `x` and `y`. Example: "x - y" or "np.sin(x) * y". Use "**" for power.',
-              },
-              slopeArrowLength: {
-                type: 'number',
-                description:
-                  'For kind="graphField" with fieldMode="slope": rendered length of each slope tick in graph units. Default 0.5.',
-              },
-              jsExprP: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="vector": JavaScript expression for the x-component P(x, y). Example: "-y" or "Math.cos(x)". Use "**" for power.',
-              },
-              pyExprP: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="vector": NumPy expression for the x-component P(x, y). Example: "-y" or "np.cos(x)". Use "**" for power.',
-              },
-              jsExprQ: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="vector": JavaScript expression for the y-component Q(x, y). Example: "x" or "Math.sin(x) - y". Use "**" for power.',
-              },
-              pyExprQ: {
-                type: 'string',
-                description:
-                  'For kind="graphField" with fieldMode="vector": NumPy expression for the y-component Q(x, y). Example: "x" or "np.sin(x) - y". Use "**" for power.',
-              },
-              fieldGridStep: {
-                type: 'number',
-                description:
-                  'For kind="graphField": spacing (in graph units) between sampled arrows on the grid. Default 0.5. Smaller = denser field.',
-              },
-              fieldColormap: {
-                type: 'string',
-                enum: ['viridis', 'plasma', 'inferno', 'magma'],
-                description:
-                  'For kind="graphField": colormap used to shade arrows by magnitude. Default "viridis".',
-              },
-              colorSchemeMin: {
-                type: 'number',
-                description:
-                  'For kind="graphField": magnitude mapped to the low end of the colormap. Default 0.',
-              },
-              colorSchemeMax: {
-                type: 'number',
-                description:
-                  'For kind="graphField": magnitude mapped to the high end of the colormap. Default 2.',
-              },
-              arrowStrokeWidth: {
-                type: 'number',
-                description:
-                  'For kind="graphField": stroke width in pixels of each arrow shaft / slope tick. Applied to both the canvas preview and the Manim ArrowVectorField via set_stroke(width=...). Default 4. Use ~1.5–2 for hairline arrows, ~6–8 for bold arrows.',
-              },
-              streamPoints: {
-                type: 'array',
-                description:
-                  'For kind="graphField": optional seed points for ODE streamlines integrated through the field. Each entry is { id, x, y } in graph coordinates. Omit for a plain arrow field.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    x: { type: 'number' },
-                    y: { type: 'number' },
-                  },
-                },
-              },
-              streamDt: {
-                type: 'number',
-                description:
-                  'For kind="graphField": integration timestep for streamlines. Default 0.05.',
-              },
-              streamVirtualTime: {
-                type: 'number',
-                description:
-                  'For kind="graphField": total virtual time (seconds) integrated per streamline. Default 3.',
-              },
+              ...GRAPH_FIELD_PROPERTIES,
+              ...GRAPH_AREA_PROPERTIES,
               targets: {
                 type: 'array',
                 description:
@@ -473,6 +394,8 @@ export const GEMINI_RESPONSE_SCHEMA = {
               duration: { type: 'number', description: 'camera_move UPDATE: transition duration, minimum 0.05 seconds.' },
               dot: GRAPH_DOT_SCHEMA,
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
+              ...GRAPH_FIELD_PROPERTIES,
+              ...GRAPH_AREA_PROPERTIES,
             },
           },
         },

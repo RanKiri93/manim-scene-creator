@@ -11,6 +11,7 @@ import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { computeSceneDurationSec } from '@/codegen/manimExporter';
 import type { DraftSession } from './draft';
+import { areaFacts, fieldFacts } from '../graphRegions';
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pt = (p: { x: number; y: number }) => [r3(p.x), r3(p.y)];
@@ -124,6 +125,19 @@ function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: Draf
   }
   const schedule = item.kind === 'graphFunctionSeries' ? seriesSchedule(item, start) : null;
   if (schedule) facts.curves = schedule;
+  if (item.kind === 'graphArea' || item.kind === 'graphField') {
+    const axes = scene.get(item.axesId);
+    if (item.kind === 'graphArea') {
+      const area = areaFacts(item, scene);
+      if (Array.isArray(area.labelAt) && axes?.kind === 'axes') {
+        const [gx, gy] = area.labelAt as [number, number];
+        area.labelAtWorld = pt(axesGraphToWorld(axes, gx, gy, ctx(Number.isFinite(start) ? start : 0)));
+      }
+      facts.area = area;
+    } else {
+      facts.field = fieldFacts(item, axes?.kind === 'axes' ? axes : undefined);
+    }
+  }
   facts.at = times.map((time) => {
     const row: Record<string, unknown> = { t: time, onScreen: time >= start && time < end };
     if (item.kind === 'graphFunctionSeries' && schedule) {

@@ -197,7 +197,7 @@ describe('validateAgentResponse', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('rejects disallowed kinds (graphArea) in v1', () => {
+  it('rejects a graphArea without its area geometry', () => {
     const map = new Map<string, SceneItem>();
     map.set('ax1', axes('ax1'));
     const resp = {
@@ -216,7 +216,7 @@ describe('validateAgentResponse', () => {
     const result = validateAgentResponse(resp, map);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.errors.join(' ')).toMatch(/whitelist/);
+      expect(result.errors.join(' ')).toMatch(/area must be an object with areaKind/);
     }
   });
 
@@ -625,7 +625,7 @@ describe('validateAgentResponse', () => {
     expect(fs.perN).toEqual({});
   });
 
-  it('rejects graphField CREATE (not agent-whitelisted)', () => {
+  it('accepts a vector graphField CREATE', () => {
     const map = new Map<string, SceneItem>();
     map.set('ax1', axes('ax1'));
     const resp = {
@@ -647,10 +647,7 @@ describe('validateAgentResponse', () => {
       ],
     };
     const result = validateAgentResponse(resp, map);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.join(' ')).toMatch(/whitelist/);
-    }
+    expect(result.ok).toBe(true);
   });
 
   it('swaps nMin/nMax when the LLM reverses them', () => {

@@ -60,6 +60,7 @@ import {
 import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
 import type { CameraMoveItem, SceneDefaults } from '@/types/scene';
 import { mergeTextLineUpdate, withParsedSegments } from './textDraft';
+import { checkGraphRegions, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
 
 export type ValidationResult =
   | { ok: true; response: AgentChatResponse; warnings: string[] }
@@ -366,16 +367,11 @@ export function validateAgentResponse(
       item.kind === 'graphCurve' ||
       item.kind === 'graphDot' ||
       item.kind === 'graphFunctionSeries' ||
-      item.kind === 'graphPointSequence'
+      item.kind === 'graphPointSequence' ||
+      item.kind === 'graphArea' ||
+      item.kind === 'graphField'
     ) {
-      const axesId = (
-        item as
-          | GraphPlotItem
-          | GraphCurveItem
-          | GraphDotItem
-          | GraphFunctionSeriesItem
-          | GraphPointSequenceItem
-      ).axesId;
+      const axesId = item.axesId;
       const existingIsAxes = currentItems.get(axesId)?.kind === 'axes';
       const plannedKind = plannedCreates.get(axesId);
       if (!existingIsAxes && plannedKind !== 'axes') {
@@ -476,6 +472,11 @@ export function validateAgentResponse(
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
+  checkGraphRegions(
+    virtualSceneAfter(currentItems, normalizedActions),
+    new Set(normalizedActions.map((a) => (a.action === 'CREATE' ? a.item.id : a.itemId))),
+    errors,
+  );
 
   // Third pass: enforce two-stage text workflow.
   // 1) CREATE textLine must carry source in `raw`.
@@ -549,6 +550,12 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
   graphDot: ['dot', 'axesId', ...GRAPH_DOT_TOP_LEVEL_ALIASES],
   graphFunctionSeries: ['displayMode', 'perN', 'defaults', 'jsExpr', 'pyExpr', 'nMin', 'nMax', 'mode', 'xDomain'],
   graphPointSequence: ['perN', 'defaults', 'jsXExpr', 'pyXExpr', 'jsYExpr', 'pyYExpr', 'exprX', 'xExpr', 'exprY', 'yExpr', 'nMin', 'nMax', 'mode'],
+  graphArea: ['area', 'mode', 'fillColor', 'fillOpacity', 'strokeColor', 'strokeWidth'],
+  graphField: [
+    'fieldMode', 'jsExprSlope', 'pyExprSlope', 'slopeArrowLength', 'jsExprP', 'pyExprP', 'jsExprQ', 'pyExprQ',
+    'fieldGridStep', 'fieldColormap', 'colorSchemeMin', 'colorSchemeMax', 'arrowStrokeWidth', 'streamPoints',
+    'streamDt', 'streamVirtualTime',
+  ],
   shape: ['endpoints'],
   surroundingRect: ['segmentIndices', 'runTime'],
   target_animation: ['targets', 'mode'],
@@ -590,6 +597,10 @@ function normalizeCreateItem(
       return normalizeGraphFunctionSeries(raw, errors, prefix);
     case 'graphPointSequence':
       return normalizeGraphPointSequence(raw, errors, prefix);
+    case 'graphArea':
+      return normalizeGraphArea(raw, baseDefaults(raw), errors, prefix);
+    case 'graphField':
+      return normalizeGraphField(raw, baseDefaults(raw), errors, prefix);
     case 'shape':
       return normalizeShape(raw, errors, prefix);
     case 'surroundingRect':
@@ -640,7 +651,9 @@ function autoLinkAxesIds(actions: unknown[]): void {
       item.kind !== 'graphCurve' &&
       item.kind !== 'graphDot' &&
       item.kind !== 'graphFunctionSeries' &&
-      item.kind !== 'graphPointSequence'
+      item.kind !== 'graphPointSequence' &&
+      item.kind !== 'graphArea' &&
+      item.kind !== 'graphField'
     ) {
       continue;
     }
@@ -972,6 +985,26 @@ function normalizeUpdates(
   }
   if ('posSteps' in patch) {
     next.posSteps = normalizePosSteps(patch.posSteps);
+  }
+  if (targetKind === 'graphArea') {
+    // The model sends geometry as `area` (merged over the stored `mode`); persist it as `mode`.
+    const areaPatch = 'area' in patch ? patch.area : typeof patch.mode === 'object' ? patch.mode : undefined;
+    delete next.area;
+    delete next.mode;
+    if (areaPatch !== undefined) {
+      const base = existing?.kind === 'graphArea' ? existing.mode : undefined;
+      const mode = normalizeAreaMode(areaPatch, `${prefix}.updates.area`, errors, base);
+      if (mode) next.mode = mode;
+    }
+    if ('fillOpacity' in patch) next.fillOpacity = Math.max(0, Math.min(1, asNum(patch.fillOpacity, 0.35)));
+  }
+  if (targetKind === 'graphField') {
+    const fieldKeys = OPTIONAL_FIELDS_BY_KIND.graphField!;
+    for (const key of fieldKeys) delete next[key];
+    Object.assign(
+      next,
+      normalizeFieldFields(patch, `${prefix}.updates`, errors, existing?.kind === 'graphField' ? existing : undefined),
+    );
   }
   if (targetKind === 'shape' && 'endpoints' in patch && patch.endpoints != null) {
     const endpoints = normalizeShapeEndpoints(patch.endpoints, `${prefix}.updates.endpoints`, errors);

@@ -1,4 +1,4 @@
-import { GRAPH_DOT_SCHEMA, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
@@ -17,6 +17,8 @@ export const AGENT_ALLOWED_KINDS = [
   'graphDot',
   'graphFunctionSeries',
   'graphPointSequence',
+  'graphArea',
+  'graphField',
   'shape',
   'surroundingRect',
   'exit_animation',
@@ -185,6 +187,8 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   startTime: { type: 'number' }, duration: { type: 'number' },
                   dot: GRAPH_DOT_SCHEMA,
                   endpoints: SHAPE_ENDPOINTS_SCHEMA,
+                  ...GRAPH_FIELD_PROPERTIES,
+                  ...GRAPH_AREA_PROPERTIES,
                   targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES } } },
                 },
             },
@@ -214,6 +218,8 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   duration: { type: 'number', description: 'camera_move UPDATE: duration at least 0.05 seconds.' },
                   dot: GRAPH_DOT_SCHEMA,
                   endpoints: SHAPE_ENDPOINTS_SCHEMA,
+                  ...GRAPH_FIELD_PROPERTIES,
+                  ...GRAPH_AREA_PROPERTIES,
                   targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES } } },
                 },
               },

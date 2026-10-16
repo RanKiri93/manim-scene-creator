@@ -138,10 +138,10 @@ Only these `kind` values may appear in CREATE actions (see `AGENT_ALLOWED_KINDS`
 
 ```
 textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPointSequence,
-shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
+graphArea, graphField, shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
 
-`graphArea` and `graphField` remain UI-only creations for now (not agent-emitted).
+**`graphArea` / `graphField`** (`graphRegions.ts`): the model sends an area's geometry as `area` (stored as `mode`, which the flat Gemini schema uses for a string enum); boundaries are `{ plotId }` or `{ jsExpr, pyExpr }`. UPDATEs merge `area` over the stored geometry. `checkGraphRegions` rejects xMin ≥ xMax, a plot on other axes or an interval outside its domain, expressions with names other than x (areas) or x and y (fields), more than `MAX_FIELD_ARROWS` arrows and stream seeds off the axes. Inspect reports an area's value and label spot and where each stream line ends.
 
 **`camera_move`** is a persisted snapshot clip. Providers may supply request-only `targetMode` (`frame | region | object`), exact `targetId`, or finite world-space `region`; `cameraRequests.ts` resolves and consumes those descriptors against request-time context before validation/preview/commit. Persisted items contain only ordinary camera fields (`targetFrameId`, absolute `targetWidth`, offsets, start and duration). Object fitting delegates to `lib/cameraBounds.ts`; unsupported bounds require clarification. Overlap is valid and schedule/return semantics remain owned by `lib/camera.ts`.
 
@@ -409,7 +409,7 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
-`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R11 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
 
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 
@@ -420,7 +420,7 @@ Current rules:
    - `kind: "absolute"` positions the item at screen centre — almost never the right choice. Use `to_edge` or `next_to` for any directional request (top/bottom/left/right/upper section etc.).
    - Hebrew phrasing for edges ("חלק עליון", "בחלק העליון") must map to `{kind:"to_edge", edge:"UP", buff:0.5}`, **not** `kind:"absolute"`.
 3. Unique alphanumeric `id`s; no duplicate CREATE ids in one response.
-4. `graphPlot` / `graphCurve` / `graphDot` / `graphFunctionSeries` / `graphPointSequence` **MUST** have a valid `axesId`. (`graphArea` / `graphField` are not agent-created.)
+4. `graphPlot` / `graphCurve` / `graphDot` / `graphFunctionSeries` / `graphPointSequence` / `graphArea` / `graphField` **MUST** have a valid `axesId`.
 5. **textLine strict workflow** — all rules apply to CREATE:
    - Put the full LaTeX source in `raw`. Do **not** put Hebrew text in `\text{…}`.
    - Math fragments must be written in `$…$`.
@@ -615,7 +615,7 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
 
 ## 13. Known limitations (v2 — chat)
 
-- Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence`; `graphArea` / `graphField` remain UI-only.
+- Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence` / `graphArea` / `graphField`; images and audio remain UI-only.
 - The Copilot is frame-aware in context (frame catalog + active frame in the payload, `frameId` validated per §7.5), but there are no dedicated frame actions yet — no `CREATE_FRAME` / `UPDATE_FRAME`, and no agent-driven camera panning between frames.
 - No token streaming: the UI shows a "Thinking…" indicator and waits for the full response. Reasoning/thinking output is surfaced as a collapsible block only after the turn completes.
 - The full chat history is re-sent on every turn; token usage grows linearly with conversation length. `MAX_PERSISTED_MESSAGES` (100) caps the persisted log but does not summarize older turns — long conversations may need a manual "New chat".

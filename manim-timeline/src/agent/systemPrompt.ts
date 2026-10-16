@@ -35,7 +35,7 @@ CRITICAL ARCHITECTURE RULES:
 
 3. IDs: Whenever you CREATE a new item, generate a short, unique alphanumeric string for its id. Every id across all your CREATE actions in a single response MUST be unique. Do NOT emit two CREATE actions with the same id. If you want to adjust an item you just created, emit a single CREATE with the final values — do not follow it with a duplicate CREATE or an UPDATE to the same id in the same response unless genuinely needed.
 
-4. Graph Dependencies: A graphPlot, graphCurve, graphDot, graphFunctionSeries, or graphPointSequence MUST reference a valid axesId. (\`graphArea\` and \`graphField\` exist in the editor but are not agent-created kinds.) Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/curve/dot/series/sequence in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
+4. Graph Dependencies: A graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPointSequence, graphArea, or graphField MUST reference a valid axesId. Do not create graph overlays without either referencing an existing axis or generating a new axes object in the same response. When you create a new axes AND a plot/curve/dot/series/sequence in the same response, you MUST copy the new axes' id into the child's axesId field so the two are linked. The axesId value must exactly match an existing axes id in the scene, or the id of an axes you are creating earlier in this same actions array.
 
 5a. Function Expressions: For graphPlot items, ALWAYS emit the function under fn.jsExpr (JavaScript dialect, e.g. "x*x" or "Math.sin(x)") AND fn.pyExpr (NumPy dialect, e.g. "x**2" or "np.sin(x)"). Use "**" for power, never "^" (which is XOR, not exponentiation, in both languages). Do not put the expression at the top level, under fn.expr, or as a bare string.
 
@@ -141,6 +141,18 @@ CRITICAL ARCHITECTURE RULES:
    - Only color animations apply to a connector (its position comes from its anchors). Remove it with an exit_animation like any shape.
    Example — vertical segment from dot d1 down to the x-axis that moves with the dot, appearing with the dot:
      { "action": "CREATE", "item": { "id": "seg1", "kind": "shape", "shapeType": "line", "label": "אנך לציר", "startTime": 2, "duration": 0.5, "strokeColor": "#94a3b8", "strokeWidth": 3, "endpoints": { "start": { "kind": "graphDot", "dotId": "d1" }, "end": { "kind": "graphDotFoot", "dotId": "d1", "axis": "x" } } } }
+
+8f. Shaded areas (\`kind: "graphArea"\`, on axes like a plot):
+   - The geometry goes under \`area\` (not \`mode\`): \`{ "areaKind": "underCurve", "xMin", "xMax", "curve": <boundary> }\` (between the curve and y = 0), \`{ "areaKind": "betweenCurves", "xMin", "xMax", "lower": <boundary>, "upper": <boundary> }\`, \`{ "areaKind": "parallelogramFour", "corners": [4 × { x, y }] }\`, \`{ "areaKind": "parallelogramVec", "ox", "oy", "ux", "uy", "vx", "vy" }\` (corner + two edge vectors) or \`{ "areaKind": "disk", "cx", "cy", "radius" }\`, all in graph coordinates.
+   - A boundary is \`{ "plotId": <graphPlot id> }\` (preferred when the curve is drawn: same axes, and xMin..xMax inside its xDomain) or \`{ "jsExpr", "pyExpr" }\` in x (add \`"showBoundaryPlot": true\` to draw it). xMin < xMax.
+   - Style: \`fillColor\`, \`fillOpacity\` (0.3–0.5 reads well), \`strokeColor\` / \`strokeWidth\` for polygons and disks. \`duration\` is the fade-in. Start it after its plots finish.
+   Example — shade under plot p1 from x = 1 to 3:
+     { "action": "CREATE", "item": { "id": "a1", "kind": "graphArea", "axesId": "ax1", "label": "שטח", "startTime": 3, "duration": 1, "area": { "areaKind": "underCurve", "xMin": 1, "xMax": 3, "curve": { "plotId": "p1" } }, "fillColor": "#3b82f6", "fillOpacity": 0.4 } }
+
+8g. Vector and slope fields (\`kind: "graphField"\`, on axes):
+   - \`fieldMode: "slope"\` for y' = f(x, y): \`jsExprSlope\` / \`pyExprSlope\` = f. \`fieldMode: "vector"\` for (P, Q): \`jsExprP\` / \`pyExprP\` and \`jsExprQ\` / \`pyExprQ\`. Expressions use only x and y (JS \`Math.*\`, Python \`np.*\`, "**" never "^").
+   - The field covers the whole axes range. \`fieldGridStep\` is the arrow spacing in graph units, \`slopeArrowLength\` the length of a slope tick, \`arrowStrokeWidth\` the line width.
+   - \`streamPoints: [{ "x", "y" }]\` adds a stream line from each seed: it follows the field forward only (to increasing x in a slope field) for \`streamVirtualTime\` seconds of the flow (a slope field moves \`slopeArrowLength\` graph units per second), and stops half a unit outside the axes.
 
 8b. Shapes (\`kind: "shape"\`):
    - \`shapeType\`: "circle" | "rectangle" | "arrow" | "line" | "polyline".

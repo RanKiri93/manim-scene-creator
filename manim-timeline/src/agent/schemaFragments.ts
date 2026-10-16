@@ -91,3 +91,132 @@ export const SHAPE_ENDPOINTS_SCHEMA = {
     end: SHAPE_ANCHOR_SCHEMA,
   },
 } as const;
+
+/** `graphField` properties (vector / slope fields with optional stream lines). */
+export const GRAPH_FIELD_PROPERTIES = {
+  fieldMode: {
+    type: 'string',
+    enum: ['vector', 'slope', 'none'],
+    description:
+      'For kind="graphField": "slope" visualizes a scalar slope field dy/dx = f(x, y) (use jsExprSlope/pyExprSlope); "vector" visualizes a planar vector field (P(x,y), Q(x,y)) (use jsExprP/pyExprP and jsExprQ/pyExprQ); "none" disables arrow rendering (streamlines only).',
+  },
+  jsExprSlope: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="slope": JavaScript expression for dy/dx in terms of `x` and `y`. Example: "x - y" or "Math.sin(x) * y". Use "**" for power.',
+  },
+  pyExprSlope: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="slope": NumPy expression for dy/dx in terms of `x` and `y`. Example: "x - y" or "np.sin(x) * y". Use "**" for power.',
+  },
+  slopeArrowLength: {
+    type: 'number',
+    description:
+      'For kind="graphField" with fieldMode="slope": rendered length of each slope tick in graph units. Default 0.5.',
+  },
+  jsExprP: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="vector": JavaScript expression for the x-component P(x, y). Example: "-y" or "Math.cos(x)". Use "**" for power.',
+  },
+  pyExprP: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="vector": NumPy expression for the x-component P(x, y). Example: "-y" or "np.cos(x)". Use "**" for power.',
+  },
+  jsExprQ: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="vector": JavaScript expression for the y-component Q(x, y). Example: "x" or "Math.sin(x) - y". Use "**" for power.',
+  },
+  pyExprQ: {
+    type: 'string',
+    description:
+      'For kind="graphField" with fieldMode="vector": NumPy expression for the y-component Q(x, y). Example: "x" or "np.sin(x) - y". Use "**" for power.',
+  },
+  fieldGridStep: {
+    type: 'number',
+    description:
+      'For kind="graphField": spacing (in graph units) between sampled arrows on the grid. Default 0.5. Smaller = denser field.',
+  },
+  fieldColormap: {
+    type: 'string',
+    enum: ['viridis', 'plasma', 'inferno', 'magma'],
+    description:
+      'For kind="graphField": colormap used to shade arrows by magnitude. Default "viridis".',
+  },
+  colorSchemeMin: {
+    type: 'number',
+    description:
+      'For kind="graphField": magnitude mapped to the low end of the colormap. Default 0.',
+  },
+  colorSchemeMax: {
+    type: 'number',
+    description:
+      'For kind="graphField": magnitude mapped to the high end of the colormap. Default 2.',
+  },
+  arrowStrokeWidth: {
+    type: 'number',
+    description:
+      'For kind="graphField": stroke width in pixels of each arrow shaft / slope tick. Applied to both the canvas preview and the Manim ArrowVectorField via set_stroke(width=...). Default 4. Use ~1.5–2 for hairline arrows, ~6–8 for bold arrows.',
+  },
+  streamPoints: {
+    type: 'array',
+    description:
+      'For kind="graphField": optional seed points { x, y } (graph coordinates) for stream lines. A line runs forward only (towards increasing x in a slope field) for streamVirtualTime; inspect_scene reports where it ends. Omit for a plain arrow field.',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        x: { type: 'number' },
+        y: { type: 'number' },
+      },
+    },
+  },
+  streamDt: {
+    type: 'number',
+    description:
+      'For kind="graphField": integration timestep for streamlines. Default 0.05.',
+  },
+  streamVirtualTime: {
+    type: 'number',
+    description:
+      'For kind="graphField": total virtual time (seconds) integrated per streamline. Default 3.',
+  },
+} as const;
+
+const AREA_CURVE_SOURCE = {
+  type: 'object',
+  description: 'A boundary: { plotId } of a graphPlot on the same axes, or { jsExpr, pyExpr } in x.',
+  properties: {
+    plotId: { type: 'string' },
+    jsExpr: { type: 'string', description: 'JavaScript in x, e.g. "x*x". Use "**" for power.' },
+    pyExpr: { type: 'string', description: 'NumPy in x, e.g. "x**2".' },
+  },
+};
+
+/** `graphArea` properties: the geometry goes under `area` (stored as the item's `mode`). */
+export const GRAPH_AREA_PROPERTIES = {
+  area: {
+    type: 'object',
+    description:
+      'For kind="graphArea": the shaded region in graph coordinates. underCurve: xMin < xMax and curve (between the curve and y = 0). betweenCurves: xMin, xMax, lower, upper. parallelogramFour: corners (4 points). parallelogramVec: corner ox, oy and edge vectors ux, uy, vx, vy. disk: cx, cy, radius. On UPDATE send only what changes; the rest is kept.',
+    properties: {
+      areaKind: { type: 'string', enum: ['underCurve', 'betweenCurves', 'parallelogramFour', 'parallelogramVec', 'disk'] },
+      xMin: { type: 'number' },
+      xMax: { type: 'number' },
+      curve: AREA_CURVE_SOURCE,
+      lower: AREA_CURVE_SOURCE,
+      upper: AREA_CURVE_SOURCE,
+      showBoundaryPlot: { type: 'boolean', description: 'For expression boundaries: also draw the boundary curves.' },
+      corners: { type: 'array', items: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } } } },
+      ox: { type: 'number' }, oy: { type: 'number' }, ux: { type: 'number' }, uy: { type: 'number' }, vx: { type: 'number' }, vy: { type: 'number' },
+      cx: { type: 'number' }, cy: { type: 'number' }, radius: { type: 'number' },
+    },
+  },
+  fillColor: { type: 'string', description: 'For kind="graphArea": CSS hex fill. Default "#3b82f6".' },
+  fillOpacity: { type: 'number', description: 'For kind="graphArea": 0–1. Default 0.35.' },
+  strokeColor: { type: 'string', description: 'For kind="graphArea": outline colour (polygons and disks).' },
+  strokeWidth: { type: 'number', description: 'For kind="graphArea": outline width; 0 = none (default).' },
+} as const;
