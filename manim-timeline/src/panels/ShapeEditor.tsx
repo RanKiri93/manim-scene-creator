@@ -71,11 +71,10 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-body font-semibold text-chalk">Shape</h3>
       <p className="text-meta text-chalk-faint leading-snug">
-        Primitive Manim shape. Drag on the canvas to move (with absolute positioning). Use the
-        yellow handle to rotate. Export uses <code className="text-chalk-dim">Circle</code>,{' '}
-        <code className="text-chalk-dim">Rectangle</code>, <code className="text-chalk-dim">Arrow</code>,{' '}
-        <code className="text-chalk-dim">Line</code>, or <code className="text-chalk-dim">VMobject</code>{' '}
-        polyline.
+        Drag on the canvas to move it. The box handles resize (Shift keeps proportions, Alt resizes
+        from the centre) and the top handle rotates in 15° steps. Lines and arrows: drag either end
+        (Shift snaps the angle). Polylines: drag a point, double-click the line to add one, Alt+click
+        a point to remove it.
       </p>
 
       <label className="text-ctl text-chalk-dim block">
