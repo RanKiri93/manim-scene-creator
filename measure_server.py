@@ -2534,6 +2534,22 @@ try:
         except RuntimeError as e:
             raise HTTPException(status_code=401, detail=str(e)) from None
 
+    @app.get("/api/chatgpt/models")
+    def chatgpt_models(
+        authorization: str = Header(...),
+        chatgpt_account_id: str = Header(..., alias="chatgpt-account-id"),
+    ) -> dict:
+        """Models this ChatGPT account can use through Codex."""
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            raise HTTPException(status_code=401, detail="Missing ChatGPT access token")
+        try:
+            return {"models": chatgpt_auth.list_models(token, chatgpt_account_id)}
+        except PermissionError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from None
+        except RuntimeError as e:
+            raise HTTPException(status_code=502, detail=str(e)) from None
+
     @app.post("/api/chatgpt/responses")
     def chatgpt_responses(
         body: dict,

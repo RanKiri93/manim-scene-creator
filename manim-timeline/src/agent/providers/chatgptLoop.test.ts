@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentContextPayload } from '../types';
 import { loopToolSpecs } from '../loop/tools';
-import { ChatgptLoopConversation, signInWithChatgpt, type ChatgptAuth } from './chatgptLoop';
+import { ChatgptLoopConversation, listChatgptModels, signInWithChatgpt, type ChatgptAuth } from './chatgptLoop';
 
 const payload = { projectDefaults: {}, currentTimeSec: 0, existingItems: [], frames: [], startFrameId: null, activeFrameId: null } as unknown as AgentContextPayload;
 const input = { systemPrompt: 'SYS', history: [], payload, userPrompt: 'make a dot', tools: loopToolSpecs({}), includeThinking: true };
@@ -114,5 +114,31 @@ describe('ChatGPT sign-in', () => {
     await expect(pending).resolves.toEqual(fresh);
     expect(String(fetchMock.mock.calls[0]![0])).toBe('http://m/api/chatgpt/login/start?open_browser=true');
     expect(opened).toEqual([['https://auth.openai.com/oauth/authorize?x', true]]);
+  });
+});
+
+describe('ChatGPT model list', () => {
+  it('sends the tokens and returns the models', async () => {
+    const models = [{ id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', description: '' }];
+    const fetchMock = vi.fn().mockResolvedValueOnce(json({ models }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listChatgptModels('http://m/', () => fresh, () => {})).resolves.toEqual(models);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('http://m/api/chatgpt/models');
+    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe(`Bearer ${fresh.access}`);
+    expect(headers['chatgpt-account-id']).toBe(fresh.accountId);
+  });
+
+  it('refreshes once after a 401', async () => {
+    const renewed = { ...fresh, access: 'renewed' };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"detail":"expired"}', { status: 401 }))
+      .mockResolvedValueOnce(json(renewed))
+      .mockResolvedValueOnce(json({ models: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const saved: ChatgptAuth[] = [];
+    await expect(listChatgptModels('http://m', () => fresh, (a) => saved.push(a))).resolves.toEqual([]);
+    expect(String(fetchMock.mock.calls[1]![0])).toBe('http://m/api/chatgpt/refresh');
+    expect(saved).toEqual([renewed]);
   });
 });

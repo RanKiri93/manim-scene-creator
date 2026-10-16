@@ -5,7 +5,7 @@ import type { ProviderId } from './providers';
 import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
 import { useSceneStore } from '@/store/useSceneStore';
 import { summarizeCameraProposal } from './cameraProposalSummary';
-import { signInWithChatgpt } from './providers/chatgptLoop';
+import { listChatgptModels, signInWithChatgpt, type ChatgptModel } from './providers/chatgptLoop';
 import { isTauriRuntime } from '@/lib/projectIO';
 
 const PROVIDER_OPTIONS: { id: ProviderId; label: string }[] = [
@@ -721,8 +721,38 @@ function LoopSettings({ provider }: { provider: ProviderId }) {
 /** Sign-in for the ChatGPT-subscription provider (through the measure server). */
 function ChatgptAccount() {
   const auth = useAgentStore((s) => s.chatgptAuth);
+  const model = useAgentStore((s) => s.model);
   const updateSettings = useAgentStore((s) => s.updateSettings);
   const measureUrl = useSceneStore((s) => s.measureConfig.url);
+  const signedIn = auth !== null;
+  const [models, setModels] = useState<ChatgptModel[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
+  // Load the models this account can use; switch away from a model the plan does not offer.
+  useEffect(() => {
+    if (!signedIn) {
+      setModels(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    setModelsError(null);
+    listChatgptModels(
+      measureUrl,
+      () => useAgentStore.getState().chatgptAuth,
+      (chatgptAuth) => updateSettings({ chatgptAuth }),
+      ctrl.signal,
+    )
+      .then((list) => {
+        setModels(list);
+        const current = useAgentStore.getState().model;
+        if (list.length && !list.some((m) => m.id === current)) updateSettings({ model: list[0]!.id });
+      })
+      .catch((e: unknown) => {
+        if (ctrl.signal.aborted) return;
+        setModelsError(e instanceof Error ? e.message : String(e));
+      });
+    return () => ctrl.abort();
+  }, [signedIn, measureUrl, updateSettings]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<{ url: string; openedByServer: boolean } | null>(null);
@@ -820,10 +850,28 @@ function ChatgptAccount() {
           </div>
         </div>
       )}
+      {auth && models && models.length > 0 && (
+        <label className="flex flex-col gap-1">
+          <span className="text-chalk-dim">Model for your plan</span>
+          <select
+            value={models.some((m) => m.id === model) ? model : ''}
+            onChange={(e) => updateSettings({ model: e.target.value })}
+            className="bg-raised border border-rule rounded-ctl px-2 py-1"
+          >
+            {!models.some((m) => m.id === model) && <option value="">{model || 'Choose a model'}</option>}
+            {models.map((m) => (
+              <option key={m.id} value={m.id} title={m.description}>
+                {m.name === m.id ? m.id : `${m.name} (${m.id})`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {auth && modelsError && <span className="text-meta text-danger break-words">{modelsError}</span>}
       {error && <span className="text-meta text-danger break-words">{error}</span>}
       <span className="text-meta text-chalk-faint">
         Uses your ChatGPT plan through the Codex sign-in (like OpenCode); needs the measure server.
-        Tokens stay in this browser&apos;s localStorage. Set the model to one your plan offers in Codex.
+        Tokens stay in this browser&apos;s localStorage. The model list comes from your plan.
       </span>
     </div>
   );

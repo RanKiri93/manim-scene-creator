@@ -595,7 +595,10 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   more after a 401. Sign-in: `signInWithChatgpt` → `/api/chatgpt/login/start` (PKCE, listener on
   `localhost:1455`) → poll `/login/status`. In the desktop app the window cannot open other pages,
   so it passes `?open_browser=true` and the measure server opens the default browser; the panel
-  always shows the link with a Copy button as a fallback. This provider always runs the loop
+  always shows the link with a Copy button as a fallback. After sign-in the panel loads
+  `GET /api/chatgpt/models` (the backend's `codex/models` list, sent with the latest Codex release
+  as `client_version`) and switches to the first listed model if the current one is not offered;
+  the backend refuses models the plan lacks with a 400 "not supported". This provider always runs the loop
   (`getProvider('chatgpt')` refuses single-shot). It relies on the Codex CLI's OAuth client and
   backend, which are undocumented and may change.
 - **Prompt.** `buildSystemPrompt(rules, 'loop')` swaps the JSON-envelope section for

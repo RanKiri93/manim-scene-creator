@@ -112,3 +112,28 @@ def test_start_login_opens_the_browser_only_when_asked(monkeypatch):
     assert started["authorize_url"].startswith(ca.AUTHORIZE_URL)
     for s in (plain["state"], started["state"]):
         ca._logins.pop(s, None)
+
+
+def test_client_version_from_release_tag():
+    assert ca.client_version_from_tag("rust-v0.160.0") == "0.160.0"
+    assert ca.client_version_from_tag("0.161.2") == "0.161.2"
+    assert ca.client_version_from_tag("nightly") == ca.FALLBACK_CLIENT_VERSION
+    assert ca.client_version_from_tag(None) == ca.FALLBACK_CLIENT_VERSION
+
+
+def test_parse_models_drops_hidden_and_sorts_by_priority():
+    data = {
+        "models": [
+            {"slug": "b", "display_name": "B", "priority": 5, "visibility": "list"},
+            {"slug": "hidden", "priority": 0, "visibility": "hide"},
+            {"slug": "a", "display_name": "A", "description": "best", "priority": 1},
+            {"slug": "c"},
+            {"display_name": "no slug"},
+        ]
+    }
+    assert ca.parse_models(data) == [
+        {"id": "a", "name": "A", "description": "best"},
+        {"id": "b", "name": "B", "description": ""},
+        {"id": "c", "name": "c", "description": ""},
+    ]
+    assert ca.parse_models({"unexpected": True}) == []

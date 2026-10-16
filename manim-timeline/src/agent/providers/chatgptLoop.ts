@@ -13,7 +13,8 @@ export interface ChatgptAuth {
   plan?: string | null;
 }
 
-export const DEFAULT_CHATGPT_MODEL = 'gpt-5.2';
+/** Used until the account's model list arrives; Codex with ChatGPT sign-in retires models often. */
+export const DEFAULT_CHATGPT_MODEL = 'gpt-6.1-sol';
 /** Refresh this long before the access token expires. */
 const REFRESH_MARGIN_MS = 120_000;
 
@@ -47,6 +48,46 @@ export async function refreshChatgptAuth(measureUrl: string, auth: ChatgptAuth):
   });
   if (!res.ok) throw new AgentProviderError(`ChatGPT sign-in expired; sign in again. (${await errorText(res)})`, res.status);
   return (await res.json()) as ChatgptAuth;
+}
+
+/** `auth`, refreshed first when it is about to expire (or always with `force`). */
+async function freshChatgptAuth(
+  measureUrl: string,
+  getAuth: () => ChatgptAuth | null,
+  saveAuth: (auth: ChatgptAuth) => void,
+  force = false,
+): Promise<ChatgptAuth> {
+  const auth = getAuth();
+  if (!auth) throw new AgentProviderError('Sign in with ChatGPT in Copilot settings first.');
+  if (!force && auth.expires - Date.now() > REFRESH_MARGIN_MS) return auth;
+  const next = await refreshChatgptAuth(measureUrl, auth);
+  saveAuth(next);
+  return next;
+}
+
+export interface ChatgptModel {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** Models this ChatGPT account can use through Codex, best first (via the measure server). */
+export async function listChatgptModels(
+  measureUrl: string,
+  getAuth: () => ChatgptAuth | null,
+  saveAuth: (auth: ChatgptAuth) => void,
+  signal?: AbortSignal,
+): Promise<ChatgptModel[]> {
+  const send = (auth: ChatgptAuth) =>
+    fetch(`${base(measureUrl)}/api/chatgpt/models`, {
+      headers: { Authorization: `Bearer ${auth.access}`, 'chatgpt-account-id': auth.accountId },
+      signal,
+    });
+  let res = await send(await freshChatgptAuth(measureUrl, getAuth, saveAuth));
+  if (res.status === 401) res = await send(await freshChatgptAuth(measureUrl, getAuth, saveAuth, true));
+  if (!res.ok) throw new AgentProviderError(`Could not load your ChatGPT models: ${await errorText(res)}`, res.status);
+  const data = (await res.json()) as { models?: ChatgptModel[] };
+  return data.models ?? [];
 }
 
 /**
@@ -101,13 +142,8 @@ export class ChatgptLoopConversation implements LoopConversation {
     };
   }
 
-  private async freshAuth(force = false): Promise<ChatgptAuth> {
-    const auth = this.opts.getAuth();
-    if (!auth) throw new AgentProviderError('Sign in with ChatGPT in Copilot settings first.');
-    if (!force && auth.expires - Date.now() > REFRESH_MARGIN_MS) return auth;
-    const next = await refreshChatgptAuth(this.opts.measureUrl, auth);
-    this.opts.saveAuth(next);
-    return next;
+  private freshAuth(force = false): Promise<ChatgptAuth> {
+    return freshChatgptAuth(this.opts.measureUrl, this.opts.getAuth, this.opts.saveAuth, force);
   }
 
   private send(auth: ChatgptAuth, signal?: AbortSignal): Promise<Response> {
@@ -126,7 +162,11 @@ export class ChatgptLoopConversation implements LoopConversation {
   async next(signal?: AbortSignal): Promise<LoopStep> {
     let res = await this.send(await this.freshAuth(), signal);
     if (res.status === 401) res = await this.send(await this.freshAuth(true), signal);
-    if (!res.ok) throw new AgentProviderError(`ChatGPT request failed (${res.status}): ${await errorText(res)}`, res.status);
+    if (!res.ok) {
+      const detail = await errorText(res);
+      const hint = /not supported/i.test(detail) ? ' Pick a model your plan offers in Copilot settings.' : '';
+      throw new AgentProviderError(`ChatGPT request failed (${res.status}): ${detail}${hint}`, res.status);
+    }
     const data = (await res.json()) as { output?: ResponseItem[] };
     const output = data.output ?? [];
     for (const item of output) {

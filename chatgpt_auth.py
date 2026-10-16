@@ -35,6 +35,9 @@ CALLBACK_PORT = 1455
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/auth/callback"
 SCOPE = "openid profile email offline_access"
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+CODEX_MODELS_URL = "https://chatgpt.com/backend-api/codex/models"
+# Sent as client_version when GitHub cannot be reached; the backend hides models newer clients need.
+FALLBACK_CLIENT_VERSION = "0.160.0"
 JWT_AUTH_CLAIM = "https://api.openai.com/auth"
 LOGIN_TIMEOUT_S = 300
 
@@ -288,6 +291,33 @@ def prompt_file_candidates(model: str) -> list[str]:
     return seen
 
 
+_release_cache: list[Any] = []  # [fetched_at, tag or None]
+
+
+def latest_codex_tag() -> str | None:
+    """Tag of the latest openai/codex release, e.g. ``rust-v0.160.0`` (cached an hour)."""
+    if _release_cache and time.time() - _release_cache[0] < _INSTRUCTIONS_TTL_S:
+        return _release_cache[1]
+    tag = None
+    release = _get_text("https://api.github.com/repos/openai/codex/releases/latest")
+    if release:
+        try:
+            tag = json.loads(release).get("tag_name") or None
+        except ValueError:
+            tag = None
+    _release_cache[:] = [time.time(), tag]
+    return tag
+
+
+def client_version_from_tag(tag: str | None) -> str:
+    """``rust-v0.160.0`` -> ``0.160.0``; the fallback version when there is no usable tag."""
+    if tag:
+        version = tag.rsplit("v", 1)[-1]
+        if version and all(part.isdigit() for part in version.split(".")):
+            return version
+    return FALLBACK_CLIENT_VERSION
+
+
 def codex_instructions(model: str) -> str:
     """The Codex CLI's base instructions for *model* from the latest release (cached an hour).
 
@@ -297,13 +327,7 @@ def codex_instructions(model: str) -> str:
     cached = _instructions_cache.get(model)
     if cached and time.time() - cached[0] < _INSTRUCTIONS_TTL_S:
         return cached[1]
-    tag = "main"
-    release = _get_text("https://api.github.com/repos/openai/codex/releases/latest")
-    if release:
-        try:
-            tag = json.loads(release).get("tag_name") or "main"
-        except ValueError:
-            tag = "main"
+    tag = latest_codex_tag() or "main"
     for name in prompt_file_candidates(model):
         text = _get_text(f"https://raw.githubusercontent.com/openai/codex/{tag}/codex-rs/core/{name}")
         if text:
@@ -356,15 +380,65 @@ def codex_request_body(body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _backend_headers(access_token: str, account_id: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {access_token}",
+        "chatgpt-account-id": account_id,
+        "originator": "codex_cli_rs",
+    }
+
+
+def parse_models(data: Any) -> list[dict[str, Any]]:
+    """The backend's model list -> ``[{id, name, description}]``, hidden models dropped, best first."""
+    raw = data.get("models") if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        return []
+    rows: list[tuple[float, int, dict[str, Any]]] = []
+    for i, m in enumerate(raw):
+        if not isinstance(m, dict):
+            continue
+        slug = m.get("slug") or m.get("id") or m.get("model")
+        if not isinstance(slug, str) or not slug:
+            continue
+        if str(m.get("visibility") or "list").lower() in ("hide", "hidden", "none"):
+            continue
+        priority = m.get("priority")
+        rank = float(priority) if isinstance(priority, (int, float)) else float("inf")
+        rows.append((rank, i, {
+            "id": slug,
+            "name": m.get("display_name") or slug,
+            "description": m.get("description") or "",
+        }))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    return [r[2] for r in rows]
+
+
+def list_models(access_token: str, account_id: str) -> list[dict[str, Any]]:
+    """Models this ChatGPT account can use in Codex, from the backend."""
+    version = client_version_from_tag(latest_codex_tag())
+    url = f"{CODEX_MODELS_URL}?{urllib.parse.urlencode({'client_version': version})}"
+    headers = {**_backend_headers(access_token, account_id), "Accept": "application/json"}
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:2000]
+        if e.code in (401, 403):
+            raise PermissionError(f"ChatGPT backend refused the request ({e.code}): {detail}") from None
+        raise RuntimeError(f"ChatGPT model list failed ({e.code}): {detail}") from None
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        raise RuntimeError(f"ChatGPT model list failed: {e}") from None
+    return parse_models(data)
+
+
 def send_responses(body: dict[str, Any], access_token: str, account_id: str) -> dict[str, Any]:
     payload = json.dumps(codex_request_body(body)).encode("utf-8")
     headers = {
+        **_backend_headers(access_token, account_id),
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
-        "Authorization": f"Bearer {access_token}",
-        "chatgpt-account-id": account_id,
         "OpenAI-Beta": "responses=experimental",
-        "originator": "codex_cli_rs",
     }
     req = urllib.request.Request(CODEX_RESPONSES_URL, data=payload, headers=headers, method="POST")
     try:
