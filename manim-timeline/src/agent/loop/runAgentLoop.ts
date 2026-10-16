@@ -20,6 +20,8 @@ export interface LoopOutcome {
   log: LoopLogEntry[];
   /** True when the step limit ended the turn before `finish`. */
   stoppedEarly: boolean;
+  /** A style note the Copilot suggests for the project (from `finish`). */
+  styleNote?: string;
 }
 
 /**
@@ -48,7 +50,7 @@ export async function runAgentLoop(args: {
       return done(response.text.trim() || 'Done.', false);
     }
     const results = [];
-    let finished: { reply: string } | undefined;
+    let finished: { reply: string; styleNote?: string } | undefined;
     for (const call of response.toolCalls) {
       const outcome = await runLoopTool(call, session, env);
       const picture = outcome.seen && outcome.result.images?.[0];
@@ -63,7 +65,7 @@ export async function runAgentLoop(args: {
       if (outcome.finished) finished = outcome.finished;
       report(step);
     }
-    if (finished) return done(finished.reply, false);
+    if (finished) return { ...done(finished.reply, false), ...(finished.styleNote ? { styleNote: finished.styleNote } : {}) };
     conversation.pushToolResults(results);
   }
   return done(

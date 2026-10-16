@@ -99,6 +99,7 @@ function buildProjectContentKeyFromState(): string {
     activeSceneId: project.activeSceneId,
     measureConfig: scene.measureConfig,
     scenes,
+    ...(project.copilotNotes.length ? { copilotNotes: project.copilotNotes } : {}),
   });
 }
 
@@ -109,6 +110,7 @@ function buildProjectContentKey(args: {
   activeSceneId: string | null;
   activePayload: SceneDiskPayload;
   measureConfig: unknown;
+  copilotNotes: string[];
 }): string {
   const scenes = args.sceneIds.map((sid) => ({
     id: sid,
@@ -121,6 +123,7 @@ function buildProjectContentKey(args: {
     activeSceneId: args.activeSceneId,
     measureConfig: args.measureConfig,
     scenes,
+    ...(args.copilotNotes.length ? { copilotNotes: args.copilotNotes } : {}),
   });
 }
 
@@ -224,6 +227,7 @@ export default function App() {
   const projectSceneTabNames = useProjectScenesStore((s) => s.sceneTabNames);
   const projectIdleScenes = useProjectScenesStore((s) => s.idleScenes);
   const projectActiveSceneId = useProjectScenesStore((s) => s.activeSceneId);
+  const projectCopilotNotes = useProjectScenesStore((s) => s.copilotNotes);
   const currentItems = useSceneStore((s) => s.items);
   const currentDefaults = useSceneStore((s) => s.defaults);
   const currentFrames = useSceneStore((s) => s.frames);
@@ -251,10 +255,12 @@ export default function App() {
         activeSceneId: projectActiveSceneId,
         activePayload: currentActivePayload,
         measureConfig: currentMeasureConfig,
+        copilotNotes: projectCopilotNotes,
       }),
     [
       currentActivePayload,
       currentMeasureConfig,
+      projectCopilotNotes,
       projectActiveSceneId,
       projectIdleScenes,
       projectSceneIds,

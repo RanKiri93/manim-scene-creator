@@ -128,6 +128,13 @@ export const SHAPE_ENDPOINTS_SCHEMA = {
   },
 } as const;
 
+/** Optional `styleNote` on a reply: a project convention to remember (the user approves it). */
+export const STYLE_NOTE_SCHEMA = {
+  type: 'string',
+  description:
+    'Optional. When the user corrects the same kind of thing a second time, or says "from now on" / "always", one short imperative sentence to remember for this project (e.g. "Dots are yellow (#facc15)."). Omit otherwise. The user decides whether to save it.',
+} as const;
+
 /** `shape.angle` (polyline): an angle mark between three anchors (geometry). */
 export const SHAPE_ANGLE_SCHEMA = {
   type: 'object',

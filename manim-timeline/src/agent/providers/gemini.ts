@@ -5,6 +5,7 @@ import {
   GRAPH_FIELD_PROPERTIES,
   GRAPH_FOLLOW_ROW_PROPERTIES,
   SHAPE_ANGLE_SCHEMA,
+  STYLE_NOTE_SCHEMA,
   SHAPE_ENDPOINTS_SCHEMA,
   TARGET_ANIMATION_MODES,
   TEXT_ANIM_PROPERTIES,
@@ -45,6 +46,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
       description:
         'The conversational message shown to the user. Required and non-empty. Use this to explain changes, ask clarifying questions, or discuss the scene. When you are only chatting, set actions to an empty array.',
     },
+    styleNote: STYLE_NOTE_SCHEMA,
     actions: {
       type: 'array',
       description:

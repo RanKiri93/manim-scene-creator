@@ -4,6 +4,8 @@ import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
 import { findWords } from '../narration';
 import { describeTimelineEdit } from '../timelineEdits';
+import { normalizeStyleNote } from '../validate';
+import { STYLE_NOTE_SCHEMA } from '../schemaFragments';
 import type { LoopImage, LoopToolCall, LoopToolResult, LoopToolSpec } from './types';
 
 /** Optional capabilities the host can add (e.g. preview snapshots). */
@@ -21,7 +23,7 @@ export interface LoopToolEnv {
 export interface ToolOutcome {
   result: LoopToolResult;
   /** Set by `finish`: the turn is over. */
-  finished?: { reply: string };
+  finished?: { reply: string; styleNote?: string };
   /** One-line summary for the visible work log. */
   summary: string;
   /** A picture tool: which time it showed and from where (for the Steps thumbnail). */
@@ -105,7 +107,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
       'End your turn. `reply` is the chat message to the user: what you did and anything they should check, or a clarifying question (then leave the draft empty).',
     inputSchema: {
       type: 'object',
-      properties: { reply: { type: 'string' } },
+      properties: { reply: { type: 'string' }, styleNote: STYLE_NOTE_SCHEMA },
       required: ['reply'],
     },
   });
@@ -191,7 +193,8 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
       case 'finish': {
         const reply = typeof input.reply === 'string' && input.reply.trim() ? input.reply.trim() : '';
         if (!reply) return fail('`reply` must be a non-empty string.', 'Finish without a reply');
-        return { result: { callId: call.id, text: 'ok' }, finished: { reply }, summary: 'Finished' };
+        const styleNote = normalizeStyleNote(input.styleNote);
+        return { result: { callId: call.id, text: 'ok' }, finished: { reply, ...(styleNote ? { styleNote } : {}) }, summary: 'Finished' };
       }
       default:
         return fail(`Unknown tool "${call.name}".`, `Unknown tool ${call.name}`);

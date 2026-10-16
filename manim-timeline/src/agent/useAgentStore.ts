@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { useSceneStore } from '@/store/useSceneStore';
 import { buildContextPayload, stripUiFields } from './serialize';
+import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import { buildSystemPrompt } from './systemPrompt';
 import { validateAgentResponse } from './validate';
 import { commitActions } from './commit';
@@ -79,6 +80,9 @@ interface AgentStoreShape extends AgentSettings, AgentSession {
   cancelRequest: () => void;
   approveMessage: (messageId: string) => void;
   rejectMessage: (messageId: string) => void;
+  /** Save a suggested style note (possibly edited) to the project, or dismiss it. */
+  saveStyleNote: (messageId: string, note: string) => void;
+  dismissStyleNote: (messageId: string) => void;
   regenerateLast: () => Promise<void>;
   newChat: () => void;
 }
@@ -185,6 +189,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             ...(outcome.thinking ? { thinking: outcome.thinking } : {}),
             ...(outcome.warnings.length ? { warnings: outcome.warnings } : {}),
             ...(outcome.log.length ? { log: outcome.log } : {}),
+            ...(outcome.styleNote ? { styleNote: outcome.styleNote, styleNoteStatus: 'pending' as const } : {}),
             ...(hasActions
               ? {
                   actions: outcome.actions,
@@ -260,6 +265,7 @@ export const useAgentStore = create<AgentStoreShape>()(
           startFrameId: sceneState.startFrameId,
           activeFrameId: sceneState.activeFrameId,
           audioItems: sceneState.audioItems,
+          projectNotes: useProjectScenesStore.getState().copilotNotes,
         });
         const systemPrompt = buildSystemPrompt(state.customRules);
         // Everything preceding the most recent user turn is "history".
@@ -360,6 +366,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             content: resp.reply,
             ...(resp.thinking ? { thinking: resp.thinking } : {}),
             ...(result.warnings.length ? { warnings: result.warnings } : {}),
+            ...(resp.styleNote ? { styleNote: resp.styleNote, styleNoteStatus: 'pending' as const } : {}),
             ...(hasActions
               ? {
                   actions: resp.actions,
@@ -467,6 +474,21 @@ export const useAgentStore = create<AgentStoreShape>()(
               s.activePreviewMessageId === messageId
                 ? null
                 : s.activePreviewMessageId,
+          }));
+        },
+
+        saveStyleNote: (messageId, note) => {
+          useProjectScenesStore.getState().addCopilotNote(note);
+          set((s) => ({
+            ...s,
+            messages: s.messages.map((m) => (m.id === messageId ? { ...m, styleNote: note.trim() || m.styleNote, styleNoteStatus: 'saved' as const } : m)),
+          }));
+        },
+
+        dismissStyleNote: (messageId) => {
+          set((s) => ({
+            ...s,
+            messages: s.messages.map((m) => (m.id === messageId ? { ...m, styleNoteStatus: 'dismissed' as const } : m)),
           }));
         },
 

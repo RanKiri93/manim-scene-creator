@@ -1309,6 +1309,11 @@ export interface MultiSceneProjectFile {
   measureConfig: MeasureConfig;
   activeSceneId: string;
   scenes: ProjectSceneFile[];
+  /**
+   * Copilot style notes for this project ("dots are yellow", "text lines 0.3 apart"), sent with
+   * every Copilot request. Optional; older projects have none.
+   */
+  copilotNotes?: string[];
 }
 
 /** Union of persisted full-project shapes (legacy single scene or multi-scene). */

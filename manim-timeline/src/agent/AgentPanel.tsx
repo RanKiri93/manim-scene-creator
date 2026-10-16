@@ -4,6 +4,7 @@ import { useAgentStore } from './useAgentStore';
 import type { ProviderId } from './providers';
 import { buildScriptToTimelinePrompt } from './scriptToTimelinePrompt';
 import { useSceneStore } from '@/store/useSceneStore';
+import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import { summarizeCameraProposal } from './cameraProposalSummary';
 import { describeTimelineEdit } from './timelineEdits';
 import { listChatgptModels, signInWithChatgpt, type ChatgptModel } from './providers/chatgptLoop';
@@ -344,6 +345,8 @@ function AssistantBubble({
           </ul>
         )}
 
+        {message.styleNote && <StyleNoteSuggestion message={message} />}
+
         {message.log && message.log.length > 0 && (
           <details className="text-meta text-chalk-dim">
             <summary className="cursor-pointer select-none hover:text-chalk">
@@ -670,6 +673,8 @@ function SettingsBlock({
 
       <LoopSettings provider={provider} />
 
+      <ProjectNotesEditor />
+
       <label className="flex flex-col gap-1">
         <span className="text-chalk-dim">
           Custom rules (appended to system prompt)
@@ -906,5 +911,64 @@ function SeenThumbnail({ image }: { image: { src: string; time: number; source: 
     >
       <img src={image.src} alt={`${what} at ${image.time.toFixed(2)}s`} className="block w-40 h-auto" />
     </button>
+  );
+}
+
+/** A style note the Copilot suggests remembering for this project: save (editable) or dismiss. */
+function StyleNoteSuggestion({ message }: { message: AgentChatMessage }) {
+  const saveStyleNote = useAgentStore((s) => s.saveStyleNote);
+  const dismissStyleNote = useAgentStore((s) => s.dismissStyleNote);
+  const [text, setText] = useState(message.styleNote ?? '');
+  if (message.styleNoteStatus === 'saved') {
+    return <div className="text-meta text-chalk-faint">Saved to this project's notes: {message.styleNote}</div>;
+  }
+  if (message.styleNoteStatus === 'dismissed') return null;
+  return (
+    <div className="flex flex-col gap-1 rounded-ctl border border-rule bg-ink/40 p-2 text-meta">
+      <span className="text-chalk-dim">Remember this for the project?</span>
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="bg-raised border border-rule rounded-ctl px-2 py-1 text-chalk"
+        aria-label="Style note"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={!text.trim()}
+          onClick={() => saveStyleNote(message.id, text)}
+          className="px-2 py-0.5 rounded-ctl bg-raised text-chalk hover:bg-rule disabled:opacity-40"
+        >
+          Save note
+        </button>
+        <button type="button" onClick={() => dismissStyleNote(message.id)} className="px-2 py-0.5 rounded-ctl text-chalk-dim hover:text-chalk">
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The project's Copilot style notes, one per line (saved in the project file). */
+function ProjectNotesEditor() {
+  const notes = useProjectScenesStore((s) => s.copilotNotes);
+  const setCopilotNotes = useProjectScenesStore((s) => s.setCopilotNotes);
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-chalk-dim">Notes for this project (one per line; saved in the project file, sent with every request)</span>
+      <textarea
+        value={draft ?? notes.join('\n')}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft != null) setCopilotNotes(draft.split('\n'));
+          setDraft(null);
+        }}
+        rows={3}
+        spellCheck={false}
+        className="bg-raised border border-rule rounded-ctl px-2 py-1 text-meta"
+        placeholder="e.g. Dots are yellow (#facc15). Text lines are 0.3 apart."
+      />
+    </label>
   );
 }

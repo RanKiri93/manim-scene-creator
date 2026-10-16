@@ -337,6 +337,9 @@ Real LLM responses are noisy. The validator has two responsibilities:
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
 - `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
   `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
+- Style notes: the project's `copilotNotes` (`MultiSceneProjectFile`, `useProjectScenesStore`) go into the payload
+  as `projectNotes` (rule 15). A reply may carry `styleNote` (both schemas; in the loop `finish({ reply,
+  styleNote })`); the message shows Save / Dismiss and Save adds it to the project (`saveStyleNote`).
 - Steps thumbnails: `snapshot_preview` / `render_manim_frame` outcomes carry `seen { time, source }`;
   `runAgentLoop` shrinks the picture with `env.thumbnail` (`loop/thumbnail.ts`, ~160 px JPEG) into the log
   entry's `image`. Only the last 10 saved messages keep them in localStorage (`withoutOldThumbnails`).

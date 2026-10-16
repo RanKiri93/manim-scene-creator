@@ -1,4 +1,4 @@
-import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, STYLE_NOTE_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
@@ -84,6 +84,8 @@ export interface AgentContextPayload {
   activeFrameId: ItemId | null;
   /** Narration tracks with their words in scene time (omitted when the scene has no audio). */
   narration?: AgentNarrationTrack[];
+  /** The project's style notes (omitted when there are none); follow them for new items. */
+  projectNotes?: string[];
 }
 
 /** One audio track as the Copilot sees it: its text, window and words as [word, scene start]. */
@@ -119,6 +121,8 @@ export interface AgentChatResponse {
   reply: string;
   actions: AgentAction[];
   thinking?: string;
+  /** A style note the Copilot suggests remembering for this project (the user approves it). */
+  styleNote?: string;
 }
 
 export type AgentMessageStatus =
@@ -150,6 +154,9 @@ export interface AgentChatMessage {
   autoApplied?: boolean;
   /** Frozen camera-relevant request fingerprint, used only to gate approval. */
   cameraSnapshotKey?: string;
+  /** Assistant only: a style note proposed for the project, and what the user did with it. */
+  styleNote?: string;
+  styleNoteStatus?: 'pending' | 'saved' | 'dismissed';
 }
 
 /**
@@ -174,6 +181,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
         'Use this to explain changes, ask clarifying questions, or discuss the scene. ' +
         'When you are only talking (not proposing edits), set `actions` to an empty array.',
     },
+    styleNote: STYLE_NOTE_SCHEMA,
     actions: {
       type: 'array',
       description:

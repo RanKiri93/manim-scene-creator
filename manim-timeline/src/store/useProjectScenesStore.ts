@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { newId } from '@/lib/ids';
 import { PROJECT_VERSION } from '@/lib/constants';
+import { normalizeCopilotNotes } from '@/lib/copilotNotes';
 import type {
   MultiSceneProjectFile,
   ProjectSceneFile,
@@ -61,6 +62,10 @@ interface ProjectScenesStore {
   idleScenes: Record<string, SceneDiskPayload>;
   activeSceneId: string | null;
   sceneRenderMeta: Record<string, SceneRenderMeta>;
+  /** Copilot style notes saved with the project (see `MultiSceneProjectFile.copilotNotes`). */
+  copilotNotes: string[];
+  setCopilotNotes: (notes: string[]) => void;
+  addCopilotNote: (note: string) => void;
 
   /** First visit: associate current editor buffer with Scene 1 */
   bootstrapIfNeeded: () => void;
@@ -109,6 +114,10 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
   idleScenes: {},
   activeSceneId: null,
   sceneRenderMeta: {},
+  copilotNotes: [],
+
+  setCopilotNotes: (notes) => set({ copilotNotes: normalizeCopilotNotes(notes) }),
+  addCopilotNote: (note) => set((s) => ({ copilotNotes: normalizeCopilotNotes([...s.copilotNotes, note]) })),
 
   bootstrapIfNeeded: () => {
     if (get().hydrated) return;
@@ -175,6 +184,7 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
       idleScenes: idle,
       activeSceneId: activeId,
       sceneRenderMeta: meta,
+      copilotNotes: normalizeCopilotNotes(multi.copilotNotes),
     });
   },
 
@@ -282,7 +292,7 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     const st2 = get();
     const reserved = collectReservedAcrossProject(st2);
 
-    let basePayload: SceneDiskPayload | undefined =
+    const basePayload: SceneDiskPayload | undefined =
       sourceId === st2.activeSceneId
         ? snapshotEditorToDiskPayload()
         : st2.idleScenes[sourceId];
@@ -341,13 +351,13 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     const filtered = st.sceneIds.filter((x) => x !== id);
     if (filtered.length === 0) return;
 
-    let idle = { ...st.idleScenes };
+    const idle = { ...st.idleScenes };
     delete idle[id];
 
-    let nextTabs = { ...st.sceneTabNames };
+    const nextTabs = { ...st.sceneTabNames };
     delete nextTabs[id];
 
-    let nextMeta = { ...st.sceneRenderMeta };
+    const nextMeta = { ...st.sceneRenderMeta };
     delete nextMeta[id];
 
     if (st.activeSceneId === id) {
@@ -465,6 +475,7 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
       measureConfig: { ...useSceneStore.getState().measureConfig },
       activeSceneId: activeFallback,
       scenes,
+      ...(st.copilotNotes.length ? { copilotNotes: [...st.copilotNotes] } : {}),
     };
   },
 

@@ -30,6 +30,7 @@ interface BuildPayloadInput {
   startFrameId?: ItemId | null;
   activeFrameId?: ItemId | null;
   audioItems?: readonly AudioTrackItem[];
+  projectNotes?: readonly string[];
 }
 
 /**
@@ -58,5 +59,6 @@ export function buildContextPayload(input: BuildPayloadInput): AgentContextPaylo
     startFrameId: input.startFrameId ?? null,
     activeFrameId: input.activeFrameId ?? null,
     ...(input.audioItems?.length ? { narration: narrationPayload(input.audioItems) } : {}),
+    ...(input.projectNotes?.length ? { projectNotes: [...input.projectNotes] } : {}),
   };
 }

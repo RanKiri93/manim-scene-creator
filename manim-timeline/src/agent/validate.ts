@@ -47,6 +47,7 @@ import {
   isAgentAllowedKind,
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
+import { MAX_COPILOT_NOTE_LENGTH } from '@/lib/copilotNotes';
 import {
   angleMarkStaticGeometry,
   connectorStaticGeometry,
@@ -541,9 +542,17 @@ export function validateAgentResponse(
       reply: replyRaw,
       actions: normalizedActions,
       ...(thinking ? { thinking } : {}),
+      ...(normalizeStyleNote(resp.styleNote) ? { styleNote: normalizeStyleNote(resp.styleNote) } : {}),
     },
     warnings,
   };
+}
+
+/** A suggested project style note: one trimmed line, or undefined. */
+export function normalizeStyleNote(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const note = v.trim().replace(/\s+/g, ' ').slice(0, MAX_COPILOT_NOTE_LENGTH);
+  return note || undefined;
 }
 
 /** Optional fields a kind may carry even when the stored item omits them. */
