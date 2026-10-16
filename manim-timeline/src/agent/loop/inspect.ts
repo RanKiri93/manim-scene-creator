@@ -6,6 +6,8 @@ import { frameCenterById } from '@/lib/frameGrid';
 import { resolveGraphDotPosition } from '@/lib/graphMotion';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { axesGraphToWorld, isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
+import { buildGraphAnnotationLayout } from '@/lib/graphAnnotationLayout';
+import { liveValueSlope } from '@/lib/graphLiveValue';
 import { effectiveEnd, effectiveStart, isTransformSourceHiddenInPreview } from '@/lib/time';
 import { transformSourceIds } from '@/lib/transformMapping';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
@@ -183,6 +185,16 @@ function itemFacts(
       if (motion.error) row.error = motion.error;
       row.graph = pt(motion.point);
       if (axes?.kind === 'axes') row.world = pt(axesGraphToWorld(axes, motion.point.x, motion.point.y, ctx(time)));
+      if (item.dot.showCoordinates && !motion.error) {
+        row.liveLabel = buildGraphAnnotationLayout({
+          dot: item.dot,
+          point: { x: 0, y: 0 },
+          coordinate: motion.point,
+          radiusPx: 1,
+          pxPerUnit: 1,
+          slope: liveValueSlope(item, motion.point.x, scene),
+        }).coordinateText;
+      }
       return row;
     }
     if (isConnectorShape(item)) {

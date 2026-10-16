@@ -42,6 +42,11 @@ export const GRAPH_DOT_SCHEMA = {
     coordinateDir: { type: 'string', enum: DIRECTIONS },
     coordinateSpacing: { type: 'number' },
     coordinatePrecision: { type: 'integer', description: 'Decimals in the live coordinate label (0–6).' },
+    valueTemplate: {
+      type: 'string',
+      description:
+        'With showCoordinates: text of the live label instead of "(x, y)". {x}, {y} and {slope} (dy/dx of the plot the dot is on) are filled in every frame; the rest is fixed text, typeset as math unless it has $ or Hebrew. Examples: "f(x) = {y}", "\\text{slope} = {slope}", "({x}, {y})".',
+    },
   },
 } as const;
 

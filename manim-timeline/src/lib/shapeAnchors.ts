@@ -11,7 +11,8 @@ import type {
 } from '@/types/scene';
 import { axesRasterGeometry } from '@/lib/axesRasterPreview';
 import { frameCenterById } from '@/lib/frameGrid';
-import { evaluateGraphY, graphFollowClipsForDot, graphProjectionGuides, resolveGraphDotPosition } from '@/lib/graphMotion';
+import { evaluateGraphY, graphProjectionGuides, resolveGraphDotPosition } from '@/lib/graphMotion';
+import { dotFunctionPlot, slopeSamplePoints } from '@/lib/graphLiveValue';
 import { rawDirectionComponents } from '@/lib/nextToGeometry';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
@@ -169,9 +170,6 @@ export type ConnectorResult =
     }
   | { start: null; end: null; error: string };
 
-/** Step for the numerical slope, as a share of the plot's x domain (same in preview and export). */
-export const TANGENT_SLOPE_STEP = 1e-4;
-
 /**
  * The dot and the function plot a tangent connector uses: `tangent.plotId`, else the plot the dot
  * is attached to, else the one plot its Move-along-graph clips follow.
@@ -185,31 +183,9 @@ export function tangentSource(
   if (endpoints.start.kind !== 'graphDot') return { error: 'A tangent needs its start anchor on a graph dot.' };
   const dot = items.get(endpoints.start.dotId);
   if (dot?.kind !== 'graphDot') return { error: `Tangent dot "${endpoints.start.dotId}" is not a graph dot.` };
-  const axes = items.get(dot.axesId);
-  if (axes?.kind !== 'axes') return { error: `Graph dot "${dot.id}" has no axes.` };
-  const attachment = dot.dot.attachment;
-  let plotId = endpoints.tangent?.plotId;
-  if (!plotId && attachment?.kind === 'function') plotId = attachment.graphPlotId;
-  if (!plotId && attachment?.kind === 'parametric') {
-    return { error: `Graph dot "${dot.id}" sits on a parametric curve; a tangent needs a function plot.` };
-  }
-  if (!plotId) {
-    const followed = [
-      ...new Set(
-        graphFollowClipsForDot([...items.values()], dot.id)
-          .map(({ row }) => row.graphPlotId)
-          .filter((id): id is ItemId => !!id),
-      ),
-    ];
-    if (followed.length === 1) plotId = followed[0];
-    else if (followed.length > 1) return { error: `Graph dot "${dot.id}" follows several plots; set the tangent's plotId.` };
-  }
-  if (!plotId) return { error: `Graph dot "${dot.id}" is not on a function plot; set the tangent's plotId.` };
-  const plot = items.get(plotId);
-  if (plot?.kind !== 'graphPlot') return { error: `Tangent plot "${plotId}" is not a function plot.` };
-  if (plot.axesId !== dot.axesId) return { error: `Tangent plot "${plotId}" and dot "${dot.id}" use different axes.` };
-  const [a, b] = plot.xDomain ?? [axes.xRange[0], axes.xRange[1]];
-  return { dot, plot, axes, domain: [Math.min(a, b), Math.max(a, b)], error: null };
+  const r = dotFunctionPlot(dot, items, endpoints.tangent?.plotId);
+  if (r.error != null) return { error: `${r.error} Set the tangent's plotId.` };
+  return { dot, ...r };
 }
 
 function resolveTangent(shape: ShapeItem & { endpoints: ShapeEndpoints }, ctx: AnchorContext): ConnectorResult {
@@ -219,10 +195,7 @@ function resolveTangent(shape: ShapeItem & { endpoints: ShapeEndpoints }, ctx: A
   if (src.error != null) return { start: null, end: null, error: src.error };
   const at = dotAndAxes(src.dot.id, ctx);
   if (at.error != null) return { start: null, end: null, error: at.error };
-  const [lo, hi] = src.domain;
-  const h = Math.max(1e-9, (hi - lo) * TANGENT_SLOPE_STEP);
-  const x0 = Math.max(lo, at.point.x - h);
-  const x1 = Math.min(hi, at.point.x + h);
+  const [x0, x1] = slopeSamplePoints(at.point.x, src.domain);
   const noSlope = `Plot "${src.plot.id}" has no slope at x = ${at.point.x.toFixed(3)}.`;
   let y0: number;
   let y1: number;

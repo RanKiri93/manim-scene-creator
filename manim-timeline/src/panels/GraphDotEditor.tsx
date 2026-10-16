@@ -9,6 +9,7 @@ import FloatingPanel from '@/components/FloatingPanel';
 import AxesIdSelect from './AxesIdSelect';
 import AudioBindingSelect from './AudioBindingSelect';
 import PropertyTabs from './PropertyTabs';
+import { parseLiveValueTemplate } from '@/lib/graphLiveValue';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 
 interface GraphDotEditorProps {
@@ -33,6 +34,7 @@ export default function GraphDotEditor({ item }: GraphDotEditorProps) {
 
   const dot = item.dot;
   const patchDot = (p: Partial<typeof dot>) => set({ dot: { ...dot, ...p } });
+  const unknownLiveKeys = dot.valueTemplate ? parseLiveValueTemplate(dot.valueTemplate).unknown : [];
   const attachment = dot.attachment ?? { kind: 'free' as const };
   const graphPlots = [...itemsMap.values()].filter((candidate) => candidate.kind === 'graphPlot' && candidate.axesId === item.axesId);
   const graphCurves = [...itemsMap.values()].filter((candidate) => candidate.kind === 'graphCurve' && candidate.axesId === item.axesId);
@@ -195,6 +197,25 @@ export default function GraphDotEditor({ item }: GraphDotEditorProps) {
         <FloatingPanel title="Labels & coordinates" onClose={() => closeLabels()} defaultSize={{ w: 390, h: 490 }}>
         <div className="flex flex-col gap-4" dir="rtl">
           <label className="text-ctl text-chalk-dim flex items-center gap-2"><input type="checkbox" checked={dot.showCoordinates === true} onChange={(event) => patchDot({ showCoordinates: event.target.checked })} />הצגת קואורדינטות</label>
+          {dot.showCoordinates === true && (
+            <label className="text-ctl text-chalk-dim">
+              טקסט התווית החיה
+              <input
+                type="text"
+                dir="ltr"
+                value={dot.valueTemplate ?? ''}
+                placeholder="(x, y)"
+                onChange={(event) => patchDot({ valueTemplate: event.target.value || undefined })}
+                className="mt-1 block w-full rounded-ctl border border-rule bg-raised px-2 py-1 font-mono"
+              />
+              <span className="mt-1 block text-meta text-chalk-faint">
+                {'{x}, {y}, {slope} מתעדכנים בכל פריים, למשל f(x) = {y}. ריק = (x, y).'}
+              </span>
+              {unknownLiveKeys.length > 0 && (
+                <span className="mt-1 block text-meta text-warn">{`לא מוכר: {${unknownLiveKeys.join('}, {')}}`}</span>
+              )}
+            </label>
+          )}
           <label className="text-ctl text-chalk-dim flex items-center gap-2"><input type="checkbox" checked={dot.showProjectionGuides === true} onChange={(event) => patchDot({ showProjectionGuides: event.target.checked })} />הצגת קווי הקרנה</label>
           <label className="text-ctl text-chalk-dim">תווית קבועה<input type="text" value={dot.label} onChange={(event) => patchDot({ label: event.target.value })} className="mt-1 block w-full rounded-ctl border border-rule bg-raised px-2 py-1" /></label>
           <div className="flex flex-wrap items-center gap-3"><NumberInput label="גודל תווית" value={dot.labelFontSize ?? 18} onChange={(labelFontSize) => patchDot({ labelFontSize })} min={6} max={72} /><ColorPicker value={dot.labelColor ?? '#ffffff'} onChange={(labelColor) => patchDot({ labelColor })} /><DirectionPicker label="כיוון תווית" value={dot.labelDir} onChange={(labelDir) => patchDot({ labelDir })} /><NumberInput label="מרווח" value={dot.labelSpacing ?? 0.15} onChange={(labelSpacing) => patchDot({ labelSpacing })} min={0} step={0.01} /></div>

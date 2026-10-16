@@ -478,6 +478,8 @@ export function buildGraphDotPreviewSpec(args: {
   scenePxPerUnit: number;
   axes?: AxesItem;
   graphToLocal?: (gx: number, gy: number) => { x: number; y: number };
+  /** Plot slope at the dot for a `{slope}` live value. */
+  slope?: number | null;
 }): GraphDotPreviewSpec {
   const { dot, axW, axH, xMin, xMax, yMin, yMax, scenePxPerUnit, axes, graphToLocal } = args;
   const xSpan = xMax - xMin;
@@ -489,7 +491,7 @@ export function buildGraphDotPreviewSpec(args: {
     Number.isFinite(dot.radius) && dot.radius > 0
       ? Math.max(1, dot.radius * scenePxPerUnit)
       : Math.max(1, 0.08 * scenePxPerUnit);
-  const annotations = buildGraphAnnotationLayout({ dot, point: { x, y }, coordinate: { x: dot.dx, y: dot.dy }, radiusPx: radius, pxPerUnit: scenePxPerUnit });
+  const annotations = buildGraphAnnotationLayout({ dot, point: { x, y }, coordinate: { x: dot.dx, y: dot.dy }, radiusPx: radius, pxPerUnit: scenePxPerUnit, slope: args.slope });
   return {
     x,
     y,

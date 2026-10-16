@@ -32,6 +32,13 @@ import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 import { emitNextToPython } from './nextToCodegen';
 import { resolveAttachedGraphDot, graphProjectionGuides } from '@/lib/graphMotion';
 import { areaCanReveal, effectiveAreaIntroStyle } from '@/lib/graphAreaReveal';
+import {
+  dotFunctionPlot,
+  liveTemplateTexSource,
+  parseLiveValueTemplate,
+  PLOT_SLOPE_STEP,
+  templateUsesSlope,
+} from '@/lib/graphLiveValue';
 
 export function manimColor(hex: string): string {
   return `ManimColor("${hex}")`;
@@ -680,6 +687,7 @@ export function generateGraphDotDef(
   item: GraphDotItem,
   axVar: string,
   indent: number,
+  itemsMap: ReadonlyMap<ItemId, SceneItem> = new Map(),
 ): string {
   const pad = ' '.repeat(indent);
   const dVar = overlayDotVar(axVar, item.id);
@@ -694,7 +702,8 @@ export function generateGraphDotDef(
     const lblVar = `${dVar}_lbl`;
     s += `${pad}${lblVar} = HebrewMathLine(${pythonStringLiteral(dot.label.trim())}, font_size=${Number.isFinite(dot.labelFontSize) ? dot.labelFontSize : 18}, color=${manimColor(dot.labelColor ?? '#ffffff')}, hebrew_font="Alef")\n`;
   }
-  if (dot.showCoordinates) s += `${pad}${dVar}_coord = _graph_coord_text(${dVar}, ${Number.isFinite(dot.coordinateFontSize) ? dot.coordinateFontSize : 18}, ${manimColor(dot.coordinateColor ?? '#e2e8f0')}, ${Math.max(0, Math.min(6, Math.trunc(dot.coordinatePrecision ?? 2)))})\n`;
+  if (dot.showCoordinates && dot.valueTemplate?.trim()) s += graphDotValueTextDef(item, dVar, pad, itemsMap);
+  else if (dot.showCoordinates) s += `${pad}${dVar}_coord = _graph_coord_text(${dVar}, ${Number.isFinite(dot.coordinateFontSize) ? dot.coordinateFontSize : 18}, ${manimColor(dot.coordinateColor ?? '#e2e8f0')}, ${Math.max(0, Math.min(6, Math.trunc(dot.coordinatePrecision ?? 2)))})\n`;
   if (dot.showProjectionGuides) {
     s += `${pad}${dVar}_guide_v = Line(ORIGIN, ORIGIN, color=ManimColor("#94a3b8"), stroke_width=1)\n`;
     s += `${pad}${dVar}_guide_h = Line(ORIGIN, ORIGIN, color=ManimColor("#94a3b8"), stroke_width=1)\n`;
@@ -705,6 +714,38 @@ export function generateGraphDotDef(
   const pyGuideH = dot.showProjectionGuides ? `${dVar}_guide_h` : 'None';
   s += `${pad}${dVar}_update = lambda point: _graph_update_dot(${dVar}, point, ${pyLabel}, ${pyCoordinate}, ${pyGuideV}, ${pyGuideH}, ${axVar}, ${dot.labelDir}, ${Number.isFinite(dot.labelSpacing) ? dot.labelSpacing : 0.15}, ${dot.coordinateDir ?? 'DOWN'}, ${Number.isFinite(dot.coordinateSpacing) ? dot.coordinateSpacing : 0.15}, ${Math.max(0, Math.min(6, Math.trunc(dot.coordinatePrecision ?? 2)))})\n`;
   return s;
+}
+
+/**
+ * Live label from `dot.valueTemplate`: fixed pieces are `HebrewMathLine`s built once here, values
+ * are drawn from the cached digit glyphs in the updater (no TeX while playing). `{slope}` uses the
+ * plot's Python expression with the same step and domain clamp as the preview.
+ */
+function graphDotValueTextDef(item: GraphDotItem, dVar: string, pad: string, itemsMap: ReadonlyMap<ItemId, SceneItem>): string {
+  const dot = item.dot;
+  const fontSize = Number.isFinite(dot.coordinateFontSize) ? dot.coordinateFontSize! : 18;
+  const color = manimColor(dot.coordinateColor ?? '#e2e8f0');
+  const { parts, unknown } = parseLiveValueTemplate(dot.valueTemplate ?? '');
+  if (unknown.length) {
+    throw new Error(`Graph dot "${item.label || item.id}": live value template has {${unknown[0]}}; use {x}, {y} or {slope}.`);
+  }
+  const pyParts = parts.flatMap((part) => {
+    if (part.kind === 'value') return [JSON.stringify(part.key)];
+    const tex = liveTemplateTexSource(part.text);
+    return tex ? [`HebrewMathLine(${pythonStringLiteral(tex)}, font_size=${fontSize}, color=${color}, hebrew_font="Alef")`] : [];
+  });
+  let slope = 'None';
+  if (templateUsesSlope(dot.valueTemplate)) {
+    const src = dotFunctionPlot(item, itemsMap);
+    if (src.error != null) throw new Error(`Graph dot "${item.label || item.id}": {slope} needs a function plot. ${src.error}`);
+    const [lo, hi] = src.domain;
+    const h = Math.max(1e-9, (hi - lo) * PLOT_SLOPE_STEP).toExponential(6);
+    const f = `(lambda x: (${(src.plot.fn.pyExpr || 'x').replace(/\s+/g, ' ')}))`;
+    slope =
+      `lambda _x: (lambda _f, _x0, _x1: (_f(_x1) - _f(_x0)) / (_x1 - _x0) if _x1 > _x0 else float("nan"))` +
+      `(${f}, max(${lo}, _x - ${h}), min(${hi}, _x + ${h}))`;
+  }
+  return `${pad}${dVar}_coord = _graph_value_text(${fontSize}, ${color}, [${pyParts.join(', ')}], ${slope})\n`;
 }
 
 /** Call after generateAxesPos for `axVar` so coords_to_point uses the final axes placement. */
@@ -739,7 +780,7 @@ export function graphDotAnnotationHelperSource(indent = 0, includeCoordinates = 
       `${p}def _graph_fixed(value, precision):\n`+
       `${q}rounded = Decimal.from_float(abs(float(value))).quantize(Decimal(1).scaleb(-precision), rounding=ROUND_HALF_UP)\n`+
       `${q}text = f"{rounded:.{precision}f}"\n`+
-      `${q}return ("-" if value < 0 else "") + text\n`+
+      `${q}return ("-" if value < 0 and rounded != 0 else "") + text\n`+
       `${p}def _graph_coordinate_glyphs(text, font_size, color):\n`+
       `${q}group = VGroup()\n`+
       `${q}cursor = 0.0\n`+
@@ -758,12 +799,31 @@ export function graphDotAnnotationHelperSource(indent = 0, includeCoordinates = 
       `${q}    cursor += ink_width + 0.012 * scale\n`+
       `${q}group.move_to(ORIGIN)\n`+
       `${q}return group\n`+
+      // A play fixes its list of moving mobjects (whole families) when it starts, so a glyph
+      // swapped out mid-play would still be drawn where it was left; empty it first.
+      `${p}def _graph_retire_glyphs(coord):\n`+
+      `${q}for old in coord.family_members_with_points():\n`+
+      `${q}    old.clear_points()\n`+
+      `${q}coord.remove(*coord.submobjects)\n`+
       `${p}def _graph_coord_text(dot, font_size, color, precision):\n`+
       `${q}group = _graph_coordinate_glyphs("", font_size, color)\n`+
       `${q}group._graph_text = None\n`+
       `${q}group._graph_font_size = font_size\n`+
       `${q}group._graph_color = color\n`+
-      `${q}return group\n`;
+      `${q}return group\n`+
+      // Live label from a template: parts are value names ("x", "y", "slope") or fixed mobjects.
+      `${p}def _graph_value_text(font_size, color, parts, slope):\n`+
+      `${q}group = VGroup()\n`+
+      `${q}group._graph_text = None\n`+
+      `${q}group._graph_font_size = font_size\n`+
+      `${q}group._graph_color = color\n`+
+      `${q}group._graph_parts = parts\n`+
+      `${q}group._graph_slope = slope\n`+
+      `${q}return group\n`+
+      `${p}def _graph_value_texts(coord, x, y, precision):\n`+
+      `${q}values = {"x": x, "y": y}\n`+
+      `${q}if coord._graph_slope is not None: values["slope"] = coord._graph_slope(x)\n`+
+      `${q}return [(_graph_fixed(values[part], precision) if np.isfinite(values[part]) else "?") if isinstance(part, str) else part for part in coord._graph_parts]\n`;
   }
   source +=
     `${p}def _graph_update_dot(dot, point, label, coord, guide_v, guide_h, axes, label_dir, label_gap, coord_dir, coord_gap, precision):\n`+
@@ -786,10 +846,22 @@ export function graphDotAnnotationHelperSource(indent = 0, includeCoordinates = 
     source += `${p}def _graph_update_coordinate(coord, point, dot, coord_dir, coord_gap, precision):\n`+
       `${q}x = 0.0 if point[0] == 0 else point[0]\n`+
       `${q}y = 0.0 if point[1] == 0 else point[1]\n`+
+      `${q}if getattr(coord, "_graph_parts", None) is not None:\n`+
+      `${q}    texts = _graph_value_texts(coord, x, y, precision)\n`+
+      `${q}    key = tuple(t if isinstance(t, str) else id(t) for t in texts)\n`+
+      `${q}    if coord._graph_text != key:\n`+
+      `${q}        scale = coord._graph_font_size / 18.0\n`+
+      `${q}        pieces = [_graph_coordinate_glyphs(t, coord._graph_font_size, coord._graph_color) if isinstance(t, str) else t.copy() for t in texts]\n`+
+      `${q}        row = VGroup(*pieces).arrange(RIGHT, buff=0.08 * scale)\n`+
+      `${q}        _graph_retire_glyphs(coord)\n`+
+      `${q}        coord.add(*row.submobjects)\n`+
+      `${q}        coord._graph_text = key\n`+
+      `${q}    coord.next_to(dot, coord_dir, buff=coord_gap)\n`+
+      `${q}    return\n`+
       `${q}text = f"({_graph_fixed(x, precision)}, {_graph_fixed(y, precision)})"\n`+
       `${q}if getattr(coord, "_graph_text", None) != text:\n`+
       `${q}    glyph_group = _graph_coordinate_glyphs(text, coord._graph_font_size, coord._graph_color)\n`+
-      `${q}    coord.remove(*coord.submobjects)\n`+
+      `${q}    _graph_retire_glyphs(coord)\n`+
       `${q}    coord.add(*glyph_group.submobjects)\n`+
       `${q}    coord._graph_text = text\n`+
       `${q}coord.next_to(dot, coord_dir, buff=coord_gap)\n`;

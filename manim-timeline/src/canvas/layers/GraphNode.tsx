@@ -27,6 +27,7 @@ import {
   manimArrowLengthScene,
 } from '@/canvas/layers/graphFieldPreview';
 import { FIELD_COLORMAP_HEX } from '@/codegen/fieldColormap';
+import { liveValueSlope } from '@/lib/graphLiveValue';
 import { createGraphStreamPoint } from '@/store/factories';
 import {
   buildAxesCreatePreviewSpec,
@@ -1073,6 +1074,7 @@ export default function GraphNode({
               const p = toLocal(gx, gy);
               return { x: p.lx, y: p.ly };
             },
+            slope: liveValueSlope(it, motion.point.x, itemsMap),
           });
           return (
             <GraphPlaybackWrap key={key} exit={exit}>

@@ -1,3 +1,4 @@
+import { formatLiveNumber, formatLiveValueText } from '@/lib/graphLiveValue';
 import type { GraphDot } from '@/types/scene';
 
 export interface GraphTextAnnotationSpec {
@@ -55,6 +56,8 @@ export function buildGraphAnnotationLayout(args: {
   coordinate: { x: number; y: number };
   radiusPx: number;
   pxPerUnit: number;
+  /** Plot slope at the dot, for `{slope}` in `dot.valueTemplate` (null = no slope there). */
+  slope?: number | null;
 }): GraphAnnotationLayout {
   const { dot, point, coordinate, radiusPx, pxPerUnit } = args;
   const labelFontSize = Number.isFinite(dot.labelFontSize) ? dot.labelFontSize! : 18;
@@ -68,9 +71,11 @@ export function buildGraphAnnotationLayout(args: {
     : 2;
   const labelSpacing = Number.isFinite(dot.labelSpacing) ? dot.labelSpacing! : 0.15;
   const coordinateSpacing = Number.isFinite(dot.coordinateSpacing) ? dot.coordinateSpacing! : 0.15;
-  const coordinateText = dot.showCoordinates === true
-    ? `(${coordinate.x.toFixed(precision)}, ${coordinate.y.toFixed(precision)})`
-    : null;
+  const coordinateText = dot.showCoordinates !== true
+    ? null
+    : dot.valueTemplate?.trim()
+      ? formatLiveValueText(dot.valueTemplate, { ...coordinate, slope: args.slope ?? null }, precision)
+      : `(${formatLiveNumber(coordinate.x, precision)}, ${formatLiveNumber(coordinate.y, precision)})`;
   const fixedLabel = dot.label.trim()
     ? annotation(dot.label.trim(), labelDirection, {
         point, radiusPx, fontPx: labelFont,

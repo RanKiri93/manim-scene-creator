@@ -221,6 +221,6 @@ describe('connector export', () => {
     (items[3] as Extract<SceneItem, { kind: 'target_animation' }>).targets[0]!.graphPlotId = undefined;
     const seg = items[4] as ShapeItem;
     seg.endpoints = { start: { kind: 'graphDot', dotId: 'd' }, end: { kind: 'graphDot', dotId: 'd' }, tangent: { length: 2 } };
-    expect(exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() })).toMatch(/EXPORT ERROR: Connector "[^"]*": Graph dot "d" is not on a function plot/);
+    expect(exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() })).toMatch(/EXPORT ERROR: Connector "[^"]*": Graph dot "d" is not on a function plot. Set the tangent/);
   });
 });

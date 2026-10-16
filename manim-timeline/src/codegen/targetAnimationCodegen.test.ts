@@ -140,7 +140,7 @@ describe('formatTargetAnimationClipPlay', () => {
     const preview = (x: number, y: number) => buildGraphAnnotationLayout({
       dot, point: { x: 0, y: 0 }, coordinate: { x, y }, radiusPx: 4, pxPerUnit: 10,
     }).coordinateText;
-    expect(preview(1.125, -0.0001)).toBe('(1.13, -0.00)');
+    expect(preview(1.125, -0.0001)).toBe('(1.13, 0.00)');
     expect(preview(-0, 0)).toBe('(0.00, 0.00)');
     dot.coordinatePrecision = 3;
     expect(preview(-1.25, 0.707106)).toBe('(-1.250, 0.707)');

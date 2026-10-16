@@ -647,6 +647,12 @@ export interface GraphDot {
   coordinateSpacing?: number;
   /** Decimal places for live coordinate labels, clamped to [0, 6]; V44 default 2. */
   coordinatePrecision?: number;
+  /**
+   * Text of the live label instead of "(x, y)", e.g. `"f(x) = {y}"` or `"\text{slope} = {slope}"`.
+   * `{x}`, `{y}` and `{slope}` (dy/dx of the plot the dot is on) are filled in every frame; the
+   * rest is fixed text, typeset as math unless it has `$` or Hebrew. Unset = "(x, y)".
+   */
+  valueTemplate?: string;
 }
 
 export type GraphDotAttachment =

@@ -596,7 +596,7 @@ function exportManimCodeInner(
     if (itemsMap.get(ov.axesId)?.kind !== 'axes') continue;
 
     if (ov.kind === 'graphDot') {
-      defStr += generateGraphDotDef(ov, axVar, base);
+      defStr += generateGraphDotDef(ov, axVar, base, itemsMap);
     }
     // graphPlot / graphField / graphFunctionSeries / graphPointSequence: emitted after generateAxesPos — they sample
     // coords_to_point or fit_to the axes while the axes may still be at the default pose.

@@ -56,6 +56,7 @@ import {
   resolveAttachedGraphDot,
   resolveGraphDotPosition,
 } from '@/lib/graphMotion';
+import { dotFunctionPlot, parseLiveValueTemplate, templateUsesSlope } from '@/lib/graphLiveValue';
 import { DEFAULT_CAMERA_DURATION, MIN_CAMERA_DURATION, validateCameraMove } from '@/lib/camera';
 import type { CameraMoveItem, SceneDefaults } from '@/types/scene';
 import { mergeTextLineUpdate, withParsedSegments } from './textDraft';
@@ -486,6 +487,7 @@ export function validateAgentResponse(
 
   checkGraphMotion(normalizedActions, currentItems, errors, warnings);
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
+  checkLiveValueSlopes(normalizedActions, currentItems, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
   checkTimelineEdits(currentItems, options.audioItems ?? [], normalizedActions, errors);
   const draftScene = virtualSceneAfter(currentItems, normalizedActions, undefined, options.audioItems);
@@ -1895,6 +1897,16 @@ function normalizeGraphDotFields(
   }
   const coordinateDir = asNullableDir(raw.coordinateDir);
   if (coordinateDir) dot.coordinateDir = coordinateDir;
+  if (typeof raw.valueTemplate === 'string') {
+    const template = raw.valueTemplate.trim();
+    const { unknown } = parseLiveValueTemplate(template);
+    if (unknown.length) {
+      errors.push(`${path}.valueTemplate uses {${unknown.join('}, {')}}; only {x}, {y} and {slope} are filled in.`);
+      return null;
+    }
+    if (template) dot.valueTemplate = template;
+    else delete dot.valueTemplate;
+  }
   return dot;
 }
 
@@ -2511,6 +2523,21 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
       (raw.introStyle as ShapeItem['introStyle']) ?? 'create',
     ...(endpoints ? { endpoints } : {}),
   };
+}
+
+/** A dot whose live label shows `{slope}` must sit on (or follow) one function plot. */
+function checkLiveValueSlopes(actions: AgentAction[], currentItems: Map<ItemId, SceneItem>, errors: string[]): void {
+  const touched = actions.flatMap((a, i) =>
+    a.action === 'CREATE' && a.item.kind === 'graphDot' ? [[i, a.item.id] as const] : a.action === 'UPDATE' ? [[i, a.itemId] as const] : [],
+  );
+  if (touched.length === 0) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  for (const [i, id] of touched) {
+    const dot = virtual.get(id);
+    if (dot?.kind !== 'graphDot' || !dot.dot.showCoordinates || !templateUsesSlope(dot.dot.valueTemplate)) continue;
+    const r = dotFunctionPlot(dot, virtual);
+    if (r.error != null) errors.push(`actions[${i}]: dot "${id}" shows {slope} but ${r.error}`);
+  }
 }
 
 /**

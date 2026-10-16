@@ -13,7 +13,7 @@ R2. Point moving along a function graph, with a segment down to the x-axis that 
    4. target_animation mode "graphFollow", startTime after the dot appears, targets [{ targetId: dotId, targetX: <end x>, easing: "linear" or "smooth" }].
    Check: inspect_scene at the start, middle and end of the motion — the dot's graph x should go from start to end and the connector's lower end should stay at y = 0 (or the nearest range edge) with the same x as the dot.
 
-R3. Live value while a point moves: dot.showCoordinates: true (coordinatePrecision 1–2), or a fixed dot.label such as "$P$".
+R3. Live value while a point moves: dot.showCoordinates: true (coordinatePrecision 1–2), or a fixed dot.label such as "$P$". To show a named value use dot.valueTemplate: "f(x) = {y}" for the function value, "f'(x) = {slope}" or "\\text{slope} = {slope}" for the slope, "x = {x}" for the position. One live label per dot; for two values (f(x) and the slope) put both in one template ("f(x) = {y},\\; f'(x) = {slope}") rather than a second dot.
 
 R4. Arrow pointing from a text line to something that moves: shape arrow with endpoints { start: { kind: "object", itemId: <text id>, edge: "DOWN" }, end: { kind: "graphDot", dotId } }.
 
@@ -98,6 +98,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R14: each step's transform lists pairs with their texts: "a → b" marks a piece that changes, check those are the moves you mean; the previous step shows onScreen false after the morph.
    - R15: inspect lists what is spoken during each clip (spoken); it should begin with the cue word.
    - R16: inspect after the edit: the clips moved as intended and the cue clip starts after the pause; a refused edit names the clip or narration in the way.
+   - R3: inspect shows each dot's liveLabel text at the times asked; check it reads as intended (decimals, the right value).
    - R17: inspect at a few times during the motion: the tangent's slope matches f'(x) at the dot's graph x and changes as the dot moves.
    - R18: at the end Q's graph x is close to, not equal to, P's; the secant's ends lie beyond both dots.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.

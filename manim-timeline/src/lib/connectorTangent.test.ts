@@ -72,7 +72,7 @@ describe('tangent connector', () => {
     items.set('f', { ...f, targets: [{ ...f.targets[0]!, graphPlotId: 'pl' }] });
     expect(resolveConnectorEndpoints(tangent, ctx(items, 3)).error).toBeNull();
     items.delete('f');
-    expect(resolveConnectorEndpoints(tangent, ctx(items, 3)).error).toMatch(/not on a function plot; set the tangent's plotId/);
+    expect(resolveConnectorEndpoints(tangent, ctx(items, 3)).error).toMatch(/not on a function plot. Set the tangent's plotId/);
     const onPoint: ShapeItem = { ...tangent, endpoints: { ...tangent.endpoints!, start: { kind: 'point', x: 0, y: 0 } } };
     expect(resolveConnectorEndpoints(onPoint, ctx(items, 3)).error).toMatch(/start anchor on a graph dot/);
   });

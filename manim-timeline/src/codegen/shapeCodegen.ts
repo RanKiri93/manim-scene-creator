@@ -1,5 +1,6 @@
 import type { ItemId, ShapeAnchor, ShapeEndpoints, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
-import { isConnectorShape, OBJECT_ANCHOR_KINDS, TANGENT_SLOPE_STEP, tangentSource } from '@/lib/shapeAnchors';
+import { isConnectorShape, OBJECT_ANCHOR_KINDS, tangentSource } from '@/lib/shapeAnchors';
+import { PLOT_SLOPE_STEP } from '@/lib/graphLiveValue';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
 import { manimColor, overlayDotVar } from './graphCodegen';
@@ -395,7 +396,7 @@ function connectorTangentLines(
   const axVar = idToVarName.get(src.axes.id);
   if (!axVar) throw new Error(`Tangent axes "${src.axes.id}" are not exported.`);
   const [lo, hi] = src.domain;
-  const h = Math.max(1e-9, (hi - lo) * TANGENT_SLOPE_STEP);
+  const h = Math.max(1e-9, (hi - lo) * PLOT_SLOPE_STEP);
   const half = (endpoints.tangent?.length ?? 0) / 2;
   const f = `(lambda x: (${(src.plot.fn.pyExpr || 'x').replace(/\s+/g, ' ')}))`;
   return [
