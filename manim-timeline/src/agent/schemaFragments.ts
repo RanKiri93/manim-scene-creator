@@ -89,6 +89,23 @@ export const SHAPE_ENDPOINTS_SCHEMA = {
   properties: {
     start: SHAPE_ANCHOR_SCHEMA,
     end: SHAPE_ANCHOR_SCHEMA,
+    extend: {
+      type: 'number',
+      description:
+        'Lengthen the line past both ends by this many Manim units, so it reads as the whole line through the two points (a secant). Omit or 0 for just the segment.',
+    },
+    tangent: {
+      type: 'object',
+      description:
+        'Draw the tangent at the graph dot in start (kind "graphDot") instead of a segment between two ends: centred on the dot, along the plot\'s slope there, redrawn every frame as the dot moves. end may be omitted.',
+      properties: {
+        length: { type: 'number', description: 'Drawn length in Manim units (about 2 reads well).' },
+        plotId: {
+          type: 'string',
+          description: 'Function plot for the slope; omit to use the plot the dot is attached to or follows.',
+        },
+      },
+    },
   },
 } as const;
 

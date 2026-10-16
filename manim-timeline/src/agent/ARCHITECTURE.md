@@ -346,6 +346,10 @@ Real LLM responses are noisy. The validator has two responsibilities:
 - `shape` (line / arrow) accepts `endpoints: { start, end }` with anchors `graphDot`, `graphDotFoot` (alias
   `dotFoot`, axis `x` default), `graphPoint`, `object` (edge default `center`) and `point`; a CREATE with
   endpoints and no shapeType becomes a line, endpoints on other shape types are an error.
+- `endpoints.extend` (≥ 0) lengthens the line past both ends (a secant). `endpoints.tangent: { length, plotId? }`
+  needs a `graphDot` start; `end` may be omitted and is stored equal to `start`. The plot comes from
+  `tangentSource` (explicit plotId, the dot's function attachment, or the one plot its graphFollow clips use);
+  inspect reports the connector's `slope`.
 - `checkConnectors` resolves each connector with `lib/shapeAnchors.ts` on the scene the actions produce and
   writes the geometry at its start time into `x/y/endX/endY` (used by bounding boxes and camera fitting).
 - Only `color` target animations may target a connector (`canBeTargetAnimationTarget`).

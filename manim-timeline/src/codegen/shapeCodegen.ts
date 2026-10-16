@@ -1,5 +1,5 @@
-import type { ItemId, ShapeAnchor, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
-import { isConnectorShape, OBJECT_ANCHOR_KINDS } from '@/lib/shapeAnchors';
+import type { ItemId, ShapeAnchor, ShapeEndpoints, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
+import { isConnectorShape, OBJECT_ANCHOR_KINDS, TANGENT_SLOPE_STEP, tangentSource } from '@/lib/shapeAnchors';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
 import { manimColor, overlayDotVar } from './graphCodegen';
@@ -380,6 +380,35 @@ export function connectorAnchorExpr(
   }
 }
 
+/**
+ * Updater lines that set `_a`, `_b` to the tangent at the dot: the slope comes from the plot's
+ * Python expression at the dot's current x, with the same step and domain clamp as the preview
+ * (`resolveConnectorEndpoints`).
+ */
+function connectorTangentLines(
+  endpoints: ShapeEndpoints,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string[] {
+  const src = tangentSource(endpoints, itemsMap);
+  if (src.error != null) throw new Error(src.error);
+  const axVar = idToVarName.get(src.axes.id);
+  if (!axVar) throw new Error(`Tangent axes "${src.axes.id}" are not exported.`);
+  const [lo, hi] = src.domain;
+  const h = Math.max(1e-9, (hi - lo) * TANGENT_SLOPE_STEP);
+  const half = (endpoints.tangent?.length ?? 0) / 2;
+  const f = `(lambda x: (${(src.plot.fn.pyExpr || 'x').replace(/\s+/g, ' ')}))`;
+  return [
+    `_c = ${overlayDotVar(axVar, src.dot.id)}.get_center()`,
+    `_x = ${axVar}.p2c(_c)[0]`,
+    `_x0, _x1 = max(${pyNum(lo)}, _x - ${h.toExponential(6)}), min(${pyNum(hi)}, _x + ${h.toExponential(6)})`,
+    `_f = ${f}`,
+    `_d = ${axVar}.c2p(_x1, _f(_x1)) - ${axVar}.c2p(_x0, _f(_x0))`,
+    `_d = _d / max(np.linalg.norm(_d), 1e-9) * ${pyNum(half)}`,
+    '_a, _b = _c - _d, _c + _d',
+  ];
+}
+
 /** Placeholder mobject for a connector; its updater draws the real geometry (see below). */
 export function generateConnectorDef(item: ShapeItem, varName: string, indent: number): string {
   const pad = ' '.repeat(indent);
@@ -411,20 +440,31 @@ export function generateConnectorBind(
   if (!item.endpoints) return '';
   const pad = ' '.repeat(indent);
   const label = item.label || item.id;
-  let a: string;
-  let b: string;
+  let ends: string[];
   try {
-    a = connectorAnchorExpr(item.endpoints.start, idToVarName, itemsMap, ownerFrameCenter);
-    b = connectorAnchorExpr(item.endpoints.end, idToVarName, itemsMap, ownerFrameCenter);
+    ends = item.endpoints.tangent
+      ? connectorTangentLines(item.endpoints, idToVarName, itemsMap)
+      : [
+          `_a = ${connectorAnchorExpr(item.endpoints.start, idToVarName, itemsMap, ownerFrameCenter)}`,
+          `_b = ${connectorAnchorExpr(item.endpoints.end, idToVarName, itemsMap, ownerFrameCenter)}`,
+        ];
   } catch (e) {
     throw new Error(`Connector "${label}": ${(e as Error).message}`);
+  }
+  const extend = item.endpoints.extend ?? 0;
+  if (extend > 0) {
+    ends.push(
+      '_n = np.linalg.norm(_b - _a)',
+      'if _n > 1e-9:',
+      `    _e = (_b - _a) / _n * ${pyNum(extend)}`,
+      '    _a, _b = _a - _e, _b + _e',
+    );
   }
   const fn = `_${varName}_redraw`;
   return (
     `${pad}# connector ${pyCommentValue({ id: item.id, endpoints: item.endpoints })}\n` +
     `${pad}def ${fn}(m):\n` +
-    `${pad}    _a = ${a}\n` +
-    `${pad}    _b = ${b}\n` +
+    ends.map((line) => `${pad}    ${line}\n`).join('') +
     `${pad}    if np.linalg.norm(_b - _a) < 1e-6:\n` +
     `${pad}        _b = _a + RIGHT * 1e-4\n` +
     // Keep the current colour so color animations on the connector persist.

@@ -491,10 +491,32 @@ export type ShapeAnchor =
   /** Centre (default) or an edge / corner of a text line, shape, image or axes. */
   | { kind: 'object'; itemId: ItemId; edge?: ManimDirection | 'center' };
 
+/** A connector drawn as the tangent at a graph dot (see {@link ShapeEndpoints.tangent}). */
+export interface ShapeTangent {
+  /** Length of the drawn segment in Manim units, centred on the dot. */
+  length: number;
+  /**
+   * Function plot whose slope is used. Unset: the plot the dot is attached to, else the one plot
+   * its Move-along-graph clips follow.
+   */
+  plotId?: ItemId;
+}
+
 /** Both ends of a connector line / arrow. */
 export interface ShapeEndpoints {
   start: ShapeAnchor;
   end: ShapeAnchor;
+  /**
+   * Lengthen the line past both ends by this many Manim units, so it reads as the line through
+   * the two points (a secant). Unset or 0 = just the segment.
+   */
+  extend?: number;
+  /**
+   * Draw the tangent at `start` (a `graphDot` anchor) instead: a segment of `length` centred on
+   * the dot along the plot's slope there, redrawn every frame. `end` is ignored (kept equal to
+   * `start`).
+   */
+  tangent?: ShapeTangent | null;
 }
 
 /** Primitive shape: circle, rectangle, arrow, line, or polyline; positioned like other scene objects. */

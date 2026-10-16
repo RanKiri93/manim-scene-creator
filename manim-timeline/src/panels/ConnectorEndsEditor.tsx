@@ -2,6 +2,7 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { ManimDirection, SceneItem, ShapeAnchor, ShapeEndpoints, ShapeItem } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { frameCenterById } from '@/lib/frameGrid';
 import {
   OBJECT_ANCHOR_KINDS,
   connectorStaticGeometry,
@@ -10,6 +11,14 @@ import {
 } from '@/lib/shapeAnchors';
 
 type AnchorKind = 'point' | 'graphPoint' | 'graphDot' | 'graphDotFootX' | 'graphDotFootY' | 'object';
+
+type LineMode = 'segment' | 'through' | 'tangent';
+
+const LINE_MODES: { value: LineMode; label: string }[] = [
+  { value: 'segment', label: 'Segment between the ends' },
+  { value: 'through', label: 'Line through both ends' },
+  { value: 'tangent', label: 'Tangent at a graph dot' },
+];
 
 const ANCHOR_KINDS: { value: AnchorKind; label: string }[] = [
   { value: 'point', label: 'Fixed point' },
@@ -90,6 +99,90 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
 
   const endpoints = item.endpoints;
   const status = resolveConnectorEndpoints(item, { ...ctx, time: currentTime });
+  const lineMode: LineMode = endpoints.tangent ? 'tangent' : (endpoints.extend ?? 0) > 0 ? 'through' : 'segment';
+
+  const setLineMode = (mode: LineMode) => {
+    if (mode === lineMode) return;
+    const { tangent: _tangent, extend: _extend, ...plain } = endpoints;
+    void _tangent;
+    void _extend;
+    if (mode === 'tangent') {
+      const start: ShapeAnchor =
+        endpoints.start.kind === 'graphDot' ? endpoints.start : { kind: 'graphDot', dotId: dots[0]?.id ?? '' };
+      commit({ ...plain, start, end: start, tangent: { length: 2 } });
+      return;
+    }
+    // Leaving a tangent: its end was the dot itself, so pin the end where the tangent ends now.
+    let end = plain.end;
+    if (endpoints.tangent && status.error == null) {
+      const fc = frameCenterById(frames, item.frameId ?? startFrameId);
+      end = { kind: 'point', x: status.end.x - fc.x, y: status.end.y - fc.y };
+    }
+    commit({ ...plain, end, ...(mode === 'through' ? { extend: 1 } : {}) });
+  };
+
+  const tangentEditor = () => {
+    const tangent = endpoints.tangent!;
+    const start = endpoints.start;
+    const dotId = start.kind === 'graphDot' ? start.dotId : '';
+    const dot = items.get(dotId);
+    const plots = [...items.values()].filter(
+      (it) => it.kind === 'graphPlot' && dot?.kind === 'graphDot' && it.axesId === dot.axesId,
+    );
+    return (
+      <div className="flex flex-col gap-2">
+        <label className="text-ctl text-chalk-dim block">
+          Touches the graph at
+          <select
+            aria-label="Tangent graph dot"
+            value={dotId}
+            onChange={(e) => {
+              const next: ShapeAnchor = { kind: 'graphDot', dotId: e.target.value };
+              commit({ ...endpoints, start: next, end: next, tangent: { length: tangent.length } });
+            }}
+            className={selectClass}
+          >
+            {!dotId && <option value="">Choose a graph dot</option>}
+            {dots.map((it) => (
+              <option key={it.id} value={it.id}>
+                {itemClipDisplayName(it)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-ctl text-chalk-dim block">
+          Slope from
+          <select
+            aria-label="Tangent plot"
+            value={tangent.plotId ?? ''}
+            onChange={(e) => {
+              const { plotId: _old, ...rest } = tangent;
+              void _old;
+              commit({ ...endpoints, tangent: e.target.value ? { ...rest, plotId: e.target.value } : rest });
+            }}
+            className={selectClass}
+          >
+            <option value="">The plot the dot is on</option>
+            {plots.map((it) => (
+              <option key={it.id} value={it.id}>
+                {itemClipDisplayName(it)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <NumberInput
+          label="Length"
+          value={tangent.length}
+          min={0.1}
+          step={0.1}
+          onChange={(length) => commit({ ...endpoints, tangent: { ...tangent, length: Math.max(0.1, length) } })}
+        />
+        {status.error == null && status.slope != null && (
+          <p className="text-meta text-chalk-faint">Slope here: {status.slope.toFixed(3)}</p>
+        )}
+      </div>
+    );
+  };
 
   const defaultAnchor = (kind: AnchorKind, previous: ShapeAnchor): ShapeAnchor => {
     const dot = dots[0];
@@ -200,11 +293,36 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
     <div className="flex flex-col gap-3 border border-rule rounded-ctl p-3 bg-ink/40">
       <div className="text-ctl font-medium text-chalk-dim">Connector ends</div>
       <p className="text-meta text-chalk-faint leading-snug">
-        The ends are redrawn every frame, so the line moves with what it follows (for example a dot
-        moving along a graph).
+        The line is redrawn every frame, so it moves with what it follows (for example a dot moving
+        along a graph).
       </p>
-      {endEditor('start')}
-      {endEditor('end')}
+      <label className="text-ctl text-chalk-dim block">
+        Line
+        <select value={lineMode} onChange={(e) => setLineMode(e.target.value as LineMode)} className={selectClass}>
+          {LINE_MODES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {lineMode === 'tangent' ? (
+        tangentEditor()
+      ) : (
+        <>
+          {endEditor('start')}
+          {endEditor('end')}
+          {lineMode === 'through' && (
+            <NumberInput
+              label="Past each end"
+              value={endpoints.extend ?? 0}
+              min={0}
+              step={0.1}
+              onChange={(extend) => commit({ ...endpoints, extend: Math.max(0, extend) })}
+            />
+          )}
+        </>
+      )}
       {status.error != null && <p className="text-meta text-warn">{status.error}</p>}
       <button
         type="button"

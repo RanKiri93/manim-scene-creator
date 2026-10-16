@@ -192,6 +192,7 @@ function itemFacts(
         row.start = pt(ends.start);
         row.end = pt(ends.end);
         row.length = r3(Math.hypot(ends.end.x - ends.start.x, ends.end.y - ends.start.y));
+        if (ends.slope != null) row.slope = r3(ends.slope);
       }
       return row;
     }

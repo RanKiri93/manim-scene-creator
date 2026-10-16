@@ -123,9 +123,12 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
     case 'shape':
       it.posSteps = remapPosSteps(it.posSteps, m);
       if (it.kind === 'shape' && it.endpoints) {
+        const tangent = it.endpoints.tangent;
         it.endpoints = {
+          ...it.endpoints,
           start: remapShapeAnchor(it.endpoints.start, m),
           end: remapShapeAnchor(it.endpoints.end, m),
+          ...(tangent?.plotId ? { tangent: { ...tangent, plotId: m.get(tangent.plotId) ?? tangent.plotId } } : {}),
         };
       }
       if (it.audioTrackId) {

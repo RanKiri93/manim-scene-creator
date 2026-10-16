@@ -76,6 +76,16 @@ R16. Retime and make room ("everything after the graph appears is too fast: slow
    2. Slower / faster: TIMELINE scale with from / to on gaps between clips (not inside a clip) and factor = 1.25 for "25% slower", 0.8 for "20% faster".
    3. A pause before something: TIMELINE insert at that clip's startTime (after any earlier scale, use the moved time) with the seconds asked. Removing a pause: TIMELINE remove over the empty range.
    4. Order matters: edits apply one after another, so either insert first (at the original time) or compute the time the scale moved it to.
+
+R17. A tangent that rides along ("add the tangent line at the moving point, about 2 units long").
+   1. The moving dot as in R2 (plot, dot attached to it, graphFollow).
+   2. shape line with endpoints { start: { kind: "graphDot", dotId }, tangent: { length: 2 } }, starting with the dot (or when asked), a colour that stands out from the plot. It turns with the slope by itself; one connector is enough.
+   3. To show the number too: a dot label or a text line nearby; inspect_scene gives the slope at any time.
+
+R18. Secant turning into the tangent ("the secant through P and Q, then slide Q towards P").
+   1. Two dots P and Q attached to the same plot, then shape line with endpoints { start: { kind: "graphDot", dotId: P }, end: { kind: "graphDot", dotId: Q }, extend: 1.5 } so the line runs past both points.
+   2. graphFollow on Q to targetX = P's x + h with a small h (0.05–0.1 of the x range), never exactly P's x: two equal points give no line.
+   3. For the finish: a tangent connector at P (R17) appearing when Q arrives, and the secant fades out (exit_animation) or turns the tangent's colour.
 `;
 
 /** Tool-loop only: how to check a visual result before finishing. */
@@ -88,5 +98,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R14: each step's transform lists pairs with their texts: "a → b" marks a piece that changes, check those are the moves you mean; the previous step shows onScreen false after the morph.
    - R15: inspect lists what is spoken during each clip (spoken); it should begin with the cue word.
    - R16: inspect after the edit: the clips moved as intended and the cue clip starts after the pause; a refused edit names the clip or narration in the way.
+   - R17: inspect at a few times during the motion: the tangent's slope matches f'(x) at the dot's graph x and changes as the dot moves.
+   - R18: at the end Q's graph x is close to, not equal to, P's; the secant's ends lie beyond both dots.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.
 `;

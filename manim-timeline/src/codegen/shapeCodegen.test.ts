@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateShapeDef, generateShapePos } from '@/codegen/shapeCodegen';
 import { exportManimCode } from '@/codegen/manimExporter';
 import { createAxes, createGraphDotItem, createGraphPlot, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
-import type { ShapeItem } from '@/types/scene';
+import type { SceneItem, ShapeItem } from '@/types/scene';
 import { DEFAULT_SHAPE_POLYLINE_POINTS } from '@/types/scene';
 
 function baseShape(over: Partial<ShapeItem> = {}): ShapeItem {
@@ -188,5 +188,39 @@ describe('connector export', () => {
     (items[0] as { yRange: [number, number, number] }).yRange = [1, 3, 1];
     const code = exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() });
     expect(code).toContain('(1.000000 if abs(_c[1] - 1.000000) <= abs(_c[1] - 3.000000) else 3.000000)');
+  });
+
+  it('draws a tangent from the plot expression at the dot, clamped to the domain', () => {
+    const items = scene();
+    const seg = items[4] as ShapeItem;
+    seg.endpoints = { start: { kind: 'graphDot', dotId: 'd' }, end: { kind: 'graphDot', dotId: 'd' }, tangent: { length: 2 } };
+    const code = exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() });
+    expect(code).not.toContain('EXPORT ERROR');
+    expect(code).toMatch(/_c = axes_\d+_dot_d\.get_center\(\)\n\s+_x = axes_\d+\.p2c\(_c\)\[0\]/);
+    expect(code).toContain('_x0, _x1 = max(0.000000, _x - 1.000000e-4), min(1.000000, _x + 1.000000e-4)');
+    expect(code).toContain('_f = (lambda x: (x**2 + 1))');
+    expect(code).toMatch(/_d = axes_\d+\.c2p\(_x1, _f\(_x1\)\) - axes_\d+\.c2p\(_x0, _f\(_x0\)\)/);
+    expect(code).toContain('_d = _d / max(np.linalg.norm(_d), 1e-9) * 1.000000');
+    expect(code).toContain('_a, _b = _c - _d, _c + _d');
+  });
+
+  it('lengthens a line through two points past both ends', () => {
+    const items = scene();
+    const seg = items[4] as ShapeItem;
+    seg.endpoints = { ...seg.endpoints!, extend: 1.5 };
+    const code = exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() });
+    expect(code).toContain('_e = (_b - _a) / _n * 1.500000');
+    expect(code).toContain('_a, _b = _a - _e, _b + _e');
+    expect(code.indexOf('_e = (_b - _a)')).toBeLessThan(code.indexOf('m.become(Line(_a, _b'));
+  });
+
+  it('reports a tangent on a dot without a function plot', () => {
+    const items = scene();
+    const dot = items[2] as Extract<SceneItem, { kind: 'graphDot' }>;
+    dot.dot.attachment = { kind: 'free' };
+    (items[3] as Extract<SceneItem, { kind: 'target_animation' }>).targets[0]!.graphPlotId = undefined;
+    const seg = items[4] as ShapeItem;
+    seg.endpoints = { start: { kind: 'graphDot', dotId: 'd' }, end: { kind: 'graphDot', dotId: 'd' }, tangent: { length: 2 } };
+    expect(exportManimCode(items, { fullFile: false, defaults: defaultSceneDefaults() })).toMatch(/EXPORT ERROR: Connector "[^"]*": Graph dot "d" is not on a function plot/);
   });
 });

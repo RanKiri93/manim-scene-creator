@@ -1,6 +1,8 @@
 import type {
   AxesItem,
   FrameDef,
+  GraphDotItem,
+  GraphPlotItem,
   ItemId,
   SceneItem,
   ShapeAnchor,
@@ -9,7 +11,7 @@ import type {
 } from '@/types/scene';
 import { axesRasterGeometry } from '@/lib/axesRasterPreview';
 import { frameCenterById } from '@/lib/frameGrid';
-import { graphProjectionGuides, resolveGraphDotPosition } from '@/lib/graphMotion';
+import { evaluateGraphY, graphFollowClipsForDot, graphProjectionGuides, resolveGraphDotPosition } from '@/lib/graphMotion';
 import { rawDirectionComponents } from '@/lib/nextToGeometry';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
@@ -44,6 +46,7 @@ export function connectorReferencedIds(endpoints: ShapeEndpoints): ItemId[] {
     else if (anchor.kind === 'graphDot' || anchor.kind === 'graphDotFoot') ids.push(anchor.dotId);
     else if (anchor.kind === 'object') ids.push(anchor.itemId);
   }
+  if (endpoints.tangent?.plotId) ids.push(endpoints.tangent.plotId);
   return [...new Set(ids)];
 }
 
@@ -157,8 +160,94 @@ export function resolveShapeAnchor(anchor: ShapeAnchor, owner: SceneItem, ctx: A
 }
 
 export type ConnectorResult =
-  | { start: { x: number; y: number }; end: { x: number; y: number }; error: null }
+  | {
+      start: { x: number; y: number };
+      end: { x: number; y: number };
+      /** Tangent connectors: the plot's slope dy/dx (graph units) at the dot. */
+      slope?: number;
+      error: null;
+    }
   | { start: null; end: null; error: string };
+
+/** Step for the numerical slope, as a share of the plot's x domain (same in preview and export). */
+export const TANGENT_SLOPE_STEP = 1e-4;
+
+/**
+ * The dot and the function plot a tangent connector uses: `tangent.plotId`, else the plot the dot
+ * is attached to, else the one plot its Move-along-graph clips follow.
+ */
+export function tangentSource(
+  endpoints: ShapeEndpoints,
+  items: ReadonlyMap<ItemId, SceneItem>,
+):
+  | { dot: GraphDotItem; plot: GraphPlotItem; axes: AxesItem; domain: [number, number]; error: null }
+  | { error: string } {
+  if (endpoints.start.kind !== 'graphDot') return { error: 'A tangent needs its start anchor on a graph dot.' };
+  const dot = items.get(endpoints.start.dotId);
+  if (dot?.kind !== 'graphDot') return { error: `Tangent dot "${endpoints.start.dotId}" is not a graph dot.` };
+  const axes = items.get(dot.axesId);
+  if (axes?.kind !== 'axes') return { error: `Graph dot "${dot.id}" has no axes.` };
+  const attachment = dot.dot.attachment;
+  let plotId = endpoints.tangent?.plotId;
+  if (!plotId && attachment?.kind === 'function') plotId = attachment.graphPlotId;
+  if (!plotId && attachment?.kind === 'parametric') {
+    return { error: `Graph dot "${dot.id}" sits on a parametric curve; a tangent needs a function plot.` };
+  }
+  if (!plotId) {
+    const followed = [
+      ...new Set(
+        graphFollowClipsForDot([...items.values()], dot.id)
+          .map(({ row }) => row.graphPlotId)
+          .filter((id): id is ItemId => !!id),
+      ),
+    ];
+    if (followed.length === 1) plotId = followed[0];
+    else if (followed.length > 1) return { error: `Graph dot "${dot.id}" follows several plots; set the tangent's plotId.` };
+  }
+  if (!plotId) return { error: `Graph dot "${dot.id}" is not on a function plot; set the tangent's plotId.` };
+  const plot = items.get(plotId);
+  if (plot?.kind !== 'graphPlot') return { error: `Tangent plot "${plotId}" is not a function plot.` };
+  if (plot.axesId !== dot.axesId) return { error: `Tangent plot "${plotId}" and dot "${dot.id}" use different axes.` };
+  const [a, b] = plot.xDomain ?? [axes.xRange[0], axes.xRange[1]];
+  return { dot, plot, axes, domain: [Math.min(a, b), Math.max(a, b)], error: null };
+}
+
+function resolveTangent(shape: ShapeItem & { endpoints: ShapeEndpoints }, ctx: AnchorContext): ConnectorResult {
+  const length = shape.endpoints.tangent?.length ?? 0;
+  if (!Number.isFinite(length) || length <= 0) return { start: null, end: null, error: 'Tangent length must be a positive number.' };
+  const src = tangentSource(shape.endpoints, ctx.items);
+  if (src.error != null) return { start: null, end: null, error: src.error };
+  const at = dotAndAxes(src.dot.id, ctx);
+  if (at.error != null) return { start: null, end: null, error: at.error };
+  const [lo, hi] = src.domain;
+  const h = Math.max(1e-9, (hi - lo) * TANGENT_SLOPE_STEP);
+  const x0 = Math.max(lo, at.point.x - h);
+  const x1 = Math.min(hi, at.point.x + h);
+  const noSlope = `Plot "${src.plot.id}" has no slope at x = ${at.point.x.toFixed(3)}.`;
+  let y0: number;
+  let y1: number;
+  try {
+    y0 = evaluateGraphY(src.plot, x0);
+    y1 = evaluateGraphY(src.plot, x1);
+  } catch {
+    return { start: null, end: null, error: `Could not evaluate plot "${src.plot.id}" for the tangent.` };
+  }
+  if (!(x1 > x0) || !Number.isFinite(y0) || !Number.isFinite(y1)) return { start: null, end: null, error: noSlope };
+  // Direction on screen from two nearby curve points, so axes scaling and moves are included.
+  const p0 = axesGraphToWorld(src.axes, x0, y0, ctx);
+  const p1 = axesGraphToWorld(src.axes, x1, y1, ctx);
+  const norm = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  if (!(norm > 0)) return { start: null, end: null, error: noSlope };
+  const c = axesGraphToWorld(at.axes, at.point.x, at.point.y, ctx);
+  const ux = ((p1.x - p0.x) / norm) * (length / 2);
+  const uy = ((p1.y - p0.y) / norm) * (length / 2);
+  return {
+    start: { x: c.x - ux, y: c.y - uy },
+    end: { x: c.x + ux, y: c.y + uy },
+    slope: (y1 - y0) / (x1 - x0),
+    error: null,
+  };
+}
 
 /** Both ends of a connector at `ctx.time`, in world coordinates. */
 export function resolveConnectorEndpoints(shape: ShapeItem, ctx: AnchorContext): ConnectorResult {
@@ -166,11 +255,25 @@ export function resolveConnectorEndpoints(shape: ShapeItem, ctx: AnchorContext):
   if (shape.shapeType !== 'line' && shape.shapeType !== 'arrow') {
     return { start: null, end: null, error: 'Only lines and arrows can have bound endpoints.' };
   }
-  const start = resolveShapeAnchor(shape.endpoints.start, shape, ctx);
-  if (start.error != null) return { start: null, end: null, error: `Connector start: ${start.error}` };
-  const end = resolveShapeAnchor(shape.endpoints.end, shape, ctx);
-  if (end.error != null) return { start: null, end: null, error: `Connector end: ${end.error}` };
-  return { start: start.point, end: end.point, error: null };
+  let r: ConnectorResult;
+  if (shape.endpoints.tangent) {
+    r = resolveTangent(shape as ShapeItem & { endpoints: ShapeEndpoints }, ctx);
+    if (r.error != null) return { start: null, end: null, error: `Connector tangent: ${r.error}` };
+  } else {
+    const start = resolveShapeAnchor(shape.endpoints.start, shape, ctx);
+    if (start.error != null) return { start: null, end: null, error: `Connector start: ${start.error}` };
+    const end = resolveShapeAnchor(shape.endpoints.end, shape, ctx);
+    if (end.error != null) return { start: null, end: null, error: `Connector end: ${end.error}` };
+    r = { start: start.point, end: end.point, error: null };
+  }
+  const extend = shape.endpoints.extend ?? 0;
+  const len = Math.hypot(r.end.x - r.start.x, r.end.y - r.start.y);
+  if (extend > 0 && len > 1e-9) {
+    const ex = ((r.end.x - r.start.x) / len) * extend;
+    const ey = ((r.end.y - r.start.y) / len) * extend;
+    r = { ...r, start: { x: r.start.x - ex, y: r.start.y - ey }, end: { x: r.end.x + ex, y: r.end.y + ey } };
+  }
+  return r;
 }
 
 /**

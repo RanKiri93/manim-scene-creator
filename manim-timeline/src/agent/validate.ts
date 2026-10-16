@@ -2446,8 +2446,28 @@ function normalizeShapeEndpoints(v: unknown, path: string, errors: string[]): Sh
   }
   const r = v as Record<string, unknown>;
   const start = normalizeShapeAnchor(r.start, `${path}.start`, errors);
+  if (r.tangent != null) {
+    const t = r.tangent as Record<string, unknown>;
+    const length = typeof t === 'object' && !Array.isArray(t) ? Number(t.length ?? 2) : NaN;
+    if (!Number.isFinite(length) || length <= 0) {
+      errors.push(`${path}.tangent must be { length: <positive number>, plotId?: <plot id> }.`);
+      return null;
+    }
+    if (start && start.kind !== 'graphDot') {
+      errors.push(`${path}.start must be a "graphDot" anchor for a tangent (the dot the tangent touches).`);
+      return null;
+    }
+    const plotId = typeof t.plotId === 'string' && t.plotId.trim() ? t.plotId.trim() : undefined;
+    // The tangent is defined by its dot alone; `end` is kept equal to `start`.
+    return start ? { start, end: start, tangent: { length, ...(plotId ? { plotId } : {}) } } : null;
+  }
   const end = normalizeShapeAnchor(r.end, `${path}.end`, errors);
-  return start && end ? { start, end } : null;
+  if (r.extend != null && !(Number.isFinite(Number(r.extend)) && Number(r.extend) >= 0)) {
+    errors.push(`${path}.extend must be a number ≥ 0 (Manim units past each end).`);
+    return null;
+  }
+  const extend = Number(r.extend ?? 0);
+  return start && end ? { start, end, ...(extend > 0 ? { extend } : {}) } : null;
 }
 
 function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: string): ShapeItem | null {
