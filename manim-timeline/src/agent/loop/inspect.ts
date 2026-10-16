@@ -8,6 +8,7 @@ import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { axesGraphToWorld, isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
 import { buildGraphAnnotationLayout } from '@/lib/graphAnnotationLayout';
 import { liveValueSlope } from '@/lib/graphLiveValue';
+import { graphDotTrail } from '@/lib/graphDotTrail';
 import { effectiveEnd, effectiveStart, isTransformSourceHiddenInPreview } from '@/lib/time';
 import { transformSourceIds } from '@/lib/transformMapping';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
@@ -185,6 +186,14 @@ function itemFacts(
       if (motion.error) row.error = motion.error;
       row.graph = pt(motion.point);
       if (axes?.kind === 'axes') row.world = pt(axesGraphToWorld(axes, motion.point.x, motion.point.y, ctx(time)));
+      if (item.dot.trace && !motion.error) {
+        const trail = graphDotTrail(item, scene, time);
+        if (trail.length > 1) {
+          let length = 0;
+          for (let i = 1; i < trail.length; i++) length += Math.hypot(trail[i]!.x - trail[i - 1]!.x, trail[i]!.y - trail[i - 1]!.y);
+          if (length > 1e-9) row.trail = { from: pt(trail[0]!), graphLength: r3(length) };
+        }
+      }
       if (item.dot.showCoordinates && !motion.error) {
         row.liveLabel = buildGraphAnnotationLayout({
           dot: item.dot,

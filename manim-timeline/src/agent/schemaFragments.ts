@@ -42,6 +42,16 @@ export const GRAPH_DOT_SCHEMA = {
     coordinateDir: { type: 'string', enum: DIRECTIONS },
     coordinateSpacing: { type: 'number' },
     coordinatePrecision: { type: 'integer', description: 'Decimals in the live coordinate label (0–6).' },
+    trace: {
+      type: 'object',
+      description:
+        'Trail left behind as the dot moves (Lissajous figures, orbits, phase portraits). {} = the whole path in the dot colour; fadeSeconds keeps only the last that many seconds, fading towards the tail; null removes it.',
+      properties: {
+        color: { type: 'string' },
+        width: { type: 'number', description: 'Manim stroke width (default 3).' },
+        fadeSeconds: { type: 'number', description: 'Seconds of trail kept; omit or 0 for the whole path.' },
+      },
+    },
     valueTemplate: {
       type: 'string',
       description:

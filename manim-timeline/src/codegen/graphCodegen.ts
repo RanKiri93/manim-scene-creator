@@ -32,6 +32,7 @@ import { FIELD_COLORMAP_HEX, manimColorListHex } from './fieldColormap';
 import { emitNextToPython } from './nextToCodegen';
 import { resolveAttachedGraphDot, graphProjectionGuides } from '@/lib/graphMotion';
 import { areaCanReveal, effectiveAreaIntroStyle } from '@/lib/graphAreaReveal';
+import { effectiveTrace } from '@/lib/graphDotTrail';
 import {
   dotFunctionPlot,
   liveTemplateTexSource,
@@ -239,16 +240,55 @@ export function generateAxesPos(
 }
 
 export function exitAnimationExpr(targets: string, animStyle: ExitAnimStyle): string {
+  // Uncreate / ShrinkToCenter take one mobject (a second argument is read as an option), so
+  // several targets get one animation each.
+  const each = (anim: string) => {
+    const parts = splitTopLevelArgs(targets);
+    return parts.length === 1 ? `${anim}(${parts[0]})` : `AnimationGroup(${parts.map((t) => `${anim}(${t})`).join(', ')}, lag_ratio=0)`;
+  };
   switch (animStyle) {
     case 'fade_out':
       return `FadeOut(${targets})`;
     case 'uncreate':
-      return `Uncreate(${targets})`;
+      return each('Uncreate');
     case 'shrink_to_center':
-      return `ShrinkToCenter(${targets})`;
+      return each('ShrinkToCenter');
     default:
       return '';
   }
+}
+
+/** Split `a, f(b, c), d` at commas outside brackets. */
+export function splitTopLevelArgs(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of s) {
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') depth--;
+    if (ch === ',' && depth === 0) {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/**
+ * Mobjects that leave with a graph dot on its exit besides the dot and label: the live
+ * coordinates, the projection guides and the trail. Empty for other targets.
+ */
+export function graphDotExitCompanions(target: SceneItem, idToVarName: Map<ItemId, string>): string[] {
+  if (target.kind !== 'graphDot') return [];
+  const axVar = idToVarName.get(target.axesId);
+  if (!axVar) return [];
+  const dVar = overlayDotVar(axVar, target.id);
+  return [
+    ...(target.dot.showCoordinates ? [`${dVar}_coord`] : []),
+    ...(target.dot.showProjectionGuides ? [`${dVar}_guide_v`, `${dVar}_guide_h`] : []),
+    ...(effectiveTrace(target.dot) ? [`${dVar}_trace`] : []),
+  ];
 }
 
 /** Emit `self.play(FadeOut|...)` for resolved Python target expression(s). */
@@ -497,6 +537,7 @@ export function generateGraphOverlayZIndexLines(
     if (ov.dot.label.trim()) {
       s += `${pad}${dVar}_lbl.set_z_index(${z})\n`;
     }
+    if (effectiveTrace(ov.dot)) s += `${pad}${dVar}_trace.set_z_index(${(zIndex - 0.5).toFixed(6)})\n`;
     return s;
   }
   if (ov.kind === 'graphField' && ov.fieldMode !== 'none') {
@@ -762,12 +803,61 @@ export function generateGraphDotSnapToAxes(
   const resolved = resolveAttachedGraphDot(item, items);
   if (resolved.error) throw new Error(`Graph dot "${item.label || item.id}": ${resolved.error}`);
   const point = resolved.point;
-  const s = `${pad}${dVar}_update((${point.x}, ${point.y}))\n`;
+  let s = `${pad}${dVar}_update((${point.x}, ${point.y}))\n`;
+  const trace = effectiveTrace(dot);
+  if (trace) {
+    // Records the dot's centre every frame from now on; before the dot moves it is a single point.
+    s +=
+      trace.fadeSeconds != null
+        ? `${pad}${dVar}_trace = ${GRAPH_FADING_TRAIL_CLASS}(${dVar}.get_center, ${trace.fadeSeconds}, ${manimColor(trace.color)}, ${trace.width})\n`
+        : `${pad}${dVar}_trace = TracedPath(${dVar}.get_center, stroke_color=${manimColor(trace.color)}, stroke_width=${trace.width})\n`;
+    s += `${pad}self.add(${dVar}_trace)\n`;
+  }
   if (dot.showProjectionGuides && axes) {
     // graphProjectionGuides is also used by preview; updater emits the same nearest-boundary rule.
     graphProjectionGuides(point, axes);
   }
   return s;
+}
+
+export const GRAPH_FADING_TRAIL_CLASS = '_FadingTrail';
+
+/** True when some graph dot has a fading trail (the export then needs {@link graphFadingTrailSource}). */
+export function anyFadingTrail(items: readonly SceneItem[]): boolean {
+  return items.some((it) => it.kind === 'graphDot' && effectiveTrace(it.dot)?.fadeSeconds != null);
+}
+
+/**
+ * A trail that keeps the last `fade` seconds and fades towards its tail. Manim's
+ * `TracedPath(dissipating_time=…, stroke_opacity=[0, 1])` fades along a straight screen
+ * direction, not along a curved path, so this draws a fixed pool of short segments instead, each
+ * with its own opacity by age (a fixed pool: swapping submobjects mid-play leaves stale copies).
+ */
+export function graphFadingTrailSource(indent = 0): string {
+  const p = ' '.repeat(indent);
+  return [
+    `class ${GRAPH_FADING_TRAIL_CLASS}(VGroup):`,
+    `    def __init__(self, point_func, fade, color, width):`,
+    `        n = max(2, int(np.ceil(fade * config.frame_rate)) + 2)`,
+    `        super().__init__(*[Line(ORIGIN, RIGHT * 1e-4, stroke_color=color, stroke_width=width, stroke_opacity=0) for _ in range(n)])`,
+    `        self._point_func = point_func`,
+    `        self._fade = fade`,
+    `        self._trail = []`,
+    `        self.add_updater(lambda m, dt: m._step(dt))`,
+    `    def _step(self, dt):`,
+    `        self._trail = [(age + dt, q) for age, q in self._trail if age + dt <= self._fade]`,
+    `        self._trail.append((0.0, np.array(self._point_func())))`,
+    `        pairs = list(zip(self._trail, self._trail[1:]))[-len(self.submobjects):]`,
+    `        for i, seg in enumerate(self.submobjects):`,
+    `            if i < len(pairs) and np.linalg.norm(pairs[i][1][1] - pairs[i][0][1]) > 1e-9:`,
+    `                (a0, q0), (a1, q1) = pairs[i]`,
+    `                seg.set_points_as_corners([q0, q1])`,
+    `                seg.set_stroke(opacity=max(0.0, 1.0 - (a0 + a1) / 2 / self._fade))`,
+    `            else:`,
+    `                seg.set_stroke(opacity=0)`,
+  ]
+    .map((line) => p + line)
+    .join('\n') + '\n';
 }
 
 /** Scene-local cached HebrewMathLine glyph atlas; recomposition occurs only on changed text. */

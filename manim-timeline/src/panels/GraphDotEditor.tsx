@@ -140,6 +140,25 @@ export default function GraphDotEditor({ item }: GraphDotEditorProps) {
         <ColorPicker value={dot.color} onChange={(c) => patchDot({ color: c })} />
         <NumberInput label="Radius" value={dot.radius} onChange={(v) => patchDot({ radius: v })} min={0.01} step={0.01} />
       </div>
+      <label className="text-ctl text-chalk-dim flex items-center gap-2" title="Leave a line behind the dot as it moves">
+        <input type="checkbox" checked={dot.trace != null} onChange={(e) => patchDot({ trace: e.target.checked ? {} : undefined })} />
+        Trail
+      </label>
+      {dot.trace != null && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-ctl text-chalk-dim">Trail color</span>
+          <ColorPicker value={dot.trace.color ?? dot.color} onChange={(color) => patchDot({ trace: { ...dot.trace, color } })} />
+          <NumberInput label="Width" value={dot.trace.width ?? 3} onChange={(width) => patchDot({ trace: { ...dot.trace, width: Math.max(0.5, width) } })} min={0.5} step={0.5} />
+          <NumberInput
+            label="Fade after (s)"
+            value={dot.trace.fadeSeconds ?? 0}
+            onChange={(fade) => patchDot({ trace: { ...dot.trace, fadeSeconds: fade > 0 ? fade : null } })}
+            min={0}
+            step={0.25}
+          />
+          <span className="text-meta text-chalk-faint w-full">0 keeps the whole path; a number keeps only that many seconds, fading towards the tail.</span>
+        </div>
+      )}
     </div>
   );
 

@@ -5,6 +5,7 @@ import type {
   AxesItem,
   GraphAreaCurveSource,
   GraphAreaItem,
+  GraphDotItem,
   GraphFieldItem,
   ItemId,
   SceneItem,
@@ -28,6 +29,7 @@ import {
 } from '@/canvas/layers/graphFieldPreview';
 import { FIELD_COLORMAP_HEX } from '@/codegen/fieldColormap';
 import { liveValueSlope } from '@/lib/graphLiveValue';
+import { effectiveTrace, graphDotTrail, TRAIL_STROKE_UNITS_PER_WIDTH } from '@/lib/graphDotTrail';
 import { createGraphStreamPoint } from '@/store/factories';
 import {
   buildAxesCreatePreviewSpec,
@@ -1056,6 +1058,29 @@ export default function GraphNode({
         }
         if (slot.kind === 'dot') {
           const it = itemsMap.get(slot.id);
+          // Trail: drawn under the dot, not faded in with it (export adds the TracedPath at the start).
+          const trailSegments = (dotItem: GraphDotItem) => {
+            const trace = effectiveTrace(dotItem.dot);
+            if (!trace) return null;
+            const pts = graphDotTrail(dotItem, itemsMap, currentTime).map((q) => ({ ...toLocal(q.x, q.y), age: q.age }));
+            if (pts.length < 2) return null;
+            const width = Math.max(0.5, trace.width * TRAIL_STROKE_UNITS_PER_WIDTH * ((pxPerUnitX + pxPerUnitY) / 2));
+            if (trace.fadeSeconds == null) {
+              return <Line points={pts.flatMap((q) => [q.lx, q.ly])} stroke={trace.color} strokeWidth={width} lineCap="round" lineJoin="round" listening={false} />;
+            }
+            // Fading tail: opacity 0 at the oldest point to 1 at the dot, in short runs.
+            const runs = 24;
+            const step = Math.max(1, Math.ceil((pts.length - 1) / runs));
+            const parts = [];
+            for (let i = 0; i < pts.length - 1; i += step) {
+              const run = pts.slice(i, Math.min(pts.length, i + step + 1));
+              const age = run[Math.floor(run.length / 2)]!.age;
+              parts.push(
+                <Line key={`trail-${i}`} points={run.flatMap((q) => [q.lx, q.ly])} stroke={trace.color} strokeWidth={width} opacity={Math.max(0, Math.min(1, 1 - age / trace.fadeSeconds))} lineCap="round" lineJoin="round" listening={false} />,
+              );
+            }
+            return <>{parts}</>;
+          };
           if (!it || it.kind !== 'graphDot') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
           const motion = graphFollowPreviewPosition(it.id, currentTime, itemsMap) ?? resolveGraphDotPosition({ dot: it, items: [...itemsMap.values()], time: currentTime });
@@ -1078,6 +1103,7 @@ export default function GraphNode({
           });
           return (
             <GraphPlaybackWrap key={key} exit={exit}>
+            {trailSegments(it)}
             {/* Export brings the dot, label, coordinates and guides in together over the clip. */}
             <Group opacity={graphDotIntroOpacity(it, currentTime, itemsMap, audioItems)}>
               {it.dot.showProjectionGuides === true && <>

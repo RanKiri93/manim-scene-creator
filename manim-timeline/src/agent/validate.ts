@@ -1907,6 +1907,27 @@ function normalizeGraphDotFields(
     if (template) dot.valueTemplate = template;
     else delete dot.valueTemplate;
   }
+  if (raw.trace === false || raw.trace === null) delete dot.trace;
+  else if (raw.trace === true) dot.trace = {};
+  else if (raw.trace !== undefined) {
+    const t = raw.trace as Record<string, unknown>;
+    if (typeof t !== 'object' || Array.isArray(t)) {
+      errors.push(`${path}.trace must be { color?, width?, fadeSeconds? } (or true / null).`);
+      return null;
+    }
+    const fade = t.fadeSeconds == null ? null : Number(t.fadeSeconds);
+    if (fade != null && !(Number.isFinite(fade) && fade >= 0)) {
+      errors.push(`${path}.trace.fadeSeconds must be a number of seconds ≥ 0 (0 or null keeps the whole path).`);
+      return null;
+    }
+    const width = asOptionalPositiveNum(t.width);
+    const color = asOptionalTrimmedStr(t.color);
+    dot.trace = {
+      ...(color ? { color } : {}),
+      ...(width != null ? { width } : {}),
+      ...(fade ? { fadeSeconds: fade } : {}),
+    };
+  }
   return dot;
 }
 

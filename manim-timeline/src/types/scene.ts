@@ -653,6 +653,21 @@ export interface GraphDot {
    * rest is fixed text, typeset as math unless it has `$` or Hebrew. Unset = "(x, y)".
    */
   valueTemplate?: string;
+  /** Trail left behind as the dot moves (Manim `TracedPath`). Unset = no trail. */
+  trace?: GraphDotTrace | null;
+}
+
+/** A graph dot's trail. */
+export interface GraphDotTrace {
+  /** Stroke colour; unset = the dot's colour. */
+  color?: string;
+  /** Manim stroke width; default 3. */
+  width?: number;
+  /**
+   * Keep only the last this-many seconds of the trail, fading towards its tail (a comet). Unset
+   * or 0 = the whole path stays.
+   */
+  fadeSeconds?: number | null;
 }
 
 export type GraphDotAttachment =

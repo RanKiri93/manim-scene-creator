@@ -335,6 +335,8 @@ Real LLM responses are noisy. The validator has two responsibilities:
 - `dot.valueTemplate` (with `showCoordinates`) replaces "(x, y)": `{x}`, `{y}`, `{slope}` are filled in
   (`lib/graphLiveValue.ts`); other `{names}` are rejected, and `{slope}` needs the dot on (or following) one
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
+- `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
+  `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
 - `target_animation` accepts `mode: "graphFollow"` with rows `{ targetId, targetX | targetT, graphPlotId?,
   easing? }`; targets must be graph dots.
 - `checkGraphMotion` runs `lib/graphMotion.ts` (the resolver the canvas and exporter use) on the scene the

@@ -61,6 +61,9 @@ import {
   overlayPointSequenceGroupVar,
   pythonOverlaySuffix,
   resolveExitTargetsForExport,
+  graphDotExitCompanions,
+  anyFadingTrail,
+  graphFadingTrailSource,
 } from './graphCodegen';
 import {
   generateSurroundingRectPosBlock,
@@ -1251,7 +1254,8 @@ function exportManimCodeInner(
         if (!tgt) continue;
         const targetsStr = resolveExitTargetsForExport(tgt, idToVarName, 'exit');
         if (!targetsStr) continue;
-        parts.push({ targetsStr, animStyle: spec.animStyle });
+        const companions = graphDotExitCompanions(tgt, idToVarName);
+        parts.push({ targetsStr: [targetsStr, ...companions].join(', '), animStyle: spec.animStyle });
       }
       playStr += formatExitGroupPlayLine(parts, ex.exit.duration, playPad);
     }
@@ -1423,7 +1427,8 @@ function exportManimCodeInner(
     const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
     const dotHelper = hasGraphDots ? `${graphDotAnnotationHelperSource(0, hasCoordinateDots)}\n` : '';
     const areaHelper = anyGraphAreaReveal(items) ? `${graphAreaRevealSource(0)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const trailHelper = anyFadingTrail(items) ? `${graphFadingTrailSource(0)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1445,6 +1450,7 @@ function exportManimCodeInner(
   const hasGraphDots = items.some((it) => it.kind === 'graphDot');
   const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
   if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);
+  if (anyFadingTrail(items)) header += '\n\n' + graphFadingTrailSource(0);
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster

@@ -40,6 +40,7 @@ import {
   overlayPlotVar,
   pythonOverlaySuffix,
   resolveExitTargetsForExport,
+  graphDotExitCompanions,
 } from './graphCodegen';
 import {
   blinkClipHasActiveTargets,
@@ -616,7 +617,7 @@ function concurrentBranchForExitClip(
     if (!tgt) continue;
     const targetsStr = resolveExitTargetsForExport(tgt, idToVarName, 'exit');
     if (!targetsStr) continue;
-    parts.push({ targetsStr, animStyle: spec.animStyle });
+    parts.push({ targetsStr: [targetsStr, ...graphDotExitCompanions(tgt, idToVarName)].join(', '), animStyle: spec.animStyle });
   }
   const rt = Math.max(0.01, ex.duration).toFixed(4);
   if (parts.length === 0) {
