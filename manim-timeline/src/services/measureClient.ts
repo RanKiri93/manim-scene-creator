@@ -906,8 +906,62 @@ export async function matchEq(
   };
 }
 
+/** Where a render on the measure server is (`GET /api/render/progress`). */
+export interface RenderProgress {
+  /** `starting` → `building` (text) → `rendering` (frames) → `combining` → `audio` → `done`. */
+  phase: 'starting' | 'building' | 'rendering' | 'combining' | 'audio' | 'done' | 'error' | 'unknown';
+  /** 0–100 for the whole render, or null when it cannot be told (scene length unknown). */
+  percent: number | null;
+  /** Scene seconds written so far, and the scene length the request named. */
+  sceneTime?: number;
+  duration?: number | null;
+  /** Text objects built so far, out of those counted in the scene code. */
+  textBuilt?: number;
+  textTotal?: number;
+}
+
+export interface RenderSceneOptions {
+  /** Scene length in seconds; makes the frame-writing part of the percentage possible. */
+  expectedDurationSec?: number;
+  /** Called with each new progress reading while the render runs. */
+  onProgress?: (progress: RenderProgress) => void;
+  /** Poll interval in ms (default 700). */
+  pollMs?: number;
+}
+
+function newRenderJobId(): string {
+  const rand =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `render-${rand}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+}
+
+async function fetchRenderProgress(base: string, jobId: string): Promise<RenderProgress | null> {
+  const resp = await fetch(`${base}/api/render/progress?job_id=${encodeURIComponent(jobId)}`);
+  if (!resp.ok) return null;
+  const j = (await resp.json()) as {
+    phase?: RenderProgress['phase'];
+    percent?: number | null;
+    scene_time?: number;
+    duration?: number | null;
+    text_built?: number;
+    text_total?: number;
+  };
+  return {
+    phase: j.phase ?? 'unknown',
+    percent: typeof j.percent === 'number' ? j.percent : null,
+    sceneTime: j.scene_time,
+    duration: j.duration,
+    textBuilt: j.text_built,
+    textTotal: j.text_total,
+  };
+}
+
 /**
  * Renders Manim scene source on the measure server and returns the MP4 as a Blob.
+ * With `onProgress`, polls `/api/render/progress` while the render runs (an older server without
+ * that route simply reports nothing).
  */
 export async function renderSceneMp4(
   baseUrl: string,
@@ -915,17 +969,45 @@ export async function renderSceneMp4(
   quality: string,
   sceneName: string,
   masterAudioPath?: string | null,
+  opts: RenderSceneOptions = {},
 ): Promise<Blob> {
-  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/render`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      python_code: code,
-      quality,
-      scene_name: sceneName,
-      master_audio_path: masterAudioPath?.trim() || null,
-    }),
-  });
+  const base = baseUrl.replace(/\/$/, '');
+  const jobId = opts.onProgress ? newRenderJobId() : null;
+  let polling = jobId !== null;
+  const poll = async () => {
+    while (polling && jobId) {
+      await new Promise((r) => setTimeout(r, opts.pollMs ?? 700));
+      if (!polling) break;
+      try {
+        const p = await fetchRenderProgress(base, jobId);
+        if (p === null) break;
+        if (polling && p.phase !== 'unknown') opts.onProgress?.(p);
+      } catch {
+        /* the render request reports real failures */
+      }
+    }
+  };
+  const poller = poll();
+  let resp: Response;
+  try {
+    resp = await measureFetch(`${base}/api/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        python_code: code,
+        quality,
+        scene_name: sceneName,
+        master_audio_path: masterAudioPath?.trim() || null,
+        ...(jobId ? { job_id: jobId } : {}),
+        ...(opts.expectedDurationSec && opts.expectedDurationSec > 0
+          ? { expected_duration: Math.min(36000, opts.expectedDurationSec) }
+          : {}),
+      }),
+    });
+  } finally {
+    polling = false;
+  }
+  await poller;
   if (!resp.ok) {
     const text = await resp.text();
     let msg = text.trim() || `HTTP ${resp.status}`;

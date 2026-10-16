@@ -2577,6 +2577,27 @@ try:
             None,
             description="Optional repo-relative assets/audio/... master WAV to replace Manim audio",
         )
+        job_id: str | None = Field(
+            None,
+            description="Client-chosen id to poll /api/render/progress with (letters, digits, _ and -)",
+        )
+        expected_duration: float | None = Field(
+            None,
+            ge=0,
+            le=36000,
+            description="Scene length in seconds, for the progress percentage",
+        )
+
+    import render_progress
+
+    _render_jobs = render_progress.RenderJobs()
+
+    @app.get("/api/render/progress")
+    def render_progress_status(job_id: str) -> dict:
+        """Progress of a render started with this ``job_id``: phase, scene time and percent."""
+        if not render_progress.JOB_ID_RE.match(job_id):
+            raise HTTPException(status_code=400, detail="invalid job_id")
+        return _render_jobs.get(job_id)
 
     def _mux_master_audio_over_mp4(video_path: str, audio_abs: str, out_path: str) -> None:
         ffmpeg = _which_ffmpeg()
@@ -2620,7 +2641,8 @@ try:
     def _write_render_debug_snapshot(req: RenderRequest) -> None:
         """Persist the last render request so UI/export mismatches can be inspected."""
         os.makedirs(_RENDER_DEBUG_DIR, exist_ok=True)
-        source_path = os.path.join(_RENDER_DEBUG_DIR, "last_render.py")
+        # Not ``.py``: `uvicorn --reload` would restart the server mid-render (and lose its progress).
+        source_path = os.path.join(_RENDER_DEBUG_DIR, "last_render.py.txt")
         meta_path = os.path.join(_RENDER_DEBUG_DIR, "last_render_meta.json")
         with open(source_path, "w", encoding="utf-8") as f:
             f.write(req.python_code)
@@ -2651,10 +2673,18 @@ try:
             if os.path.isfile(path):
                 shutil.copy2(path, os.path.join(dst, name))
 
-    def _run_manim_render(python_code: str, scene: str, quality: str, work_dir: str, timeout: int = 3600) -> str:
+    def _run_manim_render(
+        python_code: str,
+        scene: str,
+        quality: str,
+        work_dir: str,
+        timeout: int = 3600,
+        job_id: str | None = None,
+    ) -> str:
         """Render *python_code* with the Manim CLI inside *work_dir*; return the scene's MP4 path.
 
         The code is written to a file and run as an argument list (no shell), like the export it is.
+        Manim runs through ``manim_progress``, which reports the scene time for *job_id*.
         """
         script_path = os.path.join(work_dir, "timeline_export_scene.py")
         _stage_project_assets_for_render(work_dir)
@@ -2671,25 +2701,23 @@ try:
         cmd = [
             sys.executable,
             "-m",
-            "manim",
+            "manim_progress",
             "render",
             script_path,
             scene,
             f"-q{quality}",
             "--format=mp4",
+            "--progress_bar=none",
         ]
-        proc = subprocess.run(
+        returncode, stdout, stderr = render_progress.run_streaming(
             cmd,
             cwd=work_dir,
             env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout,
+            on_mark=_render_jobs.on_mark(job_id) if job_id else None,
         )
-        if proc.returncode != 0:
-            err = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "manim failed"
+        if returncode != 0:
+            err = stderr.strip() or stdout.strip() or "manim failed"
             raise HTTPException(status_code=500, detail=err)
 
         media_videos = os.path.join(work_dir, "media", "videos")
@@ -2700,11 +2728,7 @@ try:
                     if fn.lower().endswith(".mp4"):
                         candidates.append(os.path.join(root, fn))
         if not candidates:
-            logs = "\n".join(
-                part
-                for part in ((proc.stderr or "").strip(), (proc.stdout or "").strip())
-                if part
-            )
+            logs = "\n".join(part for part in (stderr.strip(), stdout.strip()) if part)
             raise HTTPException(
                 status_code=500,
                 detail=(
@@ -2791,20 +2815,32 @@ try:
         if not scene:
             raise HTTPException(status_code=400, detail="scene_name is required")
 
+        job_id = (req.job_id or "").strip() or None
+        if job_id and not render_progress.JOB_ID_RE.match(job_id):
+            raise HTTPException(status_code=400, detail="invalid job_id")
+
         work_dir = tempfile.mkdtemp(prefix="manim_render_")
+        if job_id:
+            _render_jobs.start(
+                job_id, req.expected_duration, text_total=render_progress.count_text_objects(req.python_code)
+            )
 
         try:
             _write_render_debug_snapshot(req)
-            mp4_path = _run_manim_render(req.python_code, scene, q, work_dir)
+            mp4_path = _run_manim_render(req.python_code, scene, q, work_dir, job_id=job_id)
 
             deliver_path = mp4_path
             if req.master_audio_path:
+                if job_id:
+                    _render_jobs.update(job_id, phase="audio")
                 master_rel = req.master_audio_path.strip().replace("\\", "/")
                 master_abs = _resolve_safe_audio_asset(master_rel)
                 muxed_path = os.path.join(work_dir, f"{scene}_master_mux.mp4")
                 _mux_master_audio_over_mp4(mp4_path, master_abs, muxed_path)
                 deliver_path = muxed_path
 
+            if job_id:
+                _render_jobs.update(job_id, phase="done")
             return FileResponse(
                 deliver_path,
                 media_type="video/mp4",
@@ -2812,12 +2848,18 @@ try:
                 background=BackgroundTask(_cleanup_render_workdir, work_dir),
             )
         except HTTPException:
+            if job_id:
+                _render_jobs.update(job_id, phase="error")
             _cleanup_render_workdir(work_dir)
             raise
         except subprocess.TimeoutExpired:
+            if job_id:
+                _render_jobs.update(job_id, phase="error")
             _cleanup_render_workdir(work_dir)
             raise HTTPException(status_code=504, detail="Render timed out") from None
         except Exception as e:
+            if job_id:
+                _render_jobs.update(job_id, phase="error")
             _cleanup_render_workdir(work_dir)
             raise HTTPException(
                 status_code=500,

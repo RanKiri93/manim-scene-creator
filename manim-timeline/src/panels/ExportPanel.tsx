@@ -4,7 +4,7 @@ import {
   snapshotEditorToDiskPayload,
   useProjectScenesStore,
 } from '@/store/useProjectScenesStore';
-import { exportManimCode } from '@/codegen/manimExporter';
+import { computeSceneDurationSec, exportManimCode } from '@/codegen/manimExporter';
 import { exportMultiSceneCombinedPython, type SceneExportInput } from '@/codegen/projectExporter';
 import {
   imageNeedsExportPreparation,
@@ -17,6 +17,7 @@ import {
 import {
   concatMp4Files,
   renderSceneMp4,
+  type RenderProgress,
 } from '@/services/measureClient';
 import { prepareSceneMasterAudio } from '@/lib/audioRenderHelpers';
 import { safeSceneClassName } from '@/lib/pythonIdent';
@@ -40,6 +41,41 @@ interface RenderProgressState {
 
 function clampPercent(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function formatSceneTime(sec: number): string {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s - m * 60).toFixed(1).padStart(4, '0')}`;
+}
+
+/** What the measure server says it is doing, in words. */
+function describeRenderProgress(p: RenderProgress): string {
+  switch (p.phase) {
+    case 'starting':
+      return 'Starting Manim.';
+    case 'building':
+      return p.textTotal
+        ? `Building text ${Math.min(p.textBuilt ?? 0, p.textTotal)} of ${p.textTotal} (LaTeX).`
+        : 'Building text (LaTeX).';
+    case 'rendering':
+      return p.duration
+        ? `Writing frames: ${formatSceneTime(p.sceneTime ?? 0)} of ${formatSceneTime(p.duration)}.`
+        : `Writing frames: ${formatSceneTime(p.sceneTime ?? 0)} so far.`;
+    case 'combining':
+      return 'Joining the rendered parts into one video.';
+    case 'audio':
+      return 'Adding the mixed audio track.';
+    case 'done':
+      return 'Sending the video.';
+    default:
+      return 'Manim is running on the measure server.';
+  }
+}
+
+/** Map a render's own 0–100 into the `from`..`to` stretch of a bigger progress bar. */
+function scaleRenderPercent(p: RenderProgress, from: number, to: number): number | null {
+  return p.percent == null ? null : from + ((to - from) * p.percent) / 100;
 }
 
 function RenderProgressBar({ progress }: { progress: RenderProgressState }) {
@@ -251,10 +287,8 @@ export default function ExportPanel() {
       });
       setRenderProgress({
         label: `Rendering ${scene}`,
-        detail: masterPath
-          ? 'Manim is rendering video; final audio will be replaced with the mixed master track.'
-          : 'Manim is running on the measure server. Detailed frame progress is not available from this endpoint yet.',
-        percent: null,
+        detail: 'Starting Manim.',
+        percent: 12,
       });
       const blob = await renderSceneMp4(
         measureUrl,
@@ -262,6 +296,19 @@ export default function ExportPanel() {
         renderQuality,
         scene,
         masterPath,
+        {
+          expectedDurationSec: computeSceneDurationSec(preparedExports?.single ?? items, {
+            audioItems,
+            frames,
+            startFrameId,
+          }),
+          onProgress: (p) =>
+            setRenderProgress({
+              label: `Rendering ${scene}`,
+              detail: describeRenderProgress(p),
+              percent: scaleRenderPercent(p, 12, 95),
+            }),
+        },
       );
       setRenderProgress({
         label: 'Preparing MP4 download',
@@ -419,12 +466,28 @@ export default function ExportPanel() {
           startFrameId: sc.startFrameId,
           audioItems: sc.audioItems,
         });
+        const sceneSpan = 80 / totalScenes;
+        const renderFrom = sceneBasePercent + sceneSpan * 0.1;
         setRenderAllProgress({
           label: `Rendering scene ${sceneNo} of ${totalScenes}`,
-          detail: `${klass} is running on the measure server.`,
-          percent: sceneBasePercent + 4,
+          detail: `${klass}: starting Manim.`,
+          percent: renderFrom,
         });
-        blobs.push(await renderSceneMp4(measureUrl, py, renderQuality, klass, masterPath));
+        blobs.push(
+          await renderSceneMp4(measureUrl, py, renderQuality, klass, masterPath, {
+            expectedDurationSec: computeSceneDurationSec(preparedSceneItems, {
+              audioItems: sc.audioItems,
+              frames: sc.frames,
+              startFrameId: sc.startFrameId,
+            }),
+            onProgress: (p) =>
+              setRenderAllProgress({
+                label: `Rendering scene ${sceneNo} of ${totalScenes}`,
+                detail: `${klass}: ${describeRenderProgress(p)}`,
+                percent: scaleRenderPercent(p, renderFrom, sceneBasePercent + sceneSpan),
+              }),
+          }),
+        );
         setRenderAllProgress({
           label: `Finished scene ${sceneNo} of ${totalScenes}`,
           detail: klass,
