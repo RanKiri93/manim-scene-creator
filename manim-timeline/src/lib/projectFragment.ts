@@ -131,6 +131,14 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
           ...(tangent?.plotId ? { tangent: { ...tangent, plotId: m.get(tangent.plotId) ?? tangent.plotId } } : {}),
         };
       }
+      if (it.kind === 'shape' && it.angle) {
+        it.angle = {
+          ...it.angle,
+          vertex: remapShapeAnchor(it.angle.vertex, m),
+          from: remapShapeAnchor(it.angle.from, m),
+          to: remapShapeAnchor(it.angle.to, m),
+        };
+      }
       if (it.audioTrackId) {
         const aid = m.get(it.audioTrackId);
         if (aid) it.audioTrackId = aid;

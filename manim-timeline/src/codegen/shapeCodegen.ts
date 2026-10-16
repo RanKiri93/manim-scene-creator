@@ -1,5 +1,15 @@
 import type { ItemId, ShapeAnchor, ShapeEndpoints, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
-import { isConnectorShape, OBJECT_ANCHOR_KINDS, tangentSource } from '@/lib/shapeAnchors';
+import {
+  ANGLE_MARK_SEGMENTS,
+  isAngleMark,
+  isBoundShape,
+  isConnectorShape,
+  OBJECT_ANCHOR_KINDS,
+  RIGHT_ANGLE_TOLERANCE_DEG,
+  TICK_HALF_LENGTH,
+  TICK_SPACING,
+  tangentSource,
+} from '@/lib/shapeAnchors';
 import { PLOT_SLOPE_STEP } from '@/lib/graphLiveValue';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
@@ -60,6 +70,10 @@ export function generateShapeDef(
   indent: number,
 ): string {
   if (isConnectorShape(item)) return generateConnectorDef(item, varName, indent);
+  if (isAngleMark(item)) {
+    // Placeholder; the angle mark's updater draws it (`generateAngleMarkBind`).
+    return `${' '.repeat(indent)}${varName} = VMobject(color=${manimColor(item.strokeColor)}, stroke_width=${item.strokeWidth.toFixed(4)}).set_points_as_corners([ORIGIN, RIGHT * 0.001])\n`;
+  }
   const pad = ' '.repeat(indent);
   const stroke = manimColor(item.strokeColor);
   const sw = item.strokeWidth.toFixed(4);
@@ -148,8 +162,8 @@ export function generateShapePos(
   itemsMap: Map<ItemId, SceneItem>,
 ): string {
   const pad = ' '.repeat(indent);
-  // Connectors are drawn by their updater (`generateConnectorBind`), not placed.
-  if (isConnectorShape(item)) return '';
+  // Connectors and angle marks are drawn by their updaters, not placed.
+  if (isBoundShape(item)) return '';
   const lines: string[] = [
     `${pad}# timeline shape ${pyCommentValue({
       id: item.id,
@@ -369,7 +383,7 @@ export function connectorAnchorExpr(
     case 'object': {
       const target = itemsMap.get(anchor.itemId);
       const v = idToVarName.get(anchor.itemId);
-      if (!target || !v || !OBJECT_ANCHOR_KINDS.has(target.kind) || isConnectorShape(target)) {
+      if (!target || !v || !OBJECT_ANCHOR_KINDS.has(target.kind) || isBoundShape(target)) {
         throw new Error(`Connector anchor "${anchor.itemId}" must be an exported text line, shape, image or axes.`);
       }
       const edge = anchor.edge ?? 'center';
@@ -410,10 +424,105 @@ function connectorTangentLines(
   ];
 }
 
+export const ANGLE_MARK_FN = '_angle_mark_points';
+export const TICK_MARKS_FN = '_tick_marks';
+
+/** True when the scene needs {@link geometryMarksSource} (an angle mark or a connector with ticks). */
+export function anyGeometryMarks(items: readonly SceneItem[]): boolean {
+  return items.some((it) => isAngleMark(it) || (isConnectorShape(it) && (it.endpoints.ticks ?? 0) > 0));
+}
+
+/**
+ * Python helpers matching `resolveAngleMark` and `tickSegments` in `src/lib/shapeAnchors.ts`: the
+ * smaller angle at `v` as an arc of `r` (32 segments) or a square at a right angle, and 1–3
+ * ticks across the middle of a segment.
+ */
+export function geometryMarksSource(indent = 0): string {
+  const p = ' '.repeat(indent);
+  return [
+    `def ${ANGLE_MARK_FN}(v, p1, p2, r, mode):`,
+    `    u1, u2 = p1 - v, p2 - v`,
+    `    n1, n2 = np.linalg.norm(u1), np.linalg.norm(u2)`,
+    `    if n1 < 1e-9 or n2 < 1e-9:`,
+    `        return [v, v + RIGHT * 1e-4]`,
+    `    u1, u2 = u1 / n1, u2 / n2`,
+    `    theta = float(np.arccos(np.clip(np.dot(u1, u2), -1.0, 1.0)))`,
+    `    if mode == "right" or (mode == "auto" and abs(theta * 180 / PI - 90) < ${RIGHT_ANGLE_TOLERANCE_DEG}):`,
+    `        return [v + u1 * r, v + (u1 + u2) * r, v + u2 * r]`,
+    `    sign = 1.0 if u1[0] * u2[1] - u1[1] * u2[0] >= 0 else -1.0`,
+    `    a0 = float(np.arctan2(u1[1], u1[0]))`,
+    `    return [v + r * np.array([np.cos(a0 + sign * theta * i / ${ANGLE_MARK_SEGMENTS}), np.sin(a0 + sign * theta * i / ${ANGLE_MARK_SEGMENTS}), 0.0]) for i in range(${ANGLE_MARK_SEGMENTS + 1})]`,
+    `def ${TICK_MARKS_FN}(a, b, n, color, width):`,
+    `    length = np.linalg.norm(b - a)`,
+    `    if length < 1e-9:`,
+    `        return []`,
+    `    d = (b - a) / length`,
+    `    nrm = np.array([-d[1], d[0], 0.0])`,
+    `    mid = (a + b) / 2`,
+    `    marks = []`,
+    `    for i in range(n):`,
+    `        c = mid + d * (i - (n - 1) / 2) * ${TICK_SPACING}`,
+    `        marks.append(Line(c - nrm * ${TICK_HALF_LENGTH}, c + nrm * ${TICK_HALF_LENGTH}, color=color, stroke_width=width))`,
+    `    return marks`,
+  ]
+    .map((line) => p + line)
+    .join('\n') + '\n';
+}
+
+/**
+ * Bind an angle mark to its three anchors, like a connector: its own updater redraws it while it
+ * is on screen, and an always-present driver keeps it current before its intro.
+ */
+export function generateAngleMarkBind(
+  item: ShapeItem,
+  varName: string,
+  indent: number,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+  ownerFrameCenter: { x: number; y: number },
+): string {
+  if (!item.angle) return '';
+  const pad = ' '.repeat(indent);
+  const a = item.angle;
+  let v: string;
+  let p1: string;
+  let p2: string;
+  try {
+    v = connectorAnchorExpr(a.vertex, idToVarName, itemsMap, ownerFrameCenter);
+    p1 = connectorAnchorExpr(a.from, idToVarName, itemsMap, ownerFrameCenter);
+    p2 = connectorAnchorExpr(a.to, idToVarName, itemsMap, ownerFrameCenter);
+  } catch (e) {
+    throw new Error(`Angle mark "${item.label || item.id}": ${(e as Error).message}`);
+  }
+  const fn = `_${varName}_redraw`;
+  const r = pyNum(Number.isFinite(a.radius) && a.radius > 0 ? a.radius : 0.4);
+  return (
+    `${pad}# angle mark ${pyCommentValue({ id: item.id, angle: item.angle })}\n` +
+    `${pad}def ${fn}(m):\n` +
+    `${pad}    _pts = ${ANGLE_MARK_FN}(${v}, ${p1}, ${p2}, ${r}, "${a.mark ?? 'auto'}")\n` +
+    `${pad}    m.become(VMobject(color=m.get_color(), stroke_width=${item.strokeWidth.toFixed(4)}).set_points_as_corners(_pts))\n` +
+    `${pad}${varName}.add_updater(${fn})\n` +
+    `${pad}_${varName}_driver = Mobject()\n` +
+    `${pad}_${varName}_driver.add_updater(lambda _d: None if ${varName} in self.mobjects else ${fn}(${varName}))\n` +
+    `${pad}self.add(_${varName}_driver)\n` +
+    `${pad}${fn}(${varName})\n`
+  );
+}
+
 /** Placeholder mobject for a connector; its updater draws the real geometry (see below). */
 export function generateConnectorDef(item: ShapeItem, varName: string, indent: number): string {
   const pad = ' '.repeat(indent);
+  const ticks = connectorTicks(item);
+  if (ticks > 0) {
+    const tick = `Line(ORIGIN, RIGHT * 0.001, color=${manimColor(item.strokeColor)}, stroke_width=${item.strokeWidth.toFixed(4)})`;
+    return `${pad}${varName} = VGroup(${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}, ${Array.from({ length: ticks }, () => tick).join(', ')})\n`;
+  }
   return `${pad}${varName} = ${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}\n`;
+}
+
+/** Equal-length ticks on a connector, 0–3. */
+function connectorTicks(item: ShapeItem): number {
+  return Math.max(0, Math.min(3, Math.round(item.endpoints?.ticks ?? 0)));
 }
 
 function connectorMobjectCall(item: ShapeItem, a: string, b: string, color?: string): string {
@@ -462,6 +571,7 @@ export function generateConnectorBind(
     );
   }
   const fn = `_${varName}_redraw`;
+  const ticks = connectorTicks(item);
   return (
     `${pad}# connector ${pyCommentValue({ id: item.id, endpoints: item.endpoints })}\n` +
     `${pad}def ${fn}(m):\n` +
@@ -469,7 +579,13 @@ export function generateConnectorBind(
     `${pad}    if np.linalg.norm(_b - _a) < 1e-6:\n` +
     `${pad}        _b = _a + RIGHT * 1e-4\n` +
     // Keep the current colour so color animations on the connector persist.
-    `${pad}    m.become(${connectorMobjectCall(item, '_a', '_b', 'm.get_color()')})\n` +
+    // With ticks the connector is a fixed group (line + ticks) whose parts are redrawn in place:
+    // \`become\` into a group would add children that copy this updater and recurse.
+    (ticks > 0
+      ? `${pad}    _parts = [${connectorMobjectCall(item, '_a', '_b', 'm[0].get_color()')}] + ${TICK_MARKS_FN}(_a, _b, ${ticks}, m[0].get_color(), ${item.strokeWidth.toFixed(4)})\n` +
+        `${pad}    for _old, _new in zip(m.submobjects, _parts):\n` +
+        `${pad}        _old.become(_new)\n`
+      : `${pad}    m.become(${connectorMobjectCall(item, '_a', '_b', 'm.get_color()')})\n`) +
     `${pad}${varName}.add_updater(${fn})\n` +
     `${pad}_${varName}_driver = Mobject()\n` +
     `${pad}_${varName}_driver.add_updater(lambda _d: None if ${varName} in self.mobjects else ${fn}(${varName}))\n` +

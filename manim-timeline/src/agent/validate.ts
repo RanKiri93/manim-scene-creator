@@ -29,6 +29,7 @@ import {
   type SceneItem,
   type ShapeItem,
   type ShapeAnchor,
+  type ShapeAngleMark,
   type ShapeEndpoints,
   type ShapeKind,
   type ShapePoint,
@@ -47,8 +48,12 @@ import {
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
 import {
+  angleMarkStaticGeometry,
   connectorStaticGeometry,
+  isAngleMark,
+  isBoundShape,
   isConnectorShape,
+  resolveAngleMark,
   resolveConnectorEndpoints,
 } from '@/lib/shapeAnchors';
 import {
@@ -573,7 +578,7 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
     'fieldGridStep', 'fieldColormap', 'colorSchemeMin', 'colorSchemeMax', 'arrowStrokeWidth', 'streamPoints',
     'streamDt', 'streamVirtualTime',
   ],
-  shape: ['endpoints'],
+  shape: ['endpoints', 'angle'],
   surroundingRect: ['segmentIndices', 'runTime'],
   target_animation: ['targets', 'mode'],
   exit_animation: ['targets'],
@@ -1032,6 +1037,11 @@ function normalizeUpdates(
     const endpoints = normalizeShapeEndpoints(patch.endpoints, `${prefix}.updates.endpoints`, errors);
     if (endpoints) next.endpoints = endpoints;
     else delete next.endpoints;
+  }
+  if (targetKind === 'shape' && 'angle' in patch && patch.angle != null) {
+    const angle = normalizeShapeAngle(patch.angle, `${prefix}.updates.angle`, errors);
+    if (angle) next.angle = angle;
+    else delete next.angle;
   }
   if (targetKind === 'textLine') {
     if ('baseDir' in patch) next.baseDir = normalizeTextBaseDir(patch.baseDir);
@@ -2502,19 +2512,59 @@ function normalizeShapeEndpoints(v: unknown, path: string, errors: string[]): Sh
     return null;
   }
   const extend = Number(r.extend ?? 0);
-  return start && end ? { start, end, ...(extend > 0 ? { extend } : {}) } : null;
+  const ticks = r.ticks == null ? 0 : Number(r.ticks);
+  if (!Number.isInteger(ticks) || ticks < 0 || ticks > 3) {
+    errors.push(`${path}.ticks must be 0, 1, 2 or 3 (equal-length marks across the middle).`);
+    return null;
+  }
+  return start && end ? { start, end, ...(extend > 0 ? { extend } : {}), ...(ticks > 0 ? { ticks } : {}) } : null;
+}
+
+/** An angle mark: three anchors (vertex, from, to), a radius and the mark style. */
+function normalizeShapeAngle(v: unknown, path: string, errors: string[]): ShapeAngleMark | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    errors.push(`${path} must be { vertex: <anchor>, from: <anchor>, to: <anchor>, radius?, mark? }.`);
+    return null;
+  }
+  const r = v as Record<string, unknown>;
+  const vertex = normalizeShapeAnchor(r.vertex, `${path}.vertex`, errors);
+  const from = normalizeShapeAnchor(r.from, `${path}.from`, errors);
+  const to = normalizeShapeAnchor(r.to, `${path}.to`, errors);
+  const radius = r.radius == null ? 0.4 : Number(r.radius);
+  if (!(Number.isFinite(radius) && radius > 0)) {
+    errors.push(`${path}.radius must be a positive number of Manim units (about 0.3–0.6).`);
+    return null;
+  }
+  const mark = r.mark ?? 'auto';
+  if (mark !== 'auto' && mark !== 'arc' && mark !== 'right') {
+    errors.push(`${path}.mark must be "auto", "arc" or "right".`);
+    return null;
+  }
+  return vertex && from && to ? { vertex, from, to, radius, mark } : null;
 }
 
 function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: string): ShapeItem | null {
   const base = baseDefaults(raw);
   const rawSt = raw.shapeType;
   const hasEndpoints = raw.endpoints != null;
+  const hasAngle = raw.angle != null;
   const shapeType: ShapeKind =
     typeof rawSt === 'string' && AGENT_SHAPE_KINDS.has(rawSt as ShapeKind)
       ? (rawSt as ShapeKind)
       : hasEndpoints
         ? 'line'
-        : 'circle';
+        : hasAngle
+          ? 'polyline'
+          : 'circle';
+  let angle: ShapeAngleMark | null = null;
+  if (hasAngle) {
+    if (shapeType !== 'polyline') {
+      errors.push(`${prefix}.item.angle needs shapeType "polyline" (or no shapeType).`);
+      return null;
+    }
+    angle = normalizeShapeAngle(raw.angle, `${prefix}.item.angle`, errors);
+    if (!angle) return null;
+  }
   let endpoints: ShapeEndpoints | null = null;
   if (hasEndpoints) {
     if (shapeType !== 'line' && shapeType !== 'arrow') {
@@ -2545,6 +2595,7 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
     introStyle:
       (raw.introStyle as ShapeItem['introStyle']) ?? 'create',
     ...(endpoints ? { endpoints } : {}),
+    ...(angle ? { angle, headArrow: false, tailArrow: false } : {}),
   };
 }
 
@@ -2573,14 +2624,26 @@ function checkConnectors(
   frameCtx: AgentFrameContext | undefined,
   errors: string[],
 ): void {
-  if (!actions.some((a) => (a.action === 'CREATE' ? isConnectorShape(a.item) : a.action === 'UPDATE' && 'endpoints' in a.updates))) return;
+  if (!actions.some((a) => (a.action === 'CREATE' ? isBoundShape(a.item) : a.action === 'UPDATE' && ('endpoints' in a.updates || 'angle' in a.updates)))) return;
   const virtual = virtualSceneAfter(currentItems, actions);
   const ctx = { items: virtual, frames: frameCtx?.frames ?? [], startFrameId: frameCtx?.startFrameId ?? null };
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
     if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
-    if (action.action === 'UPDATE' && !('endpoints' in action.updates)) continue;
+    if (action.action === 'UPDATE' && !('endpoints' in action.updates) && !('angle' in action.updates)) continue;
     const shape = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
+    if (isAngleMark(shape)) {
+      const mark = resolveAngleMark(shape, { ...ctx, time: shape.startTime });
+      if (mark.error != null) {
+        errors.push(`actions[${i}]: angle mark "${shape.id}": ${mark.error}`);
+        continue;
+      }
+      const geometry = angleMarkStaticGeometry(shape, { ...ctx, time: shape.startTime });
+      if (!geometry) continue;
+      if (action.action === 'CREATE') action.item = { ...shape, ...geometry };
+      else action.updates = { ...action.updates, ...geometry } as Partial<SceneItem>;
+      continue;
+    }
     if (!isConnectorShape(shape)) continue;
     const result = resolveConnectorEndpoints(shape, { ...ctx, time: shape.startTime });
     if (result.error != null) {

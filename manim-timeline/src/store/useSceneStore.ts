@@ -1,4 +1,4 @@
-import { connectorReferencedIds, connectorStaticGeometry } from '@/lib/shapeAnchors';
+import { angleMarkStaticGeometry, boundShapeReferencedIds, connectorReferencedIds, connectorStaticGeometry } from '@/lib/shapeAnchors';
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
@@ -1026,6 +1026,18 @@ export const useSceneStore = create<SceneStore>()(
           });
           if (geometry) Object.assign(sh, geometry);
           sh.endpoints = null;
+        }
+        // Angle marks likewise become a plain polyline where they are.
+        for (const sh of s.items.values()) {
+          if (sh.kind !== 'shape' || !sh.angle || !boundShapeReferencedIds(sh).includes(id)) continue;
+          const geometry = angleMarkStaticGeometry(sh, {
+            items: s.items,
+            time: sh.startTime,
+            frames: s.frames,
+            startFrameId: s.startFrameId,
+          });
+          if (geometry) Object.assign(sh, geometry);
+          sh.angle = null;
         }
         s.items.delete(id);
         s.selectedIds.delete(id);

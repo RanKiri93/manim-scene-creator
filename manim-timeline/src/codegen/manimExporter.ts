@@ -1,4 +1,4 @@
-import { isConnectorShape } from '@/lib/shapeAnchors';
+import { isAngleMark, isBoundShape, isConnectorShape } from '@/lib/shapeAnchors';
 import { RIEMANN_MAX_COUNT } from '@/lib/riemann';
 import type {
   SceneItem,
@@ -79,6 +79,9 @@ import {
   generateShapePos,
   generateShapePlay,
   generateConnectorBind,
+  generateAngleMarkBind,
+  anyGeometryMarks,
+  geometryMarksSource,
 } from './shapeCodegen';
 import {
   generateImageDef,
@@ -230,7 +233,7 @@ function leafNeedsNumpy(it: ExportLeaf): boolean {
     it.kind === 'graphFunctionSeries' ||
     it.kind === 'graphPointSequence' ||
     it.kind === 'graphArea' ||
-    isConnectorShape(it)
+    isBoundShape(it)
   );
 }
 
@@ -802,6 +805,10 @@ function exportManimCodeInner(
   }
   // Connectors follow their anchors, so they bind only after everything is placed and shifted.
   for (const it of flat) {
+    if (isAngleMark(it)) {
+      posStr += generateAngleMarkBind(it, idToVarName.get(it.id)!, base, idToVarName, itemsMap, frameCenterById(frames, frameIdFor(it)));
+      continue;
+    }
     if (!isConnectorShape(it)) continue;
     posStr += generateConnectorBind(
       it,
@@ -1443,7 +1450,8 @@ function exportManimCodeInner(
     const areaHelper = anyGraphAreaReveal(items) ? `${graphAreaRevealSource(0)}\n` : '';
     const trailHelper = anyFadingTrail(items) ? `${graphFadingTrailSource(0)}\n` : '';
     const riemannHelper = anyRiemannArea(items) ? `${riemannRectsSource(0)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const marksHelper = anyGeometryMarks(items) ? `${geometryMarksSource(0)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1467,6 +1475,7 @@ function exportManimCodeInner(
   if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);
   if (anyFadingTrail(items)) header += '\n\n' + graphFadingTrailSource(0);
   if (anyRiemannArea(items)) header += '\n\n' + riemannRectsSource(0);
+  if (anyGeometryMarks(items)) header += '\n\n' + geometryMarksSource(0);
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster

@@ -1,4 +1,4 @@
-import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ENDPOINTS_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
@@ -208,6 +208,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   startTime: { type: 'number' }, duration: { type: 'number' },
                   dot: GRAPH_DOT_SCHEMA,
                   endpoints: SHAPE_ENDPOINTS_SCHEMA,
+                  angle: SHAPE_ANGLE_SCHEMA,
                   ...GRAPH_FIELD_PROPERTIES,
                   ...GRAPH_AREA_PROPERTIES,
                   ...TEXT_ANIM_PROPERTIES,
@@ -240,6 +241,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   duration: { type: 'number', description: 'camera_move UPDATE: duration at least 0.05 seconds.' },
                   dot: GRAPH_DOT_SCHEMA,
                   endpoints: SHAPE_ENDPOINTS_SCHEMA,
+                  angle: SHAPE_ANGLE_SCHEMA,
                   ...GRAPH_FIELD_PROPERTIES,
                   ...GRAPH_AREA_PROPERTIES,
                   ...TEXT_ANIM_PROPERTIES,

@@ -109,6 +109,10 @@ export const SHAPE_ENDPOINTS_SCHEMA = {
       description:
         'Lengthen the line past both ends by this many Manim units, so it reads as the whole line through the two points (a secant). Omit or 0 for just the segment.',
     },
+    ticks: {
+      type: 'integer',
+      description: 'Equal-length marks across the middle of the line (geometry): 1, 2 or 3. Give sides of equal length the same number.',
+    },
     tangent: {
       type: 'object',
       description:
@@ -121,6 +125,20 @@ export const SHAPE_ENDPOINTS_SCHEMA = {
         },
       },
     },
+  },
+} as const;
+
+/** `shape.angle` (polyline): an angle mark between three anchors (geometry). */
+export const SHAPE_ANGLE_SCHEMA = {
+  type: 'object',
+  description:
+    'Make the shape an angle mark (shapeType "polyline" or omit it): the angle at vertex between the rays to from and to, drawn as an arc of radius (or a small square at a right angle) and redrawn every frame as the points move. Position fields are ignored.',
+  properties: {
+    vertex: SHAPE_ANCHOR_SCHEMA,
+    from: SHAPE_ANCHOR_SCHEMA,
+    to: SHAPE_ANCHOR_SCHEMA,
+    radius: { type: 'number', description: 'Arc radius in Manim units (default 0.4).' },
+    mark: { type: 'string', enum: ['auto', 'arc', 'right'], description: '"auto" (default): a square when the angle is 90°, else an arc.' },
   },
 } as const;
 

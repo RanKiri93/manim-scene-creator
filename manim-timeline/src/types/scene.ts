@@ -523,6 +523,22 @@ export interface ShapeEndpoints {
    * `start`).
    */
   tangent?: ShapeTangent | null;
+  /** Equal-length tick marks across the middle of the line (geometry): 1–3; unset or 0 = none. */
+  ticks?: number;
+}
+
+/**
+ * An angle marked at `vertex` between the rays to `from` and `to` (geometry), redrawn every frame
+ * like a connector: an arc of `radius`, or a small square for a right angle.
+ */
+export interface ShapeAngleMark {
+  vertex: ShapeAnchor;
+  from: ShapeAnchor;
+  to: ShapeAnchor;
+  /** Manim units. */
+  radius: number;
+  /** 'arc' always, 'right' a square, 'auto' (default) a square when the angle is 90° (±0.5°). */
+  mark?: 'arc' | 'right' | 'auto';
 }
 
 /** Primitive shape: circle, rectangle, arrow, line, or polyline; positioned like other scene objects. */
@@ -533,6 +549,11 @@ export interface ShapeItem extends SceneItemBase {
    * normal static shape.
    */
   endpoints?: ShapeEndpoints | null;
+  /**
+   * Polyline only: when set, the shape is an angle mark whose points follow these anchors every
+   * frame; `points`, `x`/`y` and transforms are ignored for drawing. Unset = a normal polyline.
+   */
+  angle?: ShapeAngleMark | null;
   kind: 'shape';
   shapeType: ShapeKind;
   /** Degrees, CCW; applied in Manim after move_to. */

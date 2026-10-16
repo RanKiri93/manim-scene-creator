@@ -5,7 +5,7 @@ import { cameraPoseAtTime } from '@/lib/camera';
 import { frameCenterById } from '@/lib/frameGrid';
 import { resolveGraphDotPosition } from '@/lib/graphMotion';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
-import { axesGraphToWorld, isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
+import { axesGraphToWorld, isAngleMark, isConnectorShape, resolveAngleMark, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
 import { buildGraphAnnotationLayout } from '@/lib/graphAnnotationLayout';
 import { liveValueSlope } from '@/lib/graphLiveValue';
 import { graphDotTrail } from '@/lib/graphDotTrail';
@@ -208,6 +208,17 @@ function itemFacts(
           pxPerUnit: 1,
           slope: liveValueSlope(item, motion.point.x, scene),
         }).coordinateText;
+      }
+      return row;
+    }
+    if (isAngleMark(item)) {
+      const mark = resolveAngleMark(item, ctx(time));
+      if (mark.error != null) row.error = mark.error;
+      else {
+        row.angleDegrees = r3(mark.degrees);
+        row.rightAngle = mark.right;
+        row.vertex = pt(mark.vertex);
+        row.labelAtWorld = pt(mark.labelAt);
       }
       return row;
     }

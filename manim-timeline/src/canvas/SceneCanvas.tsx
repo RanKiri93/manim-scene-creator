@@ -15,7 +15,7 @@ import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
 import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
-import { isConnectorShape, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
+import { isAngleMark, isConnectorShape, resolveAngleMark, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
 import { registerLoopToolEnv } from '@/agent/loop/env';
 import { renderDraftFrame } from '@/agent/loop/manimFrame';
 import { measureLine } from '@/services/measureClient';
@@ -1316,6 +1316,14 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     mx = (ends.start.x + ends.end.x) / 2;
                     my = (ends.start.y + ends.end.y) / 2;
                     drawnShape = { ...item, endX: ends.end.x - ends.start.x, endY: ends.end.y - ends.start.y, rotationDeg: 0, scale: 1 };
+                  }
+                } else if (isAngleMark(item)) {
+                  // Angle mark: the arc / square at the vertex, drawn as a polyline around it.
+                  const mark = resolveAngleMark(item, { items: itemsMap, time: currentTime, frames, startFrameId });
+                  if (mark.error == null) {
+                    mx = mark.vertex.x;
+                    my = mark.vertex.y;
+                    drawnShape = { ...item, points: mark.points.map((q) => ({ x: q.x - mark.vertex.x, y: q.y - mark.vertex.y })), rotationDeg: 0, scale: 1, headArrow: false, tailArrow: false };
                   }
                 }
                 return (

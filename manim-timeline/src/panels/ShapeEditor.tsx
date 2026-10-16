@@ -10,6 +10,7 @@ import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 import ConnectorEndsEditor from './ConnectorEndsEditor';
+import AngleMarkEditor from './AngleMarkEditor';
 
 const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'circle', label: 'Circle' },
@@ -155,7 +156,9 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         </div>
       )}
 
-      {item.shapeType === 'polyline' && (
+      {item.shapeType === 'polyline' && <AngleMarkEditor item={item} />}
+
+      {item.shapeType === 'polyline' && !item.angle && (
         <div className="flex flex-col gap-3 border border-rule rounded-ctl p-3 bg-ink/40">
           <div className="text-ctl font-medium text-chalk-dim">Points</div>
           <p className="text-meta text-chalk-faint leading-snug">
@@ -399,10 +402,10 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
     </div>
   );
 
-  const positionContent = item.endpoints ? (
+  const positionContent = item.endpoints || item.angle ? (
     <p className="text-meta text-chalk-faint leading-snug">
-      This line’s ends follow other objects (see Base → Connector ends), so it has no position of
-      its own.
+      This shape follows other objects (see Base → {item.angle ? 'Angle mark' : 'Connector ends'}), so it has no
+      position of its own.
     </p>
   ) : (
     <div className="flex flex-col gap-3">

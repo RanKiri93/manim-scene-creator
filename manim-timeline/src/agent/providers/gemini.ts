@@ -4,6 +4,7 @@ import {
   GRAPH_DOT_SCHEMA,
   GRAPH_FIELD_PROPERTIES,
   GRAPH_FOLLOW_ROW_PROPERTIES,
+  SHAPE_ANGLE_SCHEMA,
   SHAPE_ENDPOINTS_SCHEMA,
   TARGET_ANIMATION_MODES,
   TEXT_ANIM_PROPERTIES,
@@ -200,6 +201,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               },
               dot: GRAPH_DOT_SCHEMA,
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
+              angle: SHAPE_ANGLE_SCHEMA,
               mode: {
                 type: 'string',
                 enum: [
@@ -398,6 +400,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               duration: { type: 'number', description: 'camera_move UPDATE: transition duration, minimum 0.05 seconds.' },
               dot: GRAPH_DOT_SCHEMA,
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
+              angle: SHAPE_ANGLE_SCHEMA,
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
               ...TEXT_ANIM_PROPERTIES,

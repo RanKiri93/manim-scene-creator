@@ -6,6 +6,7 @@ import type {
   ItemId,
   SceneItem,
   ShapeAnchor,
+  ShapeAngleMark,
   ShapeEndpoints,
   ShapeItem,
 } from '@/types/scene';
@@ -37,6 +38,30 @@ export function isConnectorShape(item: SceneItem | undefined | null): item is Sh
     (item.shapeType === 'line' || item.shapeType === 'arrow') &&
     item.endpoints != null
   );
+}
+
+/** True for a polyline drawn as an angle mark between three anchors. */
+export function isAngleMark(item: SceneItem | undefined | null): item is ShapeItem & { angle: ShapeAngleMark } {
+  return item?.kind === 'shape' && item.shapeType === 'polyline' && item.angle != null;
+}
+
+/** A shape whose geometry follows anchors every frame (connector or angle mark). */
+export function isBoundShape(item: SceneItem | undefined | null): boolean {
+  return isConnectorShape(item) || isAngleMark(item);
+}
+
+function anchorIds(anchor: ShapeAnchor): ItemId[] {
+  if (anchor.kind === 'graphPoint') return [anchor.axesId];
+  if (anchor.kind === 'graphDot' || anchor.kind === 'graphDotFoot') return [anchor.dotId];
+  if (anchor.kind === 'object') return [anchor.itemId];
+  return [];
+}
+
+/** Ids a bound shape depends on (connector ends, tangent plot, angle anchors). */
+export function boundShapeReferencedIds(shape: ShapeItem): ItemId[] {
+  const ids = shape.endpoints ? connectorReferencedIds(shape.endpoints) : [];
+  if (shape.angle) for (const a of [shape.angle.vertex, shape.angle.from, shape.angle.to]) ids.push(...anchorIds(a));
+  return [...new Set(ids)];
 }
 
 /** Ids a connector depends on (dots, axes, objects); used for clean-up, remapping and checks. */
@@ -141,7 +166,7 @@ export function resolveShapeAnchor(anchor: ShapeAnchor, owner: SceneItem, ctx: A
       if (!target || !OBJECT_ANCHOR_KINDS.has(target.kind)) {
         return { point: null, error: `Connector anchor "${anchor.itemId}" must be a text line, shape, image or axes.` };
       }
-      if (isConnectorShape(target)) return { point: null, error: 'A connector cannot be anchored to another connector.' };
+      if (isBoundShape(target)) return { point: null, error: 'A connector or angle mark cannot be anchored to another one.' };
       const center = resolvePosition(target, ctx.items);
       const fc = frameOffset(target, ctx);
       const ta = targetAnimPreviewAccum(target.id, ctx.time, ctx.items);
@@ -265,6 +290,110 @@ export function connectorStaticGeometry(
     y: (r.start.y + r.end.y) / 2 - fc.y,
     endX: r.end.x - r.start.x,
     endY: r.end.y - r.start.y,
+    rotationDeg: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+  };
+}
+
+/** Segments of an angle arc (preview and export draw the same polyline). */
+export const ANGLE_MARK_SEGMENTS = 32;
+/** Within this of 90° an 'auto' mark is drawn as a right-angle square. */
+export const RIGHT_ANGLE_TOLERANCE_DEG = 0.5;
+
+export type AngleMarkResult =
+  | { points: { x: number; y: number }[]; vertex: { x: number; y: number }; degrees: number; right: boolean; labelAt: { x: number; y: number }; error: null }
+  | { points: null; error: string };
+
+/**
+ * The angle at `vertex` between the rays to `from` and `to`, at `ctx.time`, in world coordinates:
+ * the smaller angle (0–180°), drawn as an arc of `radius` or a square when it is a right angle.
+ * `labelAt` is on the bisector at 1.8 × radius (where an angle name such as α reads well).
+ */
+export function resolveAngleMark(shape: ShapeItem, ctx: AnchorContext): AngleMarkResult {
+  const a = shape.angle;
+  if (!a) return { points: null, error: 'Shape is not an angle mark.' };
+  const resolve = (anchor: ShapeAnchor, name: string) => {
+    const r = resolveShapeAnchor(anchor, shape, ctx);
+    return r.error != null ? `Angle ${name}: ${r.error}` : r.point;
+  };
+  const v = resolve(a.vertex, 'vertex');
+  if (typeof v === 'string') return { points: null, error: v };
+  const p = resolve(a.from, 'from');
+  if (typeof p === 'string') return { points: null, error: p };
+  const q = resolve(a.to, 'to');
+  if (typeof q === 'string') return { points: null, error: q };
+  const n1 = Math.hypot(p.x - v.x, p.y - v.y);
+  const n2 = Math.hypot(q.x - v.x, q.y - v.y);
+  if (n1 < 1e-9 || n2 < 1e-9) return { points: null, error: 'Angle mark: an arm has zero length (a point sits on the vertex).' };
+  const r = Number.isFinite(a.radius) && a.radius > 0 ? a.radius : 0.4;
+  const u1 = { x: (p.x - v.x) / n1, y: (p.y - v.y) / n1 };
+  const u2 = { x: (q.x - v.x) / n2, y: (q.y - v.y) / n2 };
+  const theta = Math.acos(Math.max(-1, Math.min(1, u1.x * u2.x + u1.y * u2.y)));
+  const degrees = (theta * 180) / Math.PI;
+  const mode = a.mark ?? 'auto';
+  const right = mode === 'right' || (mode === 'auto' && Math.abs(degrees - 90) < RIGHT_ANGLE_TOLERANCE_DEG);
+  const bis = { x: u1.x + u2.x, y: u1.y + u2.y };
+  const bn = Math.hypot(bis.x, bis.y);
+  const bisector = bn > 1e-9 ? { x: bis.x / bn, y: bis.y / bn } : { x: -u1.y, y: u1.x };
+  const labelAt = { x: v.x + bisector.x * r * 1.8, y: v.y + bisector.y * r * 1.8 };
+  if (right) {
+    return {
+      points: [
+        { x: v.x + u1.x * r, y: v.y + u1.y * r },
+        { x: v.x + (u1.x + u2.x) * r, y: v.y + (u1.y + u2.y) * r },
+        { x: v.x + u2.x * r, y: v.y + u2.y * r },
+      ],
+      vertex: v,
+      degrees,
+      right,
+      labelAt,
+      error: null,
+    };
+  }
+  const sign = u1.x * u2.y - u1.y * u2.x >= 0 ? 1 : -1;
+  const a0 = Math.atan2(u1.y, u1.x);
+  const points = Array.from({ length: ANGLE_MARK_SEGMENTS + 1 }, (_, i) => {
+    const t = a0 + (sign * theta * i) / ANGLE_MARK_SEGMENTS;
+    return { x: v.x + r * Math.cos(t), y: v.y + r * Math.sin(t) };
+  });
+  return { points, vertex: v, degrees, right, labelAt, error: null };
+}
+
+/** Half length and spacing of equal-length ticks (Manim units). */
+export const TICK_HALF_LENGTH = 0.12;
+export const TICK_SPACING = 0.08;
+
+/** Tick segments across the middle of a→b (1–3 ticks), in the same coordinates as a and b. */
+export function tickSegments(a: { x: number; y: number }, b: { x: number; y: number }, count: number): [{ x: number; y: number }, { x: number; y: number }][] {
+  const n = Math.max(0, Math.min(3, Math.round(count)));
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (n === 0 || len < 1e-9) return [];
+  const d = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+  const nrm = { x: -d.y, y: d.x };
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  return Array.from({ length: n }, (_, i) => {
+    const off = (i - (n - 1) / 2) * TICK_SPACING;
+    const c = { x: mid.x + d.x * off, y: mid.y + d.y * off };
+    return [
+      { x: c.x - nrm.x * TICK_HALF_LENGTH, y: c.y - nrm.y * TICK_HALF_LENGTH },
+      { x: c.x + nrm.x * TICK_HALF_LENGTH, y: c.y + nrm.y * TICK_HALF_LENGTH },
+    ];
+  });
+}
+
+/**
+ * Static polyline fields (`x`, `y`, `points`) matching an angle mark at `time`, frame-local to the
+ * shape: keeps bounding boxes, camera fitting and "unbind" sensible. Null when unresolved.
+ */
+export function angleMarkStaticGeometry(shape: ShapeItem, ctx: AnchorContext): Pick<ShapeItem, 'x' | 'y' | 'points' | 'rotationDeg' | 'scale' | 'posSteps'> | null {
+  const r = resolveAngleMark(shape, ctx);
+  if (r.error != null) return null;
+  const fc = frameOffset(shape, ctx);
+  return {
+    x: r.vertex.x - fc.x,
+    y: r.vertex.y - fc.y,
+    points: r.points.map((q) => ({ x: q.x - r.vertex.x, y: q.y - r.vertex.y })),
     rotationDeg: 0,
     scale: 1,
     posSteps: [{ kind: 'absolute' }],

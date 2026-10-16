@@ -6,7 +6,7 @@ import { frameCenterById } from '@/lib/frameGrid';
 import {
   OBJECT_ANCHOR_KINDS,
   connectorStaticGeometry,
-  isConnectorShape,
+  isBoundShape,
   resolveConnectorEndpoints,
 } from '@/lib/shapeAnchors';
 
@@ -49,6 +49,109 @@ function anchorKindOf(anchor: ShapeAnchor): AnchorKind {
 }
 
 /**
+ * One anchor: a graph dot, a dot's foot on an axis, a point on axes, an object's centre or edge,
+ * or a fixed point. Shared by connector ends and angle marks.
+ */
+export function AnchorPicker({
+  label,
+  anchor,
+  ownerId,
+  onChange,
+}: {
+  label: string;
+  anchor: ShapeAnchor;
+  ownerId: string;
+  onChange: (next: ShapeAnchor) => void;
+}) {
+  const items = useSceneStore((s) => s.items);
+  const dots = [...items.values()].filter((it) => it.kind === 'graphDot');
+  const axes = [...items.values()].filter((it) => it.kind === 'axes');
+  const objects = [...items.values()].filter(
+    (it) => it.id !== ownerId && OBJECT_ANCHOR_KINDS.has(it.kind) && !isBoundShape(it),
+  );
+  const defaultAnchor = (kind: AnchorKind): ShapeAnchor => {
+    const dot = dots[0];
+    switch (kind) {
+      case 'graphDot':
+        return { kind: 'graphDot', dotId: dot?.id ?? '' };
+      case 'graphDotFootX':
+        return { kind: 'graphDotFoot', dotId: dot?.id ?? '', axis: 'x' };
+      case 'graphDotFootY':
+        return { kind: 'graphDotFoot', dotId: dot?.id ?? '', axis: 'y' };
+      case 'graphPoint':
+        return { kind: 'graphPoint', axesId: axes[0]?.id ?? '', x: 0, y: 0 };
+      case 'object':
+        return { kind: 'object', itemId: objects[0]?.id ?? '', edge: 'center' };
+      default:
+        return anchor.kind === 'point' ? anchor : { kind: 'point', x: 0, y: 0 };
+    }
+  };
+  const option = (it: SceneItem) => (
+    <option key={it.id} value={it.id}>
+      {itemClipDisplayName(it)}
+    </option>
+  );
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-ctl text-chalk-dim block">
+        {label}
+        <select value={anchorKindOf(anchor)} onChange={(e) => onChange(defaultAnchor(e.target.value as AnchorKind))} className={selectClass}>
+          {ANCHOR_KINDS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {(anchor.kind === 'graphDot' || anchor.kind === 'graphDotFoot') && (
+        <select aria-label={`${label} graph dot`} value={anchor.dotId} onChange={(e) => onChange({ ...anchor, dotId: e.target.value })} className={selectClass}>
+          {!anchor.dotId && <option value="">Choose a graph dot</option>}
+          {dots.map(option)}
+        </select>
+      )}
+      {anchor.kind === 'graphPoint' && (
+        <>
+          <select aria-label={`${label} axes`} value={anchor.axesId} onChange={(e) => onChange({ ...anchor, axesId: e.target.value })} className={selectClass}>
+            {!anchor.axesId && <option value="">Choose axes</option>}
+            {axes.map(option)}
+          </select>
+          <div className="flex flex-wrap gap-3">
+            <NumberInput label="Graph x" value={anchor.x} onChange={(x) => onChange({ ...anchor, x })} step={0.1} />
+            <NumberInput label="Graph y" value={anchor.y} onChange={(y) => onChange({ ...anchor, y })} step={0.1} />
+          </div>
+        </>
+      )}
+      {anchor.kind === 'object' && (
+        <div className="flex flex-wrap gap-3">
+          <select aria-label={`${label} object`} value={anchor.itemId} onChange={(e) => onChange({ ...anchor, itemId: e.target.value })} className={selectClass}>
+            {!anchor.itemId && <option value="">Choose an object</option>}
+            {objects.map(option)}
+          </select>
+          <select
+            aria-label={`${label} edge`}
+            value={anchor.edge ?? 'center'}
+            onChange={(e) => onChange({ ...anchor, edge: e.target.value as ManimDirection | 'center' })}
+            className={selectClass}
+          >
+            {EDGES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {anchor.kind === 'point' && (
+        <div className="flex flex-wrap gap-3">
+          <NumberInput label="X" value={anchor.x} onChange={(x) => onChange({ ...anchor, x })} step={0.1} />
+          <NumberInput label="Y" value={anchor.y} onChange={(y) => onChange({ ...anchor, y })} step={0.1} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Line / arrow ends that follow other things ("connector"): a graph dot, the dot's foot on an
  * axis, a point on axes, an object's centre or edge, or a fixed point. Redrawn every frame.
  */
@@ -60,10 +163,6 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
   const updateItem = useSceneStore((s) => s.updateItem);
 
   const dots = [...items.values()].filter((it) => it.kind === 'graphDot');
-  const axes = [...items.values()].filter((it) => it.kind === 'axes');
-  const objects = [...items.values()].filter(
-    (it) => it.id !== item.id && OBJECT_ANCHOR_KINDS.has(it.kind) && !isConnectorShape(it),
-  );
 
   const ctx = { items, frames, startFrameId };
   const commit = (endpoints: ShapeEndpoints | null) => {
@@ -184,110 +283,14 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
     );
   };
 
-  const defaultAnchor = (kind: AnchorKind, previous: ShapeAnchor): ShapeAnchor => {
-    const dot = dots[0];
-    switch (kind) {
-      case 'graphDot':
-        return { kind: 'graphDot', dotId: dot?.id ?? '' };
-      case 'graphDotFootX':
-        return { kind: 'graphDotFoot', dotId: dot?.id ?? '', axis: 'x' };
-      case 'graphDotFootY':
-        return { kind: 'graphDotFoot', dotId: dot?.id ?? '', axis: 'y' };
-      case 'graphPoint':
-        return { kind: 'graphPoint', axesId: axes[0]?.id ?? '', x: 0, y: 0 };
-      case 'object':
-        return { kind: 'object', itemId: objects[0]?.id ?? '', edge: 'center' };
-      default:
-        return previous.kind === 'point' ? previous : { kind: 'point', x: 0, y: 0 };
-    }
-  };
-
-  const endEditor = (which: 'start' | 'end') => {
-    const anchor = endpoints[which];
-    const setAnchor = (next: ShapeAnchor) => commit({ ...endpoints, [which]: next });
-    const option = (it: SceneItem) => (
-      <option key={it.id} value={it.id}>
-        {itemClipDisplayName(it)}
-      </option>
-    );
-    return (
-      <div className="flex flex-col gap-2">
-        <label className="text-ctl text-chalk-dim block">
-          {which === 'start' ? 'Start follows' : 'End follows'}
-          <select
-            value={anchorKindOf(anchor)}
-            onChange={(e) => setAnchor(defaultAnchor(e.target.value as AnchorKind, anchor))}
-            className={selectClass}
-          >
-            {ANCHOR_KINDS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {(anchor.kind === 'graphDot' || anchor.kind === 'graphDotFoot') && (
-          <select
-            aria-label={`${which} graph dot`}
-            value={anchor.dotId}
-            onChange={(e) => setAnchor({ ...anchor, dotId: e.target.value })}
-            className={selectClass}
-          >
-            {!anchor.dotId && <option value="">Choose a graph dot</option>}
-            {dots.map(option)}
-          </select>
-        )}
-        {anchor.kind === 'graphPoint' && (
-          <>
-            <select
-              aria-label={`${which} axes`}
-              value={anchor.axesId}
-              onChange={(e) => setAnchor({ ...anchor, axesId: e.target.value })}
-              className={selectClass}
-            >
-              {!anchor.axesId && <option value="">Choose axes</option>}
-              {axes.map(option)}
-            </select>
-            <div className="flex flex-wrap gap-3">
-              <NumberInput label="Graph x" value={anchor.x} onChange={(x) => setAnchor({ ...anchor, x })} step={0.1} />
-              <NumberInput label="Graph y" value={anchor.y} onChange={(y) => setAnchor({ ...anchor, y })} step={0.1} />
-            </div>
-          </>
-        )}
-        {anchor.kind === 'object' && (
-          <div className="flex flex-wrap gap-3">
-            <select
-              aria-label={`${which} object`}
-              value={anchor.itemId}
-              onChange={(e) => setAnchor({ ...anchor, itemId: e.target.value })}
-              className={selectClass}
-            >
-              {!anchor.itemId && <option value="">Choose an object</option>}
-              {objects.map(option)}
-            </select>
-            <select
-              aria-label={`${which} edge`}
-              value={anchor.edge ?? 'center'}
-              onChange={(e) => setAnchor({ ...anchor, edge: e.target.value as ManimDirection | 'center' })}
-              className={selectClass}
-            >
-              {EDGES.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        {anchor.kind === 'point' && (
-          <div className="flex flex-wrap gap-3">
-            <NumberInput label="X" value={anchor.x} onChange={(x) => setAnchor({ ...anchor, x })} step={0.1} />
-            <NumberInput label="Y" value={anchor.y} onChange={(y) => setAnchor({ ...anchor, y })} step={0.1} />
-          </div>
-        )}
-      </div>
-    );
-  };
+  const endEditor = (which: 'start' | 'end') => (
+    <AnchorPicker
+      label={which === 'start' ? 'Start follows' : 'End follows'}
+      anchor={endpoints[which]}
+      ownerId={item.id}
+      onChange={(next) => commit({ ...endpoints, [which]: next })}
+    />
+  );
 
   return (
     <div className="flex flex-col gap-3 border border-rule rounded-ctl p-3 bg-ink/40">
@@ -312,6 +315,19 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
         <>
           {endEditor('start')}
           {endEditor('end')}
+          <label className="text-ctl text-chalk-dim block">
+            Equal-length ticks
+            <select
+              value={endpoints.ticks ?? 0}
+              onChange={(e) => commit({ ...endpoints, ticks: Number(e.target.value) || undefined })}
+              className={selectClass}
+            >
+              <option value={0}>None</option>
+              <option value={1}>One tick</option>
+              <option value={2}>Two ticks</option>
+              <option value={3}>Three ticks</option>
+            </select>
+          </label>
           {lineMode === 'through' && (
             <NumberInput
               label="Past each end"

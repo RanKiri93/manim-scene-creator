@@ -7,6 +7,7 @@ import {
   Arrow as KonvaArrow,
   Transformer,
 } from 'react-konva';
+import { tickSegments } from '@/lib/shapeAnchors';
 import type Konva from 'konva';
 import type { ShapeItem, ShapePoint } from '@/types/scene';
 import { isFreelyDraggable } from '@/canvas/hooks/useDragSnap';
@@ -327,6 +328,8 @@ export default function ShapeNode({
       case 'line': {
         const x2 = item.endX * pxPerUnitX;
         const y2 = -item.endY * pxPerUnitY;
+        // Equal-length ticks (geometry), in Manim units around the line's middle.
+        const ticks = tickSegments({ x: 0, y: 0 }, { x: item.endX, y: item.endY }, item.endpoints?.ticks ?? 0);
         return (
           <Group x={-x2 / 2} y={-y2 / 2}>
             <KonvaLine
@@ -334,6 +337,14 @@ export default function ShapeNode({
               stroke={stroke}
               strokeWidth={previewStrokeWidth}
             />
+            {ticks.map(([a, b], i) => (
+              <KonvaLine
+                key={`tick-${i}`}
+                points={[a.x * pxPerUnitX, -a.y * pxPerUnitY, b.x * pxPerUnitX, -b.y * pxPerUnitY]}
+                stroke={stroke}
+                strokeWidth={previewStrokeWidth}
+              />
+            ))}
           </Group>
         );
       }
