@@ -22,7 +22,7 @@ Important constraints:
 - Create graphPlot only when a valid function expression is specified or can be safely inferred from the script.
 - Create graphDot only when its graph coordinates are known; for "mark point at x=...", compute y from the function if the function is explicit.
 - For vague graph moments, create explanatory text placeholders instead of invalid graph objects.
-- Do not create graphArea or graphField in this v1 flow.
+- Create graphArea or graphField only when the script gives the exact function, interval or field.
 - Keep the proposal compact and editable; prefer 5 to 12 scene items over a huge timeline.
 - Use Hebrew labels when the script is Hebrew.
 - End the reply with a short explanation of what was proposed and remind the user to Approve or Reject the preview.

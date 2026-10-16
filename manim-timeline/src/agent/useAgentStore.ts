@@ -246,6 +246,7 @@ export const useAgentStore = create<AgentStoreShape>()(
           frames: sceneState.frames,
           startFrameId: sceneState.startFrameId,
           activeFrameId: sceneState.activeFrameId,
+          audioItems: sceneState.audioItems,
         });
         const systemPrompt = buildSystemPrompt(state.customRules);
         // Everything preceding the most recent user turn is "history".

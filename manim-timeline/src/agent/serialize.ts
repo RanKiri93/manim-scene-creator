@@ -1,4 +1,5 @@
 import type {
+  AudioTrackItem,
   FrameDef,
   ItemId,
   SceneDefaults,
@@ -10,6 +11,7 @@ import {
   type AgentFrameInfo,
   type MinimalSceneItem,
 } from './types';
+import { narrationPayload } from './narration';
 
 /** Drop UI-only transient fields so the LLM doesn't see (or learn to emit) them. */
 export function stripUiFields(item: SceneItem): MinimalSceneItem {
@@ -27,6 +29,7 @@ interface BuildPayloadInput {
   frames?: readonly FrameDef[];
   startFrameId?: ItemId | null;
   activeFrameId?: ItemId | null;
+  audioItems?: readonly AudioTrackItem[];
 }
 
 /**
@@ -54,5 +57,6 @@ export function buildContextPayload(input: BuildPayloadInput): AgentContextPaylo
     ),
     startFrameId: input.startFrameId ?? null,
     activeFrameId: input.activeFrameId ?? null,
+    ...(input.audioItems?.length ? { narration: narrationPayload(input.audioItems) } : {}),
   };
 }

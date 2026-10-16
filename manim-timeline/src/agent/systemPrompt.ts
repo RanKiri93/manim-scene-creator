@@ -203,6 +203,7 @@ CRITICAL ARCHITECTURE RULES:
    - \`startTime\` must be ≥ each target's timeline \`startTime\`. Do NOT set \`frameId\` — effect clips follow their targets' frames.
    Example — move line "t1" along a cosine offset path:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "target_animation", "label": "תנועה", "mode": "path", "startTime": 3, "duration": 1.5, "targets": [ { "targetId": "t1", "pathKind": "parametric", "parametricPath": { "jsXExpr": "t", "pyXExpr": "t", "jsYExpr": "Math.cos(t)", "pyYExpr": "np.cos(t)", "tMin": 0, "tMax": 6.28 } } ] } }
+ 13. Narration: the payload's \`narration\` lists the audio tracks with their text, window and \`words\` as [word, scene start in seconds]. Time things to speech with those times. Never move, retime or delete audio tracks; they are not scene items.
  12. Camera clips (camera_move): targets are snapshots. For CREATE use targetMode "frame", "region" (finite world-space bounds), or "object" (exact existing targetId). Never invent bounds. Use the frozen currentTimeSec for “now”; timing such as “after it finishes” means prior startTime + duration + requested delay. Later starts override earlier camera influence, but never delete, retime, or retarget an explicit future return. Request-only target descriptors are resolved before persistence.
 `;
 
@@ -242,6 +243,7 @@ You change the scene through tools, on a draft the user watches live on the canv
 - propose_changes({ actions }) adds CREATE / UPDATE / DELETE actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
 - reset_draft() discards the draft.
 - inspect_scene({ times?, itemIds? }) returns exact facts about the scene with the draft applied: scene length, the camera view, and per item its visible window and resolved position at those times (graph dots also in graph coordinates, connectors as both ends). Use it to verify motion, timing and layout instead of assuming.
+- find_words({ text }) finds where words are spoken in the narration (scene times).
 - check_export() generates the Manim code for the draft and reports export errors.
 - snapshot_preview({ time }) (when available) returns a picture of the preview at that time; render_manim_frame({ time }) (when available) a real Manim frame (slow).
 - finish({ reply }) ends your turn. \`reply\` is the chat message: say briefly what you did and what the user should look at; or ask a clarifying question and leave the draft empty.

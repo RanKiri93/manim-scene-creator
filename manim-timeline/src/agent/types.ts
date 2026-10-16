@@ -81,6 +81,19 @@ export interface AgentContextPayload {
   startFrameId: ItemId | null;
   /** Frame new drawable items belong to unless the model picks another valid frame. */
   activeFrameId: ItemId | null;
+  /** Narration tracks with their words in scene time (omitted when the scene has no audio). */
+  narration?: AgentNarrationTrack[];
+}
+
+/** One audio track as the Copilot sees it: its text, window and words as [word, scene start]. */
+export interface AgentNarrationTrack {
+  id: string;
+  text: string;
+  startTime: number;
+  endTime: number;
+  words: [string, number][];
+  /** Words left out to keep the request small. */
+  wordsCut?: number;
 }
 
 export type AgentAction =

@@ -14,6 +14,7 @@ import { computeSceneDurationSec } from '@/codegen/manimExporter';
 import type { DraftSession } from './draft';
 import { areaFacts, fieldFacts } from '../graphRegions';
 import { transformFacts } from '../textTransforms';
+import { narrationWords, wordsDuring, type SpokenWord } from '../narration';
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pt = (p: { x: number; y: number }) => [r3(p.x), r3(p.y)];
@@ -114,10 +115,20 @@ function defaultTimes(session: DraftSession, scene: Map<ItemId, SceneItem>): num
   return [...times].sort((a, b) => a - b).slice(0, 8);
 }
 
-function itemFacts(item: SceneItem, scene: Map<ItemId, SceneItem>, session: DraftSession, times: number[]) {
+function itemFacts(
+  item: SceneItem,
+  scene: Map<ItemId, SceneItem>,
+  session: DraftSession,
+  times: number[],
+  words: readonly SpokenWord[],
+) {
   const { frames, startFrameId } = session.base;
   const ctx = (time: number) => ({ items: scene, time, frames, startFrameId });
   const facts: Record<string, unknown> = { id: item.id, kind: item.kind, name: itemClipDisplayName(item) };
+  if (words.length) {
+    const span = 'duration' in item ? item.duration : 'runTime' in item ? item.runTime : 0;
+    facts.spoken = wordsDuring(words, item.startTime, item.startTime + span);
+  }
   if (CLIP_KINDS.has(item.kind)) {
     const duration = 'duration' in item ? item.duration : 0;
     facts.window = [r3(item.startTime), r3(item.startTime + duration)];
@@ -260,9 +271,10 @@ export function inspectDraft(session: DraftSession, input: { times?: unknown; it
     ? input.itemIds.filter((id): id is string => typeof id === 'string')
     : touched;
   const ids = (requested.length ? requested : [...scene.keys()]).slice(0, 30);
+  const words = narrationWords(audioItems);
   const items = ids.map((id) => {
     const item = scene.get(id);
-    return item ? itemFacts(item, scene, session, times) : { id, error: 'no such item in the draft scene' };
+    return item ? itemFacts(item, scene, session, times, words) : { id, error: 'no such item in the draft scene' };
   });
   const sceneDurationSec = r3(computeSceneDurationSec([...scene.values()], { audioItems, frames, startFrameId: startFrameId ?? undefined }));
   const camera = startFrameId

@@ -65,6 +65,11 @@ R14. Equation steps that morph ("solve 2x + 3 = 7 step by step, each line turnin
    2. Step k + 1: same posSteps as step k (it replaces it in place), animStyle "transform", transformConfig { "sourceLineId": <step k>, "mode": "segments", "pairs": equal terms, plus the term that changes side (pair "{}+3" with "{}-3" so it flies across and turns into −3) }, unmappedSourceBehavior "fade_out", unmappedTargetBehavior "fade_in".
    3. Timing: step k + 1 starts at step k's startTime + duration + a pause (about 1 s); duration about 1–1.5 s.
    4. A worked solution that stays on screen (every step visible) is not a morph: write each step below the previous one (R9) instead.
+
+R15. Time things to the narration ("show the point exactly when I say 'בנקודה', and start moving it when I say 'שנעה'").
+   1. Find each cue word: narration words in the payload, or find_words in the tool loop (it matches Hebrew prefixes and phrases). Spoken more than once: pick by the context or ask which. Not found: say so and name the closest words; do not guess a time.
+   2. "Appear when I say X": the item's startTime = X's start, with a short entrance (0.3–0.6 s). "Start moving when I say Y": the motion clip's startTime = Y's start; the thing must have finished appearing before that.
+   3. Durations stay inside their sentence: a clip ends by the next cue word or the end of the sentence (the last word before a pause).
 `;
 
 /** Tool-loop only: how to check a visual result before finishing. */
@@ -75,5 +80,6 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R12: the area's value is the integral; check its sign and that xMin..xMax is what was asked. The label sits at labelAtWorld (or just above it) and is inCamera.
    - R13: field.arrows stays below about 400; each stream that should cross the picture has endedBy "left the axes".
    - R14: each step's transform lists pairs with their texts: "a → b" marks a piece that changes, check those are the moves you mean; the previous step shows onScreen false after the morph.
+   - R15: inspect lists what is spoken during each clip (spoken); it should begin with the cue word.
    - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.
 `;

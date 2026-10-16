@@ -2,6 +2,7 @@ import { exportManimCode } from '@/codegen/manimExporter';
 import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
 import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
+import { findWords } from '../narration';
 import type { LoopImage, LoopToolCall, LoopToolResult, LoopToolSpec } from './types';
 
 /** Optional capabilities the host can add (e.g. preview snapshots). */
@@ -51,6 +52,16 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
           times: { type: 'array', items: { type: 'number' }, description: 'Up to 8 scene times in seconds.' },
           itemIds: { type: 'array', items: { type: 'string' }, description: 'Up to 30 item ids; omit for the items the draft touches.' },
         },
+      },
+    },
+    {
+      name: 'find_words',
+      description:
+        'Find where words are spoken in the narration: each match with its scene start and end (seconds), the words as spoken and a little context. Hebrew prefixes are matched (נקודה finds בנקודה). Use it to start clips on spoken words.',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string', description: 'One word or a short phrase as it is spoken.' } },
+        required: ['text'],
       },
     },
     {
@@ -134,6 +145,16 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
         const facts = inspectDraft(session, input);
         if (unmeasured) facts.measureNote = `${unmeasured} text line(s) could not be measured; their sizes are placeholders.`;
         return ok(json(facts), 'Inspected the scene');
+      }
+      case 'find_words': {
+        const text = typeof input.text === 'string' ? input.text.trim() : '';
+        if (!text) return fail('find_words needs `text`.', 'Word search without text');
+        const audio = session.base.audioItems;
+        if (!audio.some((a) => (a.boundaries ?? a.word_boundaries ?? []).length)) {
+          return ok(json({ matches: [], note: 'The scene has no narration with word timings.' }), `No narration to search for "${text}"`);
+        }
+        const matches = findWords(audio, text);
+        return ok(json({ matches }), `Found "${text}" ${matches.length} time${matches.length === 1 ? '' : 's'} in the narration`);
       }
       case 'check_export': {
         const scene = session.scene();

@@ -141,6 +141,8 @@ textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPoint
 graphArea, graphField, shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
 
+**Narration** (`narration.ts`): the request payload carries `narration` (each audio track's text, window and words as `[word, scene start]`, at most `NARRATION_WORD_CAP` words). The tool loop adds `find_words({ text })`, which matches phrases within one track, ignores punctuation and niqqud and accepts Hebrew one-letter prefixes (נקודה finds בנקודה); inspect lists what is spoken during each item's clip window (`spoken`). Audio tracks are never edited by the Copilot.
+
 **Equation steps** (`textTransforms.ts`): `animStyle` is checked (`write` / `fade_in` / `transform`); `transformConfig` takes `pairs: [{ from, to }]` (source segment → this line's segment; stored as `segmentPairs`) and implies `animStyle: "transform"`. `checkTextTransforms` rejects a missing or exited source, a start before the source has appeared, indices the lines do not have and a source piece paired twice. Inspect lists each pair with its texts; a source line is off screen once it has morphed and never counts as overlapping its next step.
 
 **`graphArea` / `graphField`** (`graphRegions.ts`): the model sends an area's geometry as `area` (stored as `mode`, which the flat Gemini schema uses for a string enum); boundaries are `{ plotId }` or `{ jsExpr, pyExpr }`. UPDATEs merge `area` over the stored geometry. `checkGraphRegions` rejects xMin ≥ xMax, a plot on other axes or an interval outside its domain, expressions with names other than x (areas) or x and y (fields), more than `MAX_FIELD_ARROWS` arrows and stream seeds off the axes. Inspect reports an area's value and label spot and where each stream line ends.
@@ -411,7 +413,7 @@ When `frameCtx` is absent (older callers, unit tests without frames), `frameId` 
 
 ## 8. System prompt
 
-`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields, equation steps) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
+`buildSystemPrompt(rules, mode)` = base prompt (JSON-envelope section in `single` mode, `LOOP_FORMAT_SECTION` in `loop` mode) + `RECIPES_SECTION` from `recipes.ts` (worked patterns R1–R6 and R8–R13 for multi-part requests: convergence stories, lesson slides, pointing at one term of a formula, camera beats, shaded areas, slope / vector fields, equation steps, timing to the narration) + in loop mode `LOOP_RECIPE` (R7, check before finishing, with a check per recipe) + the user's custom rules. Keep recipes to fields the validator accepts; `systemPrompt.test.ts` checks both modes.
 
 `BASE_SYSTEM_PROMPT` in `systemPrompt.ts` is the single source of rules the model must obey. Any new invariant should be added there (and reinforced in a provider schema description if it lives under `item`).
 
@@ -564,7 +566,7 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   validates *the whole draft* (`[...previous, ...new]`, camera descriptors resolved first) with
   `validateAgentResponse`; on failure the draft is unchanged and the errors (with an index offset note)
   go back to the model. `scene()` is the virtual item map: text lines as Approve will leave them (`textDraft.ts`: segments parsed from `raw`, UPDATEs merged like `setTextLineSource`), plus measures from `measureText(env.measureText)`, which measures draft lines without one through the measure server (cached by source and font).
-- **`loop/tools.ts` — tools.** `propose_changes`, `reset_draft`, `inspect_scene`, `check_export`, `finish`,
+- **`loop/tools.ts` — tools.** `propose_changes`, `reset_draft`, `inspect_scene`, `find_words`, `check_export`, `finish`,
   plus `snapshot_preview` / `render_manim_frame` when the host provides them (`loop/env.ts`,
   `LoopToolEnv`). `runLoopTool` never throws except on abort; failures are `isError` results.
 - **`loop/inspect.ts` — `inspectDraft`.** Scene length (`computeSceneDurationSec`), camera pose per time,
