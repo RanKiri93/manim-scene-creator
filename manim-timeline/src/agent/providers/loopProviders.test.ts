@@ -37,7 +37,7 @@ describe('Anthropic loop conversation', () => {
     expect(body.tool_choice).toEqual({ type: 'auto' });
     expect(body.thinking).toEqual({ type: 'adaptive' });
     expect((body.tools as { name: string; input_schema: { type: string } }[]).map((t) => t.name)).toEqual([
-      'propose_changes', 'reset_draft', 'inspect_scene', 'find_words', 'check_export', 'finish',
+      'propose_changes', 'reset_draft', 'inspect_scene', 'find_words', 'check_export', 'review_scene', 'finish',
     ]);
     const messages = body.messages as { role: string; content: { text: string }[] }[];
     expect(messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user']);

@@ -98,6 +98,11 @@ R22. Geometry construction ("a right triangle ABC with the right angle at B, mar
    3. The angles: angle marks { vertex: B, from: A, to: C } — at 90° it draws the square by itself; the named angle at A gets an arc and a text line "$\\alpha$" at the mark's labelAtWorld from inspect_scene.
    4. Order: points, then sides (Create), then marks and names; everything stays attached if a point moves later.
 
+R23. Review my scene ("check the scene and fix what doesn't look right", "בדוק את הסצנה").
+   1. review_scene first. Fix every finding you can in ONE draft: move or shrink what is off camera (keep it inside the 14.22 × 8 frame with a 0.3 margin), move overlapping text apart (next_to with buff 0.3 or a lower line), lighten dark colours (#e2e8f0 for text, a 400-level shade for lines), wrap unwrapped runs (\\en{…} in Hebrew lines), close long idle stretches with a TIMELINE remove, and fix export errors.
+   2. review_scene again; repeat once if something new appears.
+   3. finish: list what you fixed, and what you left on purpose (for example an idle pause that holds a picture for the narration) so the user can decide.
+
 R17. A tangent that rides along ("add the tangent line at the moving point, about 2 units long").
    1. The moving dot as in R2 (plot, dot attached to it, graphFollow).
    2. shape line with endpoints { start: { kind: "graphDot", dotId }, tangent: { length: 2 } }, starting with the dot (or when asked), a colour that stands out from the plot. It turns with the slope by itself; one connector is enough.

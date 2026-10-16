@@ -257,6 +257,7 @@ You change the scene through tools, on a draft the user watches live on the canv
 - inspect_scene({ times?, itemIds? }) returns exact facts about the scene with the draft applied: scene length, the camera view, and per item its visible window and resolved position at those times (graph dots also in graph coordinates, connectors as both ends). Use it to verify motion, timing and layout instead of assuming.
 - find_words({ text }) finds where words are spoken in the narration (scene times).
 - check_export() generates the Manim code for the draft and reports export errors.
+- review_scene({ times? }) looks over the whole scene with the draft applied and lists findings (off camera, overlapping text, dark colours, unwrapped English/Hebrew, long idle stretches, export errors) with item ids and times. Use it when asked to review or check the scene (R23).
 - snapshot_preview({ time }) (when available) returns a picture of the preview at that time; render_manim_frame({ time }) (when available) a real Manim frame (slow).
 - finish({ reply }) ends your turn. \`reply\` is the chat message: say briefly what you did and what the user should look at; or ask a clarifying question and leave the draft empty.
 

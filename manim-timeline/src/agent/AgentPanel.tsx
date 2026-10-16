@@ -77,6 +77,17 @@ export default function AgentPanel() {
         <div className="flex-1" />
         <button
           type="button"
+          onClick={() => {
+            if (!loading) void sendMessage(REVIEW_PROMPT);
+          }}
+          disabled={loading}
+          className="px-2 py-1 text-meta rounded-ctl bg-raised hover:bg-rule disabled:opacity-40 transition-colors"
+          title="Ask the Copilot to look over the whole scene and fix what does not look right"
+        >
+          Review
+        </button>
+        <button
+          type="button"
           onClick={() => setScriptOpen((v) => !v)}
           className="px-2 py-1 text-meta rounded-ctl bg-raised hover:bg-rule transition-colors"
         >
@@ -219,6 +230,10 @@ interface ScriptToTimelineBlockProps {
   onSubmit: () => void;
   onClear: () => void;
 }
+
+/** What the Review button asks (the Copilot runs review_scene in the tool loop, recipe R23). */
+export const REVIEW_PROMPT =
+  'Review the whole scene and fix what does not look right: things off camera, overlapping text, colours that are hard to see, unwrapped English or Hebrew, long stretches where nothing happens, export errors. Then tell me what you changed and what you left.';
 
 function ScriptToTimelineBlock({
   value,

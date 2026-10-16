@@ -337,6 +337,10 @@ Real LLM responses are noisy. The validator has two responsibilities:
   function plot (`checkLiveValueSlopes`). Inspect reports each dot's `liveLabel` text.
 - `dot.trace` (`true` / `{ color?, width?, fadeSeconds? }` / `null`) leaves a trail; inspect reports the trail's
   `from` point and `graphLength` once the dot has moved (`lib/graphDotTrail.ts`).
+- `review_scene({ times? })` (`loop/review.ts`): findings with item ids and times — `offscreen` and `textOverlap`
+  (via `inspectDraft` at each clip's entered / leaving times), `lowContrast` (WCAG 3:1 on black), `unwrappedText`
+  (`findUnwrappedForeignRuns`), `idleGap` (≥ 4 s with no clip animating and no narration), `exportError`. The
+  panel's *Review* button sends `REVIEW_PROMPT`; recipe R23 fixes everything in one draft and reviews again.
 - Style notes: the project's `copilotNotes` (`MultiSceneProjectFile`, `useProjectScenesStore`) go into the payload
   as `projectNotes` (rule 15). A reply may carry `styleNote` (both schemas; in the loop `finish({ reply,
   styleNote })`); the message shows Save / Dismiss and Save adds it to the project (`saveStyleNote`).

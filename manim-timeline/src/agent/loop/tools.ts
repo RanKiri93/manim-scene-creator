@@ -2,6 +2,7 @@ import { exportManimCode } from '@/codegen/manimExporter';
 import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
 import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
+import { reviewScene } from './review';
 import { findWords } from '../narration';
 import { describeTimelineEdit } from '../timelineEdits';
 import { normalizeStyleNote } from '../validate';
@@ -75,6 +76,15 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
       name: 'check_export',
       description: 'Generate the Manim code for the scene with the draft applied and report export errors (no rendering).',
       inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'review_scene',
+      description:
+        'Look over the whole scene (draft applied) like a viewer and list what does not look right, with item ids and times: things partly off camera or text overlapping while on screen, colours too dark on the black background, English / Hebrew not wrapped for the line direction, long stretches where nothing happens, export errors. Times default to when each clip has entered and just before it leaves.',
+      inputSchema: {
+        type: 'object',
+        properties: { times: { type: 'array', items: { type: 'number' }, description: 'Optional scene times to check instead.' } },
+      },
     },
   ];
   if (env.snapshot) {
@@ -163,6 +173,11 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
         }
         const matches = findWords(audio, text);
         return ok(json({ matches }), `Found "${text}" ${matches.length} time${matches.length === 1 ? '' : 's'} in the narration`);
+      }
+      case 'review_scene': {
+        const review = reviewScene(session, input);
+        const n = review.findings.length;
+        return ok(json(review), n ? `Reviewed the scene: ${n} thing${n === 1 ? '' : 's'} to fix` : 'Reviewed the scene: nothing to fix');
       }
       case 'check_export': {
         const scene = session.scene();
