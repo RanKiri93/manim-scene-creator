@@ -9,10 +9,50 @@ import {
 } from '@/lib/time';
 import type {
   ItemId,
+  MatrixItem,
   SceneItem,
   SurroundingRectItem,
   TextLineItem,
 } from '@/types/scene';
+import {
+  allCells,
+  cellsBounds,
+  matrixCellsFor,
+  matrixCols,
+  matrixGeometry,
+  matrixRows,
+  strikeSegments,
+  type Segment2,
+} from '@/lib/matrix';
+
+/** The one matrix a highlight marks entries of (single matrix target), else null. */
+function surroundMatrixTarget(sr: SurroundingRectItem, items: Map<ItemId, SceneItem>): MatrixItem | null {
+  if (sr.targetIds.length !== 1) return null;
+  const t = items.get(sr.targetIds[0]!);
+  return t?.kind === 'matrix' ? t : null;
+}
+
+/**
+ * Lines of a `strike` highlight in scene coordinates (as `HebrewMatrix.strike_lines` draws them);
+ * null for a box highlight. No entries chosen = the whole matrix.
+ */
+export function surroundStrikeSegmentsManim(sr: SurroundingRectItem, items: Map<ItemId, SceneItem>): Segment2[] | null {
+  if (sr.mark !== 'strike') return null;
+  const m = surroundMatrixTarget(sr, items);
+  if (!m) return null;
+  const rows = matrixRows(m);
+  const cols = matrixCols(m);
+  const sel = matrixCellsFor(m, sr.cells);
+  const pos = resolvePositionOrAxesAnchor(m, items);
+  const k = m.scale;
+  // `buff` is in scene units, applied after the matrix is scaled (like Manim).
+  return strikeSegments(matrixGeometry(m), rows, cols, sel.length ? sel : allCells(rows, cols), Math.max(0, sr.buff) / k).map((s) => ({
+    x1: pos.x + s.x1 * k,
+    y1: pos.y + s.y1 * k,
+    x2: pos.x + s.x2 * k,
+    y2: pos.y + s.y2 * k,
+  }));
+}
 
 export function textLineSurroundCenterAndHalfExtents(
   line: TextLineItem,
@@ -72,6 +112,15 @@ export function surroundPreviewBBoxManim(
     if (!targetVisibleForSurroundPreview(t, time, items, selectedIds)) return null;
 
     const pos = resolvePositionOrAxesAnchor(t, items);
+    const matrixCells = t.kind === 'matrix' && sr.targetIds.length === 1 ? matrixCellsFor(t, sr.cells) : [];
+    const cellBox = t.kind === 'matrix' && matrixCells.length ? cellsBounds(matrixGeometry(t), matrixCells) : null;
+    if (t.kind === 'matrix' && cellBox) {
+      minL = Math.min(minL, pos.x + cellBox.left * t.scale);
+      maxR = Math.max(maxR, pos.x + cellBox.right * t.scale);
+      minB = Math.min(minB, pos.y + cellBox.bottom * t.scale);
+      maxT = Math.max(maxT, pos.y + cellBox.top * t.scale);
+      continue;
+    }
     const bb = getItemSurroundBBox(t, items);
     const { cx, cy, hw, hh } =
       t.kind === 'textLine'

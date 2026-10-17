@@ -17,6 +17,7 @@ import type {
   GraphAreaItem,
   ShapeItem,
   ImageItem,
+  MatrixItem,
   ExitAnimationItem,
   BlinkAnimationItem,
   CameraMoveItem,
@@ -266,6 +267,39 @@ export function createImageItem(
     height,
     opacity: 1,
     rotationDeg: 0,
+  };
+}
+
+/** A 2×2 square-bracket matrix `[[a, b], [c, d]]` in the scene's math colour. */
+export function createMatrixItem(defaults: SceneDefaults, startTime = 0): MatrixItem {
+  return {
+    id: newId(),
+    kind: 'matrix',
+    label: '',
+    layer: 0,
+    startTime,
+    duration: 2,
+    x: 0,
+    y: 0,
+    scale: 1,
+    posSteps: [{ kind: 'absolute' }],
+    audioTrackId: null,
+    entries: [
+      ['a', 'b'],
+      ['c', 'd'],
+    ],
+    bracket: 'square',
+    align: 'center',
+    augmentCol: null,
+    rowSpacing: 1,
+    colSpacing: 1,
+    fontSize: defaults.fontSize || DEFAULT_FONT_SIZE,
+    color: defaults.mathColor || DEFAULT_MATH_COLOR,
+    introStyle: 'write',
+    measure: null,
+    measureError: null,
+    previewDataUrl: null,
+    measureKey: null,
   };
 }
 

@@ -23,6 +23,7 @@ import NumberInput from '@/components/NumberInput';
 import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
+import MatrixCellPicker from './MatrixCellPicker';
 
 function formatSegmentIndices(idxs: number[] | null | undefined): string {
   if (!idxs?.length) return '';
@@ -140,6 +141,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
           unique.length === 1 && sole?.kind === 'textLine'
             ? item.segmentIndices
             : null,
+        ...(unique.length === 1 && sole?.kind === 'matrix' ? {} : { cells: null, mark: undefined }),
       });
     },
     [item.id, item.startTime, item.segmentIndices, itemsMap, startFrameId, updateItem],
@@ -193,6 +195,7 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     targetIdsList.length === 1 ? itemsMap.get(targetIdsList[0]!) : null;
   const lineTarget =
     soleTarget?.kind === 'textLine' ? (soleTarget as TextLineItem) : null;
+  const matrixTarget = soleTarget?.kind === 'matrix' ? soleTarget : null;
 
   const baseContent = (
     <div className="flex flex-col gap-3">
@@ -339,6 +342,38 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
             part has an index. Preview still shows the full line box.
           </span>
         </label>
+      ) : null}
+
+      {matrixTarget ? (
+        <div className="flex flex-col gap-2">
+          <label className="text-ctl text-chalk-dim block">
+            Mark
+            <select
+              value={item.mark ?? 'box'}
+              onChange={(e) => set({ mark: e.target.value === 'strike' ? 'strike' : undefined })}
+              className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
+            >
+              <option value="box">Box around the entries</option>
+              <option value="strike">Cross the entries out</option>
+            </select>
+          </label>
+          <div>
+            <div className="mb-1 text-ctl text-chalk-dim">
+              {item.mark === 'strike' ? 'Entries to cross out' : 'Entries to surround'}
+            </div>
+            <MatrixCellPicker
+              matrix={matrixTarget}
+              value={item.cells ?? []}
+              onChange={(cells) => set({ cells: cells.length ? cells : null })}
+            />
+            {item.mark === 'strike' ? (
+              <p className="m-0 mt-1 text-meta text-chalk-faint">
+                A line goes through each complete row and column you pick, and a slash through any
+                other entry. For a minor, pick “Row i + column j”.
+              </p>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {hasTargets ? (

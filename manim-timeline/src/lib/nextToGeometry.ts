@@ -13,6 +13,7 @@ import type {
 } from '@/types/scene';
 import { isTwoPointKind, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { polylinePointExtents } from '@/lib/polylineExtents';
+import { matrixGeometry } from '@/lib/matrix';
 
 export function rawDirectionComponents(dir: ManimDirection): { dx: number; dy: number } {
   switch (dir) {
@@ -170,6 +171,12 @@ export function alignBoxForItemAt(
       (Number.isFinite(item.height) && item.height > 0 ? item.height : 2) *
       item.scale;
     return { cx: mobX, cy: mobY, hw: w / 2, hh: h / 2 };
+  }
+
+  if (item.kind === 'matrix') {
+    // HebrewMatrix is centred on its bounding box, like Manim's next_to sees it.
+    const g = matrixGeometry(item);
+    return { cx: mobX, cy: mobY, hw: (g.width * item.scale) / 2, hh: (g.height * item.scale) / 2 };
   }
 
   return { cx: mobX, cy: mobY, hw: 0.25, hh: 0.25 };

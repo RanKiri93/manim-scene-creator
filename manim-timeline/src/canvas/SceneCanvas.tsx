@@ -15,6 +15,10 @@ import { SHAPE_DRAW_REQUEST_EVENT } from './hooks/useShapeDraw';
 import { drawsByPoints, type ShapeDrawPreset } from '@/lib/shapeDraw';
 import { isTwoPointKind } from '@/lib/shapeGeometry';
 import ImageNode from './layers/ImageNode';
+import MatrixNode from './layers/MatrixNode';
+import { useMeasureMatrices } from '@/services/measureHooks';
+import { matrixBlinkIsPartial } from '@/lib/matrixPreview';
+import { matrixGeometry } from '@/lib/matrix';
 import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
@@ -50,7 +54,8 @@ import {
   type GraphAxesDrawSlot,
 } from '@/lib/graphPreview';
 import { resolvePosition } from '@/lib/resolvePosition';
-import { surroundPreviewBBoxManim } from '@/lib/surroundCanvasPreview';
+import { surroundPreviewBBoxManim, surroundStrikeSegmentsManim } from '@/lib/surroundCanvasPreview';
+import type { Segment2 } from '@/lib/matrix';
 import { Button, Checkbox, NumberInput, Select } from '@/components/ui';
 import {
   canvasToWorldPoint,
@@ -68,6 +73,7 @@ import type {
   AxesItem,
   ImageItem,
   ItemId,
+  MatrixItem,
   SceneItem,
   ShapeItem,
   SurroundingRectItem,
@@ -132,11 +138,14 @@ type CanvasEntry =
   | { kind: 'text'; layer: number; item: TextLineItem }
   | { kind: 'shape'; layer: number; item: ShapeItem }
   | { kind: 'image'; layer: number; item: ImageItem }
+  | { kind: 'matrix'; layer: number; item: MatrixItem }
   | {
       kind: 'surround';
       layer: number;
       item: SurroundingRectItem;
       bboxManim: { left: number; right: number; bottom: number; top: number };
+      /** Strike highlight on matrix entries: its lines (scene coords) instead of a box. */
+      strike?: Segment2[] | null;
     };
 
 function selectionTouchesAxes(
@@ -239,6 +248,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const cameraObjectFitPadding = useSceneStore((s) => s.cameraObjectFitPadding);
   const itemsMap = usePreviewMergedItems();
+  useMeasureMatrices();
   const committedItems = useSceneStore((s) => s.items);
   const previewOps = usePreviewOps();
   const selectedIds = useSceneStore((s) => s.selectedIds);
@@ -366,7 +376,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       const detail = (event as CustomEvent<CameraFitRequestEventDetail>).detail;
       const objectIds = [...selectedIds].filter((id) => {
         const item = itemsMap.get(id);
-        return item && ['axes', 'shape', 'image', 'textLine'].includes(item.kind);
+        return item && ['axes', 'shape', 'image', 'textLine', 'matrix'].includes(item.kind);
       });
       if (objectIds.length !== 1) {
         setCameraAuthoringError('Select exactly one measured object to fit.');
@@ -520,6 +530,14 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     [itemsMap, currentTime, selectedIds],
   );
 
+  const visibleMatrices = useMemo(
+    () =>
+      Array.from(itemsMap.values())
+        .filter((it): it is MatrixItem => it.kind === 'matrix' && isActiveAtTime(it, currentTime, itemsMap))
+        .sort((a, b) => a.layer - b.layer),
+    [itemsMap, currentTime],
+  );
+
   const surroundCanvasEntries = useMemo((): CanvasEntry[] => {
     const out: CanvasEntry[] = [];
     for (const it of itemsMap.values()) {
@@ -539,11 +557,15 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
         taSr.dx + fc.x,
         taSr.dy + fc.y,
       );
+      const dx = taSr.dx + fc.x;
+      const dy = taSr.dy + fc.y;
+      const strike = surroundStrikeSegmentsManim(it, itemsMap)?.map((s) => ({ x1: s.x1 + dx, y1: s.y1 + dy, x2: s.x2 + dx, y2: s.y2 + dy }));
       out.push({
         kind: 'surround',
         layer: it.layer,
         item: it,
         bboxManim,
+        strike,
       });
     }
     return out;
@@ -608,10 +630,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     for (const item of visibleImages) {
       e.push({ kind: 'image', layer: item.layer, item });
     }
+    for (const item of visibleMatrices) {
+      e.push({ kind: 'matrix', layer: item.layer, item });
+    }
     e.push(...surroundCanvasEntries);
     e.sort((a, b) => a.layer - b.layer);
     return e;
-  }, [graphLayers, visibleItems, visibleShapes, visibleImages, surroundCanvasEntries]);
+  }, [graphLayers, visibleItems, visibleShapes, visibleImages, visibleMatrices, surroundCanvasEntries]);
 
   const resolvedPositions = useResolvedPositions(visibleItems, itemsMap, currentTime);
   const resolvedShapePositions = useResolvedPositions(
@@ -624,12 +649,13 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     itemsMap,
     currentTime,
   );
+  const resolvedMatrixPositions = useResolvedPositions(visibleMatrices, itemsMap, currentTime);
 
   const snapBoxes = useMemo(() => {
     const boxes: SnapBox[] = [];
     for (const item of committedItems.values()) {
       if (!isActiveAtTime(item, currentTime, committedItems)) continue;
-      if (item.kind !== 'textLine' && item.kind !== 'shape' && item.kind !== 'image' && item.kind !== 'axes') continue;
+      if (item.kind !== 'textLine' && item.kind !== 'shape' && item.kind !== 'image' && item.kind !== 'axes' && item.kind !== 'matrix') continue;
       const ta = targetAnimPreviewAccum(item.id, currentTime, committedItems);
       if (Math.abs(ta.dx) + Math.abs(ta.dy) > 1e-6 || Math.abs(ta.scaleMul - 1) > 1e-6 || Math.abs(ta.rotDeg) > 1e-6) continue;
       const p = resolvePosition(item, committedItems);
@@ -638,6 +664,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       const y = p.y + frame.y;
       if (item.kind === 'textLine') {
         const b = measuredInkBox(item.id, x, y, item.measure, item.scale);
+        if (b) boxes.push(b);
+      } else if (item.kind === 'matrix') {
+        const b = measuredInkBox(item.id, x, y, matrixGeometry(item), item.scale);
         if (b) boxes.push(b);
       } else if (item.kind === 'axes') {
         const w = (item.xRange[1] - item.xRange[0]) * item.scaleX;
@@ -1434,6 +1463,43 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                   </PreviewWrap>
                 );
               }
+              if (entry.kind === 'matrix') {
+                const item = entry.item;
+                const pos = resolvedMatrixPositions.get(item.id);
+                const bMat = blinkPreviewForTarget(item.id, currentTime, itemsMap);
+                const taMat = targetAnimPreviewAccum(item.id, currentTime, itemsMap);
+                const fcMat = frameOffsetForItem(item);
+                const mx = (pos?.x ?? item.x) + fcMat.x;
+                const my = (pos?.y ?? item.y) + fcMat.y;
+                // Entry-level blinks and colours are drawn by the node; the wrapper only scales
+                // the whole matrix (whole-matrix scale blinks, scale clips) and fades exits.
+                const partial = matrixBlinkIsPartial(item, currentTime, itemsMap);
+                const wrapBlink = bMat && (partial || bMat.row.mode === 'color') ? { ...bMat, scaleMultiplier: 1, colorMix: 0 } : bMat;
+                return (
+                  <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
+                    <PlaybackWrap
+                      exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
+                      blink={wrapBlink}
+                      extraTaScale={taMat.scaleMul}
+                      rotationDeg={-taMat.rotDeg}
+                      scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
+                    >
+                      <MatrixNode
+                        item={item}
+                        canvasWidth={size.width}
+                        canvasHeight={size.height}
+                        isSelected={selectedIds.has(item.id)}
+                        resolvedX={mx}
+                        resolvedY={my}
+                        frameOffset={fcMat}
+                        currentTime={currentTime}
+                        itemsMap={itemsMap}
+                        audioItems={audioItems}
+                      />
+                    </PlaybackWrap>
+                  </PreviewWrap>
+                );
+              }
               const sr = entry.item;
               const bSr = blinkPreviewForTarget(sr.id, currentTime, itemsMap);
               const srTa = targetAnimPreviewAccum(sr.id, currentTime, itemsMap);
@@ -1454,6 +1520,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     <SurroundingRectNode
                       item={sr}
                       bboxManim={entry.bboxManim}
+                      strike={entry.strike}
                       canvasWidth={size.width}
                       canvasHeight={size.height}
                       isSelected={selectedIds.has(sr.id)}

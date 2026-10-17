@@ -13,6 +13,7 @@ import type {
   FrameDef,
   MeasureConfig,
   MeasureResult,
+  MatrixMeasure,
   ProjectFile,
   ProjectFragmentFile,
   TransformMapping,
@@ -507,6 +508,16 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
     id: ItemId,
     result: MeasureResult | null,
     error?: string | null,
+  ) => void;
+  /**
+   * Store a matrix's measured geometry and preview, made from the fields whose
+   * `matrixMeasureKey` is `key`. Kept out of undo history: measuring is not an edit.
+   */
+  setMatrixMeasure: (
+    id: ItemId,
+    key: string,
+    result: { measure: MatrixMeasure; previewDataUrl: string | null } | null,
+    error: string | null,
   ) => void;
 
   /**
@@ -1143,7 +1154,7 @@ export const useSceneStore = create<SceneStore>()(
         const clone = structuredClone(src) as SceneItem;
         clone.id = crypto.randomUUID().slice(0, 12);
         clone.label = src.label + ' (copy)';
-        if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape' || clone.kind === 'image') {
+        if (clone.kind === 'textLine' || clone.kind === 'axes' || clone.kind === 'shape' || clone.kind === 'image' || clone.kind === 'matrix') {
           clone.startTime = src.startTime + src.duration;
         }
         if (clone.kind === 'axes') {
@@ -1458,6 +1469,25 @@ export const useSceneStore = create<SceneStore>()(
           tl.mathChildMeasures = result?.mathChildMeasures ?? null;
         }
       }),
+
+      setMatrixMeasure: (id, key, result, error) => {
+        const history = useSceneStore.temporal.getState();
+        const wasTracking = history.isTracking;
+        if (wasTracking) history.pause();
+        try {
+          set((s) => {
+            const item = s.items.get(id);
+            if (item?.kind !== 'matrix') return;
+            item.measureKey = key;
+            item.measureError = error;
+            // A failed measure must not leave an older geometry looking current.
+            item.measure = result?.measure ?? null;
+            item.previewDataUrl = result?.previewDataUrl ?? null;
+          });
+        } finally {
+          if (wasTracking) history.resume();
+        }
+      },
 
       setTextLineSource: (id, raw, baseDir, segmentPatches) => set((s) => {
         const item = s.items.get(id);

@@ -20,6 +20,9 @@ import {
   textBlinkMobjectExprs,
   textBlinkUsesWholeObjectScale,
 } from '@/lib/blinkTextTargets';
+import { allCells, matrixCellsFor, matrixCols, matrixRows } from '@/lib/matrix';
+import { matrixColorsBefore } from '@/lib/matrixPreview';
+import { matrixCellsExpr, matrixTargetExpr } from './matrixCodegen';
 
 export const DEFAULT_BLINK_SCALE_FACTOR = 1.15;
 export const DEFAULT_BLINK_COLOR_HEX = '#fbbf24';
@@ -55,6 +58,8 @@ function blinkRowAnimParts(
   idToVarName: Map<ItemId, string>,
   _itemsMap: Map<ItemId, SceneItem>,
   forward: boolean,
+  /** Clip start: a matrix restores the colours its colour clips set before this. */
+  atTime = Number.POSITIVE_INFINITY,
 ): string[] | null {
   const mode = spec.mode;
   const sf = resolvedScaleFactor(spec);
@@ -122,6 +127,33 @@ function blinkRowAnimParts(
     }
     if (parts.length === 0) return null;
     return parts;
+  }
+
+  if (target.kind === 'matrix') {
+    const v = idToVarName.get(target.id);
+    if (!v) return null;
+    const sel = matrixCellsFor(target, spec.cells);
+    const g = matrixTargetExpr(target, v, sel);
+    const parts: string[] = [];
+    if (usesScale(mode)) {
+      parts.push(`${g}.animate.scale(${(forward ? sf : inv).toFixed(6)})`);
+    }
+    if (usesColor(mode)) {
+      if (forward) {
+        parts.push(`${g}.animate.set_color(${bc})`);
+      } else {
+        // Back to each entry's colour when the blink started (grouped by colour), brackets / bar likewise.
+        const before = matrixColorsBefore(target, atTime, _itemsMap);
+        const byColor = new Map<string, typeof sel>();
+        for (const c of sel.length ? sel : allCells(matrixRows(target), matrixCols(target))) {
+          const col = before.cell(c.row, c.col);
+          byColor.set(col, [...(byColor.get(col) ?? []), c]);
+        }
+        for (const [col, cells] of byColor) parts.push(`${matrixCellsExpr(v, cells)}.animate.set_color(${manimColor(col)})`);
+        if (!sel.length) parts.push(`VGroup(${v}.get_brackets(), ${v}.get_bar()).animate.set_color(${manimColor(before.frame)})`);
+      }
+    }
+    return parts.length ? parts : null;
   }
 
   if (target.kind === 'graphDot') {
@@ -355,8 +387,8 @@ function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemI
   for (const row of clip.targets) {
     const tgt = itemsMap.get(row.targetId);
     if (!tgt) continue;
-    const fwd = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, true);
-    const rev = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, false);
+    const fwd = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, true, clip.startTime);
+    const rev = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, false, clip.startTime);
     if (!fwd?.length || !rev?.length) continue;
     const fInner = fwd.join(', ');
     const rInner = rev.join(', ');

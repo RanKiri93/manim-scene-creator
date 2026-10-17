@@ -72,6 +72,7 @@ export const ITEM_COLOR_GROUP: Record<SceneItem['kind'], KindColorGroup> = {
   shape: 'shape',
   surroundingRect: 'shape',
   image: 'image',
+  matrix: 'text',
   camera_move: 'camera',
   exit_animation: 'effect',
   blink_animation: 'effect',

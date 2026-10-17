@@ -30,7 +30,7 @@ export interface AnchorContext {
 export type AnchorResult = { point: { x: number; y: number }; error: null } | { point: null; error: string };
 
 /** Kinds an `object` anchor may reference (they have one Manim mobject with a centre and edges). */
-export const OBJECT_ANCHOR_KINDS: ReadonlySet<SceneItem['kind']> = new Set(['textLine', 'shape', 'image', 'axes']);
+export const OBJECT_ANCHOR_KINDS: ReadonlySet<SceneItem['kind']> = new Set(['textLine', 'shape', 'image', 'axes', 'matrix']);
 
 /** True for a line / arrow whose ends follow anchors. */
 export function isConnectorShape(item: SceneItem | undefined | null): item is ShapeItem & { endpoints: ShapeEndpoints } {

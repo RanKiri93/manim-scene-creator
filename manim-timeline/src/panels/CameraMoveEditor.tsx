@@ -39,7 +39,7 @@ export default function CameraMoveEditor({ item }: CameraMoveEditorProps) {
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const hasObjectSelection = [...selectedIds].some((id) => {
     const target = itemsMap.get(id);
-    return target && ['axes', 'shape', 'image', 'textLine'].includes(target.kind);
+    return target && ['axes', 'shape', 'image', 'textLine', 'matrix'].includes(target.kind);
   });
   const { requestCameraObjectFit } = useCameraRegionSelection();
   const targetFrame = frames.find((f) => f.id === item.targetFrameId) ?? frames[0];

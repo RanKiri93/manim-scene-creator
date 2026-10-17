@@ -11,6 +11,7 @@ import { frameCenterById } from '@/lib/frameGrid';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { measuredInkBox } from '@/lib/textSnap';
 import { shapeLocalBounds, shapeOutlinePoints, usesPoints } from '@/lib/shapeGeometry';
+import { measuredMatrixGeometry } from '@/lib/matrix';
 import type { FrameDef, ItemId, SceneItem, ShapePoint } from '@/types/scene';
 
 export type CameraBoundsResult =
@@ -83,9 +84,10 @@ export function cameraObjectSnapshotBounds(
     item.kind !== 'axes' &&
     item.kind !== 'shape' &&
     item.kind !== 'image' &&
-    item.kind !== 'textLine'
+    item.kind !== 'textLine' &&
+    item.kind !== 'matrix'
   ) {
-    return unavailable('Only one measured text line, axes, shape, or image can be fitted.');
+    return unavailable('Only one measured text line, matrix, axes, shape, or image can be fitted.');
   }
   if (effectStateUnsupported(id, items)) {
     return unavailable('This object has intro, transform, exit, blink, or accumulated effect state; use a region zoom.');
@@ -118,6 +120,22 @@ export function cameraObjectSnapshotBounds(
         right: bounds.right + center.x,
         bottom: bounds.bottom + center.y,
         top: bounds.top + center.y,
+      },
+    };
+  }
+
+  if (item.kind === 'matrix') {
+    const local = measuredInkBox(id, position.x, position.y, measuredMatrixGeometry(item), item.scale);
+    if (!local) return unavailable('The matrix has not been measured yet. Use a region zoom.');
+    return {
+      ok: true,
+      targetFrameId: frameId,
+      center,
+      bounds: {
+        left: local.left + frame.x,
+        right: local.right + frame.x,
+        bottom: local.bottom + frame.y,
+        top: local.top + frame.y,
       },
     };
   }

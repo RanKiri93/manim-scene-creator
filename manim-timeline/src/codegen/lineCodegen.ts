@@ -16,6 +16,7 @@ import {
   type GraphAreaItem,
   type ShapeItem,
   type ImageItem,
+  type MatrixItem,
 } from '@/types/scene';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
 import { isAudioBindingNone } from '@/lib/audioBinding';
@@ -138,7 +139,8 @@ export type ExportLeafWithAudio =
   | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem
-  | ImageItem;
+  | ImageItem
+  | MatrixItem;
 
 /**
  * Native Manim audio export: path + run_time from Whisper boundaries when applicable.

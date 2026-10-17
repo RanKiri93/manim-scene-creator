@@ -435,7 +435,7 @@ export function resolveExitTargetsForExport(
   if (target.kind === 'shape') {
     return idToVarName.get(target.id) ?? null;
   }
-  if (target.kind === 'image') {
+  if (target.kind === 'image' || target.kind === 'matrix') {
     return idToVarName.get(target.id) ?? null;
   }
   return null;

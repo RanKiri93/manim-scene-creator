@@ -37,7 +37,7 @@ export function measuredInkBox(
   id: string,
   x: number,
   y: number,
-  measure: MeasureResult | null | undefined,
+  measure: Pick<MeasureResult, 'widthInk' | 'heightInk' | 'inkLeftX' | 'inkRightX' | 'inkBottomY' | 'inkTopY'> | null | undefined,
   scale: number,
 ): SnapBox | null {
   if (!measure || !(measure.widthInk > 0) || !(measure.heightInk > 0)) return null;

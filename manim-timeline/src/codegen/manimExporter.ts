@@ -91,6 +91,7 @@ import {
   generateImagePlay,
   imageNeedsEmbeddedDataHelper,
 } from './imageCodegen';
+import { anyMatrix, generateMatrixDef, generateMatrixPlay, generateMatrixPos } from './matrixCodegen';
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
@@ -368,7 +369,8 @@ function validateNextToExportOrder(
       it.kind !== 'textLine' &&
       it.kind !== 'axes' &&
       it.kind !== 'shape' &&
-      it.kind !== 'image'
+      it.kind !== 'image' &&
+      it.kind !== 'matrix'
     ) {
       continue;
     }
@@ -518,6 +520,7 @@ function exportManimCodeInner(
   let axesNum = 0;
   let shapeNum = 0;
   let imageNum = 0;
+  let matrixNum = 0;
   for (const it of flat) {
     if (it.kind === 'textLine') {
       lineNum += 1;
@@ -531,6 +534,9 @@ function exportManimCodeInner(
     } else if (it.kind === 'image') {
       imageNum += 1;
       idToVarName.set(it.id, pf(`image_${imageNum}`));
+    } else if (it.kind === 'matrix') {
+      matrixNum += 1;
+      idToVarName.set(it.id, pf(`matrix_${matrixNum}`));
     }
   }
 
@@ -634,6 +640,8 @@ function exportManimCodeInner(
     } else if (it.kind === 'image') {
       const varName = idToVarName.get(it.id)!;
       defStr += generateImageDef(it, varName, base);
+    } else if (it.kind === 'matrix') {
+      defStr += generateMatrixDef(it, idToVarName.get(it.id)!, base);
     }
   }
 
@@ -746,6 +754,23 @@ function exportManimCodeInner(
           );
         }
       }
+    } else if (it.kind === 'matrix') {
+      const varName = idToVarName.get(it.id)!;
+      posStr += generateMatrixPos(it, varName, base, idToVarName, itemsMap);
+      const srs = surroundByAnchor.get(it.id);
+      if (srs) {
+        for (const sr of srs) {
+          const sv = idToVarName.get(sr.id);
+          if (!sv) continue;
+          posStr += generateSurroundingRectPosBlock(
+            sr,
+            sv,
+            idToVarName,
+            itemsMap,
+            base,
+          );
+        }
+      }
     }
   }
 
@@ -761,7 +786,8 @@ function exportManimCodeInner(
       it.kind === 'textLine' ||
       it.kind === 'axes' ||
       it.kind === 'shape' ||
-      it.kind === 'image'
+      it.kind === 'image' ||
+      it.kind === 'matrix'
     ) {
       addFrameVar(frameIdFor(it), idToVarName.get(it.id));
       continue;
@@ -1173,6 +1199,9 @@ function exportManimCodeInner(
         tailOpts,
       );
     }
+    if (it.kind === 'matrix') {
+      return generateMatrixPlay(it, idToVarName.get(it.id)!, base, itemsMap, options.audioItems, tailOpts);
+    }
     return '';
   };
 
@@ -1471,6 +1500,7 @@ function exportManimCodeInner(
     header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
+  if (anyMatrix(flat)) header += 'from hebrew_matrix import HebrewMatrix\n';
   // Before any helper `class`: multi-scene export splits each file at its first `class`.
   if (usesTimelineWait) header += '\n\n' + timelineWaitHelperSource();
   const hasGraphDots = items.some((it) => it.kind === 'graphDot');

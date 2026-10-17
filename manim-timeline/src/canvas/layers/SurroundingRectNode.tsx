@@ -1,6 +1,7 @@
-import { Rect } from 'react-konva';
+import { Group, Line, Rect } from 'react-konva';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import type { SurroundingRectItem } from '@/types/scene';
+import type { Segment2 } from '@/lib/matrix';
 
 export interface SurroundingRectNodeProps {
   item: SurroundingRectItem;
@@ -9,6 +10,8 @@ export interface SurroundingRectNodeProps {
   canvasHeight: number;
   isSelected: boolean;
   previewStrokeColor?: string;
+  /** Strike highlight: draw these lines (scene coords) instead of the rectangle. */
+  strike?: Segment2[] | null;
 }
 
 function manimAabbToCanvasRect(
@@ -38,6 +41,7 @@ export default function SurroundingRectNode({
   canvasHeight,
   isSelected,
   previewStrokeColor,
+  strike,
 }: SurroundingRectNodeProps) {
   const { x, y, width, height } = manimAabbToCanvasRect(
     bboxManim.left,
@@ -62,6 +66,24 @@ export default function SurroundingRectNode({
         : rawCornerR,
     ),
   );
+
+  if (strike) {
+    const toC = (mx: number, my: number) => [(mx / FRAME_W + 0.5) * canvasWidth, (0.5 - my / FRAME_H) * canvasHeight];
+    return (
+      <Group listening={false}>
+        {strike.map((s, i) => (
+          <Line
+            key={i}
+            points={[...toC(s.x1, s.y1), ...toC(s.x2, s.y2)]}
+            stroke={previewStrokeColor ?? item.color}
+            strokeWidth={strokeW}
+            lineCap="round"
+            dash={isSelected ? [6, 4] : undefined}
+          />
+        ))}
+      </Group>
+    );
+  }
 
   return (
     <Rect

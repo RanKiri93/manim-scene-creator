@@ -17,6 +17,7 @@ import {
   createSurroundingRect,
   createShape,
   createImageItem,
+  createMatrixItem,
 } from '@/store/factories';
 import {
   fitImageToManimSize,
@@ -117,6 +118,12 @@ export function useAddSceneItems() {
 
   const addTextLine = useCallback(() => {
     const item = createTextLine(defaults, currentTime);
+    addItem(item);
+    select(item.id);
+  }, [defaults, currentTime, addItem, select]);
+
+  const addMatrix = useCallback(() => {
+    const item = createMatrixItem(defaults, currentTime);
     addItem(item);
     select(item.id);
   }, [defaults, currentTime, addItem, select]);
@@ -448,6 +455,7 @@ export function useAddSceneItems() {
 
   return {
     addTextLine,
+    addMatrix,
     addAxes,
     addShape,
     addImageFiles,

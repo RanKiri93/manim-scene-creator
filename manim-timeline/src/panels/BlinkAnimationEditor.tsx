@@ -25,6 +25,7 @@ import {
   DEFAULT_BLINK_SCALE_FACTOR,
 } from '@/codegen/blinkCodegen';
 import MathSubobjectPicker from './MathSubobjectPicker';
+import MatrixCellPicker from './MatrixCellPicker';
 
 interface BlinkAnimationEditorProps {
   item: BlinkAnimationItem;
@@ -104,7 +105,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
     if (!t || !canBeBlinkTarget(t)) return;
     const next = targetsList.map((r, i) =>
       i === index
-        ? { ...r, targetId: newTargetId, segmentIndices: null, mathSubtargets: null }
+        ? { ...r, targetId: newTargetId, segmentIndices: null, mathSubtargets: null, cells: null }
         : r,
     );
     const est = effectiveStart(t, itemsMap);
@@ -371,6 +372,12 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
                         All
                       </button>
                     </div>
+                  </div>
+                ) : null}
+{target?.kind === 'matrix' ? (
+                  <div className="w-full">
+                    <div className="mb-1 text-meta text-chalk-faint">Entries (none chosen = whole matrix)</div>
+                    <MatrixCellPicker matrix={target} value={row.cells ?? []} onChange={(cells) => patchRow(index, { cells: cells.length ? cells : null })} />
                   </div>
                 ) : null}
                 {target && canBeBlinkTarget(target) ? (

@@ -26,6 +26,15 @@ function FieldArrow({ x, y, deg }: { x: number; y: number; deg: number }) {
 
 const ACTION_ICONS: Record<InsertActionId, ReactNode> = {
   textLine: <path d="M4.5 4.5h11M10 4.5V16M7.5 16h5" />,
+  matrix: (
+    <>
+      <path d="M5.5 3.5h-2v13h2M14.5 3.5h2v13h-2" />
+      <circle cx="7.75" cy="7.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12.25" cy="7.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="7.75" cy="12.5" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12.25" cy="12.5" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
   shape: (
     <>
       <rect x="2.5" y="8.5" width="8.5" height="8.5" rx="1" />

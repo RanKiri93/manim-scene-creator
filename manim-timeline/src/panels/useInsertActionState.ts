@@ -49,7 +49,7 @@ export function useInsertActionState() {
     if (it) selectedItems.push(it);
   }
   const hasSelection = selectedItems.length > 0;
-  const hasCameraFitTarget = selectedItems.length === 1 && ['axes', 'shape', 'image', 'textLine'].includes(selectedItems[0]!.kind);
+  const hasCameraFitTarget = selectedItems.length === 1 && ['axes', 'shape', 'image', 'textLine', 'matrix'].includes(selectedItems[0]!.kind);
   const hasExitTarget = selectedItems.some((it) => canBeExitTarget(it));
   const hasBlinkTarget = selectedItems.some((it) => canBeBlinkTarget(it));
   const hasSurroundTarget = selectedItems.some((it) => canBeSurroundTarget(it));
@@ -90,6 +90,7 @@ export function useInsertActionState() {
 
   const run: Record<InsertActionId, () => void> = {
     textLine: actions.addTextLine,
+    matrix: actions.addMatrix,
     shape: actions.addShape,
     image: actions.addImageViaPicker,
     axes: actions.addAxes,

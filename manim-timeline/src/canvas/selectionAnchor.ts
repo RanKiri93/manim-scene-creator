@@ -15,6 +15,7 @@ export function anchorItemIdFor(item: SceneItem): string | null {
     case 'textLine':
     case 'shape':
     case 'image':
+    case 'matrix':
     case 'surroundingRect':
     case 'axes':
       return item.id;

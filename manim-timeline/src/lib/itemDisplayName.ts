@@ -21,6 +21,7 @@ const KIND_LABEL: Record<SceneItem['kind'], string> = {
   shape: 'Shape',
   surroundingRect: 'Surrounding rectangle',
   image: 'Image',
+  matrix: 'Matrix',
   exit_animation: 'Exit animation',
   blink_animation: 'Blink animation',
   target_animation: 'Target animation',
@@ -113,6 +114,8 @@ export function itemClipDisplayName(item: SceneItem): string {
       const base = item.fileName.trim() || 'picture';
       return `Image: ${trunc(base, 24)}`;
     }
+    case 'matrix':
+      return item.label.trim() || `Matrix ${item.entries.length}×${item.entries[0]?.length ?? 0}`;
     default:
       return '?';
   }

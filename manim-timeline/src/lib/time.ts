@@ -30,7 +30,8 @@ export function canBeSurroundTarget(item: SceneItem): boolean {
     item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
     item.kind === 'shape' ||
-    item.kind === 'image'
+    item.kind === 'image' ||
+    item.kind === 'matrix'
   );
 }
 
@@ -63,6 +64,7 @@ export function canBeTargetAnimationTargetKind(
         kind === 'axes' ||
         kind === 'shape' ||
         kind === 'image' ||
+        kind === 'matrix' ||
         kind === 'surroundingRect'
       );
     case 'rotate':
@@ -70,6 +72,7 @@ export function canBeTargetAnimationTargetKind(
         kind === 'textLine' ||
         kind === 'shape' ||
         kind === 'image' ||
+        kind === 'matrix' ||
         kind === 'surroundingRect'
       );
     default:
@@ -174,7 +177,8 @@ export function runDuration(item: SceneItem, _items: Map<ItemId, SceneItem>): nu
     item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
     item.kind === 'shape' ||
-    item.kind === 'image'
+    item.kind === 'image' ||
+    item.kind === 'matrix'
   ) {
     return item.duration;
   }

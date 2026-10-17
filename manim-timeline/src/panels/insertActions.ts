@@ -13,6 +13,7 @@ export type InsertSubgroupId = 'change' | 'emphasize' | 'leave';
 
 export type InsertActionId =
   | 'textLine'
+  | 'matrix'
   | 'shape'
   | 'image'
   | 'axes'
@@ -63,7 +64,7 @@ export interface InsertGroupDef {
 }
 
 export const INSERT_GROUPS: readonly InsertGroupDef[] = [
-  { id: 'create', label: 'Create', kindGroup: 'text', summary: 'Text, shapes and images', flyout: false },
+  { id: 'create', label: 'Create', kindGroup: 'text', summary: 'Text, matrices, shapes and images', flyout: false },
   { id: 'graph', label: 'Graph', kindGroup: 'graph', summary: 'Axes, plots, curves, dots, areas, fields', flyout: true },
   { id: 'animate', label: 'Animate', kindGroup: 'effect', summary: 'Move, scale, color, blink, exit…', flyout: true },
   { id: 'camera', label: 'Camera', kindGroup: 'camera', summary: 'Pan, zoom and fit the view', flyout: true },
@@ -78,6 +79,7 @@ export const INSERT_SUBGROUP_LABELS: Record<InsertSubgroupId, string> = {
 
 export const INSERT_ACTIONS: readonly InsertActionDef[] = [
   { id: 'textLine', label: 'Text line', title: 'Text line', group: 'create', keywords: 'hebrew latex math title label words' },
+  { id: 'matrix', label: 'Matrix', title: 'Matrix: LaTeX entries in square, round or curly brackets, or bars', group: 'create', keywords: 'matrix vector determinant array bmatrix pmatrix augmented linear algebra' },
   { id: 'shape', label: 'Shape', title: 'Shape: pick one, then draw it on the canvas', group: 'create', keywords: 'circle ellipse rectangle square triangle hexagon polygon arrow double curved line dashed polyline arc sector pie ring annulus brace curly' },
   { id: 'image', label: 'Image', title: 'Image (PNG, JPG, GIF as still picture)', group: 'create', keywords: 'picture photo png jpg gif' },
 

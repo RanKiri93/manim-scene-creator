@@ -40,6 +40,8 @@ function toBlinkSpec(
   if (row.mathSubtargets != null && row.mathSubtargets.length > 0) {
     b.mathSubtargets = row.mathSubtargets;
   }
+  // Entry subsets only recolour; a scale clip scales the whole matrix (as the preview does).
+  if (mode === 'color' && row.cells != null && row.cells.length > 0) b.cells = row.cells;
   return b;
 }
 

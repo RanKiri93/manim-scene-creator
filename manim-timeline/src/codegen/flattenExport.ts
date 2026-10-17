@@ -11,6 +11,7 @@ import type {
   GraphAreaItem,
   ShapeItem,
   ImageItem,
+  MatrixItem,
   ItemId,
 } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
@@ -38,7 +39,8 @@ export type ExportLeaf =
   | GraphPointSequenceItem
   | GraphAreaItem
   | ShapeItem
-  | ImageItem;
+  | ImageItem
+  | MatrixItem;
 
 export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
   const base = flattenExportItems(items).filter(
@@ -53,7 +55,8 @@ export function flattenExportLeaves(items: SceneItem[]): ExportLeaf[] {
       it.kind === 'graphPointSequence' ||
       it.kind === 'graphArea' ||
       it.kind === 'shape' ||
-      it.kind === 'image',
+      it.kind === 'image' ||
+      it.kind === 'matrix',
   );
   return reorderExportLeavesForPlacementDeps(base);
 }
@@ -67,7 +70,8 @@ function nextToRefIds(leaf: ExportLeaf): ItemId[] {
     leaf.kind !== 'textLine' &&
     leaf.kind !== 'axes' &&
     leaf.kind !== 'shape' &&
-    leaf.kind !== 'image'
+    leaf.kind !== 'image' &&
+    leaf.kind !== 'matrix'
   ) {
     return [];
   }
@@ -132,7 +136,8 @@ export function reorderExportLeavesForPlacementDeps(
       L.kind !== 'textLine' &&
       L.kind !== 'axes' &&
       L.kind !== 'shape' &&
-      L.kind !== 'image'
+      L.kind !== 'image' &&
+      L.kind !== 'matrix'
     ) {
       continue;
     }

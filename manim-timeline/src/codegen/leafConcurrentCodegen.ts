@@ -54,6 +54,7 @@ import { functionSeriesConcurrentBranch } from './functionSeriesCodegen';
 import { pointSequenceConcurrentBranch } from './pointSequenceCodegen';
 import type { CameraTransitionSegment } from '@/lib/camera';
 import { cameraFollowExprFor, formatConcurrentCameraBranch } from './cameraCodegen';
+import { matrixIntroAnimExpr } from './matrixCodegen';
 
 const MANIM_DEFAULT_PLAY_SEC = 1;
 
@@ -581,6 +582,16 @@ function concurrentBranchForLeaf(
       : Math.max(0.05, leaf.duration).toFixed(6);
     const intro = `FadeIn(${varName}, run_time=${rtStr})`;
     return `Succession(Wait(${wStr}), ${intro}${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
+  }
+
+  if (leaf.kind === 'matrix') {
+    const varName = idToVarName.get(leaf.id)!;
+    const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
+    const rtStr = recorded ? recorded.runTime.toFixed(6) : Math.max(0.05, leaf.duration).toFixed(6);
+    // Run time on an inner Succession: on the outer one Manim would rescale the lead-in Wait too.
+    const intro = `Succession(${matrixIntroAnimExpr(leaf, varName)}, run_time=${rtStr})`;
+    const tail = recorded ? concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts) : '';
+    return `Succession(Wait(${wStr}), ${intro}${tail})`;
   }
 
   return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;

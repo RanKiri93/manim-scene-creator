@@ -137,7 +137,8 @@ export function sequentialAnimSecondsForLeaf(
       );
       return clock ?? Math.max(0.05, leaf.duration);
     }
-    case 'image': {
+    case 'image':
+    case 'matrix': {
       const clock = sceneClockSecForLeafBoundPlayback(
         leaf,
         itemsMap,

@@ -3,6 +3,7 @@ import type { SceneItem, ItemId, ManimDirection, PosStep, PosStepToEdge } from '
 import { computeNextToMobCenter } from '@/lib/nextToGeometry';
 import { isTwoPointKind, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { polylinePointExtents } from '@/lib/polylineExtents';
+import { matrixGeometry } from '@/lib/matrix';
 
 export interface ItemBBox {
   x: number;
@@ -91,6 +92,8 @@ export function getItemBBox(item: SceneItem): ItemBBox {
   } else if (item.kind === 'image') {
     w = Number.isFinite(item.width) && item.width > 0 ? item.width : 3;
     h = Number.isFinite(item.height) && item.height > 0 ? item.height : 2;
+  } else if (item.kind === 'matrix') {
+    ({ width: w, height: h } = matrixGeometry(item));
   } else {
     w = 0.5;
     h = 0.5;

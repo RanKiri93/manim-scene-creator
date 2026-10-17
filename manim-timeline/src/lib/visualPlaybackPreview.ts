@@ -127,7 +127,8 @@ function isExportLeafWithAudio(item: SceneItem): item is ExportLeafWithAudio {
     item.kind === 'graphFunctionSeries' ||
     item.kind === 'graphPointSequence' ||
     item.kind === 'graphArea' ||
-    item.kind === 'shape'
+    item.kind === 'shape' ||
+    item.kind === 'matrix'
   );
 }
 

@@ -46,7 +46,7 @@ export type NextToBoundsMode = 'mobject' | 'ink';
 
 export interface PosStepNextTo {
   kind: 'next_to';
-  refKind: 'line' | 'axes' | 'shape' | 'image';
+  refKind: 'line' | 'axes' | 'shape' | 'image' | 'matrix';
   refId: ItemId | null;
   dir: ManimDirection;
   buff: number;
@@ -334,6 +334,8 @@ export interface BlinkTargetSpec {
    * When present for a math segment, that segment blinks those children instead of the whole segment.
    */
   mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
+  /** For `matrix` targets: blink only these entries. Omit or empty = the whole matrix. */
+  cells?: MatrixCell[] | null;
 }
 
 /**
@@ -400,6 +402,8 @@ export interface TargetAnimationTargetSpec {
   easing?: 'linear' | 'smooth';
   segmentIndices?: number[] | null;
   mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
+  /** For `matrix` targets (`mode === 'color'`): recolour only these entries. Omit or empty = all. */
+  cells?: MatrixCell[] | null;
 }
 
 export interface TargetAnimationItem {
@@ -452,6 +456,16 @@ export interface SurroundingRectItem {
    * on the exported `HebrewMathLine` (omit or empty = surround the whole line).
    */
   segmentIndices?: number[] | null;
+  /**
+   * When there is exactly one target and it is a `matrix`, the entries to mark (omit or empty =
+   * the whole matrix).
+   */
+  cells?: MatrixCell[] | null;
+  /**
+   * `box` (default): a rectangle around the targets. `strike` (matrix `cells` only): cross the
+   * entries out — a line through each complete row and column, a slash through any other entry.
+   */
+  mark?: 'box' | 'strike';
   buff: number;
   color: string;
   cornerRadius: number;
@@ -677,6 +691,86 @@ export interface TextLineItem extends SceneItemBase {
   segmentMeasures: SegmentLocalBox[] | null;
   /** Nested math-segment boxes from measure server (same indices as export `line[s][c]`). */
   mathChildMeasures: MathChildLocalBox[] | null;
+}
+
+/** Matrix brackets (export: `HebrewMatrix(bracket=...)`). */
+export type MatrixBracket = 'square' | 'round' | 'curly' | 'bars' | 'double_bars' | 'none';
+
+/** Column alignment of every matrix column. */
+export type MatrixAlign = 'center' | 'left' | 'right';
+
+/**
+ * How a matrix appears: `write` all at once, `fade_in`, or brackets first and then the entries
+ * `rows` / `columns` / `entries` one after another.
+ */
+export type MatrixIntroStyle = 'write' | 'fade_in' | 'rows' | 'columns' | 'entries';
+
+/** One matrix entry, 0-based (export: `matrix.get_entry(row, col)`). */
+export interface MatrixCell {
+  row: number;
+  col: number;
+}
+
+export interface MatrixCellColor extends MatrixCell {
+  /** CSS hex. */
+  color: string;
+}
+
+/** Ink box of one entry, with the matrix centred at the origin (Manim units). */
+export interface MatrixCellBox extends MatrixCell {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
+/** Measure-server geometry of a matrix (same fields as a text line's ink geometry). */
+export interface MatrixMeasure {
+  width: number;
+  height: number;
+  widthInk: number;
+  heightInk: number;
+  offsetInkX: number;
+  offsetInkY: number;
+  inkLeftX: number;
+  inkRightX: number;
+  inkTopY: number;
+  inkBottomY: number;
+  /** Non-empty entries only. */
+  cells: MatrixCellBox[];
+  leftBracket: SegmentLocalBox | null;
+  rightBracket: SegmentLocalBox | null;
+  bar: SegmentLocalBox | null;
+}
+
+/**
+ * A matrix of LaTeX math entries, typeset by LaTeX in one piece (export: `HebrewMatrix`), whose
+ * entries can be coloured, blinked, boxed or crossed out one by one.
+ */
+export interface MatrixItem extends SceneItemBase {
+  kind: 'matrix';
+  /** Rows of LaTeX math without `$`, every row the same length (1–12 × 1–12); `''` = empty entry. */
+  entries: string[][];
+  bracket: MatrixBracket;
+  align: MatrixAlign;
+  /** Augmented matrix: a vertical bar after this many columns. Unset / null = none. */
+  augmentCol?: number | null;
+  /** Row height multiplier (LaTeX `rraystretch`); 1 = LaTeX default. */
+  rowSpacing: number;
+  /** Column gap multiplier (LaTeX `rraycolsep`); 1 = LaTeX default. */
+  colSpacing: number;
+  fontSize: number;
+  /** Colour of the brackets, bar and every entry without its own colour. */
+  color: string;
+  /** Entries with their own colour. */
+  cellColors?: MatrixCellColor[];
+  introStyle: MatrixIntroStyle;
+  /** Geometry from the measure server; null until measured. */
+  measure: MatrixMeasure | null;
+  measureError: string | null;
+  previewDataUrl: string | null;
+  /** {@link matrixMeasureKey} of the fields `measure` was made from (stale when it differs). */
+  measureKey?: string | null;
 }
 
 export interface GraphFunction {
@@ -1271,6 +1365,7 @@ export type SceneItem =
   | GraphAreaItem
   | ShapeItem
   | ImageItem
+  | MatrixItem
   | ExitAnimationItem
   | BlinkAnimationItem
   | TargetAnimationItem

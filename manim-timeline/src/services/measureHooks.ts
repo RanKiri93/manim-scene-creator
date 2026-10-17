@@ -1,8 +1,46 @@
 import { useEffect, useRef } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import { measureLine } from './measureClient';
+import { measureLine, measureMatrix } from './measureClient';
 import { MEASURE_DEBOUNCE_MS } from '@/lib/constants';
-import type { TextLineItem } from '@/types/scene';
+import { matrixMeasureKey } from '@/lib/matrix';
+import type { ItemId, MatrixItem, TextLineItem } from '@/types/scene';
+
+/**
+ * Keep every matrix in the scene measured: whenever a matrix's typeset fields change (see
+ * `matrixMeasureKey`), wait for edits to settle, then ask the measure server for its geometry and
+ * preview. Unlike text lines this runs for all matrices, not just the inspected one, so a matrix
+ * the Copilot or a paste changed is previewed too. Mount once (the scene canvas does).
+ */
+export function useMeasureMatrices() {
+  const items = useSceneStore((s) => s.items);
+  const measureConfig = useSceneStore((s) => s.measureConfig);
+  const setMatrixMeasure = useSceneStore((s) => s.setMatrixMeasure);
+  const inFlight = useRef(new Map<ItemId, string>());
+
+  useEffect(() => {
+    if (!measureConfig.enabled) return;
+    const stale: { item: MatrixItem; key: string }[] = [];
+    for (const item of items.values()) {
+      if (item.kind !== 'matrix') continue;
+      const key = matrixMeasureKey(item);
+      if (item.measureKey === key || inFlight.current.get(item.id) === key) continue;
+      stale.push({ item, key });
+    }
+    if (stale.length === 0) return;
+    const timer = setTimeout(() => {
+      for (const { item, key } of stale) {
+        inFlight.current.set(item.id, key);
+        measureMatrix(measureConfig.url, item, measureConfig.includePreview)
+          .then((r) => setMatrixMeasure(item.id, key, r.measure ? { measure: r.measure, previewDataUrl: r.previewDataUrl } : null, r.error))
+          .catch((e: unknown) => setMatrixMeasure(item.id, key, null, String(e)))
+          .finally(() => {
+            if (inFlight.current.get(item.id) === key) inFlight.current.delete(item.id);
+          });
+      }
+    }, MEASURE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [items, measureConfig.enabled, measureConfig.url, measureConfig.includePreview, setMatrixMeasure]);
+}
 
 /**
  * Debounced measurement hook. Attach to the property panel:

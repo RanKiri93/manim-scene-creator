@@ -74,7 +74,8 @@ export default function PositionStepsEditor({ steps, onChange, currentItemId, sn
         item.kind !== 'textLine' &&
         item.kind !== 'axes' &&
         item.kind !== 'shape' &&
-        item.kind !== 'image'
+        item.kind !== 'image' &&
+        item.kind !== 'matrix'
       ) {
         continue;
       }
@@ -235,7 +236,7 @@ function NextToFields({
   const selfItem = itemsMap.get(currentItemId);
   const refHiddenByFrame =
     !!refItem &&
-    (refItem.kind === 'textLine' || refItem.kind === 'axes' || refItem.kind === 'shape' || refItem.kind === 'image') &&
+    (refItem.kind === 'textLine' || refItem.kind === 'axes' || refItem.kind === 'shape' || refItem.kind === 'image' || refItem.kind === 'matrix') &&
     !otherItems.some((it) => it.id === refItem.id);
   const refSegCount =
     refItem?.kind === 'textLine' ? refItem.segments.length : 0;
@@ -260,7 +261,9 @@ function NextToFields({
                     ? ('shape' as const)
                     : match?.kind === 'image'
                       ? ('image' as const)
-                      : ('line' as const);
+                      : match?.kind === 'matrix'
+                        ? ('matrix' as const)
+                        : ('line' as const);
               onChange({
                 ...step,
                 refId: id,
@@ -287,7 +290,9 @@ function NextToFields({
                       ? '[S]'
                       : it.kind === 'image'
                         ? '[Img]'
-                        : '[?]'}{' '}
+                        : it.kind === 'matrix'
+                          ? '[M]'
+                          : '[?]'}{' '}
                 {it.label}
               </option>
             ))}

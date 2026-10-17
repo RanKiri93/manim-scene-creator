@@ -11,6 +11,8 @@ import {
   manimColor,
 } from './graphCodegen';
 import type { ExportLeaf } from './flattenExport';
+import { allCells, matrixCellsFor, matrixCols, matrixRows } from '@/lib/matrix';
+import { matrixTargetExpr } from './matrixCodegen';
 
 function dedupeTargetIds(ids: readonly ItemId[]): ItemId[] {
   const seen = new Set<ItemId>();
@@ -95,6 +97,10 @@ export function resolveSurroundRectTargetExpr(
   for (const tid of ids) {
     const tgt = itemsMap.get(tid);
     if (!tgt || !canBeSurroundTarget(tgt)) return null;
+    if (ids.length === 1 && tgt.kind === 'matrix') {
+      const v = idToVarName.get(tgt.id);
+      return v ? matrixTargetExpr(tgt, v, item.cells) : null;
+    }
     const seg =
       ids.length === 1 && tgt.kind === 'textLine'
         ? item.segmentIndices
@@ -142,20 +148,37 @@ export function generateSurroundingRectPosBlock(
   indent: number,
 ): string {
   const pad = ' '.repeat(indent);
-  const expr = resolveSurroundRectTargetExpr(item, idToVarName, itemsMap);
-  if (!expr) return '';
-  const cr =
-    item.cornerRadius > 0
-      ? `, corner_radius=${item.cornerRadius.toFixed(4)}`
-      : '';
-  let s = `${pad}${srVar}_tgt = ${expr}\n`;
-  s += `${pad}${srVar} = SurroundingRectangle(${srVar}_tgt, buff=${item.buff.toFixed(4)}, color=${manimColor(item.color)}, stroke_width=${item.strokeWidth.toFixed(4)}${cr})\n`;
+  const struck = strikeMatrix(item, itemsMap);
+  let s: string;
+  if (struck) {
+    const v = idToVarName.get(struck.id);
+    if (!v) return '';
+    const sel = matrixCellsFor(struck, item.cells);
+    const cells = (sel.length ? sel : allCells(matrixRows(struck), matrixCols(struck))).map((c) => `(${c.row}, ${c.col})`).join(', ');
+    s = `${pad}${srVar} = ${v}.strike_lines([${cells}], buff=${item.buff.toFixed(4)}, color=${manimColor(item.color)}, stroke_width=${item.strokeWidth.toFixed(4)})\n`;
+  } else {
+    const expr = resolveSurroundRectTargetExpr(item, idToVarName, itemsMap);
+    if (!expr) return '';
+    const cr =
+      item.cornerRadius > 0
+        ? `, corner_radius=${item.cornerRadius.toFixed(4)}`
+        : '';
+    s = `${pad}${srVar}_tgt = ${expr}\n`;
+    s += `${pad}${srVar} = SurroundingRectangle(${srVar}_tgt, buff=${item.buff.toFixed(4)}, color=${manimColor(item.color)}, stroke_width=${item.strokeWidth.toFixed(4)}${cr})\n`;
+  }
   if (item.labelText.trim()) {
     s +=
       `${pad}${srVar}_lbl = HebrewMathLine(${pythonStringLiteral(item.labelText.trim())}, font_size=${Math.round(item.labelFontSize)}, hebrew_font="Alef")\n`;
     s += `${pad}${srVar}_lbl.next_to(${srVar}, ${item.labelDir}, buff=0.12)\n`;
   }
   return s;
+}
+
+/** The matrix a `strike` highlight crosses entries out of (single matrix target), else null. */
+function strikeMatrix(item: SurroundingRectItem, itemsMap: Map<ItemId, SceneItem>) {
+  if (item.mark !== 'strike' || item.targetIds.length !== 1) return null;
+  const t = itemsMap.get(item.targetIds[0]!);
+  return t?.kind === 'matrix' ? t : null;
 }
 
 export function generateSurroundingRectPlay(

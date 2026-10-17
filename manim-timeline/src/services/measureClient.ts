@@ -9,7 +9,10 @@ import type {
   MathChildLocalBox,
   AxesItem,
   AxisPreviewBounds,
+  MatrixItem,
+  MatrixMeasure,
 } from '@/types/scene';
+import { matrixEntryColors } from '@/lib/matrix';
 import {
   deriveAudioBedAssetRelPath,
 } from '@/lib/audioAssetPath';
@@ -201,6 +204,84 @@ export async function measureLine(
   };
 
   return { result, error: null };
+}
+
+interface MatrixBoxBody {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+}
+
+interface MatrixMeasureResponseBody {
+  ok: boolean;
+  width?: number;
+  height?: number;
+  width_ink?: number;
+  height_ink?: number;
+  offset_ink_x?: number;
+  offset_ink_y?: number;
+  ink_left_x?: number;
+  ink_right_x?: number;
+  ink_top_y?: number;
+  ink_bottom_y?: number;
+  png_base64?: string | null;
+  cell_boxes?: (MatrixBoxBody & { row: number; col: number })[] | null;
+  left_bracket_box?: MatrixBoxBody | null;
+  right_bracket_box?: MatrixBoxBody | null;
+  bar_box?: MatrixBoxBody | null;
+  error?: string | null;
+}
+
+const box = (b: MatrixBoxBody | null | undefined) => (b ? { cx: b.cx, cy: b.cy, w: b.w, h: b.h } : null);
+
+/** Typeset a matrix exactly as the export's `HebrewMatrix` and return its geometry (and preview PNG). */
+export async function measureMatrix(
+  baseUrl: string,
+  item: MatrixItem,
+  includePreview: boolean,
+): Promise<{ measure: MatrixMeasure | null; previewDataUrl: string | null; error: string | null }> {
+  const body = {
+    entries: item.entries,
+    bracket: item.bracket,
+    align: item.align,
+    augment_col: item.augmentCol ?? null,
+    row_spacing: item.rowSpacing,
+    col_spacing: item.colSpacing,
+    font_size: item.fontSize,
+    color: item.color,
+    entry_colors: matrixEntryColors(item),
+    include_preview: includePreview,
+  };
+  const resp = await measureFetch(`${baseUrl.replace(/\/$/, '')}/api/measure_matrix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) return { measure: null, previewDataUrl: null, error: `Measure server: HTTP ${resp.status}` };
+  const j = (await resp.json()) as MatrixMeasureResponseBody;
+  if (!j.ok) return { measure: null, previewDataUrl: null, error: j.error ?? 'Unknown error' };
+  const measure: MatrixMeasure = {
+    width: j.width!,
+    height: j.height!,
+    widthInk: j.width_ink ?? j.width!,
+    heightInk: j.height_ink ?? j.height!,
+    offsetInkX: j.offset_ink_x ?? 0,
+    offsetInkY: j.offset_ink_y ?? 0,
+    inkLeftX: j.ink_left_x ?? -j.width! / 2,
+    inkRightX: j.ink_right_x ?? j.width! / 2,
+    inkTopY: j.ink_top_y ?? j.height! / 2,
+    inkBottomY: j.ink_bottom_y ?? -j.height! / 2,
+    cells: (j.cell_boxes ?? []).map((b) => ({ row: b.row, col: b.col, cx: b.cx, cy: b.cy, w: b.w, h: b.h })),
+    leftBracket: box(j.left_bracket_box),
+    rightBracket: box(j.right_bracket_box),
+    bar: box(j.bar_box),
+  };
+  return {
+    measure,
+    previewDataUrl: j.png_base64 ? `data:image/png;base64,${j.png_base64}` : null,
+    error: null,
+  };
 }
 
 export interface AxesPreviewApiResult {

@@ -20,6 +20,7 @@ import FrameAssignmentPanel from './FrameAssignmentPanel';
 import SurroundingRectEditor from './SurroundingRectEditor';
 import ShapeEditor from './ShapeEditor';
 import ImageEditor from './ImageEditor';
+import MatrixEditor from './MatrixEditor';
 
 const DOCK_CLASS = 'flex w-[340px] shrink-0 flex-col border-l border-rule bg-panel';
 
@@ -119,6 +120,9 @@ export default function PropertyPanel() {
       break;
     case 'image':
       body = <ImageEditor item={item} />;
+      break;
+    case 'matrix':
+      body = <MatrixEditor item={item} />;
       break;
     default:
       body = <p className="m-0 text-ctl text-chalk-faint">This item kind has no editor.</p>;

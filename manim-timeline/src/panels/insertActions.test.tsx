@@ -52,6 +52,7 @@ describe('AddObjectToolbar', () => {
       'Show insert labels',
       'Search',
       'Text line',
+      'Matrix',
       'Shape',
       'Image',
       'Graph',
