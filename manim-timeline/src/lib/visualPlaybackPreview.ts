@@ -11,6 +11,7 @@ import type {
   ItemId,
   SceneItem,
   ShapeItem,
+  SurroundingRectItem,
   TextLineItem,
   TargetAnimationItem,
   TargetAnimationTargetSpec,
@@ -283,11 +284,30 @@ export function shapeIntroPreview(
   time: number,
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
-): { opacity: number; createProgress: number } {
-  const p = introLinearProgress(item, time, items, audioItems);
-  return item.introStyle === 'fade_in'
-    ? { opacity: manimSmoothProgress(p), createProgress: 1 }
-    : { opacity: 1, createProgress: p };
+): IntroPreview {
+  return introPreview(item.introStyle, introLinearProgress(item, time, items, previewRunTime(item, items, audioItems)));
+}
+
+/**
+ * Surrounding-rectangle entrance at `time`: export plays `FadeIn(rect)` or `Create(rect)` over
+ * its `runTime` (`generateSurroundingRectPlay`), shown like a shape's ({@link shapeIntroPreview}).
+ */
+export function surroundIntroPreview(
+  item: SurroundingRectItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+): IntroPreview {
+  return introPreview(item.introStyle, introLinearProgress(item, time, items, Math.max(0.05, item.runTime)));
+}
+
+/** Entrance state: `opacity` for a fade, linear `createProgress` (0–1) for a create. */
+export interface IntroPreview {
+  opacity: number;
+  createProgress: number;
+}
+
+function introPreview(style: 'create' | 'fade_in', p: number): IntroPreview {
+  return style === 'fade_in' ? { opacity: manimSmoothProgress(p), createProgress: 1 } : { opacity: 1, createProgress: p };
 }
 
 /** Manim-smooth `FadeIn` opacity over the item's preview run time (`previewRunTime`). */
@@ -297,23 +317,22 @@ function fadeInIntroOpacity(
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
 ): number {
-  return manimSmoothProgress(introLinearProgress(item, time, items, audioItems));
+  return manimSmoothProgress(introLinearProgress(item, time, items, previewRunTime(item, items, audioItems)));
 }
 
 /**
- * Linear progress `[0, 1]` of an item's entrance over its preview run time: `0` before
+ * Linear progress `[0, 1]` of an item's entrance over its run time `dur`: `0` before
  * `effectiveStart`, `1` once the run time ends or for `visibleAtSceneStart` items.
  */
 function introLinearProgress(
-  item: ImageItem | GraphDotItem | GraphAreaItem | ShapeItem,
+  item: ImageItem | GraphDotItem | GraphAreaItem | ShapeItem | SurroundingRectItem,
   time: number,
   items: Map<ItemId, SceneItem>,
-  audioItems?: AudioTrackItem[],
+  dur: number,
 ): number {
   const t0 = effectiveStart(item, items);
   if (time < t0) return 0;
   if (isVisibleAtSceneStartItem(item)) return 1;
-  const dur = previewRunTime(item, items, audioItems);
   if (!(dur > 0) || !Number.isFinite(dur)) return 1;
   if (time >= t0 + dur) return 1;
   return (time - t0) / dur;

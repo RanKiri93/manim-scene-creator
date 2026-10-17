@@ -1,7 +1,8 @@
-import { Group, Line, Rect } from 'react-konva';
+import { Group, Line, Rect, Shape } from 'react-konva';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import type { SurroundingRectItem } from '@/types/scene';
 import type { Segment2 } from '@/lib/matrix';
+import { shapeCreateFrame, surroundCreatePlan } from '@/lib/shapeCreatePreview';
 
 export interface SurroundingRectNodeProps {
   item: SurroundingRectItem;
@@ -12,6 +13,8 @@ export interface SurroundingRectNodeProps {
   previewStrokeColor?: string;
   /** Strike highlight: draw these lines (scene coords) instead of the rectangle. */
   strike?: Segment2[] | null;
+  /** Playback preview: linear progress (0–1) of its `Create`; unset or 1 = drawn in full. */
+  createProgress?: number;
 }
 
 function manimAabbToCanvasRect(
@@ -42,6 +45,7 @@ export default function SurroundingRectNode({
   isSelected,
   previewStrokeColor,
   strike,
+  createProgress,
 }: SurroundingRectNodeProps) {
   const { x, y, width, height } = manimAabbToCanvasRect(
     bboxManim.left,
@@ -66,6 +70,28 @@ export default function SurroundingRectNode({
         : rawCornerR,
     ),
   );
+
+  // While it is being created: the part of the outline (or the strike lines) drawn so far.
+  if (createProgress != null && createProgress < 1) {
+    const frame = shapeCreateFrame(surroundCreatePlan(bboxManim, item.cornerRadius, strike), Math.max(0, createProgress));
+    const toC = (mx: number, my: number): [number, number] => [(mx / FRAME_W + 0.5) * canvasWidth, (0.5 - my / FRAME_H) * canvasHeight];
+    return (
+      <Shape
+        listening={false}
+        sceneFunc={(ctx, shape) => {
+          ctx.beginPath();
+          for (const { subpaths } of frame.parts) {
+            for (const sp of subpaths) sp.forEach((p, j) => (j === 0 ? ctx.moveTo(...toC(p.x, p.y)) : ctx.lineTo(...toC(p.x, p.y))));
+          }
+          ctx.strokeShape(shape);
+        }}
+        stroke={previewStrokeColor ?? item.color}
+        strokeWidth={strokeW}
+        lineCap={strike ? 'round' : 'butt'}
+        dash={isSelected ? [6, 4] : undefined}
+      />
+    );
+  }
 
   if (strike) {
     const toC = (mx: number, my: number) => [(mx / FRAME_W + 0.5) * canvasWidth, (0.5 - my / FRAME_H) * canvasHeight];

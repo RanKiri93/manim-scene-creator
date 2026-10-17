@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createShape } from '@/store/factories';
+import { createShape, createSurroundingRect } from '@/store/factories';
 import type { ItemId, SceneItem, ShapeItem, ShapePoint } from '@/types/scene';
 import { bracePath } from './shapeGeometry';
-import { partialCreatePart, shapeCreateFrame, shapeCreatePlan, svgPathCurves } from './shapeCreatePreview';
-import { manimSmoothProgress, shapeIntroPreview } from './visualPlaybackPreview';
+import { partialCreatePart, shapeCreateFrame, shapeCreatePlan, surroundCreatePlan, svgPathCurves } from './shapeCreatePreview';
+import { manimSmoothProgress, shapeIntroPreview, surroundIntroPreview } from './visualPlaybackPreview';
 
 const shape = (patch: Partial<ShapeItem>): ShapeItem => ({ ...createShape(0), ...patch });
 const last = (sp: ShapePoint[][]) => sp[sp.length - 1]![sp[sp.length - 1]!.length - 1]!;
@@ -116,5 +116,30 @@ describe('shape Create preview', () => {
     expect(shapeIntroPreview(create, 3, items).createProgress).toBe(1);
     const atStart = { ...create, visibleAtSceneStart: true };
     expect(shapeIntroPreview(atStart, 1.5, new Map([[atStart.id, atStart]])).createProgress).toBe(1);
+  });
+
+  it('creates a surrounding rectangle from its top-right corner and strike lines one after another', () => {
+    const box = surroundCreatePlan({ left: 1, right: 5, bottom: -1, top: 1 }, 0).parts[0]!;
+    expect(box.curves).toHaveLength(4);
+    near(box.curves[0]![0]!, 5, 1);
+    near(last(partialCreatePart(box, 0.25)), 1, 1);
+    expect(surroundCreatePlan({ left: 1, right: 5, bottom: -1, top: 1 }, 0.3).parts[0]!.curves).toHaveLength(8);
+
+    const strike = surroundCreatePlan({ left: 0, right: 1, bottom: 0, top: 1 }, 0, [
+      { x1: 0, y1: 0, x2: 2, y2: 0 },
+      { x1: 1, y1: 1, x2: 1, y2: -1 },
+    ]);
+    expect(strike.parts).toHaveLength(2);
+    const half = shapeCreateFrame(strike, 0.5);
+    expect(half.parts).toHaveLength(1);
+    near(last(half.parts[0]!.subpaths), 2, 0);
+  });
+
+  it('times a surrounding rectangle over its run time', () => {
+    const sr = { ...createSurroundingRect(['t' as ItemId], 1), runTime: 2 };
+    const items = new Map<ItemId, SceneItem>([[sr.id, sr]]);
+    expect(surroundIntroPreview({ ...sr, introStyle: 'create' }, 1.5, items)).toEqual({ opacity: 1, createProgress: 0.25 });
+    expect(surroundIntroPreview({ ...sr, introStyle: 'fade_in' }, 1.5, items).opacity).toBeCloseTo(manimSmoothProgress(0.25), 9);
+    expect(surroundIntroPreview(sr, 3.5, items)).toEqual({ opacity: 1, createProgress: 1 });
   });
 });

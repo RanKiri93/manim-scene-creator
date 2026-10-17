@@ -43,6 +43,7 @@ import {
   cameraPosePreviewAtTime,
   imageIntroOpacity,
   shapeIntroPreview,
+  surroundIntroPreview,
   targetAnimPreviewAccum,
   lerpHexColor,
   type ExitPreviewState,
@@ -1510,6 +1511,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               const bSr = blinkPreviewForTarget(sr.id, currentTime, itemsMap);
               const srTa = targetAnimPreviewAccum(sr.id, currentTime, itemsMap);
               const srStroke = strokeAfterBlinkThenTa(sr.color, bSr, srTa);
+              // Export plays FadeIn / Create over its run time; selected and paused, it stays whole.
+              const introSr = selectedIds.has(sr.id) && !isPlaying ? null : surroundIntroPreview(sr, currentTime, itemsMap);
               return (
                 <PreviewWrap key={sr.id} itemId={sr.id} op={previewOps.get(sr.id)}>
                   <PlaybackWrap
@@ -1522,6 +1525,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       size.width,
                       size.height,
                     )}
+                    baseOpacity={introSr?.opacity ?? 1}
                   >
                     <SurroundingRectNode
                       item={sr}
@@ -1531,6 +1535,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       canvasHeight={size.height}
                       isSelected={selectedIds.has(sr.id)}
                       previewStrokeColor={srStroke}
+                      createProgress={introSr?.createProgress}
                     />
                   </PlaybackWrap>
                 </PreviewWrap>

@@ -1,4 +1,5 @@
 import type { ShapeItem, ShapePoint } from '@/types/scene';
+import type { Segment2 } from '@/lib/matrix';
 import { isBoundShape, tickSegments } from '@/lib/shapeAnchors';
 import {
   arcAngles,
@@ -435,4 +436,26 @@ export function shapeCreateFrame(plan: ShapeCreatePlan, p: number): ShapeCreateF
     if (alpha > 0) parts.push({ part: q, subpaths: partialCreatePart(q, alpha) });
   }
   return { parts, labelProgress: total > 0 ? runProgress(p, first, plan.labelSlots, total) : 1 };
+}
+
+/**
+ * `Create` of a surrounding rectangle (`SurroundingRectangle`: drawn like `Rectangle`, from its
+ * top-right corner) around `box`, or of a matrix strike (`strike_lines`: a group of `Line`s, one
+ * after another, in `strike` order). Scene units.
+ */
+export function surroundCreatePlan(
+  box: { left: number; right: number; bottom: number; top: number },
+  cornerRadius: number,
+  strike?: readonly Segment2[] | null,
+): ShapeCreatePlan {
+  if (strike) {
+    return { parts: strike.map((s) => part([[{ x: s.x1, y: s.y1 }, { x: s.x2, y: s.y2 }]], 'none', true)), labelSlots: 0 };
+  }
+  const w = Math.abs(box.right - box.left);
+  const h = Math.abs(box.top - box.bottom);
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.bottom + box.top) / 2;
+  const r = Math.min(Math.max(0, cornerRadius), w / 2, h / 2);
+  const curves = rectangleCurves(w, h, r).map((c) => c.map((p) => ({ x: p.x + cx, y: p.y + cy })));
+  return { parts: [part(curves, 'none', true)], labelSlots: 0 };
 }
