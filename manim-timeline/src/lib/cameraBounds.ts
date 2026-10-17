@@ -169,10 +169,10 @@ export function cameraObjectSnapshotBounds(
       return unavailable('Polyline geometry is invalid. Use a region zoom.');
     }
     points = item.points;
-  } else if (item.shapeType === 'regularPolygon' || item.shapeType === 'arc' || item.shapeType === 'sector') {
+  } else if (item.shapeType === 'regularPolygon' || item.shapeType === 'arc' || item.shapeType === 'sector' || item.shapeType === 'curvedArrow' || item.shapeType === 'brace') {
     if (!(item.radius > 0)) return unavailable('Shape geometry is invalid. Use a region zoom.');
     points = shapeOutlinePoints(item) ?? [];
-  } else if (item.shapeType === 'line' || item.shapeType === 'arrow') {
+  } else if (item.shapeType === 'line' || item.shapeType === 'arrow' || item.shapeType === 'doubleArrow') {
     if (![item.endX, item.endY].every(Number.isFinite)) {
       return unavailable('Line geometry is invalid. Use a region zoom.');
     }

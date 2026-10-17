@@ -12,8 +12,14 @@ import {
 } from '@/lib/shapeAnchors';
 import {
   arcAngles,
+  ARROW_MAX_TIP_RATIO,
+  ARROW_TIP_LENGTH,
+  BRACE_BUFF,
+  BRACE_LABEL_BUFF,
   clampedCornerRadius,
+  curvedArrowAngle,
   DASH_PATTERNS,
+  DEFAULT_BRACE_LABEL_SIZE,
   innerRadiusOf,
   isArcKind,
   polygonSides,
@@ -24,6 +30,7 @@ import { PLOT_SLOPE_STEP } from '@/lib/graphLiveValue';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
 import { manimColor, overlayDotVar } from './graphCodegen';
+import { pythonStringLiteral } from './texUtils';
 import {
   type BoundAudioTailOpts,
   appendAudioTailAfterLeafPlayback,
@@ -124,6 +131,17 @@ export function generateShapeDef(
           ? `Arc(radius=${item.radius.toFixed(4)}, ${ang}, color=${stroke}, stroke_width=${sw}${fill})`
           : `AnnularSector(inner_radius=${innerRadiusOf(item).toFixed(4)}, outer_radius=${item.radius.toFixed(4)}, ${ang}, color=${stroke}, stroke_width=${sw}${fill})`;
       return `${pad}${varName} = ${styled(ctor)}\n`;
+    }
+    case 'doubleArrow':
+    case 'curvedArrow':
+    case 'brace': {
+      // Built between ±(end / 2) around the origin, then shifted: the anchor is the chord's middle.
+      const call = connectorMobjectCall(
+        item,
+        `[${pyNum(-item.endX / 2)}, ${pyNum(-item.endY / 2)}, 0]`,
+        `[${pyNum(item.endX / 2)}, ${pyNum(item.endY / 2)}, 0]`,
+      );
+      return braceLabelText(item) ? braceWithLabel(item, varName, pad, call) : `${pad}${varName} = ${call}\n`;
     }
     case 'annulus':
       return `${pad}${varName} = ${styled(`Annulus(inner_radius=${innerRadiusOf(item).toFixed(4)}, outer_radius=${item.radius.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
@@ -344,14 +362,53 @@ export function generateShapePos(
 
   // A dashed arrow is dashed after placement: the shaft centring above needs the real Arrow.
   const dash = dashArgs(item);
-  if (dash && item.shapeType === 'arrow') lines.push(`${pad}${varName} = ${SHAPE_DASHED_ARROW_FN}(${varName}, ${dash})`);
+  if (dash && dashesAsArrow(item)) lines.push(`${pad}${varName} = ${SHAPE_DASHED_ARROW_FN}(${varName}, ${dash})`);
 
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
 
 /** Shapes built around the origin and placed by shifting (points or a vertex-centred polygon). */
 function anchoredAtOrigin(item: ShapeItem): boolean {
-  return usesPoints(item) || item.shapeType === 'regularPolygon' || isArcKind(item);
+  return (
+    usesPoints(item) ||
+    item.shapeType === 'regularPolygon' ||
+    isArcKind(item) ||
+    item.shapeType === 'doubleArrow' ||
+    item.shapeType === 'curvedArrow' ||
+    item.shapeType === 'brace'
+  );
+}
+
+/** Arrows whose shaft is dashed after placement (tips stay solid). */
+function dashesAsArrow(item: ShapeItem): boolean {
+  return item.shapeType === 'arrow' || item.shapeType === 'doubleArrow' || item.shapeType === 'curvedArrow';
+}
+
+function braceLabelText(item: ShapeItem): string {
+  return item.shapeType === 'brace' ? (item.braceLabel ?? '').trim() : '';
+}
+
+/** `HebrewMathLine` for a brace's label, in the brace's colour. */
+function braceLabelCall(item: ShapeItem, color?: string): string {
+  const size = Number.isFinite(item.braceLabelSize) && item.braceLabelSize! > 0 ? item.braceLabelSize! : DEFAULT_BRACE_LABEL_SIZE;
+  return `HebrewMathLine(${pythonStringLiteral(braceLabelText(item))}, font_size=${pyNum(size)}, color=${color ?? manimColor(item.strokeColor)}, hebrew_font="Alef")`;
+}
+
+/** Python that puts a brace's label at its tip (Manim's `put_at_tip`, with a set gap). */
+function braceLabelPlace(label: string, brace: string): string {
+  return `${label}.next_to(${brace}.get_tip(), np.round(${brace}.get_direction()), buff=${BRACE_LABEL_BUFF})`;
+}
+
+/** A labelled brace is a fixed group: brace first, label second. */
+function braceWithLabel(item: ShapeItem, varName: string, pad: string, braceCall: string): string {
+  const b = `_${varName}_brace`;
+  const l = `_${varName}_label`;
+  return (
+    `${pad}${b} = ${braceCall}\n` +
+    `${pad}${l} = ${braceLabelCall(item)}\n` +
+    `${pad}${braceLabelPlace(l, b)}\n` +
+    `${pad}${varName} = VGroup(${b}, ${l})\n`
+  );
 }
 
 export const SHAPE_DASHED_FN = '_dashed';
@@ -366,7 +423,7 @@ function dashArgs(item: ShapeItem): string | null {
 
 /** True when some static shape is dashed or dotted (the scene then needs {@link shapeDashSource}). */
 export function anyDashedShape(items: readonly SceneItem[]): boolean {
-  return items.some((it) => it.kind === 'shape' && !!it.lineStyle && it.lineStyle !== 'solid' && !isBoundShape(it));
+  return items.some((it) => it.kind === 'shape' && it.shapeType !== 'brace' && !!it.lineStyle && it.lineStyle !== 'solid' && !isBoundShape(it));
 }
 
 /**
@@ -612,6 +669,9 @@ export function generateConnectorDef(item: ShapeItem, varName: string, indent: n
     const tick = `Line(ORIGIN, RIGHT * 0.001, color=${manimColor(item.strokeColor)}, stroke_width=${item.strokeWidth.toFixed(4)})`;
     return `${pad}${varName} = VGroup(${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}, ${Array.from({ length: ticks }, () => tick).join(', ')})\n`;
   }
+  if (braceLabelText(item)) {
+    return `${pad}${varName} = VGroup(${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}, ${braceLabelCall(item)})\n`;
+  }
   return `${pad}${varName} = ${connectorMobjectCall(item, 'ORIGIN', 'RIGHT * 0.001')}\n`;
 }
 
@@ -623,9 +683,21 @@ function connectorTicks(item: ShapeItem): number {
 function connectorMobjectCall(item: ShapeItem, a: string, b: string, color?: string): string {
   const stroke = color ?? manimColor(item.strokeColor);
   const sw = item.strokeWidth.toFixed(4);
-  return item.shapeType === 'arrow'
-    ? `Arrow(${a}, ${b}, color=${stroke}, stroke_width=${sw}, buff=0)`
-    : `Line(${a}, ${b}, color=${stroke}, stroke_width=${sw})`;
+  switch (item.shapeType) {
+    case 'arrow':
+      return `Arrow(${a}, ${b}, color=${stroke}, stroke_width=${sw}, buff=0)`;
+    case 'doubleArrow':
+      return `DoubleArrow(${a}, ${b}, color=${stroke}, stroke_width=${sw}, buff=0)`;
+    case 'curvedArrow': {
+      // Tip like a straight arrow's (0.35, at most a quarter of the distance between the ends).
+      const tip = `min(${ARROW_TIP_LENGTH}, ${ARROW_MAX_TIP_RATIO} * float(np.linalg.norm(np.array(${b}) - np.array(${a}))))`;
+      return `CurvedArrow(${a}, ${b}, angle=${pyNum((curvedArrowAngle(item) * Math.PI) / 180)}, color=${stroke}, stroke_width=${sw}, tip_length=${tip})`;
+    }
+    case 'brace':
+      return `BraceBetweenPoints(${a}, ${b}, buff=${BRACE_BUFF}, color=${stroke})`;
+    default:
+      return `Line(${a}, ${b}, color=${stroke}, stroke_width=${sw})`;
+  }
 }
 
 /**
@@ -676,7 +748,10 @@ export function generateConnectorBind(
     // Keep the current colour so color animations on the connector persist.
     // With ticks the connector is a fixed group (line + ticks) whose parts are redrawn in place:
     // \`become\` into a group would add children that copy this updater and recurse.
-    (ticks > 0
+    (braceLabelText(item)
+      ? `${pad}    m[0].become(${connectorMobjectCall(item, '_a', '_b', 'm[0].get_color()')})\n` +
+        `${pad}    ${braceLabelPlace('m[1]', 'm[0]')}\n`
+      : ticks > 0
       ? `${pad}    _parts = [${connectorMobjectCall(item, '_a', '_b', 'm[0].get_color()')}] + ${TICK_MARKS_FN}(_a, _b, ${ticks}, m[0].get_color(), ${item.strokeWidth.toFixed(4)})\n` +
         `${pad}    for _old, _new in zip(m.submobjects, _parts):\n` +
         `${pad}        _old.become(_new)\n`

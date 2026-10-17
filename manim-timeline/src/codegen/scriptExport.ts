@@ -16,7 +16,7 @@ import type {
 import { isTopLevelItem, effectiveStart, runDuration } from '@/lib/time';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
-import { arcAngles, innerRadiusOf, polygonSides, usesPoints } from '@/lib/shapeGeometry';
+import { arcAngles, curvedArrowAngle, innerRadiusOf, polygonSides, usesPoints } from '@/lib/shapeGeometry';
 
 export type SceneState = {
   items: Map<ItemId, SceneItem>;
@@ -236,6 +236,8 @@ function appendShape(lines: string[], item: ShapeItem): void {
     lines.push(`radius: ${item.radius}, from ${start}° turning ${sweep}°`);
   }
   if (item.shapeType === 'sector' || item.shapeType === 'annulus') lines.push(`inner radius: ${innerRadiusOf(item)}`);
+  if (item.shapeType === 'curvedArrow') lines.push(`bend: ${curvedArrowAngle(item)}°`);
+  if (item.shapeType === 'brace' && item.braceLabel?.trim()) lines.push(`label: ${item.braceLabel.trim()}`);
   if (item.lineStyle && item.lineStyle !== 'solid') lines.push(`line: ${item.lineStyle}`);
   if (usesPoints(item)) {
     lines.push(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createShape } from '@/store/factories';
-import { arcAngles, arrowStrokeWidth, arrowTipLength, innerRadiusOf, nearestSegment, shapeLocalBounds, shapeOutlinePoints, shapeStrokePx, snapDirection } from './shapeGeometry';
+import { arcAngles, arcAngleThrough, arcBetweenPoints, arcMidpoint, arrowStrokeWidth, arrowTipLength, braceGeometry, braceLabelCenter, bracePath, curvedArrowGeometry, innerRadiusOf, nearestSegment, shapeLocalBounds, shapeOutlinePoints, shapeStrokePx, snapDirection } from './shapeGeometry';
 
 describe('shape geometry', () => {
   it('sizes strokes and arrow tips like Manim', () => {
@@ -60,5 +60,39 @@ describe('arcs', () => {
     expect(innerRadiusOf({ shapeType: 'annulus', radius: 2 })).toBe(1);
     expect(innerRadiusOf({ shapeType: 'sector', radius: 2 })).toBe(0);
     expect(innerRadiusOf({ shapeType: 'annulus', radius: 1, innerRadius: 5 })).toBeLessThan(1);
+  });
+});
+
+describe('annotations', () => {
+  const a = { x: -1, y: 0 };
+  const b = { x: 1, y: 0 };
+
+  it('bends a positive arc to the right of start → end, like ArcBetweenPoints', () => {
+    const pts = arcBetweenPoints(a, b, 90);
+    expect(pts[0]).toEqual(a);
+    expect(pts[pts.length - 1]).toEqual(b);
+    expect(Math.min(...pts.map((p) => p.y))).toBeCloseTo(-(Math.SQRT2 - 1));
+    expect(arcMidpoint(a, b, 90).y).toBeCloseTo(-(Math.SQRT2 - 1));
+  });
+
+  it('recovers the bend from a point on the arc', () => {
+    for (const deg of [60, -120, 200]) expect(arcAngleThrough(a, b, arcMidpoint(a, b, deg))).toBeCloseTo(deg, 6);
+  });
+
+  it('stops a curved arrow shaft at its tip', () => {
+    const g = curvedArrowGeometry(a, b, 60);
+    expect(g.tipLength).toBeCloseTo(0.35);
+    expect(Math.hypot(g.tipBase.x - b.x, g.tipBase.y - b.y)).toBeCloseTo(0.35);
+    expect(g.shaft[g.shaft.length - 1]).toEqual(g.tipBase);
+  });
+
+  it('sizes the brace path like Manim and puts it below a left-to-right segment', () => {
+    expect(bracePath(2).naturalWidth).toBeCloseTo(4);
+    expect(bracePath(0.2).naturalWidth).toBeCloseTo(0.90552);
+    const g = braceGeometry(a, b);
+    expect(g.normal).toEqual({ x: 0, y: -1 });
+    expect(g.tip.y).toBeCloseTo(-(0.1 + 0.272985));
+    expect(g.labelDir).toEqual({ x: 0, y: -1 });
+    expect(braceLabelCenter(a, b, 1, 0.4).y).toBeCloseTo(g.tip.y - 0.15 - 0.2);
   });
 });

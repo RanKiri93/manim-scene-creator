@@ -2137,3 +2137,23 @@ describe('validateAgentResponse arcs', () => {
     expect(a.item).toMatchObject({ shapeType: 'sector', startAngleDeg: 45, angleDeg: 360, innerRadius: 0.3 });
   });
 });
+
+describe('validateAgentResponse annotations', () => {
+  const create = (item: Record<string, unknown>) =>
+    validateAgentResponse({ reply: 'x', actions: [{ action: 'CREATE', item: { id: 's1', kind: 'shape', label: 'x', startTime: 0, ...item } }] }, new Map());
+  const ends = { start: { kind: 'point', x: 0, y: 0 }, end: { kind: 'point', x: 2, y: 0 } };
+
+  it('creates labelled braces and curved arrows, also as connectors', () => {
+    const r = create({ shapeType: 'brace', braceLabel: ' $\\Delta x$ ', endpoints: ends });
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const a = r.response.actions[0]!;
+    if (a.action !== 'CREATE' || a.item.kind !== 'shape') throw new Error('expected shape');
+    expect(a.item).toMatchObject({ shapeType: 'brace', braceLabel: '$\\Delta x$', endX: 2 });
+    expect(create({ shapeType: 'curvedArrow', arcAngleDeg: -90, endpoints: ends }).ok).toBe(true);
+  });
+
+  it('keeps tangents and ticks to lines and arrows', () => {
+    expect(create({ shapeType: 'brace', endpoints: { ...ends, ticks: 2 } }).ok).toBe(false);
+    expect(create({ shapeType: 'line', endpoints: { ...ends, ticks: 2 } }).ok).toBe(true);
+  });
+});

@@ -100,13 +100,16 @@ const SHAPE_ANCHOR_SCHEMA = {
 export const SHAPE_PROPERTIES = {
   shapeType: {
     type: 'string',
-    enum: ['circle', 'ellipse', 'rectangle', 'regularPolygon', 'polygon', 'arrow', 'line', 'polyline', 'arc', 'sector', 'annulus'],
+    enum: ['circle', 'ellipse', 'rectangle', 'regularPolygon', 'polygon', 'arrow', 'line', 'polyline', 'arc', 'sector', 'annulus', 'doubleArrow', 'curvedArrow', 'brace'],
     description:
       'shape: which shape. ellipse uses width/height; regularPolygon uses sides + radius; polygon and polyline use points; arc and sector use radius, startAngleDeg, angleDeg (sector also innerRadius); annulus (a ring) uses radius and innerRadius. Arcs, sectors and rings are centred on x, y.',
   },
   startAngleDeg: { type: 'number', description: 'shape arc / sector: where it starts, degrees counter-clockwise from the +x direction (default 0).' },
   angleDeg: { type: 'number', description: 'shape arc / sector: how far it turns in degrees, positive = counter-clockwise (default 90).' },
   innerRadius: { type: 'number', description: 'shape sector / annulus: inner radius in Manim units (sector default 0 = a pie slice; annulus default half the radius).' },
+  arcAngleDeg: { type: 'number', description: 'shape curvedArrow: how much the arc turns between its ends, degrees (default 60; positive bulges to the right of start → end, negative to the left).' },
+  braceLabel: { type: 'string', description: 'shape brace: text at the brace tip, written like a text line (Hebrew, math in $...$).' },
+  braceLabelSize: { type: 'number', description: 'shape brace: label font size (default 32).' },
   lineStyle: { type: 'string', enum: ['solid', 'dashed', 'dotted'], description: 'shape: outline style (default solid).' },
   sides: { type: 'integer', description: 'shape regularPolygon: number of sides, 3–12 (a flat edge at the bottom).' },
   cornerRadius: { type: 'number', description: 'shape rectangle: rounded corners, in Manim units (0 = square corners).' },
@@ -116,7 +119,7 @@ export const SHAPE_PROPERTIES = {
 export const SHAPE_ENDPOINTS_SCHEMA = {
   type: 'object',
   description:
-    'shape with shapeType "line" or "arrow": make it a connector whose ends follow anchors every frame (preview and export). Position fields are then ignored.',
+    'shape with shapeType "line", "arrow", "doubleArrow", "curvedArrow" or "brace": make it a connector whose ends follow anchors every frame (preview and export). Position fields are then ignored. tangent, extend and ticks are for line and arrow only.',
   properties: {
     start: SHAPE_ANCHOR_SCHEMA,
     end: SHAPE_ANCHOR_SCHEMA,

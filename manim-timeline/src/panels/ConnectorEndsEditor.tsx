@@ -198,6 +198,8 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
 
   const endpoints = item.endpoints;
   const status = resolveConnectorEndpoints(item, { ...ctx, time: currentTime });
+  // Tangents, lines through both ends and ticks are for straight lines and arrows only.
+  const plainLine = item.shapeType === 'line' || item.shapeType === 'arrow';
   const lineMode: LineMode = endpoints.tangent ? 'tangent' : (endpoints.extend ?? 0) > 0 ? 'through' : 'segment';
 
   const setLineMode = (mode: LineMode) => {
@@ -299,6 +301,7 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
         The line is redrawn every frame, so it moves with what it follows (for example a dot moving
         along a graph).
       </p>
+      {plainLine && (
       <label className="text-ctl text-chalk-dim block">
         Line
         <select value={lineMode} onChange={(e) => setLineMode(e.target.value as LineMode)} className={selectClass}>
@@ -309,12 +312,14 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
           ))}
         </select>
       </label>
+      )}
       {lineMode === 'tangent' ? (
         tangentEditor()
       ) : (
         <>
           {endEditor('start')}
           {endEditor('end')}
+          {plainLine && (
           <label className="text-ctl text-chalk-dim block">
             Equal-length ticks
             <select
@@ -328,6 +333,7 @@ export default function ConnectorEndsEditor({ item }: { item: ShapeItem }) {
               <option value={3}>Three ticks</option>
             </select>
           </label>
+          )}
           {lineMode === 'through' && (
             <NumberInput
               label="Past each end"

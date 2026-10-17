@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ShapeItem, ShapeKind, ShapeLineStyle, ShapePoint } from '@/types/scene';
-import { arcAngles, innerRadiusOf, isArcKind, polygonSides, usesPoints } from '@/lib/shapeGeometry';
+import { arcAngles, curvedArrowAngle, DEFAULT_BRACE_LABEL_SIZE, innerRadiusOf, isArcKind, isTwoPointKind, polygonSides, usesPoints } from '@/lib/shapeGeometry';
 import { DEFAULT_SHAPE_POLYLINE_POINTS } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
@@ -25,6 +25,9 @@ const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'arc', label: 'Arc' },
   { value: 'sector', label: 'Sector' },
   { value: 'annulus', label: 'Ring' },
+  { value: 'doubleArrow', label: 'Double arrow' },
+  { value: 'curvedArrow', label: 'Curved arrow' },
+  { value: 'brace', label: 'Brace' },
 ];
 
 const LINE_STYLES: { value: ShapeLineStyle; label: string }[] = [
@@ -85,9 +88,10 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
       <h3 className="text-body font-semibold text-chalk">Shape</h3>
       <p className="text-meta text-chalk-faint leading-snug">
         Drag on the canvas to move it. The box handles resize (Shift keeps proportions, Alt resizes
-        from the centre) and the top handle rotates in 15° steps. Lines and arrows: drag either end
-        (Shift snaps the angle). Polylines: drag a point, double-click the line to add one, Alt+click
-        a point to remove it.
+        from the centre) and the top handle rotates in 15° steps. Lines, arrows and braces: drag either
+        end (Shift snaps the angle); a curved arrow also bends from its middle handle. Polylines: drag
+        a point, double-click the line to add one, Alt+click a point to remove it. Arcs: drag an end
+        to set its angle and radius.
       </p>
 
       <label className="text-ctl text-chalk-dim block">
@@ -219,9 +223,42 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         </div>
       )}
 
-      {(item.shapeType === 'arrow' || item.shapeType === 'line') && <ConnectorEndsEditor item={item} />}
+      {isTwoPointKind(item.shapeType) && <ConnectorEndsEditor item={item} />}
 
-      {(item.shapeType === 'arrow' || item.shapeType === 'line') && !item.endpoints && (
+      {item.shapeType === 'curvedArrow' && (
+        <NumberInput
+          label="Bend (°)"
+          value={curvedArrowAngle(item)}
+          onChange={(v) => set({ arcAngleDeg: curvedArrowAngle({ arcAngleDeg: v }) })}
+          min={-300}
+          max={300}
+          step={15}
+        />
+      )}
+
+      {item.shapeType === 'brace' && (
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-ctl text-chalk-dim block grow">
+            Label
+            <input
+              type="text"
+              value={item.braceLabel ?? ''}
+              onChange={(e) => set({ braceLabel: e.target.value || undefined })}
+              placeholder="e.g. $\Delta x$ or אורך"
+              className="mt-1 w-full max-w-md bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
+            />
+          </label>
+          <NumberInput
+            label="Label size"
+            value={item.braceLabelSize ?? DEFAULT_BRACE_LABEL_SIZE}
+            onChange={(v) => set({ braceLabelSize: Math.max(8, v) })}
+            min={8}
+            step={2}
+          />
+        </div>
+      )}
+
+      {isTwoPointKind(item.shapeType) && !item.endpoints && (
         <div className="flex flex-wrap gap-3">
           <NumberInput
             label="End ΔX"
@@ -389,6 +426,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         />
       </div>
 
+      {item.shapeType !== 'brace' && (
       <label className="text-ctl text-chalk-dim block">
         Line
         <select
@@ -403,8 +441,9 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
           ))}
         </select>
       </label>
+      )}
 
-      {item.shapeType !== 'polyline' && item.shapeType !== 'arc' ? (
+      {item.shapeType !== 'polyline' && item.shapeType !== 'arc' && item.shapeType !== 'brace' && item.shapeType !== 'doubleArrow' && item.shapeType !== 'curvedArrow' ? (
         <div className="flex flex-col gap-2">
           <label className="text-ctl text-chalk-dim flex items-center gap-2">
             <input

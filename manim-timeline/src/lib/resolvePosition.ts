@@ -1,7 +1,7 @@
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import type { SceneItem, ItemId, ManimDirection, PosStep, PosStepToEdge } from '@/types/scene';
 import { computeNextToMobCenter } from '@/lib/nextToGeometry';
-import { shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
+import { isTwoPointKind, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { polylinePointExtents } from '@/lib/polylineExtents';
 
 export interface ItemBBox {
@@ -84,7 +84,7 @@ export function getItemBBox(item: SceneItem): ItemBBox {
       ({ w, h } = polylinePointExtents(item.points));
     } else {
       const b = shapeLocalBounds(item);
-      const thin = item.shapeType === 'line' || item.shapeType === 'arrow' ? 0.15 : 0;
+      const thin = isTwoPointKind(item.shapeType) ? 0.15 : 0;
       w = Math.max(thin, b.right - b.left);
       h = Math.max(thin, b.top - b.bottom);
     }

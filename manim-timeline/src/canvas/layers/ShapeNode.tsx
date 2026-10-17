@@ -6,6 +6,8 @@ import {
   Rect,
   Ring,
   Line as KonvaLine,
+  Path as KonvaPath,
+  Text as KonvaText,
   Transformer,
 } from 'react-konva';
 import { tickSegments } from '@/lib/shapeAnchors';
@@ -17,14 +19,24 @@ import { useSceneStore } from '@/store/useSceneStore';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { CANVAS_CHROME } from '@/lib/theme';
 import { fillWithAlpha } from '@/lib/riemann';
+import { texPreviewText } from '@/lib/texPreviewText';
 import {
   arcAngles,
+  arcAngleThrough,
+  arcMidpoint,
   arcPoints,
+  BRACE_BUFF,
+  braceLabelCenter,
+  bracePath,
+  curvedArrowAngle,
+  curvedArrowGeometry,
+  DEFAULT_BRACE_LABEL_SIZE,
   arrowStrokeWidth,
   arrowTipLength,
   clampedCornerRadius,
   innerRadiusOf,
   isArcKind,
+  isTwoPointKind,
   konvaDash,
   nearestSegment,
   POLYLINE_TIP_LENGTH,
@@ -85,8 +97,9 @@ interface ShapeNodeProps {
  * proportions, Alt scales from the centre, rotation snaps to 15°); lines and arrows get a handle on
  * each end (Shift snaps the angle); polylines also get a handle per vertex (double-click the line
  * to add one, Alt+click a vertex to remove it); arcs and sectors get a handle on each end (angle and
- * radius; Shift snaps to 15°) and sectors and rings one for the inner radius. Strokes, fills and arrow
- * tips follow Manim's sizes.
+ * radius; Shift snaps to 15°) and sectors and rings one for the inner radius. Double arrows, curved
+ * arrows and braces are two-point shapes like lines (a curved arrow also has a bend handle in the
+ * middle). Strokes, fills, arrow tips and braces follow Manim's sizes.
  */
 export default function ShapeNode({
   item: storedItem,
@@ -130,7 +143,7 @@ export default function ShapeNode({
   const kind = item.shapeType;
   const draggable = !locked && isFreelyDraggable(item.posSteps);
   const editable = isSelected && draggable && selectedIds.size === 1 && selectedIds.has(item.id);
-  const twoPoint = kind === 'line' || kind === 'arrow';
+  const twoPoint = isTwoPointKind(kind);
   const arcKind = isArcKind(item);
   const showTransformer = editable && !twoPoint && !arcKind;
   const showArcHandles = editable && arcKind;
@@ -178,7 +191,7 @@ export default function ShapeNode({
     n.scaleY(scale);
     transformerRef.current?.forceUpdate();
     n.getLayer()?.batchDraw();
-  }, [posX, posY, rotation, scale, item.radius, item.width, item.height, item.endX, item.endY, kind, item.points, item.id, item.startAngleDeg, item.angleDeg, item.innerRadius]);
+  }, [posX, posY, rotation, scale, item.radius, item.width, item.height, item.endX, item.endY, kind, item.points, item.id, item.startAngleDeg, item.angleDeg, item.innerRadius, item.arcAngleDeg]);
 
   const onDragStart = (e: Konva.KonvaEventObject<DragEvent>) => {
     if (e.target !== shapeGroupRef.current) return;
@@ -260,6 +273,20 @@ export default function ShapeNode({
     const m = snap ? snapDirection(f, { x: moved.mx, y: moved.my }) : { x: moved.mx, y: moved.my };
     const [a, b] = which === 'a' ? [m, f] : [f, m];
     const patch: Partial<ShapeItem> = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, endX: b.x - a.x, endY: b.y - a.y, rotationDeg: 0, scale: 1 };
+    if (commit) {
+      updateItem(item.id, patch);
+      setDraft(null);
+    } else setDraft(patch);
+  };
+
+  // ── Curved arrow bend: drag the middle of the arc ──
+  const endA = { x: -item.endX / 2, y: -item.endY / 2 };
+  const endB = { x: item.endX / 2, y: item.endY / 2 };
+  const bendAt = kind === 'curvedArrow' ? localPxToParent(unitToLocalPx(arcMidpoint(endA, endB, curvedArrowAngle(item)))) : null;
+  const moveBend = (px: { x: number; y: number }, snap: boolean, commit: boolean) => {
+    let deg = arcAngleThrough(endA, endB, parentToLocalUnit(px));
+    if (snap) deg = Math.round(deg / 15) * 15;
+    const patch: Partial<ShapeItem> = { arcAngleDeg: curvedArrowAngle({ arcAngleDeg: deg }) };
     if (commit) {
       updateItem(item.id, patch);
       setDraft(null);
@@ -411,6 +438,74 @@ export default function ShapeNode({
               hitStrokeWidth={12}
             />
             <KonvaLine points={arrowHeadFlat(-x2 / 2, -y2 / 2, x2 / 2, y2 / 2, tip)} closed fill={stroke} />
+          </Group>
+        );
+      }
+      case 'doubleArrow': {
+        const x2 = item.endX * pxPerUnitX;
+        const y2 = -item.endY * pxPerUnitY;
+        const len = Math.hypot(item.endX, item.endY);
+        const tip = arrowTipLength(len) * ppu;
+        const lenPx = Math.hypot(x2, y2) || 1;
+        const back = Math.min(tip * 0.9, lenPx / 2);
+        const ux = x2 / lenPx;
+        const uy = y2 / lenPx;
+        return (
+          <Group>
+            <KonvaLine
+              points={[-x2 / 2 + ux * back, -y2 / 2 + uy * back, x2 / 2 - ux * back, y2 / 2 - uy * back]}
+              stroke={stroke}
+              strokeWidth={shapeStrokePx(arrowStrokeWidth(item.strokeWidth, len), ppu)}
+              dash={dash}
+              hitStrokeWidth={12}
+            />
+            <KonvaLine points={arrowHeadFlat(-x2 / 2, -y2 / 2, x2 / 2, y2 / 2, tip)} closed fill={stroke} />
+            <KonvaLine points={arrowHeadFlat(x2 / 2, y2 / 2, -x2 / 2, -y2 / 2, tip)} closed fill={stroke} />
+          </Group>
+        );
+      }
+      case 'curvedArrow': {
+        const g = curvedArrowGeometry(endA, endB, curvedArrowAngle(item));
+        const base = unitToLocalPx(g.tipBase);
+        const apex = unitToLocalPx(endB);
+        return (
+          <Group>
+            <KonvaLine points={toFlat(g.shaft)} stroke={stroke} strokeWidth={sw} dash={dash} lineCap="butt" hitStrokeWidth={12} />
+            <KonvaLine points={arrowHeadFlat(base.x, base.y, apex.x, apex.y, g.tipLength * ppu)} closed fill={stroke} />
+          </Group>
+        );
+      }
+      case 'brace': {
+        const w = Math.hypot(item.endX, item.endY);
+        const { data, naturalWidth } = bracePath(w);
+        const a = unitToLocalPx(endA);
+        const b = unitToLocalPx(endB);
+        const label = texPreviewText(item.braceLabel ?? '');
+        const size = Number.isFinite(item.braceLabelSize) && item.braceLabelSize! > 0 ? item.braceLabelSize! : DEFAULT_BRACE_LABEL_SIZE;
+        // HebrewMathLine at font size 32 has capitals about 0.23 units tall (measured in a render).
+        const fontPx = Math.max(1, (size * ppu) / 100);
+        const lw = Math.max(fontPx * 0.6, label.length * fontPx * 0.62) / ppu;
+        const lh = fontPx / ppu;
+        const lc = unitToLocalPx(braceLabelCenter(endA, endB, lw, lh));
+        return (
+          <Group>
+            <Group x={a.x} y={a.y} rotation={(Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI}>
+              <KonvaPath data={data} y={BRACE_BUFF * ppu} scaleX={(w / naturalWidth) * ppu} scaleY={ppu} fill={stroke} />
+              {/* Thin hit area along the segment so the brace is easy to grab. */}
+              <Rect x={0} y={0} width={w * ppu} height={(BRACE_BUFF + 0.28) * ppu} fill="transparent" />
+            </Group>
+            {label && (
+              <KonvaText
+                x={lc.x - (lw * ppu) / 2}
+                y={lc.y - (lh * ppu) / 2}
+                width={lw * ppu}
+                text={label}
+                fontSize={fontPx}
+                fill={stroke}
+                align="center"
+                wrap="none"
+              />
+            )}
           </Group>
         );
       }
@@ -571,6 +666,7 @@ export default function ShapeNode({
           <KonvaLine points={[ends.a.x, ends.a.y, ends.b.x, ends.b.y]} stroke={CANVAS_CHROME.selection} strokeWidth={1} dash={[4, 4]} listening={false} />
           {handle('end-a', ends.a, (p, snap, commit) => moveEnd('a', p, snap, commit))}
           {handle('end-b', ends.b, (p, snap, commit) => moveEnd('b', p, snap, commit))}
+          {bendAt && handle('bend', bendAt, moveBend)}
         </>
       )}
       {showArcHandles && (

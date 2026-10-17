@@ -480,7 +480,13 @@ export type ShapeKind =
   /** Pie slice around the anchor (`startAngleDeg`, `angleDeg`); annular when `innerRadius` > 0. */
   | 'sector'
   /** Ring around the anchor between `innerRadius` and `radius`. */
-  | 'annulus';
+  | 'annulus'
+  /** Arrow with a tip at both ends (two-point, like `arrow`). */
+  | 'doubleArrow'
+  /** Arrow along a circular arc between its ends, bent by `arcAngleDeg` (two-point). */
+  | 'curvedArrow'
+  /** Curly brace beside the segment between its ends (on the right of start → end), optional `braceLabel`. */
+  | 'brace';
 
 /** Outline style: solid, dashed or dotted (export: `DashedVMobject` / `DashedLine`). */
 export type ShapeLineStyle = 'solid' | 'dashed' | 'dotted';
@@ -609,6 +615,12 @@ export interface ShapeItem extends SceneItemBase {
   angleDeg?: number;
   /** Sector / annulus: inner radius (sector default 0, annulus default half the radius). */
   innerRadius?: number;
+  /** Curved arrow: how far the arc turns between the ends, degrees (positive bulges to the right of start → end). Default 60. */
+  arcAngleDeg?: number;
+  /** Brace: text at the brace's tip (Hebrew + math, like a text line); empty = no label. */
+  braceLabel?: string;
+  /** Brace: label font size (Manim `font_size`). Default 32. */
+  braceLabelSize?: number;
 }
 
 /**

@@ -17,6 +17,7 @@ import { dotFunctionPlot, slopeSamplePoints } from '@/lib/graphLiveValue';
 import { rawDirectionComponents } from '@/lib/nextToGeometry';
 import { getItemBBox, resolvePosition } from '@/lib/resolvePosition';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
+import { isTwoPointKind } from '@/lib/shapeGeometry';
 
 /** Scene state an anchor is resolved against. Points come out in world (camera-grid) coordinates. */
 export interface AnchorContext {
@@ -35,7 +36,7 @@ export const OBJECT_ANCHOR_KINDS: ReadonlySet<SceneItem['kind']> = new Set(['tex
 export function isConnectorShape(item: SceneItem | undefined | null): item is ShapeItem & { endpoints: ShapeEndpoints } {
   return (
     item?.kind === 'shape' &&
-    (item.shapeType === 'line' || item.shapeType === 'arrow') &&
+    isTwoPointKind(item.shapeType) &&
     item.endpoints != null
   );
 }
@@ -250,8 +251,8 @@ function resolveTangent(shape: ShapeItem & { endpoints: ShapeEndpoints }, ctx: A
 /** Both ends of a connector at `ctx.time`, in world coordinates. */
 export function resolveConnectorEndpoints(shape: ShapeItem, ctx: AnchorContext): ConnectorResult {
   if (!shape.endpoints) return { start: null, end: null, error: 'Shape has no bound endpoints.' };
-  if (shape.shapeType !== 'line' && shape.shapeType !== 'arrow') {
-    return { start: null, end: null, error: 'Only lines and arrows can have bound endpoints.' };
+  if (!isTwoPointKind(shape.shapeType)) {
+    return { start: null, end: null, error: 'Only lines, arrows and braces can have bound endpoints.' };
   }
   let r: ConnectorResult;
   if (shape.endpoints.tangent) {

@@ -611,7 +611,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
         const outline = usesPoints(item) ? item.points : shapeOutlinePoints(item);
         const localPoints = outline
           ? outline.map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
-          : item.shapeType === 'line' || item.shapeType === 'arrow'
+          : item.shapeType === 'line' || item.shapeType === 'arrow' || item.shapeType === 'doubleArrow'
             ? [
                 { x: -item.endX * item.scale / 2, y: item.endY * item.scale / 2 },
                 { x: item.endX * item.scale / 2, y: -item.endY * item.scale / 2 },

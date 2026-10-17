@@ -49,7 +49,7 @@ import {
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
 import { MAX_COPILOT_NOTE_LENGTH } from '@/lib/copilotNotes';
-import { polygonSides } from '@/lib/shapeGeometry';
+import { curvedArrowAngle, isTwoPointKind, polygonSides } from '@/lib/shapeGeometry';
 import {
   angleMarkStaticGeometry,
   connectorStaticGeometry,
@@ -2426,6 +2426,9 @@ const AGENT_SHAPE_KINDS = new Set<ShapeKind>([
   'arc',
   'sector',
   'annulus',
+  'doubleArrow',
+  'curvedArrow',
+  'brace',
 ]);
 
 const AGENT_LINE_STYLES = new Set<ShapeLineStyle>(['solid', 'dashed', 'dotted']);
@@ -2586,8 +2589,8 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
   }
   let endpoints: ShapeEndpoints | null = null;
   if (hasEndpoints) {
-    if (shapeType !== 'line' && shapeType !== 'arrow') {
-      errors.push(`${prefix}.item.endpoints needs shapeType "line" or "arrow".`);
+    if (!isTwoPointKind(shapeType)) {
+      errors.push(`${prefix}.item.endpoints needs a two-point shapeType: "line", "arrow", "doubleArrow", "curvedArrow" or "brace".`);
       return null;
     }
     endpoints = normalizeShapeEndpoints(raw.endpoints, `${prefix}.item.endpoints`, errors);
@@ -2632,6 +2635,9 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
       ? { startAngleDeg: asNum(raw.startAngleDeg, 0), angleDeg: Math.max(-360, Math.min(360, asNum(raw.angleDeg, 90))) }
       : {}),
     ...((shapeType === 'sector' || shapeType === 'annulus') && raw.innerRadius != null ? { innerRadius: Math.max(0, asNum(raw.innerRadius, 0)) } : {}),
+    ...(shapeType === 'curvedArrow' ? { arcAngleDeg: curvedArrowAngle({ arcAngleDeg: asNum(raw.arcAngleDeg, 60) }) } : {}),
+    ...(shapeType === 'brace' && typeof raw.braceLabel === 'string' && raw.braceLabel.trim() ? { braceLabel: raw.braceLabel.trim() } : {}),
+    ...(shapeType === 'brace' && raw.braceLabelSize != null ? { braceLabelSize: Math.max(8, asNum(raw.braceLabelSize, 32)) } : {}),
   };
 }
 
@@ -2681,6 +2687,10 @@ function checkConnectors(
       continue;
     }
     if (!isConnectorShape(shape)) continue;
+    if (shape.shapeType !== 'line' && shape.shapeType !== 'arrow' && (shape.endpoints.tangent || shape.endpoints.extend || shape.endpoints.ticks)) {
+      errors.push(`actions[${i}]: connector "${shape.id}": tangent, extend and ticks are for "line" and "arrow" only.`);
+      continue;
+    }
     const result = resolveConnectorEndpoints(shape, { ...ctx, time: shape.startTime });
     if (result.error != null) {
       errors.push(`actions[${i}]: connector "${shape.id}": ${result.error}`);
