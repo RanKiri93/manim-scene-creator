@@ -78,7 +78,7 @@ export const GRAPH_FOLLOW_ROW_PROPERTIES = {
   easing: { type: 'string', enum: ['smooth', 'linear'], description: 'Graph-follow easing; default smooth.' },
 } as const;
 
-export const TARGET_ANIMATION_MODES = ['scale', 'color', 'move', 'path', 'rotate', 'graphFollow'] as const;
+export const TARGET_ANIMATION_MODES = ['scale', 'color', 'move', 'path', 'rotate', 'graphFollow', 'matrix_step'] as const;
 
 const SHAPE_ANCHOR_SCHEMA = {
   type: 'object',
@@ -311,6 +311,28 @@ export const MATRIX_CELLS_SCHEMA = {
   description:
     'Matrix entries, 0-based: [{ row, col }, ...]. On blink_animation / target_animation (color) rows and on a surroundingRect with exactly one matrix target: act on only these entries. Omit for the whole matrix.',
   items: { type: 'object', properties: { row: { type: 'integer' }, col: { type: 'integer' } } },
+} as const;
+
+/** The `step` of a target_animation row in mode "matrix_step" (row operations and the like). */
+export const MATRIX_STEP_SCHEMA = {
+  type: 'object',
+  description:
+    'target_animation mode "matrix_step" (exactly one row, targetId = a matrix): turns the matrix into its next state, animating only what changes. Rows count from 0 (row 0 is R_1). The result is worked out from the matrix before the step (exact for integers, decimals and fractions); give `entries` only for "edit" or to override it.',
+  properties: {
+    op: {
+      type: 'string',
+      enum: ['swap_rows', 'scale_row', 'add_row', 'edit', 'transpose'],
+      description: 'swap_rows: rows `row` and `otherRow` trade places. scale_row: multiply `row` by `factor`. add_row: add `factor` × `otherRow` to `row`. edit: new `entries` (same size). transpose: rows become columns (drops an augment bar).',
+    },
+    row: { type: 'integer', description: 'swap_rows: one row; scale_row: the row multiplied; add_row: the row that changes (0-based).' },
+    otherRow: { type: 'integer', description: 'swap_rows: the other row; add_row: the row whose multiple is added (0-based).' },
+    factor: { type: 'string', description: 'scale_row / add_row: the multiplier as LaTeX, e.g. "-2", "\\frac{1}{3}", "0.5", "k".' },
+    entries: {
+      type: 'array',
+      description: 'The whole matrix after the step, rows of LaTeX without $. Required for "edit"; otherwise omit (worked out).',
+      items: { type: 'array', items: { type: 'string' } },
+    },
+  },
 } as const;
 
 /** `matrix` items, and the entry fields effect clips / highlights use on them. */

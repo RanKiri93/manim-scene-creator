@@ -30,6 +30,8 @@ import {
   type MatrixCellColor,
   type MatrixIntroStyle,
   type MatrixItem,
+  type MatrixStepOp,
+  type MatrixStepSpec,
   type PosStep,
   type SceneItem,
   type ShapeItem,
@@ -45,6 +47,7 @@ import {
 } from '@/types/scene';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_MATH_COLOR, FRAME_W } from '@/lib/constants';
 import { MATRIX_MAX_SIZE, parseMatrixLatex } from '@/lib/matrix';
+import { isMatrixStepClip, matrixStateBefore, matrixViewAt } from '@/lib/matrixSteps';
 import {
   AGENT_ALLOWED_KINDS,
   AGENT_UI_ONLY_FIELDS,
@@ -53,7 +56,7 @@ import {
   actionItemId,
   isAgentAllowedKind,
 } from './types';
-import { canBeTargetAnimationTargetKind } from '@/lib/time';
+import { canBeTargetAnimationTargetKind, holdEnd } from '@/lib/time';
 import { MAX_COPILOT_NOTE_LENGTH } from '@/lib/copilotNotes';
 import { curvedArrowAngle, isTwoPointKind, polygonSides } from '@/lib/shapeGeometry';
 import {
@@ -505,6 +508,7 @@ export function validateAgentResponse(
   checkLiveValueSlopes(normalizedActions, currentItems, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
   checkMatrixCells(normalizedActions, currentItems, errors);
+  checkMatrixSteps(normalizedActions, currentItems, errors);
   checkTimelineEdits(currentItems, options.audioItems ?? [], normalizedActions, errors);
   const draftScene = virtualSceneAfter(currentItems, normalizedActions, undefined, options.audioItems);
   const touchedIds = new Set(normalizedActions.map(actionItemId).filter((id): id is ItemId => id != null));
@@ -1256,9 +1260,13 @@ function normalizeUpdates(
     // Repair `parametricPath` expressions inside UPDATE rows (`^` → `**`,
     // single-dialect derivation). Rows and all non-expression fields pass
     // through untouched; axes the patch does not mention are left alone.
-    next.targets = (patch.targets as unknown[]).map((row) => {
+    next.targets = (patch.targets as unknown[]).map((row, ti) => {
       if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
       const r = row as Record<string, unknown>;
+      if (r.step != null) {
+        const step = normalizeMatrixStep(r.step, `${prefix}.updates.targets[${ti}]`, errors);
+        return step ? { ...r, step } : r;
+      }
       const pp = r.parametricPath;
       if (!pp || typeof pp !== 'object' || Array.isArray(pp)) return r;
       const ppr = pp as Record<string, unknown>;
@@ -2078,7 +2086,7 @@ function checkSegmentIndices(
  * and fit its size after the draft; a strike highlight needs exactly one matrix target.
  */
 function checkMatrixCells(actions: AgentAction[], currentItems: Map<ItemId, SceneItem>, errors: string[]): void {
-  const uses: { at: string; targetId: string; cells: MatrixCell[] }[] = [];
+  const uses: { at: string; targetId: string; cells: MatrixCell[]; time: number }[] = [];
   actions.forEach((action, i) => {
     if (action.action !== 'CREATE') return;
     const item = action.item;
@@ -2087,7 +2095,7 @@ function checkMatrixCells(actions: AgentAction[], currentItems: Map<ItemId, Scen
         errors.push(`actions[${i}] surroundingRect "${item.id}": cells and mark "strike" need exactly one matrix target.`);
         return;
       }
-      if (item.cells?.length || item.mark === 'strike') uses.push({ at: `actions[${i}] surroundingRect "${item.id}"`, targetId: item.targetIds[0]!, cells: item.cells ?? [] });
+      if (item.cells?.length || item.mark === 'strike') uses.push({ at: `actions[${i}] surroundingRect "${item.id}"`, targetId: item.targetIds[0]!, cells: item.cells ?? [], time: item.startTime });
     }
     if (item.kind === 'blink_animation' || item.kind === 'target_animation') {
       item.targets.forEach((row, ti) => {
@@ -2098,7 +2106,7 @@ function checkMatrixCells(actions: AgentAction[], currentItems: Map<ItemId, Scen
           errors.push(`${at}: cells only work in a color clip; a ${item.mode} clip acts on the whole matrix.`);
           return;
         }
-        uses.push({ at, targetId: row.targetId, cells });
+        uses.push({ at, targetId: row.targetId, cells, time: item.startTime });
       });
     }
   });
@@ -2111,11 +2119,83 @@ function checkMatrixCells(actions: AgentAction[], currentItems: Map<ItemId, Scen
       errors.push(`${use.at}: cells / mark "strike" are for a matrix target, but "${use.targetId}" is a ${target.kind}.`);
       continue;
     }
-    const rows = target.entries.length;
-    const cols = target.entries[0]?.length ?? 0;
+    // The matrix as it is then: matrix steps before may have changed its size.
+    const view = matrixViewAt(target, virtual, use.time);
+    const rows = view.entries.length;
+    const cols = view.entries[0]?.length ?? 0;
     const bad = use.cells.filter((c) => c.row >= rows || c.col >= cols);
     if (bad.length) {
-      errors.push(`${use.at}: ${bad.map((c) => `(${c.row}, ${c.col})`).join(', ')} is outside matrix "${use.targetId}" (${rows} × ${cols}, rows and columns count from 0).`);
+      const when = view === target ? '' : ` at t=${use.time} (after its matrix steps)`;
+      errors.push(`${use.at}: ${bad.map((c) => `(${c.row}, ${c.col})`).join(', ')} is outside matrix "${use.targetId}"${when} (${rows} × ${cols}, rows and columns count from 0).`);
+    }
+  }
+}
+
+/**
+ * Matrix steps after the draft: one row on a matrix, rows and factor that fit the matrix as it is
+ * before the step, after the matrix has appeared, and no other clip on that matrix while it plays.
+ */
+function checkMatrixSteps(actions: AgentAction[], currentItems: Map<ItemId, SceneItem>, errors: string[]): void {
+  const ids = new Set<ItemId>();
+  for (const a of actions) {
+    if (a.action === 'CREATE' && a.item.kind === 'target_animation') ids.add(a.item.id);
+    if (a.action === 'UPDATE') ids.add(a.itemId);
+  }
+  if (!ids.size) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  for (const id of ids) {
+    const clip = virtual.get(id);
+    if (!isMatrixStepClip(clip)) continue;
+    const at = `matrix_step "${id}"`;
+    if (clip.targets.length !== 1) {
+      errors.push(`${at}: a matrix step has exactly one row (one matrix); got ${clip.targets.length}.`);
+      continue;
+    }
+    const row = clip.targets[0]!;
+    const matrix = virtual.get(row.targetId);
+    if (matrix?.kind !== 'matrix') continue; // reported by the target-kind check
+    if (!row.step) {
+      errors.push(`${at}: the row needs step: { op, row, otherRow, factor }.`);
+      continue;
+    }
+    const spec = row.step;
+    const before = matrixStateBefore(matrix, virtual, clip.id)?.view ?? matrix;
+    const rows = before.entries.length;
+    const cols = before.entries[0]?.length ?? 0;
+    const inRange = (r: number) => r >= 0 && r < rows;
+    const size = `${rows} × ${cols} before this step, rows count from 0`;
+    if (spec.op === 'swap_rows' || spec.op === 'add_row') {
+      if (!inRange(spec.row) || !inRange(spec.otherRow) || spec.row === spec.otherRow) {
+        errors.push(`${at}: ${spec.op} needs two different rows of matrix "${matrix.id}" (${size}); got row ${spec.row}, otherRow ${spec.otherRow}.`);
+      }
+    } else if (spec.op === 'scale_row' && !inRange(spec.row)) {
+      errors.push(`${at}: row ${spec.row} is outside matrix "${matrix.id}" (${size}).`);
+    }
+    if ((spec.op === 'scale_row' || spec.op === 'add_row') && !spec.factor) {
+      errors.push(`${at}: ${spec.op} needs a factor, e.g. "-2" or "\\frac{1}{2}".`);
+    }
+    if (spec.op === 'edit' && !spec.entries?.length) {
+      errors.push(`${at}: an "edit" step needs the whole new matrix as entries.`);
+    } else if (spec.op === 'edit' && (spec.entries!.length !== rows || (spec.entries![0]?.length ?? 0) !== cols)) {
+      errors.push(`${at}: the edited entries are ${spec.entries!.length} × ${spec.entries![0]?.length ?? 0}; the matrix is ${rows} × ${cols} before this step.`);
+    }
+    if (clip.startTime + 1e-6 < holdEnd(matrix, virtual)) {
+      errors.push(`${at}: starts at t=${clip.startTime}, before matrix "${matrix.id}" has appeared (t=${holdEnd(matrix, virtual).toFixed(2)}).`);
+    }
+    const a0 = clip.startTime;
+    const a1 = clip.startTime + clip.duration;
+    for (const other of virtual.values()) {
+      if (other.id === clip.id) continue;
+      const on =
+        other.kind === 'blink_animation' || other.kind === 'target_animation'
+          ? other.targets.some((r) => r.targetId === matrix.id)
+          : other.kind === 'surroundingRect' && other.targetIds.includes(matrix.id);
+      if (!on) continue;
+      const b0 = other.startTime;
+      const b1 = other.startTime + (other.kind === 'surroundingRect' ? other.runTime : other.duration);
+      if (b0 < a1 - 1e-6 && b1 > a0 + 1e-6) {
+        errors.push(`${at} (${a0}–${a1}s) overlaps ${other.kind} "${other.id}" (${b0}–${b1}s) on the same matrix; play them one after the other.`);
+      }
     }
   }
 }
@@ -3095,7 +3175,50 @@ const TA_MODES: readonly TargetAnimationMode[] = [
   'path',
   'rotate',
   'graphFollow',
+  'matrix_step',
 ];
+
+const MATRIX_STEP_OP_ALIASES: Record<string, MatrixStepOp> = {
+  swap_rows: 'swap_rows',
+  swap: 'swap_rows',
+  scale_row: 'scale_row',
+  scale: 'scale_row',
+  multiply_row: 'scale_row',
+  add_row: 'add_row',
+  add: 'add_row',
+  add_multiple: 'add_row',
+  edit: 'edit',
+  transpose: 'transpose',
+};
+
+/** A matrix step's `step` (also read from the row itself when the model flattened it). */
+function normalizeMatrixStep(raw: unknown, at: string, errors: string[]): MatrixStepSpec | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push(`${at}: a matrix_step row needs step: { op, row, otherRow, factor }.`);
+    return null;
+  }
+  const r = raw as Record<string, unknown>;
+  const op = typeof r.op === 'string' ? MATRIX_STEP_OP_ALIASES[r.op.trim().toLowerCase()] : undefined;
+  if (!op) {
+    errors.push(`${at}.step.op "${String(r.op)}" is not a matrix step (swap_rows, scale_row, add_row, edit, transpose).`);
+    return null;
+  }
+  const int = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isInteger(v) ? v : fallback);
+  const spec: MatrixStepSpec = {
+    op,
+    row: int(r.row, 0),
+    otherRow: int(r.otherRow, op === 'swap_rows' ? 1 : 0),
+    factor: typeof r.factor === 'number' && Number.isFinite(r.factor) ? String(r.factor) : typeof r.factor === 'string' ? r.factor.trim().replace(/^\$([\s\S]*)\$$/, '$1').trim() : '',
+    measure: null,
+    previewDataUrl: null,
+  };
+  if (r.entries != null && op !== 'transpose') {
+    const entries = normalizeMatrixEntries(r.entries, `${at}.step.entries`, errors);
+    if (!entries) return null;
+    spec.entries = entries;
+  }
+  return spec;
+}
 
 /** Move-along-graph row fields (`mode === 'graphFollow'`); `toX` / `toT` are accepted aliases. */
 function applyGraphFollowRowFields(row: TargetAnimationTargetSpec, t: Record<string, unknown>): void {
@@ -3132,7 +3255,7 @@ function normalizeTargetAnimation(
   const targets: TargetAnimationTargetSpec[] = targetsRaw
     .map((t) => t as Record<string, unknown>)
     .filter((t) => typeof t.targetId === 'string' && t.targetId.trim() !== '')
-    .map((t) => {
+    .map((t, ti) => {
       const segRaw = t.segmentIndices;
       let segmentIndices: number[] | null | undefined;
       if (Array.isArray(segRaw)) {
@@ -3199,6 +3322,10 @@ function normalizeTargetAnimation(
       if (segmentIndices != null) row.segmentIndices = segmentIndices;
       const cells = normalizeCellList(t.cells);
       if (cells) row.cells = cells;
+      if (mode === 'matrix_step') {
+        const step = normalizeMatrixStep(t.step ?? (typeof t.op === 'string' ? t : undefined), `${prefix}.item.targets[${ti}]`, errors);
+        if (step) row.step = step;
+      }
       applyGraphFollowRowFields(row, t);
       const subRaw = t.mathSubtargets;
       if (Array.isArray(subRaw)) {

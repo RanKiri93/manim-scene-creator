@@ -1,4 +1,4 @@
-import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, MATRIX_CELLS_SCHEMA, MATRIX_PROPERTIES, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, SHAPE_PROPERTIES, STYLE_NOTE_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, MATRIX_CELLS_SCHEMA, MATRIX_PROPERTIES, MATRIX_STEP_SCHEMA, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, SHAPE_PROPERTIES, STYLE_NOTE_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
@@ -224,7 +224,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   ...GRAPH_AREA_PROPERTIES,
                   ...TEXT_ANIM_PROPERTIES,
                   ...MATRIX_PROPERTIES,
-                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }. On a matrix target, blink and color rows may set cells to act on chosen entries.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES, cells: MATRIX_CELLS_SCHEMA } } },
+                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }. On a matrix target, blink and color rows may set cells to act on chosen entries. Mode "matrix_step": one row { targetId: <matrix id>, step }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES, cells: MATRIX_CELLS_SCHEMA, step: MATRIX_STEP_SCHEMA } } },
                 },
             },
           },
@@ -259,7 +259,7 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
                   ...GRAPH_AREA_PROPERTIES,
                   ...TEXT_ANIM_PROPERTIES,
                   ...MATRIX_PROPERTIES,
-                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }. On a matrix target, blink and color rows may set cells to act on chosen entries.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES, cells: MATRIX_CELLS_SCHEMA } } },
+                  targets: { type: 'array', description: 'Effect clip rows. For target_animation mode "graphFollow" (Move along graph) each row is { targetId: <graphDot id>, targetX | targetT, graphPlotId?, easing? }. On a matrix target, blink and color rows may set cells to act on chosen entries. Mode "matrix_step": one row { targetId: <matrix id>, step }.', items: { type: 'object', additionalProperties: true, properties: { targetId: { type: 'string' }, ...GRAPH_FOLLOW_ROW_PROPERTIES, cells: MATRIX_CELLS_SCHEMA, step: MATRIX_STEP_SCHEMA } } },
                 },
               },
             },

@@ -5,6 +5,7 @@ import {
   GRAPH_FIELD_PROPERTIES,
   GRAPH_FOLLOW_ROW_PROPERTIES,
   MATRIX_CELLS_SCHEMA,
+  MATRIX_STEP_SCHEMA,
   MATRIX_PROPERTIES,
   SHAPE_ANGLE_SCHEMA,
   STYLE_NOTE_SCHEMA,
@@ -77,7 +78,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               '• When `kind` is "graphField", set `fieldMode` "slope" (jsExprSlope / pyExprSlope = dy/dx in x and y) or "vector" (jsExprP / pyExprP and jsExprQ / pyExprQ); expressions use only x and y.\n' +
               '• When `kind` is "graphPointSequence", put coordinates at the TOP LEVEL as `jsXExpr` / `pyXExpr` (for x(n)) and `jsYExpr` / `pyYExpr` (for y(n)) with variable `n` (integer index). Set integer `nMin`, `nMax`, and `mode` ("accumulation" | "replacement"). Use "**" (not "^") for power.\n' +
               '• When `kind` is "target_animation" with `mode: "path"` and a row `pathKind: "parametric"`, put offset curves under that row as `parametricPath: { jsXExpr, pyXExpr, jsYExpr, pyYExpr, tMin, tMax }` with parameter `t` (JS `Math.*`, Python `np.*`, "**" never "^"). Never set `frameId` on target_animation (it follows its targets).\n' +
-              '• When `kind` is "matrix", put the entries at the TOP LEVEL as `entries`: rows of LaTeX math WITHOUT $ (every row the same length, up to 12 × 12), plus optional `bracket`, `align`, `augmentCol`, `cellColors`, `introStyle`. To act on some entries (a row, a block, the diagonal), blink / target_animation rows and a surroundingRect take `cells: [{ row, col }]` (0-based); a surroundingRect with `mark: "strike"` crosses them out.\n' +
+              '• When `kind` is "matrix", put the entries at the TOP LEVEL as `entries`: rows of LaTeX math WITHOUT $ (every row the same length, up to 12 × 12), plus optional `bracket`, `align`, `augmentCol`, `cellColors`, `introStyle`. To act on some entries (a row, a block, the diagonal), blink / target_animation rows and a surroundingRect take `cells: [{ row, col }]` (0-based); a surroundingRect with `mark: "strike"` crosses them out. Row operations (swap, scale, add a multiple), edits and transposes are target_animation clips with mode "matrix_step" and one row { targetId, step: { op, row, otherRow, factor } }.\n' +
               '• Set `frameId` on new drawable items (text, axes, graphs, shapes) to the payload `activeFrameId`, or to another frame id from the payload `frames` catalog when the user names a different frame. Never set `frameId` on exit_animation / blink_animation / target_animation (they follow their targets).\n',
             properties: {
               id: { type: 'string' },
@@ -217,7 +218,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                   ...TARGET_ANIMATION_MODES,
                 ],
                 description:
-                  'For kind="graphFunctionSeries" or "graphPointSequence": "accumulation" keeps every curve/point on screen; "replacement" morphs/fades the previous into the next. For kind="target_animation": the effect mode — "scale" | "color" | "move" | "path" | "rotate" | "graphFollow" (Move along graph: moves a graph dot along its plot; rows use targetX). One mode per clip.',
+                  'For kind="graphFunctionSeries" or "graphPointSequence": "accumulation" keeps every curve/point on screen; "replacement" morphs/fades the previous into the next. For kind="target_animation": the effect mode — "scale" | "color" | "move" | "path" | "rotate" | "graphFollow" (Move along graph: moves a graph dot along its plot; rows use targetX) | "matrix_step" (a row operation, edit or transpose of a matrix; one row with `step`). One mode per clip.',
               },
               displayMode: {
                 type: 'string',
@@ -356,6 +357,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                     },
                     ...GRAPH_FOLLOW_ROW_PROPERTIES,
                     cells: MATRIX_CELLS_SCHEMA,
+                    step: MATRIX_STEP_SCHEMA,
                     segmentIndices: {
                       type: 'array',
                       description: 'blink_animation on textLine: segment indices (line[i]); omit for whole line.',

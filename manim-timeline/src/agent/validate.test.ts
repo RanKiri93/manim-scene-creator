@@ -2222,3 +2222,51 @@ describe('validateAgentResponse matrices', () => {
     expect(run([m, { action: 'CREATE', item: { id: 'c1', kind: 'target_animation', label: 'c', mode: 'scale', startTime: 3, targets: [{ targetId: 'm1', scaleFactor: 2, cells: [{ row: 0, col: 0 }] }] } }]).ok).toBe(false);
   });
 });
+
+describe('validateAgentResponse matrix steps', () => {
+  const run = (actions: Record<string, unknown>[]) => validateAgentResponse({ reply: 'x', actions }, new Map());
+  const matrix = { action: 'CREATE', item: { id: 'm1', kind: 'matrix', label: 'A', startTime: 0, duration: 1, entries: [['1', '2'], ['3', '4']] } };
+  const step = (id: string, startTime: number, row: Record<string, unknown>, duration = 1) => ({
+    action: 'CREATE',
+    item: { id, kind: 'target_animation', label: 'step', mode: 'matrix_step', startTime, duration, targets: [{ targetId: 'm1', ...row }] },
+  });
+  const errorsOf = (r: ReturnType<typeof run>) => (r.ok ? '' : r.errors.join('\n'));
+
+  it('accepts row operations and reads op aliases or a flattened row', () => {
+    const r = run([
+      matrix,
+      step('s1', 2, { step: { op: 'add_row', row: 1, otherRow: 0, factor: -3 } }),
+      step('s2', 3, { op: 'swap', row: 0, otherRow: 1 }),
+      step('s3', 4, { step: { op: 'transpose', entries: [['ignored']] } }),
+    ]);
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const specs = r.response.actions.slice(1).map((a) => (a.action === 'CREATE' && a.item.kind === 'target_animation' ? a.item.targets[0]!.step : null));
+    expect(specs[0]).toMatchObject({ op: 'add_row', row: 1, otherRow: 0, factor: '-3', measure: null });
+    expect(specs[1]).toMatchObject({ op: 'swap_rows', row: 0, otherRow: 1 });
+    expect(specs[2]?.entries).toBeUndefined();
+  });
+
+  it('rejects rows outside the matrix before the step, a missing factor or edit, and an unknown op', () => {
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'swap_rows', row: 0, otherRow: 2 } })]))).toMatch(/two different rows of matrix "m1" \(2 × 2 before this step/);
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'scale_row', row: 0 } })]))).toMatch(/needs a factor/);
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'edit' } })]))).toMatch(/needs the whole new matrix/);
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'edit', entries: [['1']] } })]))).toMatch(/1 × 1; the matrix is 2 × 2/);
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'rotate' } })]))).toMatch(/is not a matrix step/);
+  });
+
+  it('checks timing: after the matrix appears and not overlapping clips on it', () => {
+    expect(errorsOf(run([matrix, step('s1', 0.5, { step: { op: 'transpose' } })]))).toMatch(/before matrix "m1" has appeared/);
+    const blink = { action: 'CREATE', item: { id: 'b1', kind: 'blink_animation', label: 'b', startTime: 2.5, duration: 1, targets: [{ targetId: 'm1', mode: 'color' }] } };
+    expect(errorsOf(run([matrix, step('s1', 2, { step: { op: 'transpose' } }), blink]))).toMatch(/overlaps blink_animation "b1"/);
+  });
+
+  it('checks entry picks against the matrix as it is after earlier steps', () => {
+    const wide = { action: 'CREATE', item: { ...matrix.item, entries: [['1', '2', '3'], ['4', '5', '6']] } };
+    const colour = (startTime: number) => ({
+      action: 'CREATE',
+      item: { id: 'c1', kind: 'target_animation', label: 'c', mode: 'color', startTime, duration: 0.5, targets: [{ targetId: 'm1', color: '#ff0000', cells: [{ row: 2, col: 0 }] }] },
+    });
+    expect(run([wide, step('t1', 2, { step: { op: 'transpose' } }), colour(4)]).ok).toBe(true);
+    expect(errorsOf(run([wide, step('t1', 2, { step: { op: 'transpose' } }), colour(1.5)]))).toMatch(/outside matrix "m1" \(2 × 3/);
+  });
+});

@@ -20,6 +20,7 @@ import { actionItemId } from '../types';
 import { areaFacts, fieldFacts } from '../graphRegions';
 import { transformFacts } from '../textTransforms';
 import { narrationWords, wordsDuring, type SpokenWord } from '../narration';
+import { isMatrixStepClip, matrixStates } from '@/lib/matrixSteps';
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const pt = (p: { x: number; y: number }) => [r3(p.x), r3(p.y)];
@@ -137,6 +138,14 @@ function itemFacts(
   if (CLIP_KINDS.has(item.kind)) {
     const duration = 'duration' in item ? item.duration : 0;
     facts.window = [r3(item.startTime), r3(item.startTime + duration)];
+    if (isMatrixStepClip(item)) {
+      const matrix = scene.get(item.targets[0]?.targetId ?? '');
+      if (matrix?.kind === 'matrix') {
+        const states = matrixStates(matrix, scene);
+        const k = states.findIndex((st) => st.clip?.id === item.id);
+        if (k > 0) facts.matrixStep = { before: states[k - 1]!.view.entries, after: states[k]!.view.entries };
+      }
+    }
     if (item.kind === 'camera_move') {
       const cam = cameraRect(session, scene, item.startTime + item.duration);
       if (cam) {
@@ -155,6 +164,10 @@ function itemFacts(
     if (transform) facts.transform = transform;
     const into = morphTargets(item.id, scene);
     if (into.length) facts.turnsInto = into;
+  }
+  if (item.kind === 'matrix') {
+    const states = matrixStates(item, scene);
+    if (states.length > 1) facts.steps = states.slice(1).map((st) => ({ clip: st.clip!.id, from: r3(st.start), entries: st.view.entries }));
   }
   const schedule = item.kind === 'graphFunctionSeries' ? seriesSchedule(item, start) : null;
   if (schedule) facts.curves = schedule;
