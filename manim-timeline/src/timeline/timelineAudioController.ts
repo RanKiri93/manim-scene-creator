@@ -31,6 +31,8 @@ interface Session {
 }
 
 let session: Session | null = null;
+/** Silences timeline audio (e.g. while recording over the playing timeline). */
+let muted = false;
 let rafId: number | null = null;
 let storeUnsub: (() => void) | null = null;
 let syncWired = false;
@@ -130,7 +132,7 @@ function startSession(sceneTime: number) {
 
 function applySyncFrame() {
   const { currentTime: t, isPlaying } = useSceneStore.getState();
-  if (!isPlaying) {
+  if (!isPlaying || muted) {
     stopSession();
     return;
   }
@@ -168,6 +170,12 @@ function kickRafIfPlaying() {
   }
 }
 
+/** Mute or unmute the timeline preview audio (playback keeps running). */
+export function setTimelineAudioMuted(value: boolean) {
+  muted = value;
+  applySyncFrame();
+}
+
 /** One immediate sync pass; call from the Play click so the AudioContext resumes inside a user gesture. */
 export function kickTimelineAudioSyncNow() {
   getAudioContext()?.resume().catch(() => undefined);
@@ -199,6 +207,7 @@ export function ensureTimelineAudioSyncWired() {
 /** @internal Vitest only */
 export function resetTimelineAudioControllerForTests() {
   syncWired = false;
+  muted = false;
   lastIsPlaying = false;
   storeUnsub?.();
   storeUnsub = null;

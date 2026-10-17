@@ -195,6 +195,21 @@ None open; decisions recorded above.
 - Ran: tsc ok, audioEdit tests 13 passed. Headless Chrome: two filler words selected by
   click + Shift+click, Delete words → cut 0.80–2.00 s, two clips remain, gap closed.
 
+### Phase 5 (2026-10-17)
+- `lib/wavEncode.ts` (new, tested): 16-bit mono WAV, chunk join, peak dBFS.
+- `services/micRecorder.ts` (new): AudioWorklet capture (inline module, 2048-frame batches,
+  channels averaged to mono) → WAV; mic constraints (raw by default, optional device id);
+  `listMicrophones`; MediaRecorder fallback when AudioWorklet is missing.
+- `panels/AudioPanel.tsx` record mode: microphone picker, 3 s count-in (cancellable), record
+  over the timeline (plays from the playhead with timeline narration muted via
+  `setTimelineAudioMuted`, pauses after; take placed at the start playhead), elapsed time,
+  peak meter with hold, sticky clipping warning. Old MediaRecorder code removed here.
+- `store`: `addRecordedAudioTrack({ startTime })`.
+- Not changed: the bed popup's room-tone recorder still uses MediaRecorder.
+- Ran: build ok, `npm run test` 1094 passed, lint clean. Headless Chrome with the fake mic:
+  count-in text, playback running during the take and paused after, meter −2 dB with the
+  clipping warning (fake beep is full scale), result RIFF 48 kHz, 2.13 s.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)

@@ -1,43 +1,25 @@
 import { useRef, useState, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { AudioPanelMode } from '@/store/useSceneStore';
+import {
+  listMicrophones,
+  startMicRecording,
+  type MicRecording,
+} from '@/services/micRecorder';
+import { setTimelineAudioMuted } from '@/timeline/timelineAudioController';
+
+/** Input peak above this (dBFS) counts as clipping. */
+const CLIP_DB = -1;
+
+function formatElapsed(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
 
 type AudioPanelProps = {
   mode: AudioPanelMode;
 };
-
-function recordingFilenameFromMime(mime: string): string {
-  const m = mime.toLowerCase();
-  if (m.includes('ogg')) return 'recording.ogg';
-  if (m.includes('mp4') || m.includes('m4a')) return 'recording.m4a';
-  if (m.includes('wav')) return 'recording.wav';
-  return 'recording.webm';
-}
-
-function recordingAudioConstraints(browserProcessingEnabled: boolean): MediaStreamConstraints {
-  // Raw capture (default): explicitly disable the browser DSP. `{ audio: true }` is NOT
-  // equivalent — most browsers silently default autoGainControl/noiseSuppression to ON,
-  // which rides the level + smears the noise floor differently on every take. That variable
-  // processing is the main source of clip-to-clip inconsistency, so we capture a clean,
-  // untouched signal and apply a deterministic cleanup chain afterwards (server loudnorm chain).
-  if (!browserProcessingEnabled) {
-    return {
-      audio: {
-        autoGainControl: false,
-        noiseSuppression: false,
-        echoCancellation: false,
-      },
-    };
-  }
-
-  return {
-    audio: {
-      noiseSuppression: true,
-      echoCancellation: true,
-      autoGainControl: true,
-    },
-  };
-}
 
 function LangToggle(props: {
   lang: 'iw' | 'en';
@@ -90,9 +72,19 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [browserProcessingEnabled, setBrowserProcessingEnabled] = useState(false);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [micId, setMicId] = useState('');
+  const [countIn, setCountIn] = useState(true);
+  const [overTimeline, setOverTimeline] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [peakDb, setPeakDb] = useState(-Infinity);
+  const [clipped, setClipped] = useState(false);
+  const recRef = useRef<MicRecording | null>(null);
+  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Record-over-timeline: where the take starts and whether we started playback. */
+  const overRef = useRef<{ startAt: number; startedPlayback: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const addAudioItem = useSceneStore((s) => s.addAudioItem);
   const addRecordedAudioTrack = useSceneStore((s) => s.addRecordedAudioTrack);
@@ -103,6 +95,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const [pendingRecord, setPendingRecord] = useState<{
     blob: Blob;
     filename: string;
+    /** Timeline start when the take was recorded over the timeline. */
+    startAt?: number;
   } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -131,12 +125,32 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
     setPreviewUrl(URL.createObjectURL(file));
   };
 
-  const setPreviewFromBlob = (blob: Blob, filename: string) => {
+  const setPreviewFromBlob = (blob: Blob, filename: string, startAt?: number) => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPendingFile(null);
-    setPendingRecord({ blob, filename });
+    setPendingRecord({ blob, filename, startAt });
     setPreviewUrl(URL.createObjectURL(blob));
   };
+
+  const refreshMics = () => {
+    void listMicrophones()
+      .then(setMics)
+      .catch(() => setMics([]));
+  };
+
+  useEffect(() => {
+    if (mode === 'record') refreshMics();
+  }, [mode]);
+
+  useEffect(
+    () => () => {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      if (tickRef.current) clearInterval(tickRef.current);
+      recRef.current?.cancel();
+      setTimelineAudioMuted(false);
+    },
+    [],
+  );
 
   const handleGenerate = async () => {
     setError(null);
@@ -176,6 +190,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         // Recordings and uploads both come in fully RAW (untouched). Apply consistency processing
         // on demand via the per-clip "Clean" / "Normalize" / "Match EQ" buttons.
         autoClean: false,
+        startTime: rec?.startAt,
       });
       clearPendingPreview();
     } catch (err) {
@@ -185,41 +200,87 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
     }
   };
 
-  const handleRecordToggle = async () => {
-    if (isRecording) {
-      const rec = recorderRef.current;
-      if (rec && rec.state !== 'inactive') {
-        rec.stop();
-      }
-      return;
-    }
-    setError(null);
+  const beginRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(
-        recordingAudioConstraints(browserProcessingEnabled),
-      );
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const rec = new MediaRecorder(stream);
-      recorderRef.current = rec;
-      rec.ondataavailable = (ev) => {
-        if (ev.data.size > 0) chunksRef.current.push(ev.data);
-      };
-      rec.onstop = () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        recorderRef.current = null;
-        const mime = rec.mimeType || 'audio/webm';
-        const blob = new Blob(chunksRef.current, { type: mime });
-        chunksRef.current = [];
-        setIsRecording(false);
-        setPreviewFromBlob(blob, recordingFilenameFromMime(mime));
-      };
-      rec.start();
+      const rec = await startMicRecording({
+        deviceId: micId || undefined,
+        browserProcessing: browserProcessingEnabled,
+        onLevel: ({ peakDb: p }) => {
+          // Peak hold with a fall of ~1.5 dB per block (~35 dB/s) so short gaps don't blank it.
+          setPeakDb((prev) => (p >= prev || !Number.isFinite(prev) ? p : Math.max(p, prev - 1.5)));
+          if (p > CLIP_DB) setClipped(true);
+        },
+      });
+      recRef.current = rec;
+      refreshMics(); // labels become available after the first permission grant
+      if (overTimeline) {
+        const st = useSceneStore.getState();
+        overRef.current = { startAt: st.currentTime, startedPlayback: !st.isPlaying };
+        setTimelineAudioMuted(true);
+        if (!st.isPlaying) st.togglePlayback();
+      } else {
+        overRef.current = null;
+      }
+      setElapsed(0);
+      tickRef.current = setInterval(() => setElapsed(rec.elapsed()), 200);
       setIsRecording(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const stopRecording = async () => {
+    const rec = recRef.current;
+    recRef.current = null;
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = null;
+    const over = overRef.current;
+    overRef.current = null;
+    if (over) {
+      if (over.startedPlayback) useSceneStore.getState().pause();
+      setTimelineAudioMuted(false);
+    }
+    setIsRecording(false);
+    setPeakDb(-Infinity);
+    if (!rec) return;
+    try {
+      const take = await rec.stop();
+      setPreviewFromBlob(take.blob, take.filename, over?.startAt);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRecordToggle = () => {
+    if (isRecording) {
+      void stopRecording();
+      return;
+    }
+    if (countdown != null) {
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+      setCountdown(null);
+      return;
+    }
+    setError(null);
+    setClipped(false);
+    if (!countIn) {
+      void beginRecording();
+      return;
+    }
+    let n = 3;
+    setCountdown(n);
+    countdownTimerRef.current = setInterval(() => {
+      n -= 1;
+      if (n > 0) {
+        setCountdown(n);
+        return;
+      }
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+      setCountdown(null);
+      void beginRecording();
+    }, 1000);
   };
 
   const previewActive = Boolean(previewUrl && (pendingFile || pendingRecord));
@@ -408,6 +469,23 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
         disabled={loading && !isRecording}
         label="Transcription"
       />
+      <label className="flex flex-col gap-1">
+        <span className="text-chalk-dim">Microphone</span>
+        <select
+          value={micId}
+          disabled={isRecording || countdown != null}
+          onChange={(e) => setMicId(e.target.value)}
+          onFocus={refreshMics}
+          className="w-full rounded-ctl border border-rule bg-ink px-2 py-1.5 text-chalk disabled:opacity-50"
+        >
+          <option value="">System default</option>
+          {mics.map((m, i) => (
+            <option key={m.deviceId || i} value={m.deviceId}>
+              {m.label || `Microphone ${i + 1}`}
+            </option>
+          ))}
+        </select>
+      </label>
       <label className="flex items-start gap-2 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
         <input
           type="checkbox"
@@ -426,19 +504,71 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           </span>
         </span>
       </label>
+      <div className="flex flex-col gap-1.5 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={countIn}
+            disabled={isRecording || countdown != null}
+            onChange={(e) => setCountIn(e.target.checked)}
+          />
+          <span className="text-chalk-dim">Count in 3 s before recording</span>
+        </label>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={overTimeline}
+            disabled={isRecording || countdown != null}
+            onChange={(e) => setOverTimeline(e.target.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-chalk-dim">Record over the timeline</span>
+            <span className="text-meta leading-snug text-chalk-faint">
+              Plays the scene from the playhead while you talk (other narration muted). The take
+              is placed where the playhead was when recording started.
+            </span>
+          </span>
+        </label>
+      </div>
       {!previewActive ? (
-        <button
-          type="button"
-          disabled={loading && !isRecording}
-          onClick={() => void handleRecordToggle()}
-          className={`rounded-ctl px-3 py-2 text-ctl font-medium w-fit disabled:cursor-not-allowed disabled:opacity-50 ${
-            isRecording
-              ? 'bg-danger/10 text-chalk hover:bg-danger/10'
-              : 'bg-raised text-chalk hover:bg-rule'
-          }`}
-        >
-          {isRecording ? 'Stop recording' : 'Record mic'}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            disabled={loading && !isRecording}
+            onClick={handleRecordToggle}
+            className={`rounded-ctl px-3 py-2 text-ctl font-medium w-fit disabled:cursor-not-allowed disabled:opacity-50 ${
+              isRecording
+                ? 'bg-danger/10 text-chalk hover:bg-danger/10'
+                : 'bg-raised text-chalk hover:bg-rule'
+            }`}
+          >
+            {isRecording
+              ? `Stop recording · ${formatElapsed(elapsed)}`
+              : countdown != null
+                ? `Starting in ${countdown}… (click to cancel)`
+                : 'Record mic'}
+          </button>
+          {isRecording ? (
+            <div className="flex items-center gap-2" title="Input level (peak)">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-ink">
+                <div
+                  className={`h-full ${peakDb > CLIP_DB ? 'bg-danger' : peakDb > -12 ? 'bg-warn' : 'bg-highlight'}`}
+                  style={{ width: `${Math.max(0, Math.min(100, ((peakDb + 60) / 60) * 100))}%` }}
+                />
+              </div>
+              <span className="w-14 text-right text-meta tabular-nums text-chalk-faint">
+                {Number.isFinite(peakDb) ? `${peakDb.toFixed(0)} dB` : '—'}
+              </span>
+            </div>
+          ) : null}
+          {clipped ? (
+            <p className="rounded-ctl border border-danger/50 bg-danger/10 px-2 py-1 text-meta text-danger">
+              The input clipped (peaks reached 0 dB). Lower the mic gain or move back a little and
+              record again.
+            </p>
+          ) : null}
+        </div>
       ) : (
         <div className="flex flex-col gap-2 rounded-ctl border border-rule bg-ink/80 p-3">
           <span className="text-chalk-dim text-meta">Preview</span>

@@ -621,6 +621,8 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
       transcriptionLang?: string;
       /** Run the full cleanup chain on import (defaults on for mic recordings). */
       autoClean?: boolean;
+      /** Timeline start for the clip (default: the playhead when the upload finishes). */
+      startTime?: number;
     },
   ) => Promise<void>;
 
@@ -1903,7 +1905,7 @@ export const useSceneStore = create<SceneStore>()(
           }
         }
 
-        const startTime = get().currentTime ?? 0;
+        const startTime = Math.max(0, options?.startTime ?? get().currentTime ?? 0);
         const track: AudioTrackItem = {
           id: crypto.randomUUID().slice(0, 12),
           text: trackText,
