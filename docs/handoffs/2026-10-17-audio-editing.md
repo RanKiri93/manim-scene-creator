@@ -1,8 +1,8 @@
 ---
 slug: audio-editing
 created: 2026-10-17
-status: implementing
-owner_role: editor-dev
+status: verifying
+owner_role: verifier
 next_tool: any
 source: user request 2026-10-17 (recording + audio editing review); idea.md §3
 ---
@@ -236,3 +236,10 @@ None open; decisions recorded above.
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
+
+- README "Global audio timeline (narration)": record, upload; Recording, Non-destructive edits,
+  Preview, Sync to words, Copilot, Edited clips in export paragraphs; `*Last updated:*` trailer
+  extended (Narration editing). Committed as own hunks only (README carries older WIP).
+- ARCHITECTURE.md: Narration paragraph + new Narration edits paragraph (AUDIO, audio_report).
+- idea.md: shortlist item 4 marked mostly done; §3 Preview done, popup sections, Editor (done),
+  Still open (markers, punch-in, takes/prompter, bed recorder, edit lists inside a clip).

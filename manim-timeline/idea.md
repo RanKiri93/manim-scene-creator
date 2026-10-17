@@ -9,7 +9,7 @@ or a small PR-sized task.
 1. **Undo history should ignore playback / transient UI state.**
 2. **Social-media export presets should become scene/project settings, not only export options.**
 3. **Guided transcription should align recorded audio with the intended script.**
-4. **Audio editing should grow from the current normalize / clean / match-EQ pipeline.**
+4. ~~**Audio editing should grow from the current normalize / clean / match-EQ pipeline.**~~ Mostly done 2026-10-17 (see §3; handoff `docs/handoffs/2026-10-17-audio-editing.md`).
 5. ~~**Agent self-feedback should start with single-frame visual review before autonomous loops.**~~ Done 2026-10-16 (see §2).
 
 ## 1. Social-Media Video Presets
@@ -120,36 +120,43 @@ support basic destructive or asset-generating edits from the timeline.
 - **Export delivery:** server-side ffmpeg mixdown (`/api/mixdown_audio`) builds one
   master WAV (clips at timeline positions + fades + looped bed); after Manim render,
   ffmpeg mux replaces the video’s audio track with the master.
-- **Preview:** bed and cut fades are **render-only for v1**. Timeline preview still
-  plays one narration clip at a time with no bed/fade audibility.
-- **Later:** WebAudio mixing graph so bed + fades are audible while scrubbing the
-  timeline (deferred).
+- **Preview:** done 2026-10-17 — Web Audio plays every clip with its fades and gain plus the
+  looped bed (`timelineAudioController.ts`, `lib/audioSchedule.ts`).
 
-### Audio clip editor popup (partial — implemented)
+### Audio clip editor popup (implemented)
 
 - Double-click a narration clip (or **Edit** when selected) to open `AudioClipEditPopup`.
-- Popup sections today: **Processing** (Clean, Normalize, Set as ref, Match EQ),
-  **Timing** (gap presets T/N/I/R), **Export fades** (per-clip in/out ms), audio preview,
-  processing status badges.
-- Inline clip overlay is minimal (name, Linked, remove, word-boundary ticks only).
+- Popup sections today: **Play clip** (its slice, Web Audio), **Processing** (Clean, Normalize,
+  Set as ref, Match EQ), **Timing** (gap presets T/N/I/R), **Edit** (split at playhead, delete
+  marked range, gain), **Transcript** (word selection → Delete words / Cut / Copy),
+  **Bookmarks**, **Export fades** (per-clip in/out ms), processing status badges.
+- Inline clip overlay: waveform, word ticks, trim handles, marked range, Linked, remove.
 
-### MVP (deferred — full audio editor)
+### Editor (done 2026-10-17)
 
-- Right-click / extended editor with:
-  - waveform preview,
-  - trim start / trim end,
-  - split at playhead or selected time,
-  - gain adjustment.
-- Apply destructive edits by creating new processed assets through the measure server.
+- Non-destructive: a clip plays `[sourceIn, sourceIn + duration)` of its file, with `gainDb`.
+- Waveforms on clips; trim handles; split at playhead (S); Alt+drag range → Delete closes up;
+  copy / cut / paste on top (Ctrl+V) or inserted (Ctrl+Shift+V); transcript word selection.
+- Snapping to words / playhead / clip edges with a guide; `wordAnchor` keeps clips on a word.
+- WAV recording (AudioWorklet), mic picker, count-in, level meter, record over the timeline.
+- Copilot `AUDIO` actions (cut / gain / anchor) and `audio_report`.
+- Mixdown fix: `amix normalize=0` (clips were divided by the number still playing).
+
+### Still open
+
+- Free timeline markers (M during playback / recording) as snap targets — needs a
+  project-level field.
+- Punch-in: re-record a few words inside an existing clip.
+- Takes: several recordings per sentence with a take picker; script prompter.
+- Bed room-tone recorder still uses MediaRecorder (webm).
+- Deleting words in the middle of a clip leaves two clips (no edit lists inside one clip).
 
 ### Later
 
 - Multi-band EQ UI.
 - Noise reduction strength control.
-- Non-destructive edit stack.
 - Compare before / after.
 - Batch operations on selected clips.
-- **Preview-audible bed + cut fades** (WebAudio graph; see Natural cuts above).
 
 ### Design Notes
 
