@@ -42,6 +42,7 @@ import {
   blinkPreviewForTarget,
   cameraPosePreviewAtTime,
   imageIntroOpacity,
+  shapeIntroPreview,
   targetAnimPreviewAccum,
   lerpHexColor,
   type ExitPreviewState,
@@ -1402,6 +1403,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                     drawnShape = { ...item, points: mark.points.map((q) => ({ x: q.x - mark.vertex.x, y: q.y - mark.vertex.y })), rotationDeg: 0, scale: 1, headArrow: false, tailArrow: false };
                   }
                 }
+                // Export plays FadeIn / Create over the clip's run time. A selected shape stays whole
+                // while paused, so a shape just drawn at the playhead can still be seen and edited.
+                const introShape = selected && !isPlaying ? null : shapeIntroPreview(item, currentTime, itemsMap, audioItems);
                 return (
                   <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
@@ -1409,6 +1413,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                       blink={bShape}
                       extraTaScale={taShape.scaleMul}
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
+                      baseOpacity={introShape?.opacity ?? 1}
                     >
                       <ShapeNode
                         item={drawnShape}
@@ -1422,6 +1427,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         previewStrokeColor={previewStroke}
                         previewFillColor={previewFill}
                         previewRotationDeltaDeg={-taShape.rotDeg}
+                        createProgress={introShape?.createProgress}
                       />
                     </PlaybackWrap>
                   </PreviewWrap>

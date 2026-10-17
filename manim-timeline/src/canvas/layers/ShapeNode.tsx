@@ -7,6 +7,7 @@ import {
   Ring,
   Line as KonvaLine,
   Path as KonvaPath,
+  Shape as KonvaShape,
   Text as KonvaText,
   Transformer,
 } from 'react-konva';
@@ -20,6 +21,7 @@ import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { CANVAS_CHROME } from '@/lib/theme';
 import { fillWithAlpha } from '@/lib/riemann';
 import { texPreviewText } from '@/lib/texPreviewText';
+import { shapeCreateFrame, shapeCreatePlan } from '@/lib/shapeCreatePreview';
 import {
   arcAngles,
   arcAngleThrough,
@@ -87,6 +89,8 @@ interface ShapeNodeProps {
   previewFillColor?: string | null;
   /** Playback preview: added to Konva CW rotation (`item.rotationDeg`), e.g. -Manim/CCW TA degrees. */
   previewRotationDeltaDeg?: number;
+  /** Playback preview: linear progress (0–1) of the shape's `Create`; unset or 1 = drawn in full. */
+  createProgress?: number;
   /** Connector drawn from its anchors: selectable, but not draggable or resizable. */
   locked?: boolean;
 }
@@ -112,6 +116,7 @@ export default function ShapeNode({
   previewStrokeColor,
   previewFillColor,
   previewRotationDeltaDeg = 0,
+  createProgress,
   locked = false,
 }: ShapeNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
@@ -381,6 +386,31 @@ export default function ShapeNode({
   const dash = konvaDash(item.lineStyle, ppu);
   const toFlat = (pts: ShapePoint[]) => pts.flatMap((p) => [p.x * pxPerUnitX, -p.y * pxPerUnitY]);
 
+  /** A brace's label at its tip, at `opacity` (it is drawn last while the brace is created). */
+  const braceLabelNode = (opacity: number) => {
+    const label = texPreviewText(item.braceLabel ?? '');
+    if (!label || opacity <= 0) return null;
+    const size = Number.isFinite(item.braceLabelSize) && item.braceLabelSize! > 0 ? item.braceLabelSize! : DEFAULT_BRACE_LABEL_SIZE;
+    // HebrewMathLine at font size 32 has capitals about 0.23 units tall (measured in a render).
+    const fontPx = Math.max(1, (size * ppu) / 100);
+    const lw = Math.max(fontPx * 0.6, label.length * fontPx * 0.62) / ppu;
+    const lh = fontPx / ppu;
+    const lc = unitToLocalPx(braceLabelCenter(endA, endB, lw, lh));
+    return (
+      <KonvaText
+        x={lc.x - (lw * ppu) / 2}
+        y={lc.y - (lh * ppu) / 2}
+        width={lw * ppu}
+        text={label}
+        fontSize={fontPx}
+        fill={stroke}
+        opacity={opacity}
+        align="center"
+        wrap="none"
+      />
+    );
+  };
+
   const inner = (() => {
     switch (kind) {
       case 'circle':
@@ -480,13 +510,6 @@ export default function ShapeNode({
         const { data, naturalWidth } = bracePath(w);
         const a = unitToLocalPx(endA);
         const b = unitToLocalPx(endB);
-        const label = texPreviewText(item.braceLabel ?? '');
-        const size = Number.isFinite(item.braceLabelSize) && item.braceLabelSize! > 0 ? item.braceLabelSize! : DEFAULT_BRACE_LABEL_SIZE;
-        // HebrewMathLine at font size 32 has capitals about 0.23 units tall (measured in a render).
-        const fontPx = Math.max(1, (size * ppu) / 100);
-        const lw = Math.max(fontPx * 0.6, label.length * fontPx * 0.62) / ppu;
-        const lh = fontPx / ppu;
-        const lc = unitToLocalPx(braceLabelCenter(endA, endB, lw, lh));
         return (
           <Group>
             <Group x={a.x} y={a.y} rotation={(Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI}>
@@ -494,18 +517,7 @@ export default function ShapeNode({
               {/* Thin hit area along the segment so the brace is easy to grab. */}
               <Rect x={0} y={0} width={w * ppu} height={(BRACE_BUFF + 0.28) * ppu} fill="transparent" />
             </Group>
-            {label && (
-              <KonvaText
-                x={lc.x - (lw * ppu) / 2}
-                y={lc.y - (lh * ppu) / 2}
-                width={lw * ppu}
-                text={label}
-                fontSize={fontPx}
-                fill={stroke}
-                align="center"
-                wrap="none"
-              />
-            )}
+            {braceLabelNode(1)}
           </Group>
         );
       }
@@ -563,6 +575,54 @@ export default function ShapeNode({
       default:
         return null;
     }
+  })();
+
+  // While the shape is being created: the parts Manim's `Create` has drawn so far.
+  const created = (() => {
+    if (createProgress == null || !(createProgress < 1)) return null;
+    const frame = shapeCreateFrame(shapeCreatePlan(item), Math.max(0, createProgress));
+    const arrowLen = Math.hypot(item.endX, item.endY);
+    const shaftPx = shapeStrokePx(arrowStrokeWidth(item.strokeWidth, arrowLen), ppu);
+    const round = kind === 'polyline' && !dash;
+    return (
+      <Group>
+        {frame.parts.map(({ part, subpaths }, i) => {
+          const partFill = part.fill === 'shape' ? fill : part.fill === 'stroke' ? stroke : undefined;
+          if (subpaths.length === 0 || (!partFill && !part.stroke)) return null;
+          const trace = (ctx: Konva.Context, close: boolean) => {
+            ctx.beginPath();
+            for (const sp of subpaths) {
+              sp.forEach((p, j) => (j === 0 ? ctx.moveTo(p.x * pxPerUnitX, -p.y * pxPerUnitY) : ctx.lineTo(p.x * pxPerUnitX, -p.y * pxPerUnitY)));
+              if (close) ctx.closePath();
+            }
+          };
+          return (
+            <KonvaShape
+              key={i}
+              sceneFunc={(ctx, shape) => {
+                // Like Manim, the part drawn so far is filled as if closed; its outline stays open.
+                if (partFill) {
+                  trace(ctx, true);
+                  ctx.fillShape(shape);
+                }
+                if (part.stroke) {
+                  trace(ctx, false);
+                  ctx.strokeShape(shape);
+                }
+              }}
+              fill={partFill}
+              stroke={part.stroke ? stroke : undefined}
+              strokeWidth={part.shaft && (kind === 'arrow' || kind === 'doubleArrow') ? shaftPx : sw}
+              dash={part.stroke ? dash : undefined}
+              lineCap={round ? 'round' : 'butt'}
+              lineJoin={kind === 'polyline' ? 'round' : 'miter'}
+              hitStrokeWidth={12}
+            />
+          );
+        })}
+        {kind === 'brace' && braceLabelNode(frame.labelProgress)}
+      </Group>
+    );
   })();
 
   // Outline hugging the shape when selected without its own handles (multi-select, connectors).
@@ -638,7 +698,7 @@ export default function ShapeNode({
           useSceneStore.getState().select(item.id, isMultiSelectModifier(e.evt));
         }}
       >
-        {inner}
+        {created ?? inner}
         {outline}
       </Group>
       {showTransformer && (

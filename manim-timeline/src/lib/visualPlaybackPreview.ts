@@ -10,6 +10,7 @@ import type {
   ImageItem,
   ItemId,
   SceneItem,
+  ShapeItem,
   TextLineItem,
   TargetAnimationItem,
   TargetAnimationTargetSpec,
@@ -272,9 +273,39 @@ export function graphAreaIntroProgress(
   return fadeInIntroOpacity(item, time, items, audioItems);
 }
 
+/**
+ * Shape entrance at `time`. Export plays `FadeIn(shape)` or `Create(shape)` over the clip's run
+ * time (`generateShapePlay`): a fade gives a Manim-smooth `opacity`; a create gives the linear
+ * `createProgress` that `shapeCreateFrame` eases per part, like Manim's lagged `Create`.
+ */
+export function shapeIntroPreview(
+  item: ShapeItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): { opacity: number; createProgress: number } {
+  const p = introLinearProgress(item, time, items, audioItems);
+  return item.introStyle === 'fade_in'
+    ? { opacity: manimSmoothProgress(p), createProgress: 1 }
+    : { opacity: 1, createProgress: p };
+}
+
 /** Manim-smooth `FadeIn` opacity over the item's preview run time (`previewRunTime`). */
 function fadeInIntroOpacity(
   item: ImageItem | GraphDotItem | GraphAreaItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  return manimSmoothProgress(introLinearProgress(item, time, items, audioItems));
+}
+
+/**
+ * Linear progress `[0, 1]` of an item's entrance over its preview run time: `0` before
+ * `effectiveStart`, `1` once the run time ends or for `visibleAtSceneStart` items.
+ */
+function introLinearProgress(
+  item: ImageItem | GraphDotItem | GraphAreaItem | ShapeItem,
   time: number,
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
@@ -285,7 +316,7 @@ function fadeInIntroOpacity(
   const dur = previewRunTime(item, items, audioItems);
   if (!(dur > 0) || !Number.isFinite(dur)) return 1;
   if (time >= t0 + dur) return 1;
-  return manimSmoothProgress((time - t0) / dur);
+  return (time - t0) / dur;
 }
 
 export function activeTextTransformForLine(
