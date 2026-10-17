@@ -57,6 +57,8 @@ import {
   minTargetAnimationStartTimeForClip,
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
+import { anchoredStartShifts, withWordIds } from '@/lib/wordAnchors';
+import { getAudioBoundaries } from '@/types/scene';
 import {
   MIN_CLIP_SEC,
   deleteClipRange,
@@ -197,6 +199,27 @@ function syncAllExplicitAudioBindingsInDraft(
     if (!track) continue;
     track.startTime = Math.max(0, effectiveStart(item, items));
   }
+}
+
+/**
+ * Clips anchored to a word move by as much as the word moved between `before` and the draft's
+ * audio (`lib/wordAnchors.ts`). `skip`: clips the user is placing in this same action.
+ */
+function followWordAnchorsInDraft(
+  s: { items: Map<ItemId, SceneItem>; audioItems: AudioTrackItem[] },
+  before: readonly AudioTrackItem[],
+  skip?: ReadonlySet<string>,
+): void {
+  const shifts = anchoredStartShifts(s.items.values(), before, s.audioItems).filter(
+    (u) => !skip?.has(u.id),
+  );
+  if (shifts.length === 0) return;
+  for (const { id, startTime } of shifts) {
+    const it = s.items.get(id);
+    if (it) it.startTime = startTime;
+  }
+  clampEffectClipStarts(s.items);
+  syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
 }
 
 /** Duplicated scene items drop audio linkage so explicit binding stays exclusive. */
@@ -732,6 +755,11 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
    * `before` to the current audio as one undo step and resumes history.
    */
   commitAudioDrag: (before: AudioTrackItem[]) => void;
+  /**
+   * Anchor a clip's start to word `wordIndex` of a narration clip (gives the words ids), or
+   * clear the anchor with null. Refused when the clip owns that narration.
+   */
+  setWordAnchor: (itemId: ItemId, anchor: { trackId: string; wordIndex: number } | null) => void;
 }
 
 export const useSceneStore = create<SceneStore>()(
@@ -1215,6 +1243,7 @@ export const useSceneStore = create<SceneStore>()(
 
       // ── Timeline mutations ──
       moveItem: (id, newStartTime) => set((s) => {
+        const audioBefore = get().audioItems;
         const item = s.items.get(id);
         if (!item) return;
         if (item.kind === 'camera_move' && !Number.isFinite(newStartTime)) return;
@@ -1237,11 +1266,14 @@ export const useSceneStore = create<SceneStore>()(
         }
         item.startTime = t;
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        followWordAnchorsInDraft(s, audioBefore, new Set([id]));
       }),
       moveAudioItem: (id, newStartTime) => set((s) => {
+        const audioBefore = get().audioItems;
         if (explicitVisualOwnerForAudioTrack(s.items, id)) return;
         const track = s.audioItems.find((a) => a.id === id);
         if (track) track.startTime = Math.max(0, newStartTime);
+        followWordAnchorsInDraft(s, audioBefore);
       }),
 
       removeAudioItem: (id) => set((s) => {
@@ -1353,6 +1385,7 @@ export const useSceneStore = create<SceneStore>()(
       },
 
       setSceneItemStartTimes: (updates) => set((s) => {
+        const audioBefore = get().audioItems;
         for (const { id, startTime } of updates) {
           const item = s.items.get(id);
           if (!item || !isTopLevelItem(item)) continue;
@@ -1361,18 +1394,22 @@ export const useSceneStore = create<SceneStore>()(
         }
         clampEffectClipStarts(s.items);
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        followWordAnchorsInDraft(s, audioBefore, new Set(updates.map((u) => u.id)));
       }),
 
       setAudioItemStartTimes: (updates) => set((s) => {
+        const audioBefore = get().audioItems;
         for (const { id, startTime } of updates) {
           if (explicitVisualOwnerForAudioTrack(s.items, id)) continue;
           const track = s.audioItems.find((a) => a.id === id);
           if (track) track.startTime = Math.max(0, startTime);
         }
         syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        followWordAnchorsInDraft(s, audioBefore);
       }),
 
       updateAudioBoundary: (id, index, patch) => set((s) => {
+        const audioBefore = get().audioItems;
         const track = s.audioItems.find((a) => a.id === id);
         if (!track) return;
         const raw = track.boundaries ?? track.word_boundaries ?? [];
@@ -1383,6 +1420,7 @@ export const useSceneStore = create<SceneStore>()(
           word: b.word,
           start: boundaryTimeToSeconds(b.start, duration),
           end: boundaryTimeToSeconds(b.end, duration),
+          ...(b.id ? { id: b.id } : {}),
         }));
         const boundary = boundaries[index]!;
         const prevStart = index > 0 ? boundaries[index - 1]!.start : 0;
@@ -1408,6 +1446,7 @@ export const useSceneStore = create<SceneStore>()(
 
         track.boundaries = boundaries;
         track.word_boundaries = undefined;
+        followWordAnchorsInDraft(s, audioBefore);
       }),
 
       resizeItem: (id, newDuration) => set((s) => {
@@ -2309,6 +2348,7 @@ export const useSceneStore = create<SceneStore>()(
         set((s) => {
           s.audioItems = res.audioItems;
           syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          followWordAnchorsInDraft(s, st.audioItems);
         });
         return true;
       },
@@ -2329,6 +2369,7 @@ export const useSceneStore = create<SceneStore>()(
           s.audioItems = res.audioItems;
           s.selectedIds = new Set(pastedIds);
           syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          followWordAnchorsInDraft(s, st.audioItems);
         });
       },
 
@@ -2353,22 +2394,45 @@ export const useSceneStore = create<SceneStore>()(
           set((s) => {
             s.audioItems = after;
             syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+            followWordAnchorsInDraft(s, before);
           });
         }
       },
 
+      setWordAnchor: (itemId, anchor) =>
+        set((s) => {
+          const item = s.items.get(itemId);
+          if (!item) return;
+          if (!anchor) {
+            delete item.wordAnchor;
+            return;
+          }
+          const ti = s.audioItems.findIndex((a) => a.id === anchor.trackId);
+          if (ti < 0) return;
+          // A clip that owns this narration drives it (binding sync); it cannot also follow it.
+          if ('audioTrackId' in item && item.audioTrackId === anchor.trackId) return;
+          const track = withWordIds(s.audioItems[ti]!, () => crypto.randomUUID().slice(0, 12));
+          const word = getAudioBoundaries(track)[anchor.wordIndex];
+          if (!word?.id) return;
+          s.audioItems[ti] = track;
+          item.wordAnchor = { wordId: word.id };
+        }),
+
       placeAudioAfterPrevious: (id, gapSec) =>
         set((s) => {
+          const audioBefore = get().audioItems;
           if (explicitVisualOwnerForAudioTrack(s.items, id)) return;
           const nextStart = computeStartAfterPrevious(s.audioItems, id, gapSec);
           if (nextStart == null) return;
           const t = s.audioItems.find((a) => a.id === id);
           if (!t) return;
           t.startTime = nextStart;
+          followWordAnchorsInDraft(s, audioBefore);
         }),
 
       spaceSelectedAudioItems: (gapSec) =>
         set((s) => {
+          const audioBefore = get().audioItems;
           const ids = s.selectedIds;
           const unlinked: AudioTrackItem[] = [];
           for (const a of s.audioItems) {
@@ -2388,6 +2452,7 @@ export const useSceneStore = create<SceneStore>()(
             if (explicitVisualOwnerForAudioTrack(s.items, t.id)) continue;
             t.startTime = u.startTime;
           }
+          followWordAnchorsInDraft(s, audioBefore);
         }),
     })),
     { limit: 50 },

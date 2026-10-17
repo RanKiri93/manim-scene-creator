@@ -2,7 +2,7 @@ import { useRef, useCallback, useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { boundaryTimeToSeconds, type AudioTrackItem } from '@/types/scene';
-import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
+import { SNAP_PX, collectSnapTargets, showSnapGuide, snapEdges } from './timelineSnap';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
@@ -34,7 +34,6 @@ export default function AudioClip({
   const moveAudioItem = useSceneStore((s) => s.moveAudioItem);
   const setAudioItemStartTimes = useSceneStore((s) => s.setAudioItemStartTimes);
   const removeAudioItem = useSceneStore((s) => s.removeAudioItem);
-  const audioItems = useSceneStore((s) => s.audioItems);
   const itemsMap = usePreviewMergedItems();
 
   const owner = useMemo(
@@ -121,11 +120,22 @@ export default function AudioClip({
       const before = state.audioItems;
       const edgeT0 = edge === 'start' ? base.startTime : base.startTime + base.duration;
       const startX = e.clientX;
+      const targets = collectSnapTargets({
+        audioItems: state.audioItems,
+        items: state.items.values(),
+        itemsMap,
+        playhead: state.currentTime,
+        excludeAudioIds: new Set([item.id]),
+      });
       useSceneStore.temporal.getState().pause();
       const onMove = (ev: MouseEvent) => {
-        trimAudioClip(item.id, edge, edgeT0 + (ev.clientX - startX) / pxPerSecond, base);
+        const raw = edgeT0 + (ev.clientX - startX) / pxPerSecond;
+        const snap = ev.altKey ? null : snapEdges([raw], targets, SNAP_PX / pxPerSecond);
+        showSnapGuide(snap?.target ?? null);
+        trimAudioClip(item.id, edge, raw + (snap?.delta ?? 0), base);
       };
       const onUp = () => {
+        showSnapGuide(null);
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
         commitAudioDrag(before);
@@ -133,7 +143,7 @@ export default function AudioClip({
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
-    [item.id, pxPerSecond, select, setRange, trimAudioClip, commitAudioDrag],
+    [item.id, itemsMap, pxPerSecond, select, setRange, trimAudioClip, commitAudioDrag],
   );
 
   const onMouseDownMove = useCallback(
@@ -161,7 +171,13 @@ export default function AudioClip({
         baselines,
       };
       lastSnappedStartRef.current = baselines[item.id]!;
-      const boundaryTimes = collectAudioBoundaryTimes(audioItems, item.id);
+      const targets = collectSnapTargets({
+        audioItems: state.audioItems,
+        items: state.items.values(),
+        itemsMap,
+        playhead: state.currentTime,
+        excludeAudioIds: new Set(Object.keys(baselines)),
+      });
 
       const applyDelta = (primarySnapped: number) => {
         const d = dragRef.current;
@@ -185,11 +201,16 @@ export default function AudioClip({
         const dx = ev.clientX - dragRef.current.startX;
         const dt = dx / pxPerSecond;
         const dragged = Math.max(0, dragRef.current.primaryBaseline + dt);
-        const snapped = snapToNearestBoundary(dragged, boundaryTimes);
+        const snap = ev.altKey
+          ? null
+          : snapEdges([dragged, dragged + item.duration], targets, SNAP_PX / pxPerSecond);
+        showSnapGuide(snap?.target ?? null);
+        const snapped = Math.max(0, dragged + (snap?.delta ?? 0));
         lastSnappedStartRef.current = snapped;
         applyDelta(snapped);
       };
       const onUp = () => {
+        showSnapGuide(null);
         const finalStart = lastSnappedStartRef.current;
         const saved = dragRef.current;
         dragRef.current = null;
@@ -217,12 +238,13 @@ export default function AudioClip({
     [
       item.id,
       item.startTime,
+      item.duration,
       owner,
       pxPerSecond,
       moveAudioItem,
       setAudioItemStartTimes,
       select,
-      audioItems,
+      itemsMap,
       startRangeDrag,
       setRange,
     ],

@@ -16,6 +16,7 @@ import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
 import AudioClip, { AUDIO_LANE_PX } from './AudioClip';
+import { useSnapGuide } from './timelineSnap';
 import {
   activeAudioRange,
   copyAudioSelection,
@@ -48,6 +49,7 @@ export default function Timeline() {
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const audioItems = useSceneStore((s) => s.audioItems);
   const audioBed = useSceneStore((s) => s.audioBed);
+  const snapGuide = useSnapGuide((g) => g.guide);
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const getSceneDuration = useSceneStore((s) => s.getSceneDuration);
 
@@ -444,6 +446,21 @@ export default function Timeline() {
               onEdit={() => setBedPopupOpen(true)}
             />
           </div>
+
+          {snapGuide ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-0 bottom-0 z-40 w-px bg-highlight"
+              style={{ left: `${snapGuide.t * pxPerSecond}px` }}
+            >
+              <span
+                className="absolute top-0 left-1 whitespace-nowrap rounded-ctl bg-highlight px-1 text-meta leading-4 text-highlight-ink"
+                dir="auto"
+              >
+                {snapGuide.label}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
 

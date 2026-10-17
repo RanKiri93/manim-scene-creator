@@ -42,7 +42,8 @@ import {
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { ITEM_COLOR_GROUP } from '@/lib/theme';
 import { kindBg } from '@/components/ui';
-import { collectAudioBoundaryTimes, snapToNearestBoundary } from './timelineSnap';
+import { SNAP_PX, collectSnapTargets, showSnapGuide, snapEdges, type SnapTarget } from './timelineSnap';
+import { findAnchorWord } from '@/lib/wordAnchors';
 import {
   applyWaitEdgeResize,
   getSegmentAnimSec,
@@ -110,6 +111,11 @@ export default function TimelineClip({
     segments: TextLineItem['segments'];
     duration: number;
   } | null>(null);
+
+  const anchorWord = useMemo(
+    () => (item.wordAnchor ? findAnchorWord(audioItems, item.wordAnchor.wordId) : null),
+    [item.wordAnchor, audioItems],
+  );
 
   const left = (item.startTime - viewStart) * pxPerSecond;
   const barDuration = runDuration(item, itemsMap);
@@ -212,7 +218,15 @@ export default function TimelineClip({
         baselines,
       };
       lastSnappedStartRef.current = baselines[item.id]!;
-      const boundaryTimes = collectAudioBoundaryTimes(audioItems);
+      const targets = collectSnapTargets({
+        audioItems: state.audioItems,
+        items: state.items.values(),
+        itemsMap,
+        playhead: state.currentTime,
+        excludeItemIds: new Set(Object.keys(baselines)),
+      });
+      const clipDur = runDuration(item, itemsMap);
+      let wordTarget: SnapTarget['word'] | null = null;
 
       const applyDelta = (primarySnapped: number) => {
         const d = dragRef.current;
@@ -236,11 +250,15 @@ export default function TimelineClip({
         const dx = ev.clientX - dragRef.current.startX;
         const dt = dx / pxPerSecond;
         const dragged = Math.max(0, dragRef.current.primaryBaseline + dt);
-        const snapped = snapToNearestBoundary(dragged, boundaryTimes);
+        const snap = ev.altKey ? null : snapEdges([dragged, dragged + clipDur], targets, SNAP_PX / pxPerSecond);
+        const snapped = Math.max(0, dragged + (snap?.delta ?? 0));
+        wordTarget = snap && snap.edgeIndex === 0 ? (snap.target.word ?? null) : null;
+        showSnapGuide(snap?.target ?? null);
         lastSnappedStartRef.current = snapped;
         applyDelta(snapped);
       };
       const onUp = () => {
+        showSnapGuide(null);
         const finalStart = lastSnappedStartRef.current;
         const saved = dragRef.current;
         dragRef.current = null;
@@ -261,18 +279,23 @@ export default function TimelineClip({
             );
           }
         }
+        // Dropping the start on a word anchors the clip to it; dropping elsewhere clears it.
+        if (saved && finalStart != null && Math.abs(finalStart - saved.primaryBaseline) > 1e-9) {
+          const current = useSceneStore.getState().items.get(item.id);
+          if (wordTarget) useSceneStore.getState().setWordAnchor(item.id, wordTarget);
+          else if (current?.wordAnchor) useSceneStore.getState().setWordAnchor(item.id, null);
+        }
       };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
     [
-      item.id,
-      item.startTime,
+      item,
       pxPerSecond,
       moveItem,
       setSceneItemStartTimes,
       select,
-      audioItems,
+      itemsMap,
     ],
   );
 
@@ -285,14 +308,26 @@ export default function TimelineClip({
         startDuration: runDuration(item, itemsMap),
       };
 
+      const st = useSceneStore.getState();
+      const targets = collectSnapTargets({
+        audioItems: st.audioItems,
+        items: st.items.values(),
+        itemsMap,
+        playhead: st.currentTime,
+        excludeItemIds: new Set([item.id]),
+      });
       const onMove = (ev: MouseEvent) => {
         if (!resizeRef.current) return;
         const dx = ev.clientX - resizeRef.current.startX;
         const dt = dx / pxPerSecond;
-        const newVisual = Math.max(0.05, resizeRef.current.startDuration + dt);
+        const raw = resizeRef.current.startDuration + dt;
+        const snap = ev.altKey ? null : snapEdges([item.startTime + raw], targets, SNAP_PX / pxPerSecond);
+        showSnapGuide(snap?.target ?? null);
+        const newVisual = Math.max(0.05, raw + (snap?.delta ?? 0));
         resizeItem(item.id, newVisual);
       };
       const onUp = () => {
+        showSnapGuide(null);
         resizeRef.current = null;
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('mouseup', onUp);
@@ -840,6 +875,15 @@ export default function TimelineClip({
       ) : null}
       <div className="pointer-events-none relative z-[6] flex min-h-5 min-w-0 flex-1 items-center gap-1 px-1.5">
         <span className="min-w-0 flex-1 truncate" dir="auto">{label}</span>
+        {anchorWord ? (
+          <span
+            title={`Starts on the word "${anchorWord.word}" and follows it when narration is moved or edited. Drag the clip off the word to release it.`}
+            className="pointer-events-none shrink-0 truncate rounded-ctl bg-ink/25 px-1 leading-4 max-w-24"
+            dir="auto"
+          >
+            ⟂ {anchorWord.word}
+          </span>
+        ) : null}
         {explicitAudioTrack !== undefined ? (
           <span
             title={

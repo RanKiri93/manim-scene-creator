@@ -137,6 +137,11 @@ export interface WordBoundary {
   word: string;
   start: number;
   end: number;
+  /**
+   * Stable id, given when a visual clip is anchored to this word (`SceneItemBase.wordAnchor`).
+   * Kept when the clip is split or trimmed; dropped on pasted copies.
+   */
+  id?: string;
 }
 
 export interface AudioNormalizationMeta {
@@ -241,6 +246,7 @@ export function getAudioBoundaries(item: AudioTrackItem): WordBoundary[] {
     word: b.word,
     start: boundaryTimeToSeconds(b.start, item.duration),
     end: boundaryTimeToSeconds(b.end, item.duration),
+    ...(b.id ? { id: b.id } : {}),
   }));
 }
 
@@ -285,7 +291,16 @@ export interface ExitTargetSpec {
   animStyle: ExitAnimStyle;
 }
 
-interface SceneItemBase extends TimeSpan, SpatialTransform {
+/** Any top-level timeline clip can start on a spoken word. */
+export interface WordAnchored {
+  /**
+   * The clip starts on this spoken word (set when a drag snaps its start to the word). When
+   * narration is moved, trimmed, cut or pasted into, the clip moves by as much as the word did.
+   */
+  wordAnchor?: { wordId: string };
+}
+
+interface SceneItemBase extends TimeSpan, SpatialTransform, WordAnchored {
   id: ItemId;
   label: string;
   layer: number;
@@ -308,7 +323,7 @@ interface SceneItemBase extends TimeSpan, SpatialTransform {
  * Top-level clip: runs exit animations on all `targets` at `startTime` concurrently
  * (`AnimationGroup` in export) for `duration` seconds.
  */
-export interface ExitAnimationItem {
+export interface ExitAnimationItem extends WordAnchored {
   kind: 'exit_animation';
   id: ItemId;
   label: string;
@@ -351,7 +366,7 @@ export interface BlinkTargetSpec {
 /**
  * Timeline clip: run blink on all `targets` at `startTime` in parallel for `duration` seconds.
  */
-export interface BlinkAnimationItem {
+export interface BlinkAnimationItem extends WordAnchored {
   kind: 'blink_animation';
   id: ItemId;
   label: string;
@@ -418,7 +433,7 @@ export interface TargetAnimationTargetSpec {
   step?: MatrixStepSpec | null;
 }
 
-export interface TargetAnimationItem {
+export interface TargetAnimationItem extends WordAnchored {
   kind: 'target_animation';
   id: ItemId;
   label: string;
@@ -430,7 +445,7 @@ export interface TargetAnimationItem {
 }
 
 /** Non-drawable clip: pans the camera to a frame center plus an optional free offset. */
-export interface CameraMoveItem {
+export interface CameraMoveItem extends WordAnchored {
   kind: 'camera_move';
   id: ItemId;
   label: string;
@@ -450,7 +465,7 @@ export interface CameraMoveItem {
 }
 
 /** Highlight box around one or more objects; optional label; remove with an exit clip targeting this id. */
-export interface SurroundingRectItem {
+export interface SurroundingRectItem extends WordAnchored {
   kind: 'surroundingRect';
   id: ItemId;
   label: string;

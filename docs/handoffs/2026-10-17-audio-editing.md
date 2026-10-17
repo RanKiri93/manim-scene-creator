@@ -159,6 +159,30 @@ None open; decisions recorded above.
   range + Delete (gap closed, later piece moved left), Ctrl+C/V on top, Ctrl+Shift+V insert,
   playback scheduled all six pieces.
 
+### Phase 3 (2026-10-17)
+- `types/scene.ts`: `WordBoundary.id?`; `WordAnchored.wordAnchor?: { wordId }` on every
+  top-level clip type (SceneItemBase, exit, blink, target, camera, surroundingRect);
+  `getAudioBoundaries` keeps ids. Optional fields, no version bump.
+- `lib/wordAnchors.ts` (new): word times by id, `anchoredStartShifts` (relative follow: a clip
+  moves by as much as its word moved), `withWordIds`.
+- `lib/audioEdit.ts`: slices keep word ids; pasted copies drop them.
+- `store/useSceneStore.ts`: `followWordAnchorsInDraft` after moveItem, setSceneItemStartTimes
+  (the dragged clips themselves excluded), moveAudioItem, setAudioItemStartTimes,
+  updateAudioBoundary (keeps ids now), placeAudioAfterPrevious, spaceSelectedAudioItems,
+  deleteAudioRange, pasteAudioClips, commitAudioDrag. Not in the time-surgery actions (they
+  move clips and audio together already). `setWordAnchor` (refused when the clip owns that
+  narration).
+- `timeline/timelineSnap.ts` rewritten: 8 px threshold, targets = playhead, word starts
+  (anchorable) and ends, narration edges, other clips' edges; both edges of a dragged clip
+  snap; word start wins ties; Alt disables; `useSnapGuide` drives a guide line + label in
+  `Timeline.tsx`. Used by visual clip move/resize and narration move/trim.
+- `TimelineClip.tsx`: dropping the start on a word anchors, dropping elsewhere clears; badge
+  "⟂ word" with explanation.
+- Not done: free markers (M key) — would need a new project-level field; left for later.
+- Ran: build ok; `npm run test` 1089 passed; lint clean on touched files. Headless Chrome:
+  guide labelled "beta" while dragging, drop at exactly 3.5 s anchored, clip followed a +2 s
+  narration move and a 0.5 s cut before the word.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)

@@ -48,7 +48,7 @@ export function sliceClip(
     const mid = (b.start + b.end) / 2;
     if (mid < f || mid >= t) continue;
     words.push({
-      word: b.word,
+      ...b,
       start: Math.max(0, b.start - f),
       end: Math.min(dur, Math.max(b.start - f, b.end - f)),
     });
@@ -160,7 +160,13 @@ export function pasteClips(
   newId: () => string,
   isLinked: (id: string) => boolean,
 ): AudioEditResult {
-  const placed = pieces.map((p) => ({ ...p, id: newId(), startTime: Math.max(0, at + p.startTime) }));
+  // A pasted copy is new speech: its words must not share ids (anchors) with the original.
+  const placed = pieces.map((p) => ({
+    ...p,
+    id: newId(),
+    startTime: Math.max(0, at + p.startTime),
+    boundaries: p.boundaries?.map((w) => ({ word: w.word, start: w.start, end: w.end })),
+  }));
   if (mode === 'over' || placed.length === 0) {
     return { audioItems: [...audioItems, ...placed], ripple: null };
   }
