@@ -1,9 +1,10 @@
 """HebrewMatrix: one compile split into entries, brackets and bar (needs xelatex, like the other tests)."""
 
+import numpy as np
 import pytest
-from manim import RED, WHITE, ManimColor
+from manim import RED, RIGHT, WHITE, ManimColor
 
-from hebrew_matrix import HebrewMatrix, matrix_tex_source
+from hebrew_matrix import HebrewMatrix, MatrixStep, matrix_tex_source
 
 
 def test_source_tags_every_entry_and_keeps_unary_minus():
@@ -53,3 +54,42 @@ def test_rejects_ragged_rows_and_unknown_bracket():
         HebrewMatrix([["1", "2"], ["3"]])
     with pytest.raises(ValueError):
         HebrewMatrix([["1"]], bracket="angle")
+
+
+def _play(step):
+    step.begin()
+    step.interpolate(0.5)
+    step.finish()
+
+
+def test_matrix_step_swaps_rows_in_place_keeping_colours_scale_and_centre():
+    m = HebrewMatrix([["1", "2"], ["3", "4"]], entry_colors=[[RED, None], [None, None]])
+    m.scale(1.5).shift(RIGHT)
+    center, scale = m.get_center().copy(), m.current_scale()
+    _play(MatrixStep(m, [["3", "4"], ["1", "2"]], swap=(0, 1)))
+    assert m.entry_tex == [["3", "4"], ["1", "2"]]
+    # The red 1 moved down with its row; the same object is now the new matrix.
+    assert ManimColor(m.get_entry(1, 0)[0].get_fill_color()) == ManimColor(RED)
+    assert ManimColor(m.get_entry(0, 0)[0].get_fill_color()) == ManimColor(WHITE)
+    assert abs(m.current_scale() - scale) < 1e-6
+    assert np.allclose(m.get_center(), center, atol=1e-6)
+    assert m.get_entry(0, 0).get_center()[1] > m.get_entry(1, 0).get_center()[1]
+
+
+def test_matrix_step_changes_entries_and_transposes():
+    m = HebrewMatrix([["1", "2", "3"], ["4", "5", "6"]], augment_col=2)
+    _play(MatrixStep(m, [["1", "2", "3"], ["0", "-3", "-6"]]))
+    assert m.entry_tex[1] == ["0", "-3", "-6"] and m.get_bar().submobjects
+    _play(MatrixStep(m, [["1", "0"], ["2", "-3"], ["3", "-6"]], transpose=True))
+    assert (m.n_rows, m.n_cols) == (3, 2) and m.augment_col is None
+    assert not m.get_bar().submobjects
+    assert len(m.cells((2, 0), (2, 1))) == 2
+    assert m.get_brackets()[0].height > m.get_entries().height
+
+
+def test_bounds_ignore_empty_pieces_after_moving():
+    # No bar, no brackets and a blank entry: none of them may pull the bounds to the origin.
+    m = HebrewMatrix([["1", ""], ["3", "4"]], bracket="none")
+    w, h = m.width, m.height
+    m.shift(3 * RIGHT)
+    assert abs(m.width - w) < 1e-9 and abs(m.height - h) < 1e-9

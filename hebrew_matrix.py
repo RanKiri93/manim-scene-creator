@@ -11,6 +11,7 @@ Example::
     m = HebrewMatrix([["1", "2"], ["3", r"\\lambda"]], bracket="round")
     self.play(Write(m))
     self.play(m.cells((0, 0), (1, 1)).animate.set_color(YELLOW))
+    self.play(MatrixStep(m, [["3", r"\\lambda"], ["1", "2"]], swap=(0, 1)))
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Sequence
 
 import numpy as np
-from manim import DOWN, LEFT, RIGHT, UP, WHITE, Line
+from manim import DOWN, LEFT, PI, RIGHT, UP, WHITE, Animation, Line, Transform, linear
 from manim.constants import DEFAULT_FONT_SIZE
 from manim.mobject.svg.svg_mobject import SVGMobject
 from manim.mobject.types.vectorized_mobject import VGroup, VMobject
@@ -45,6 +46,9 @@ ALIGNS = {"center": "c", "left": "l", "right": "r"}
 MAX_SIZE = 12
 # LaTeX defaults: \arraycolsep = 5pt, \arraystretch = 1.
 BASE_COL_SEP_PT = 5.0
+
+# ``with_entries(augment_col=...)`` default: keep the bar where it is.
+_KEEP = object()
 
 _LEFT_TAG = (250, 1, 1)
 _RIGHT_TAG = (250, 1, 2)
@@ -165,6 +169,10 @@ class HebrewMatrix(VGroup):
         if align not in ALIGNS:
             raise ValueError(f"align must be one of {sorted(ALIGNS)}, got {align!r}")
 
+        self._style = dict(
+            bracket=bracket, align=align, row_spacing=row_spacing, col_spacing=col_spacing,
+            font_size=font_size, color=color, hebrew_font=hebrew_font,
+        )
         self.n_rows = len(rows)
         self.n_cols = n_cols
         self.entry_tex = rows
@@ -190,6 +198,8 @@ class HebrewMatrix(VGroup):
         if self.family_members_with_points():
             self.scale(font_size * SCALE_FACTOR_PER_FONT_POINT)
             self.center()
+        # Size as built, to tell how much it has been scaled since (see ``current_scale``).
+        self._natural_size = (self.width, self.height)
 
     # ── compilation ────────────────────────────────────────────────
 
@@ -248,6 +258,13 @@ class HebrewMatrix(VGroup):
             k = inside[0] if inside else min(boxes, key=lambda b: float(np.linalg.norm(c - b[3])))[0]
             buckets[k].append(path)
 
+    def reduce_across_dimension(self, reduce_func: Any, dim: int) -> float:
+        # Empty pieces (blank entries, no bar, no brackets) have no points, but Manim counts
+        # each as a point at 0, so width / height (and a box around the matrix) would stretch
+        # to the origin once the matrix is moved.  Only pieces with ink count.
+        values = [reduce_func(m.points[:, dim]) for m in self.family_members_with_points()]
+        return reduce_func(values) if values else 0
+
     # ── accessors ──────────────────────────────────────────────────
 
     def get_entry(self, i: int, j: int) -> VGroup:
@@ -273,6 +290,29 @@ class HebrewMatrix(VGroup):
     def get_bar(self) -> VGroup:
         """The augment bar (empty without ``augment_col``)."""
         return self._bar
+
+    def with_entries(self, entries: Sequence[Sequence[str]], augment_col: Any = _KEEP) -> "HebrewMatrix":
+        """A new matrix in this one's style (brackets, spacing, size, colour) with other entries."""
+        aug = self.augment_col if augment_col is _KEEP else augment_col
+        return HebrewMatrix(entries, augment_col=aug, **self._style)
+
+    def current_scale(self) -> float:
+        """How much the matrix has been scaled since it was built."""
+        w0, h0 = self._natural_size
+        if w0 > 1e-9:
+            return self.width / w0
+        if h0 > 1e-9:
+            return self.height / h0
+        return 1.0
+
+    def _adopt(self, other: "HebrewMatrix") -> None:
+        """Become *other* (its pieces and entries), keeping this object so variables still work."""
+        for name in (
+            "n_rows", "n_cols", "entry_tex", "augment_col", "tex_source",
+            "_entries", "_brackets", "_bar", "_natural_size",
+        ):
+            setattr(self, name, getattr(other, name))
+        self.submobjects = [other._entries, other._brackets, other._bar]
 
     def cells(self, *ij: tuple[int, int]) -> VGroup:
         """``VGroup`` of the given ``(row, col)`` entries, empty cells left out."""
@@ -312,3 +352,137 @@ class HebrewMatrix(VGroup):
                     Line(e.get_corner(DOWN + LEFT) + (LEFT + DOWN) * buff, e.get_corner(UP + RIGHT) + (RIGHT + UP) * buff, **line_kwargs)
                 )
         return VGroup(*lines)
+
+
+def _has_ink(mob: VMobject | None) -> bool:
+    return mob is not None and bool(mob.family_members_with_points())
+
+
+def _ink_color(mob: VMobject) -> Any:
+    return mob.family_members_with_points()[0].get_fill_color()
+
+
+def _fade_out_into(old: VMobject, new: VMobject | None, stretch: bool = True) -> Transform:
+    """*old* fades out while stretching onto *new*'s place (like ``FadeTransform``), or only
+    sliding to its centre with ``stretch=False``."""
+    end = old.copy()
+    if _has_ink(new):
+        end.replace(new, stretch=True) if stretch else end.move_to(new.get_center())
+    return Transform(old.copy(), end.set_opacity(0))
+
+
+def _fade_in_from(new: VMobject, old: VMobject | None, stretch: bool = True) -> Transform:
+    """*new* fades in, growing from *old*'s place when there is one (sliding from its centre
+    with ``stretch=False``)."""
+    start = new.copy()
+    if _has_ink(old):
+        start.replace(old, stretch=True) if stretch else start.move_to(old.get_center())
+    return Transform(start.set_opacity(0), new.copy())
+
+
+class MatrixStep(Animation):
+    r"""Turn *matrix* into the matrix with *entries*, in place.
+
+    Entries whose text is unchanged move to their new places, changed entries cross-fade
+    into the new ones (each from the entry it came from), and the brackets and bar stretch
+    to the new size.  Entries keep their colours.  The new matrix is centred where the old
+    one was, at the same scale.  Afterwards *matrix* **is** the new matrix (same object),
+    so later animations can address its entries.
+
+    ``swap=(i, j)``: rows *i* and *j* trade places, swinging past each other on arcs
+    (``path_arc``).  ``transpose=True``: entry ``(i, j)`` moves to ``(j, i)`` and the augment
+    bar is dropped.  Otherwise new entry ``(i, j)`` comes from old entry ``(i, j)``.
+    """
+
+    def __init__(
+        self,
+        matrix: HebrewMatrix,
+        entries: Sequence[Sequence[str]],
+        swap: tuple[int, int] | None = None,
+        transpose: bool = False,
+        path_arc: float = PI / 2,
+        **kwargs: Any,
+    ):
+        kwargs.setdefault("rate_func", linear)
+        super().__init__(matrix, **kwargs)
+        self.new_entries = [list(r) for r in entries]
+        self.swap = tuple(swap) if swap is not None else None
+        self.transpose = transpose
+        self.swap_arc = path_arc
+        self._parts: list[Transform] = []
+        self._target: HebrewMatrix | None = None
+
+    def _source(self, i: int, j: int, old: HebrewMatrix) -> tuple[int, int] | None:
+        if self.transpose:
+            src = (j, i)
+        elif self.swap is not None and i in self.swap:
+            src = (self.swap[1] if i == self.swap[0] else self.swap[0], j)
+        else:
+            src = (i, j)
+        return src if src[0] < old.n_rows and src[1] < old.n_cols else None
+
+    def begin(self) -> None:
+        m: HebrewMatrix = self.mobject
+        target = m.with_entries(self.new_entries, augment_col=None if self.transpose else _KEEP)
+        target.scale(m.current_scale())
+        target.move_to(m.get_center())
+        parts: list[Transform] = []
+        used: set[tuple[int, int]] = set()
+        for i in range(target.n_rows):
+            for j in range(target.n_cols):
+                new = target.get_entry(i, j)
+                src = self._source(i, j, m)
+                old = m.get_entry(*src) if src is not None else None
+                if src is not None:
+                    used.add(src)
+                if _has_ink(old) and _has_ink(new):
+                    new.set_color(_ink_color(old))
+                    if m.entry_tex[src[0]][src[1]].strip() == target.entry_tex[i][j].strip():
+                        arc = self.swap_arc if self.swap is not None and src[0] != i else 0
+                        parts.append(Transform(old.copy(), new.copy(), path_arc=arc))
+                        continue
+                if _has_ink(old):
+                    parts.append(_fade_out_into(old, new))
+                if _has_ink(new):
+                    parts.append(_fade_in_from(new, old))
+        for i in range(m.n_rows):
+            for j in range(m.n_cols):
+                if (i, j) not in used and _has_ink(m.get_entry(i, j)):
+                    parts.append(_fade_out_into(m.get_entry(i, j), None))
+        frame = [*zip(m.get_brackets(), target.get_brackets()), (m.get_bar(), target.get_bar())]
+        for old, new in frame:
+            if _has_ink(old) and _has_ink(new):
+                new.set_color(_ink_color(old))
+                if abs(new.height - old.height) <= 0.02 * max(old.height, 1e-6):
+                    parts.append(Transform(old.copy(), new.copy()))
+                else:
+                    # A taller or shorter bracket is built from other glyph pieces: morphing or
+                    # stretching one into the other smears it, so slide and cross-fade instead.
+                    parts.append(_fade_out_into(old, new, stretch=False))
+                    parts.append(_fade_in_from(new, old, stretch=False))
+            elif _has_ink(old):
+                parts.append(_fade_out_into(old, None))
+            elif _has_ink(new):
+                parts.append(_fade_in_from(new, None))
+        self._target = target
+        self._parts = parts
+        m.submobjects = [VGroup(*[p.mobject for p in parts])]
+        for p in parts:
+            p.begin()
+
+    def interpolate(self, alpha: float) -> None:
+        a = self.rate_func(alpha)
+        for p in self._parts:
+            p.interpolate(a)
+
+    def update_mobjects(self, dt: float) -> None:
+        pass
+
+    def get_all_mobjects(self) -> Sequence[VMobject]:
+        return [self.mobject]
+
+    def finish(self) -> None:
+        for p in self._parts:
+            p.finish()
+        if self._target is not None:
+            self.mobject._adopt(self._target)
