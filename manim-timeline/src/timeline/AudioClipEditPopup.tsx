@@ -5,10 +5,15 @@ import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { getAudioBoundaries } from '@/types/scene';
-import { MIN_CLIP_SEC, clipFileLength, clipSourceIn, isEditedClip } from '@/lib/audioEdit';
+import { MIN_CLIP_SEC, clipFileLength, clipSourceIn, isEditedClip, wordRangeCut } from '@/lib/audioEdit';
 import { dbToGain } from '@/lib/audioSchedule';
 import { playAudioPreview, stopAudioPreview } from './audioBuffers';
-import { deleteAudioSelection, useAudioEditSession } from './audioEditSession';
+import {
+  copyAudioSelection,
+  cutAudioSelection,
+  deleteAudioSelection,
+  useAudioEditSession,
+} from './audioEditSession';
 import {
   AUDIO_GAP_PRESETS,
   findPreviousAudioEndingBefore,
@@ -96,6 +101,8 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
   const setAudioClipGain = useSceneStore((s) => s.setAudioClipGain);
   const playheadTime = useSceneStore((s) => s.currentTime);
   const range = useAudioEditSession((st) => (st.range?.clipId === clipId ? st.range : null));
+  const setRange = useAudioEditSession((st) => st.setRange);
+  const [wordAnchorIndex, setWordAnchorIndex] = useState<number | null>(null);
   const playheadInside =
     item != null &&
     playheadTime > item.startTime + MIN_CLIP_SEC &&
@@ -223,6 +230,18 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
   }, [isTimelinePlaying]);
 
   useEffect(() => () => stopAudioPreview(), []);
+
+  /** Select word `i` (Shift extends from the last clicked word) as the clip's marked range. */
+  const pickWord = useCallback(
+    (i: number, extend: boolean) => {
+      if (!item) return;
+      const from = extend && wordAnchorIndex != null ? wordAnchorIndex : i;
+      const cut = wordRangeCut(item, from, i);
+      if (!extend) setWordAnchorIndex(i);
+      setRange(cut ? { clipId: item.id, ...cut } : null);
+    },
+    [item, wordAnchorIndex, setRange],
+  );
 
   /** Play clip-local [start, end) of this clip (its file slice and gain). */
   const playRange = useCallback(
@@ -364,6 +383,68 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
             T/N/I/R gap presets. With multiple unlinked clips selected, spaces all selected clips.
           </p>
         </section>
+
+        {boundaries.length > 0 ? (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-chalk-dim font-medium text-meta ">Transcript</h3>
+            <div className="flex flex-wrap gap-1 rounded-ctl border border-rule bg-ink/60 p-1.5" dir="auto">
+              {boundaries.map((b, i) => {
+                const mid = (b.start + b.end) / 2;
+                const picked = range != null && mid >= range.from && mid < range.to;
+                return (
+                  <button
+                    key={`${b.word}-${i}`}
+                    type="button"
+                    dir="auto"
+                    onClick={(e) => pickWord(i, e.shiftKey)}
+                    className={`rounded-ctl px-1 py-0.5 text-meta ${
+                      picked ? 'bg-highlight text-highlight-ink' : 'text-chalk hover:bg-rule'
+                    }`}
+                  >
+                    {b.word}
+                  </button>
+                );
+              })}
+            </div>
+            {range ? (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => playRange(range.from, range.to, 'clip')}
+                  className="rounded-ctl border border-highlight/60 bg-raised px-2 py-1 text-ctl text-chalk hover:bg-rule"
+                >
+                  {previewing === 'clip' ? 'Stop' : 'Play selection'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteAudioSelection()}
+                  className="rounded-ctl border border-rule bg-ink/95 px-2 py-1 text-ctl text-chalk hover:bg-rule"
+                >
+                  Delete words
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cutAudioSelection()}
+                  className="rounded-ctl border border-rule bg-ink/95 px-2 py-1 text-ctl text-chalk hover:bg-rule"
+                >
+                  Cut
+                </button>
+                <button
+                  type="button"
+                  onClick={() => copyAudioSelection()}
+                  className="rounded-ctl border border-rule bg-ink/95 px-2 py-1 text-ctl text-chalk hover:bg-rule"
+                >
+                  Copy
+                </button>
+              </div>
+            ) : null}
+            <p className="text-meta text-chalk-faint">
+              Click a word, Shift+click to extend. Cuts fall in the middle of the pauses around the
+              words. Deleting closes the gap (the rest becomes a second clip); later narration and
+              clips anchored to later words move up. Paste with Ctrl+V on the timeline.
+            </p>
+          </section>
+        ) : null}
 
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">

@@ -9,6 +9,7 @@ import {
   splitClip,
   trimClipEnd,
   trimClipStart,
+  wordRangeCut,
 } from './audioEdit';
 
 const words = [
@@ -124,5 +125,15 @@ describe('copy / paste', () => {
       [expect.closeTo(20.8), 3],
     ]);
     expect(res.ripple).toEqual({ at: 11, shift: expect.closeTo(0.8) });
+  });
+});
+
+describe('wordRangeCut', () => {
+  it('cuts in the middle of the pauses around the words', () => {
+    expect(wordRangeCut(clip(), 1, 1)).toEqual({ from: expect.closeTo(0.65), to: expect.closeTo(1.4) });
+  });
+  it('reaches the clip edges for the first and last words, in either order', () => {
+    expect(wordRangeCut(clip(), 2, 0)).toEqual({ from: 0, to: 3 });
+    expect(wordRangeCut(clip({ boundaries: [] }), 0, 0)).toBeNull();
   });
 });

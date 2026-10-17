@@ -183,6 +183,18 @@ None open; decisions recorded above.
   guide labelled "beta" while dragging, drop at exactly 3.5 s anchored, clip followed a +2 s
   narration move and a 0.5 s cut before the word.
 
+### Phase 4 (2026-10-17)
+- `lib/audioEdit.ts`: `wordRangeCut(clip, first, last)` — cut points in the middle of the pauses
+  around the words (clip edges for first/last word).
+- `AudioClipEditPopup.tsx`: Transcript section of word chips (click, Shift+click extends) that
+  sets the shared marked range, so the timeline highlight, Delete and Ctrl+C/X/V all apply;
+  Play selection / Delete words / Cut / Copy buttons.
+- Deviation: room-tone fill dropped. Deletes always close the gap, so there is no hole to
+  fill; joins get the cut fades and the bed (room tone) already runs under everything.
+- Known limit: deleting words in the middle leaves two clips (a clip is one slice of a file).
+- Ran: tsc ok, audioEdit tests 13 passed. Headless Chrome: two filler words selected by
+  click + Shift+click, Delete words → cut 0.80–2.00 s, two clips remain, gap closed.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)

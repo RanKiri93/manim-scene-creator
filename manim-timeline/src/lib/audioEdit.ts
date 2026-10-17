@@ -186,3 +186,20 @@ export function pasteClips(
   }
   return { audioItems: [...out, ...placed], ripple: { at, shift: span } };
 }
+
+/**
+ * Clip-local range that removes words `first..last` (indices into the clip's words): each cut
+ * sits in the middle of the pause next to the words (or at the clip edge), so what remains keeps
+ * half of each pause and the join lands in silence.
+ */
+export function wordRangeCut(a: AudioTrackItem, first: number, last: number): { from: number; to: number } | null {
+  const words = getAudioBoundaries(a);
+  const i = Math.max(0, Math.min(first, last));
+  const j = Math.min(words.length - 1, Math.max(first, last));
+  if (words.length === 0 || i > j) return null;
+  const prev = words[i - 1];
+  const next = words[j + 1];
+  const from = prev ? (prev.end + words[i]!.start) / 2 : 0;
+  const to = next ? (words[j]!.end + next.start) / 2 : a.duration;
+  return to - from > 0 ? { from: Math.max(0, from), to: Math.min(a.duration, to) } : null;
+}
