@@ -8,6 +8,7 @@ import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import BoundaryLabel, { isMathBoundaryWord } from './BoundaryLabel';
 import Waveform from './Waveform';
+import { useAudioEditSession } from './audioEditSession';
 
 /** Height of the narration lane (px); the waveform fills it. */
 export const AUDIO_LANE_PX = 56;
@@ -45,7 +46,12 @@ export default function AudioClip({
     const primary = item.text.trim()
       ? item.text
       : `Audio (${item.id.slice(0, 8)}...)`;
-    const parts = [primary, 'Double-click to edit audio.'];
+    const parts = [
+      primary,
+      'Double-click to edit audio. Drag an edge to trim. Alt+drag marks a range.',
+      'S splits at the playhead. Delete removes the range (the clip closes up) or the clip.',
+      'Ctrl+C / Ctrl+X copy or cut; Ctrl+V pastes on top at the playhead, Ctrl+Shift+V inserts and pushes later audio.',
+    ];
     if (owner) {
       parts.push(
         [
@@ -73,9 +79,72 @@ export default function AudioClip({
     end: boundaryTimeToSeconds(b.end, item.duration),
   }));
 
+  const range = useAudioEditSession((st) => (st.range?.clipId === item.id ? st.range : null));
+  const setRange = useAudioEditSession((st) => st.setRange);
+  const trimAudioClip = useSceneStore((s) => s.trimAudioClip);
+  const commitAudioDrag = useSceneStore((s) => s.commitAudioDrag);
+
+  /** Alt+drag: mark a range inside this clip (clip-local seconds). */
+  const startRangeDrag = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const toLocal = (clientX: number) =>
+        Math.min(item.duration, Math.max(0, (clientX - rect.left) / pxPerSecond));
+      const anchor = toLocal(e.clientX);
+      setRange({ clipId: item.id, from: anchor, to: anchor });
+      const onMove = (ev: MouseEvent) => {
+        const t = toLocal(ev.clientX);
+        setRange({ clipId: item.id, from: Math.min(anchor, t), to: Math.max(anchor, t) });
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        const r = useAudioEditSession.getState().range;
+        if (r && r.to - r.from < 0.02) setRange(null);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [item.id, item.duration, pxPerSecond, setRange],
+  );
+
+  /** Drag a clip edge: one undo step for the whole drag. */
+  const onMouseDownTrim = useCallback(
+    (edge: 'start' | 'end') => (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      select(item.id, false);
+      setRange(null);
+      const state = useSceneStore.getState();
+      const base = state.audioItems.find((a) => a.id === item.id);
+      if (!base) return;
+      const before = state.audioItems;
+      const edgeT0 = edge === 'start' ? base.startTime : base.startTime + base.duration;
+      const startX = e.clientX;
+      useSceneStore.temporal.getState().pause();
+      const onMove = (ev: MouseEvent) => {
+        trimAudioClip(item.id, edge, edgeT0 + (ev.clientX - startX) / pxPerSecond, base);
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        commitAudioDrag(before);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [item.id, pxPerSecond, select, setRange, trimAudioClip, commitAudioDrag],
+  );
+
   const onMouseDownMove = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
+      if (e.altKey) {
+        select(item.id, false);
+        startRangeDrag(e);
+        return;
+      }
+      if (useAudioEditSession.getState().range) setRange(null);
       select(item.id, isMultiSelectModifier(e));
       if (owner) return;
       const state = useSceneStore.getState();
@@ -154,6 +223,8 @@ export default function AudioClip({
       setAudioItemStartTimes,
       select,
       audioItems,
+      startRangeDrag,
+      setRange,
     ],
   );
 
@@ -183,6 +254,25 @@ export default function AudioClip({
         widthPx={width}
         heightPx={AUDIO_LANE_PX - 2}
         className="pointer-events-none absolute left-0 top-0 z-0 text-ink/35"
+      />
+      {range ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-0 bottom-0 z-10 border-x-2 border-highlight bg-highlight/35"
+          style={{ left: `${range.from * pxPerSecond}px`, width: `${Math.max(2, (range.to - range.from) * pxPerSecond)}px` }}
+        />
+      ) : null}
+      {owner ? null : (
+        <div
+          className="absolute top-0 bottom-0 left-0 z-30 w-1.5 cursor-ew-resize hover:bg-ink/30"
+          title="Drag to trim the start"
+          onMouseDown={onMouseDownTrim('start')}
+        />
+      )}
+      <div
+        className="absolute top-0 bottom-0 right-0 z-30 w-1.5 cursor-ew-resize hover:bg-ink/30"
+        title="Drag to trim the end"
+        onMouseDown={onMouseDownTrim('end')}
       />
       <button
         type="button"

@@ -73,3 +73,58 @@ export function setAudioBuffersForTests(opts: { ctx: AudioContext | null; loader
   buffers.clear();
   peaks.clear();
 }
+
+let preview: { src: AudioBufferSourceNode; done: () => void } | null = null;
+
+/** Stop the clip-editor preview, if one is playing. */
+export function stopAudioPreview() {
+  const p = preview;
+  preview = null;
+  if (!p) return;
+  try {
+    p.src.stop();
+  } catch {
+    /* already stopped */
+  }
+  p.done();
+}
+
+/**
+ * Play `duration` seconds of a file from `offset` (one preview at a time, independent of the
+ * timeline). `onEnd` runs when it finishes or is stopped.
+ */
+export async function playAudioPreview(
+  url: string,
+  offset: number,
+  duration: number,
+  gain = 1,
+  onEnd: () => void = () => {},
+): Promise<void> {
+  stopAudioPreview();
+  const c = getAudioContext();
+  const buf = await loadAudioBuffer(url);
+  if (!c || !buf) {
+    onEnd();
+    return;
+  }
+  void c.resume().catch(() => undefined);
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const g = c.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(c.destination);
+  let ended = false;
+  const done = () => {
+    if (ended) return;
+    ended = true;
+    src.disconnect();
+    g.disconnect();
+    onEnd();
+  };
+  src.onended = () => {
+    if (preview?.src === src) preview = null;
+    done();
+  };
+  preview = { src, done };
+  src.start(0, Math.max(0, offset), Math.max(0.01, duration));
+}

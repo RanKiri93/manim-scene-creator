@@ -16,6 +16,14 @@ import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
 import AudioClip, { AUDIO_LANE_PX } from './AudioClip';
+import {
+  activeAudioRange,
+  copyAudioSelection,
+  cutAudioSelection,
+  deleteAudioSelection,
+  pasteAudioClipboard,
+  useAudioEditSession,
+} from './audioEditSession';
 import BedClip from './BedClip';
 import AudioClipEditPopup from './AudioClipEditPopup';
 import BackgroundBedPopup from '@/panels/BackgroundBedPopup';
@@ -293,8 +301,37 @@ export default function Timeline() {
         togglePlayback();
         return;
       }
+      const mod = e.ctrlKey || e.metaKey;
+      if (isHovered.current && !e.altKey) {
+        // Narration edits (see AudioClip tooltip).
+        if (e.code === 'KeyS' && !mod && !e.shiftKey) {
+          const st = useSceneStore.getState();
+          if (st.splitAudioAt(st.currentTime) > 0) e.preventDefault();
+          return;
+        }
+        if (mod && e.code === 'KeyC' && !e.shiftKey) {
+          if (copyAudioSelection()) e.preventDefault();
+          return;
+        }
+        if (mod && e.code === 'KeyX' && !e.shiftKey) {
+          if (cutAudioSelection()) e.preventDefault();
+          return;
+        }
+        if (mod && e.code === 'KeyV') {
+          if (pasteAudioClipboard(e.shiftKey ? 'insert' : 'over')) e.preventDefault();
+          return;
+        }
+        if (e.code === 'Escape' && useAudioEditSession.getState().range) {
+          useAudioEditSession.getState().setRange(null);
+          return;
+        }
+      }
       if (e.code === 'Delete' || e.code === 'Backspace') {
         if (!isHovered.current) return;
+        if (activeAudioRange()) {
+          if (deleteAudioSelection()) e.preventDefault();
+          return;
+        }
         const { selectedIds, audioItems, items, removeAudioItem, removeItem } =
           useSceneStore.getState();
         const ids = [...selectedIds];

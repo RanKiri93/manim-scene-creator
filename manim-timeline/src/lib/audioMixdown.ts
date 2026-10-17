@@ -10,6 +10,7 @@ import {
   measureServerRelativeAudioBedPath,
 } from '@/lib/audioAssetPath';
 import { computeSceneDurationSec } from '@/codegen/manimExporter';
+import { clipSourceIn, isEditedClip } from '@/lib/audioEdit';
 import type { FrameDef, ItemId } from '@/types/scene';
 
 export interface EffectiveClipFades {
@@ -35,6 +36,7 @@ export function needsAudioMixdown(
 ): boolean {
   if (bed) return true;
   if (clips.length === 0) return false;
+  if (clips.some(isEditedClip)) return true;
   const fallback = defaults.audioCutFadeMs ?? 0;
   if (fallback > 0) return true;
   return clips.some(
@@ -48,6 +50,9 @@ export interface AudioMixdownClipSpec {
   fade_in_ms: number;
   fade_out_ms: number;
   gain_db?: number;
+  /** Set for edited clips: the clip plays `duration_sec` of the file from `source_in_sec`. */
+  source_in_sec?: number;
+  duration_sec?: number;
 }
 
 export interface AudioMixdownBedSpec {
@@ -91,6 +96,13 @@ export function buildAudioMixdownSpec(
       start_sec: track.startTime,
       fade_in_ms: fades.fadeInMs,
       fade_out_ms: fades.fadeOutMs,
+      ...(isEditedClip(track)
+        ? {
+            gain_db: track.gainDb ?? 0,
+            source_in_sec: clipSourceIn(track),
+            duration_sec: track.duration,
+          }
+        : {}),
     });
   }
 

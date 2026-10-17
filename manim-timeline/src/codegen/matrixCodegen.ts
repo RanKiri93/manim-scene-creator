@@ -1,4 +1,5 @@
 import type { AudioTrackItem, ItemId, MatrixCell, MatrixItem, SceneItem, TargetAnimationItem } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import { matrixCellsFor, matrixEntryColors, matrixRows } from '@/lib/matrix';
 import { MATRIX_INTRO_LAG, matrixHasFrame } from '@/lib/matrixPreview';
 import { isMatrixStepClip, matrixStates, stepPythonKwargs } from '@/lib/matrixSteps';
@@ -169,7 +170,7 @@ export function generateMatrixPlay(
   if (recorded) {
     const soundEarly = audioItems?.length && boundSoundEmittedAtTrackStart(item, itemsMap, audioItems);
     return (
-      (soundEarly ? '' : `${pad}self.add_sound("${recorded.soundPath}")\n`) +
+      (soundEarly ? '' : `${pad}${pySoundCall(recorded.track)}\n`) +
       `${pad}self.play(${intro}, run_time=${recorded.runTime.toFixed(6)})\n` +
       appendAudioTailAfterLeafPlayback(pad, recorded, item, itemsMap, audioItems, tailOpts)
     );

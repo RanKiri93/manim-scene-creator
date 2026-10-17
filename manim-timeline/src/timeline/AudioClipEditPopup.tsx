@@ -5,6 +5,10 @@ import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { getAudioBoundaries } from '@/types/scene';
+import { MIN_CLIP_SEC, clipFileLength, clipSourceIn, isEditedClip } from '@/lib/audioEdit';
+import { dbToGain } from '@/lib/audioSchedule';
+import { playAudioPreview, stopAudioPreview } from './audioBuffers';
+import { deleteAudioSelection, useAudioEditSession } from './audioEditSession';
 import {
   AUDIO_GAP_PRESETS,
   findPreviousAudioEndingBefore,
@@ -71,9 +75,7 @@ function BoundaryTimeInput(props: {
 }
 
 export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPopupProps) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const previewStopAtRef = useRef<number | null>(null);
-  const previewStopTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const [previewing, setPreviewing] = useState<'clip' | number | null>(null);
   const item = useSceneStore((s) => s.audioItems.find((a) => a.id === clipId));
   const isTimelinePlaying = useSceneStore((s) => s.isPlaying);
   const sceneDefaults = useSceneStore((s) => s.defaults);
@@ -90,6 +92,14 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
   const selectedIds = useSceneStore((s) => s.selectedIds);
   const audioItems = useSceneStore((s) => s.audioItems);
   const itemsMap = usePreviewMergedItems();
+  const splitAudioAt = useSceneStore((s) => s.splitAudioAt);
+  const setAudioClipGain = useSceneStore((s) => s.setAudioClipGain);
+  const playheadTime = useSceneStore((s) => s.currentTime);
+  const range = useAudioEditSession((st) => (st.range?.clipId === clipId ? st.range : null));
+  const playheadInside =
+    item != null &&
+    playheadTime > item.startTime + MIN_CLIP_SEC &&
+    playheadTime < item.startTime + item.duration - MIN_CLIP_SEC;
 
   const [normBusy, setNormBusy] = useState(false);
   const [cleanBusy, setCleanBusy] = useState(false);
@@ -208,50 +218,31 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
     [item, owner, selectedAudioCount, spaceSelectedAudioItems, placeAudioAfterPrevious],
   );
 
-  const clearBoundaryPreview = useCallback(() => {
-    if (previewStopTimerRef.current != null) {
-      window.clearTimeout(previewStopTimerRef.current);
-      previewStopTimerRef.current = null;
-    }
-    previewStopAtRef.current = null;
-  }, []);
-
-  const stopBoundaryPreview = useCallback((audio: HTMLAudioElement, stopAt: number) => {
-    if (previewStopTimerRef.current != null) {
-      window.clearTimeout(previewStopTimerRef.current);
-      previewStopTimerRef.current = null;
-    }
-    previewStopAtRef.current = null;
-    audio.pause();
-    audio.currentTime = Math.min(Math.max(0, stopAt), Number.isFinite(audio.duration) ? audio.duration : stopAt);
-  }, []);
-
   useEffect(() => {
-    if (isTimelinePlaying) {
-      clearBoundaryPreview();
-      audioRef.current?.pause();
-    }
-  }, [clearBoundaryPreview, isTimelinePlaying]);
+    if (isTimelinePlaying) stopAudioPreview();
+  }, [isTimelinePlaying]);
 
-  useEffect(() => () => clearBoundaryPreview(), [clearBoundaryPreview]);
+  useEffect(() => () => stopAudioPreview(), []);
 
-  const playBoundaryRange = useCallback((start: number, end: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    clearBoundaryPreview();
-    const safeStart = Math.max(0, start);
-    const stopAt = Math.max(safeStart + 0.01, end);
-    previewStopAtRef.current = stopAt;
-    audio.currentTime = safeStart;
-    void audio.play();
-    previewStopTimerRef.current = window.setTimeout(
-      () => {
-        const currentAudio = audioRef.current;
-        if (currentAudio) stopBoundaryPreview(currentAudio, stopAt);
-      },
-      Math.max(20, (stopAt - safeStart) * 1000),
-    );
-  }, [clearBoundaryPreview, stopBoundaryPreview]);
+  /** Play clip-local [start, end) of this clip (its file slice and gain). */
+  const playRange = useCallback(
+    (start: number, end: number, tag: 'clip' | number) => {
+      if (!item) return;
+      if (previewing === tag) {
+        stopAudioPreview();
+        return;
+      }
+      setPreviewing(tag);
+      void playAudioPreview(
+        item.audioUrl,
+        clipSourceIn(item) + Math.max(0, start),
+        Math.max(0.01, end - start),
+        dbToGain(item.gainDb ?? 0),
+        () => setPreviewing((p) => (p === tag ? null : p)),
+      );
+    },
+    [item, previewing],
+  );
 
   if (!item) {
     return null;
@@ -268,21 +259,21 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
           </p>
         ) : null}
 
-        <audio
-          ref={audioRef}
-          controls
-          src={item.audioUrl}
-          className="w-full h-9"
-          onTimeUpdate={(e) => {
-            const stopAt = previewStopAtRef.current;
-            const audio = e.currentTarget;
-            if (stopAt != null && audio.currentTime >= stopAt) {
-              stopBoundaryPreview(audio, stopAt);
-            }
-          }}
-          onPause={clearBoundaryPreview}
-          onEnded={clearBoundaryPreview}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => playRange(0, item.duration, 'clip')}
+            className="rounded-ctl border border-highlight/60 bg-raised px-3 py-1.5 text-ctl text-chalk hover:bg-rule"
+          >
+            {previewing === 'clip' ? 'Stop' : 'Play clip'}
+          </button>
+          <span className="text-meta text-chalk-faint tabular-nums">
+            {item.duration.toFixed(2)} s
+            {isEditedClip(item)
+              ? ` · plays ${clipSourceIn(item).toFixed(2)}–${(clipSourceIn(item) + item.duration).toFixed(2)} s of ${clipFileLength(item).toFixed(2)} s file`
+              : ''}
+          </span>
+        </div>
 
         <div className="flex flex-wrap gap-1">
           {item.audioProcessing?.cleaned ? (
@@ -439,10 +430,10 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
                     ))}
                     <button
                       type="button"
-                      onClick={() => playBoundaryRange(boundary.start, boundary.end)}
+                      onClick={() => playRange(boundary.start, boundary.end, index)}
                       className="rounded-ctl border border-highlight/60 bg-raised px-1 py-0.5 text-meta text-kind-graph hover:bg-rule"
                     >
-                      Play
+                      {previewing === index ? 'Stop' : 'Play'}
                     </button>
                   </div>
                 </div>
@@ -452,6 +443,53 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
           <p className="text-meta text-chalk-faint">
             Start times are clamped between neighboring bookmarks. Use nudges for small Whisper
             timing fixes.
+          </p>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-chalk-dim font-medium text-meta ">
+            Edit
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!playheadInside}
+              onClick={() => splitAudioAt(playheadTime)}
+              title="Cut this clip in two at the playhead (S on the timeline)"
+              className="rounded-ctl border border-rule bg-ink/95 px-3 py-1.5 text-ctl text-chalk hover:bg-rule disabled:opacity-40"
+            >
+              Split at playhead
+            </button>
+            <button
+              type="button"
+              disabled={!range}
+              onClick={() => deleteAudioSelection()}
+              title="Remove the marked range; the rest of the clip and later narration close up"
+              className="rounded-ctl border border-rule bg-ink/95 px-3 py-1.5 text-ctl text-chalk hover:bg-rule disabled:opacity-40"
+            >
+              {range
+                ? `Delete ${(range.to - range.from).toFixed(2)} s range`
+                : 'Delete marked range'}
+            </button>
+            <label className="flex items-center gap-1">
+              <span className="text-chalk-faint">Gain dB</span>
+              <input
+                type="number"
+                min={-40}
+                max={20}
+                step={0.5}
+                value={item.gainDb ?? 0}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setAudioClipGain(item.id, Number.isFinite(v) ? v : undefined);
+                }}
+                className="w-16 rounded-ctl border border-rule bg-ink px-2 py-1 text-chalk"
+              />
+            </label>
+          </div>
+          <p className="text-meta text-chalk-faint">
+            Alt+drag on the clip marks a range. Pieces keep the cut fades below, so joins don&apos;t
+            click. Edits never change the audio file.
           </p>
         </section>
 
@@ -498,7 +536,8 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
             </label>
           </div>
           <p className="text-meta text-chalk-faint">
-            Empty fields use scene default ({effectiveFadeIn} ms). Applied at export mixdown.
+            Empty fields use scene default ({effectiveFadeIn} ms). Heard in the timeline preview and
+            applied at export.
           </p>
         </section>
 

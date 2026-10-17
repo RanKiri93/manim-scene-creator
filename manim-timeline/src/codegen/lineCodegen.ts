@@ -18,6 +18,7 @@ import {
   type ImageItem,
   type MatrixItem,
 } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
 import { isAudioBindingNone } from '@/lib/audioBinding';
 import {
@@ -277,13 +278,15 @@ export function generateUnboundAudioAddSoundLine(
   indent: number,
 ): string {
   const pad = ' '.repeat(indent);
-  return `${pad}self.add_sound("${audioAssetRelPath(track)}")\n`;
+  return `${pad}${pySoundCall(track)}\n`;
 }
 
 /** Bound TTS/recording: Whisper slice `runTime` vs full file (Manim plays entire file from `add_sound`). */
 export type ResolvedRecordedPlayback = {
   runTime: number;
   soundPath: string;
+  /** The bound clip; `pySoundCall(track)` plays it (whole file or edited piece). */
+  track: AudioTrackItem;
   audioFileDuration: number;
 };
 
@@ -336,6 +339,7 @@ export function resolveRecordedPlayback(
   return {
     runTime,
     soundPath: audioAssetRelPath(track),
+    track,
     audioFileDuration: Math.max(0, track.duration),
   };
 }
@@ -644,7 +648,7 @@ export function generateLinePlay(
       audioItems &&
       boundSoundEmittedAtTrackStart(item, itemsMap, audioItems);
     if (!soundEarly) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     if (transformPlayInner) {
       s += `${pad}${transformPlayInner.replace('__RUN__', rt)}`;

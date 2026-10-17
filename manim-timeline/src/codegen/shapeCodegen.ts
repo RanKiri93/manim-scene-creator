@@ -1,4 +1,5 @@
 import type { ItemId, ShapeAnchor, ShapeEndpoints, ShapeItem, SceneItem, ShapePoint } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import {
   ANGLE_MARK_SEGMENTS,
   isAngleMark,
@@ -474,7 +475,7 @@ export function generateShapePlay(
       audioItems?.length &&
       boundSoundEmittedAtTrackStart(item, itemsMap, audioItems);
     return (
-      (soundEarly ? '' : `${pad}self.add_sound("${recorded.soundPath}")\n`) +
+      (soundEarly ? '' : `${pad}${pySoundCall(recorded.track)}\n`) +
       `${pad}self.play(${intro}, run_time=${rt})\n` +
       appendAudioTailAfterLeafPlayback(
         pad,

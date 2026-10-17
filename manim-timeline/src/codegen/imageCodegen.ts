@@ -1,4 +1,5 @@
 import type { AudioTrackItem, ImageItem, ItemId, SceneItem } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import { deriveImageAssetRelPath, clampImageOpacity } from '@/lib/imageAssetPath';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
@@ -193,7 +194,7 @@ export function generateImagePlay(
     const soundEarly =
       audioItems?.length && boundSoundEmittedAtTrackStart(item, itemsMap, audioItems);
     return (
-      (soundEarly ? '' : `${pad}self.add_sound("${recorded.soundPath}")\n`) +
+      (soundEarly ? '' : `${pad}${pySoundCall(recorded.track)}\n`) +
       `${pad}self.play(FadeIn(${varName}), run_time=${rt})\n` +
       appendAudioTailAfterLeafPlayback(
         pad,

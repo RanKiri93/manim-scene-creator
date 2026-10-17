@@ -10,6 +10,7 @@ import type {
   SurroundingRectItem,
   TextLineItem,
 } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import type { ExportLeaf } from './flattenExport';
 import { effectiveStart, holdEnd } from '@/lib/time';
 import {
@@ -802,7 +803,7 @@ export function buildConcurrentVisualClusterPlay(
     const rel = Math.max(0, p.t - t0);
     soundEntries.push({
       rel,
-      line: `${playPad}self.add_sound("${rec.soundPath}", time_offset=${rel.toFixed(4)})\n`,
+      line: `${playPad}${pySoundCall(rec.track, rel)}\n`,
     });
   }
   soundEntries.sort((a, b) => a.rel - b.rel || a.line.localeCompare(b.line));

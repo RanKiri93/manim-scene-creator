@@ -1,4 +1,5 @@
 import { isAngleMark, isBoundShape, isConnectorShape } from '@/lib/shapeAnchors';
+import { anyEditedAudio, audioClipHelperSource, pySoundCall } from './audioClipCodegen';
 import { RIEMANN_MAX_COUNT } from '@/lib/riemann';
 import type {
   SceneItem,
@@ -33,7 +34,6 @@ import {
   listUnboundAudioTracksForExport,
   generateUnboundAudioAddSoundLine,
 } from './lineCodegen';
-import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
 import {
   generateAxesDef,
   generateAxesPos,
@@ -1272,7 +1272,7 @@ function exportManimCodeInner(
         if (track.startTime <= t0 + TIMELINE_GAP_EPS) continue;
         const clusterEnd = concurrentClusterWallTimelineEnd(vc, itemsMap);
         if (track.startTime >= clusterEnd - TIMELINE_GAP_EPS) continue;
-        playStr += `${playPad}self.add_sound("${deriveAudioAssetRelPath(track)}", time_offset=${(track.startTime - t0).toFixed(4)})\n`;
+        playStr += `${playPad}${pySoundCall(track, track.startTime - t0)}\n`;
         emittedClusterAudioIds.add(track.id);
       }
       const wallT = concurrentClusterWallTimelineEnd(vc, itemsMap);
@@ -1499,7 +1499,10 @@ function exportManimCodeInner(
     const riemannHelper = anyRiemannArea(items) ? `${riemannRectsSource(0)}\n` : '';
     const marksHelper = anyGeometryMarks(items) ? `${geometryMarksSource(0)}\n` : '';
     const dashHelper = anyDashedShape(items) ? `${shapeDashSource(0)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const clipHelper = anyEditedAudio(options.audioItems)
+      ? `${audioClipHelperSource(options.defaults.audioCutFadeMs ?? 0)}\n`
+      : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${clipHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1519,6 +1522,9 @@ function exportManimCodeInner(
   if (anyMatrix(flat)) header += `from hebrew_matrix import HebrewMatrix${anyMatrixStep(items) ? ', MatrixStep' : ''}\n`;
   // Before any helper `class`: multi-scene export splits each file at its first `class`.
   if (usesTimelineWait) header += '\n\n' + timelineWaitHelperSource();
+  if (anyEditedAudio(options.audioItems)) {
+    header += '\n\n' + audioClipHelperSource(options.defaults.audioCutFadeMs ?? 0);
+  }
   const hasGraphDots = items.some((it) => it.kind === 'graphDot');
   const hasCoordinateDots = items.some((it) => it.kind === 'graphDot' && it.dot.showCoordinates);
   if (hasGraphDots) header += '\n\n' + graphDotAnnotationHelperSource(0, hasCoordinateDots);

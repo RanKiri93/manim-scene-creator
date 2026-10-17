@@ -130,6 +130,35 @@ None open; decisions recorded above.
   trimmed −6 dB piece of it → output RMS 0 / 0.172 / 0 / 0.087 at 0.5 / 1.5 / 3.2 / 4.0 s, as
   expected; both waveform canvases drawn.
 
+### Phase 2 (2026-10-17)
+- `lib/audioEdit.ts` (new): `sliceClip` (words kept by midpoint, `word_boundaries` dropped,
+  `sourceDuration` recorded), `splitClip`, `trimClipStart/End`, `copyRange`, `deleteClipRange`
+  (ripple: unlinked clips starting at/after the cut end move left), `pasteClips` (`over` =
+  lay on the lane, nothing else moves; `insert` = split the unlinked clip under the playhead
+  and push unlinked audio right). `isEditedClip` = has `sourceIn`/`sourceDuration`/gain.
+- `lib/audioMixdown.ts`: edited clips send `source_in_sec`, `duration_sec`, `gain_db` and
+  force the mixdown.
+- `codegen/audioClipCodegen.ts` (new): `pySoundCall` keeps `self.add_sound(path)` for whole
+  files; edited clips call module-level `_mt_clip(self, path, src_in, dur, …)` (pydub slice,
+  gain, fades, `file_writer.add_audio_segment`). All 15 `add_sound` emission sites go through
+  it (`ResolvedRecordedPlayback.track`); helper emitted once when any clip is edited.
+  Verified with a real `manim -ql` render: −6 dB slice exactly −6 dB, silence between clips,
+  webm input same level as Manim's own `add_sound`.
+- `store/useSceneStore.ts`: `splitAudioAt`, `trimAudioClip` (from the drag-start clip so
+  trimmed words come back), `deleteAudioRange`, `pasteAudioClips`, `setAudioClipGain`,
+  `commitAudioDrag` (one undo step per drag). `removeAudioItem` no longer revokes the blob
+  URL: split pieces/clipboard share it and undo restored a dead URL before.
+- UI: `timeline/audioEditSession.ts` (new: marked range + clipboard, outside undo history);
+  `AudioClip.tsx` trim handles (no start handle on linked clips), Alt+drag range overlay,
+  tooltip lists shortcuts; `Timeline.tsx` S / Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+Shift+V /
+  Delete-range / Esc; `AudioClipEditPopup.tsx` preview plays the clip's slice via Web Audio
+  (`playAudioPreview`), "plays a–b s of N s file", Edit section (split at playhead, delete
+  range, gain dB).
+- Ran: build ok; `npm run test` 1080 passed; staged tree alone (WIP excluded) tsc + vitest
+  1058 passed; timing sweep 50 ok / 0 failed. Headless Chrome: S split, end-trim drag, Alt+drag
+  range + Delete (gap closed, later piece moved left), Ctrl+C/V on top, Ctrl+Shift+V insert,
+  playback scheduled all six pieces.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)

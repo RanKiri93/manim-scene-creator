@@ -58,6 +58,15 @@ import {
 } from '@/lib/time';
 import { scaleSegmentAnimForLineDuration } from '@/lib/segmentAnimDurations';
 import {
+  MIN_CLIP_SEC,
+  deleteClipRange,
+  pasteClips,
+  splitClip,
+  trimClipEnd,
+  trimClipStart,
+  type PasteMode,
+} from '@/lib/audioEdit';
+import {
   isAudioBindingNone,
   explicitVisualOwnerForAudioTrack,
 } from '@/lib/audioBinding';
@@ -466,7 +475,7 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   // Timeline mutations
   moveItem: (id: ItemId, newStartTime: number) => void;
   moveAudioItem: (id: string, newStartTime: number) => void;
-  /** Remove a timeline audio track (revokes blob URL; clears matching `audioTrackId` on clips). */
+  /** Remove a timeline audio track (clears matching `audioTrackId` on clips). */
   removeAudioItem: (id: string) => void;
   /**
    * Remove empty timeline time [rangeStart, rangeEnd): shift every top-level clip and
@@ -695,6 +704,34 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   ) => void;
 
   setCutFadeDefault: (ms: number) => void;
+
+  // ── Non-destructive narration edits (`lib/audioEdit.ts`) ──
+  /**
+   * Split narration at timeline time `t`: the selected clips under `t`, or every clip under `t`
+   * when no audio is selected. The left piece keeps the id (and any visual binding).
+   * Returns how many clips were split.
+   */
+  splitAudioAt: (t: number) => number;
+  /**
+   * Move one edge of a clip to timeline time `t` (start trims are refused on linked clips).
+   * `base` is the clip as it was when a drag began, so words trimmed away come back when the
+   * edge is dragged back out.
+   */
+  trimAudioClip: (id: string, edge: 'start' | 'end', t: number, base?: AudioTrackItem) => void;
+  /**
+   * Delete clip-local `[from, to)` of a clip: the rest closes up and unlinked audio after the cut
+   * moves left with it. Returns false when nothing was removed.
+   */
+  deleteAudioRange: (id: string, from: number, to: number) => boolean;
+  /** Paste clipboard pieces (startTimes relative to 0) at `at`, on top or inserted. */
+  pasteAudioClips: (pieces: AudioTrackItem[], at: number, mode: PasteMode) => void;
+  /** Clip gain in dB; undefined clears it. */
+  setAudioClipGain: (id: string, gainDb: number | undefined) => void;
+  /**
+   * End of a live audio drag that paused undo history at pointer-down: records the change from
+   * `before` to the current audio as one undo step and resumes history.
+   */
+  commitAudioDrag: (before: AudioTrackItem[]) => void;
 }
 
 export const useSceneStore = create<SceneStore>()(
@@ -1210,15 +1247,8 @@ export const useSceneStore = create<SceneStore>()(
       removeAudioItem: (id) => set((s) => {
         const idx = s.audioItems.findIndex((a) => a.id === id);
         if (idx < 0) return;
-        const track = s.audioItems[idx]!;
-        const u = track.audioUrl;
-        if (typeof u === 'string' && u.startsWith('blob:')) {
-          try {
-            URL.revokeObjectURL(u);
-          } catch {
-            /* ignore */
-          }
-        }
+        // The blob URL stays alive: undo can bring the clip back, and split pieces, pasted copies
+        // and the audio clipboard share one file URL. Loading a project revokes them all.
         s.audioItems.splice(idx, 1);
         s.selectedIds.delete(id);
         for (const it of s.items.values()) {
@@ -2225,6 +2255,107 @@ export const useSceneStore = create<SceneStore>()(
         set((s) => {
           s.defaults.audioCutFadeMs = Math.max(0, Math.min(500, ms));
         }),
+
+      splitAudioAt: (t) => {
+        let count = 0;
+        set((s) => {
+          const under = (a: AudioTrackItem) =>
+            t > a.startTime + MIN_CLIP_SEC && t < a.startTime + a.duration - MIN_CLIP_SEC;
+          const selected = s.audioItems.filter((a) => s.selectedIds.has(a.id));
+          const targets = new Set((selected.length ? selected : s.audioItems).filter(under).map((a) => a.id));
+          if (targets.size === 0) return;
+          const next: AudioTrackItem[] = [];
+          for (const a of s.audioItems) {
+            const parts = targets.has(a.id)
+              ? splitClip(a, t - a.startTime, crypto.randomUUID().slice(0, 12))
+              : null;
+            if (parts) {
+              next.push(parts[0], parts[1]);
+              count += 1;
+            } else {
+              next.push(a);
+            }
+          }
+          s.audioItems = next;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+        return count;
+      },
+
+      trimAudioClip: (id, edge, t, base) =>
+        set((s) => {
+          const i = s.audioItems.findIndex((a) => a.id === id);
+          if (i < 0) return;
+          const a = base?.id === id ? base : s.audioItems[i]!;
+          if (edge === 'start') {
+            if (explicitVisualOwnerForAudioTrack(s.items, id)) return;
+            s.audioItems[i] = trimClipStart(a, t);
+          } else {
+            s.audioItems[i] = trimClipEnd(a, t);
+          }
+        }),
+
+      deleteAudioRange: (id, from, to) => {
+        const st = get();
+        const res = deleteClipRange(
+          st.audioItems,
+          id,
+          from,
+          to,
+          crypto.randomUUID().slice(0, 12),
+          (aid) => explicitVisualOwnerForAudioTrack(st.items, aid) != null,
+        );
+        if (!res) return false;
+        set((s) => {
+          s.audioItems = res.audioItems;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+        return true;
+      },
+
+      pasteAudioClips: (pieces, at, mode) => {
+        if (pieces.length === 0) return;
+        const st = get();
+        const res = pasteClips(
+          st.audioItems,
+          pieces,
+          at,
+          mode,
+          () => crypto.randomUUID().slice(0, 12),
+          (aid) => explicitVisualOwnerForAudioTrack(st.items, aid) != null,
+        );
+        const pastedIds = res.audioItems.slice(-pieces.length).map((a) => a.id);
+        set((s) => {
+          s.audioItems = res.audioItems;
+          s.selectedIds = new Set(pastedIds);
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+        });
+      },
+
+      setAudioClipGain: (id, gainDb) =>
+        set((s) => {
+          const a = s.audioItems.find((x) => x.id === id);
+          if (!a) return;
+          if (gainDb === undefined || gainDb === 0) delete a.gainDb;
+          else a.gainDb = Math.max(-40, Math.min(20, gainDb));
+        }),
+
+      commitAudioDrag: (before) => {
+        const history = useSceneStore.temporal.getState();
+        const after = get().audioItems;
+        if (after !== before) {
+          set((s) => {
+            s.audioItems = before;
+          });
+        }
+        history.resume();
+        if (after !== before) {
+          set((s) => {
+            s.audioItems = after;
+            syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          });
+        }
+      },
 
       placeAudioAfterPrevious: (id, gapSec) =>
         set((s) => {

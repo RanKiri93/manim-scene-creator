@@ -4,6 +4,7 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import {
   pointSequenceIndices,
   resolvePointSequenceN,
@@ -99,7 +100,7 @@ export function generateGraphPointSequencePlay(
     (!audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems))
   ) {
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    s += `${pad}${pySoundCall(recorded.track)}\n`;
   }
 
   if (item.mode === 'accumulation') {

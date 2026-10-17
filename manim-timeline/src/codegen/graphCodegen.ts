@@ -13,6 +13,7 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
+import { pySoundCall } from './audioClipCodegen';
 import {
   DEFAULT_FIELD_ARROW_STROKE_WIDTH,
   functionSeriesIndices,
@@ -460,7 +461,7 @@ export function generateAxesPlay(
       !audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
     ) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     s += `${pad}self.play(Create(${axVar}), run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
@@ -665,7 +666,7 @@ export function generateGraphPlotPlay(
       !audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
     ) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     s += `${pad}self.play(Create(${pVar}), run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
@@ -703,7 +704,7 @@ export function generateGraphCurvePlay(
       !audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
     ) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     s += `${pad}self.play(Create(${cVar}), run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
@@ -985,7 +986,7 @@ export function generateGraphDotPlay(
       !audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
     ) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     s += `${pad}self.play(${intro}, run_time=${rt})\n`;
     s += appendAudioTailAfterLeafPlayback(
@@ -1141,7 +1142,7 @@ export function generateGraphFieldPlay(
       !audioItems?.length ||
       !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems)
     ) {
-      s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+      s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
     s += `${pad}self.play(Create(${vfVar}), run_time=${rt})\n`;
   } else {
@@ -1473,7 +1474,7 @@ export function generateGraphAreaPlay(
     recorded &&
     (!audioItems?.length || !boundSoundEmittedAtTrackStart(item, itemsMap, audioItems))
   ) {
-    s += `${pad}self.add_sound("${recorded.soundPath}")\n`;
+    s += `${pad}${pySoundCall(recorded.track)}\n`;
   }
 
   for (const bv of boundaries) {
