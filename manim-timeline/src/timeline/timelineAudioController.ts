@@ -1,18 +1,159 @@
 import { useSceneStore } from '@/store/useSceneStore';
-import type { AudioTrackItem } from '@/types/scene';
+import {
+  audioBedPlay,
+  audioPlaySegments,
+  fadeRampPoints,
+  scheduleFrom,
+  type AudioPlaySegment,
+} from '@/lib/audioSchedule';
+import { getAudioContext, loadAudioBuffer } from './audioBuffers';
 
-const DRIFT_SEC = 0.35;
-
-/**
- * Single timeline preview element. Overlapping audio clips (or duplicate tracks) must not
- * each call `play()` — that stacks multiple decoders and sounds like “the same audio twice”.
+/*
+ * Timeline preview audio through Web Audio, mirroring the export mixdown: every narration clip
+ * (overlaps included) at its timeline start with its cut fades and gain, plus the looped
+ * background bed. Playback schedules all clips once on the AudioContext clock and restarts when
+ * the playhead jumps (seek), drifts, or the audio edit changes.
  */
-let sharedEl: HTMLAudioElement | null = null;
 
+/** Restart when the playhead and the audio clock disagree by more than this (seek or drift). */
+const RESYNC_SEC = 0.2;
+/** Scheduling lead so the first clip is not started in the past. */
+const LEAD_SEC = 0.03;
+
+interface Session {
+  ctx: AudioContext;
+  ctxT0: number;
+  sceneT0: number;
+  nodes: { src: AudioBufferSourceNode; gain: GainNode }[];
+  cancelled: boolean;
+  /** Inputs the schedule was built from; a change restarts playback. */
+  sig: readonly unknown[];
+}
+
+let session: Session | null = null;
 let rafId: number | null = null;
 let storeUnsub: (() => void) | null = null;
 let syncWired = false;
 let lastIsPlaying = false;
+
+function audioSig(): readonly unknown[] {
+  const s = useSceneStore.getState();
+  return [s.audioItems, s.audioBed, s.defaults.audioCutFadeMs];
+}
+
+function sameSig(a: readonly unknown[], b: readonly unknown[]) {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function stopSession() {
+  const s = session;
+  session = null;
+  if (!s) return;
+  s.cancelled = true;
+  for (const { src, gain } of s.nodes) {
+    try {
+      src.stop();
+    } catch {
+      /* not started yet */
+    }
+    src.disconnect();
+    gain.disconnect();
+  }
+}
+
+/** Scene time the session's clock is at now. */
+function sessionSceneTime(s: Session) {
+  return s.sceneT0 + (s.ctx.currentTime - s.ctxT0);
+}
+
+function scheduleClip(s: Session, seg: AudioPlaySegment, buf: AudioBuffer) {
+  if (s.cancelled) return;
+  // Decoding may finish after playback started: begin from where the clock is now.
+  const from = Math.max(s.sceneT0, sessionSceneTime(s) + LEAD_SEC);
+  const play = scheduleFrom([seg], from)[0];
+  if (!play) return;
+  const soundStart = s.ctxT0 + (seg.timelineStart + play.clipOffset - s.sceneT0);
+  const src = s.ctx.createBufferSource();
+  src.buffer = buf;
+  const gain = s.ctx.createGain();
+  const pts = fadeRampPoints(play);
+  gain.gain.setValueAtTime(pts[0]![1] * seg.gain, soundStart);
+  for (const [rel, v] of pts.slice(1)) {
+    gain.gain.linearRampToValueAtTime(v * seg.gain, soundStart + rel);
+  }
+  src.connect(gain).connect(s.ctx.destination);
+  src.start(soundStart, seg.sourceIn + play.clipOffset, play.length);
+  s.nodes.push({ src, gain });
+}
+
+function scheduleBed(s: Session, gainValue: number, buf: AudioBuffer) {
+  if (s.cancelled || !(buf.duration > 0)) return;
+  const from = Math.max(s.sceneT0, sessionSceneTime(s) + LEAD_SEC);
+  const src = s.ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  const gain = s.ctx.createGain();
+  gain.gain.setValueAtTime(gainValue, 0);
+  src.connect(gain).connect(s.ctx.destination);
+  // The export loops the bed from scene time 0.
+  src.start(s.ctxT0 + (from - s.sceneT0), from % buf.duration);
+  s.nodes.push({ src, gain });
+}
+
+function startSession(sceneTime: number) {
+  stopSession();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+  const st = useSceneStore.getState();
+  const s: Session = {
+    ctx,
+    ctxT0: ctx.currentTime + LEAD_SEC,
+    sceneT0: sceneTime,
+    nodes: [],
+    cancelled: false,
+    sig: audioSig(),
+  };
+  session = s;
+  for (const play of scheduleFrom(audioPlaySegments(st.audioItems, st.defaults), sceneTime)) {
+    void loadAudioBuffer(play.seg.url).then((buf) => {
+      if (buf) scheduleClip(s, play.seg, buf);
+    });
+  }
+  const bed = audioBedPlay(st.audioBed);
+  if (bed) {
+    void loadAudioBuffer(bed.url).then((buf) => {
+      if (buf) scheduleBed(s, bed.gain, buf);
+    });
+  }
+}
+
+function applySyncFrame() {
+  const { currentTime: t, isPlaying } = useSceneStore.getState();
+  if (!isPlaying) {
+    stopSession();
+    return;
+  }
+  const s = session;
+  if (
+    !s ||
+    !sameSig(s.sig, audioSig()) ||
+    // A suspended context has a frozen clock; only judge drift once it runs.
+    (s.ctx.state === 'running' && Math.abs(sessionSceneTime(s) - t) > RESYNC_SEC)
+  ) {
+    startSession(t);
+  }
+}
+
+function rafLoop() {
+  rafId = null;
+  if (!useSceneStore.getState().isPlaying) {
+    stopSession();
+    return;
+  }
+  applySyncFrame();
+  rafId = requestAnimationFrame(rafLoop);
+}
 
 function stopRaf() {
   if (rafId != null) {
@@ -21,96 +162,20 @@ function stopRaf() {
   }
 }
 
-function getSharedElement(): HTMLAudioElement {
-  if (!sharedEl) {
-    sharedEl = document.createElement('audio');
-    sharedEl.preload = 'auto';
-  }
-  return sharedEl;
-}
-
-/** At most one track at the playhead: earliest `startTime`, then `id` for stability. */
-export function pickActiveAudioTrackAtTime(
-  t: number,
-  tracks: readonly AudioTrackItem[],
-): AudioTrackItem | null {
-  const active = tracks.filter((tr) => {
-    const rel = t - tr.startTime;
-    return rel >= 0 && rel < tr.duration;
-  });
-  if (active.length === 0) return null;
-  active.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-  return active[0] ?? null;
-}
-
-function applySyncFrame() {
-  const { currentTime: t, audioItems: tracks, isPlaying } = useSceneStore.getState();
-  const el = getSharedElement();
-
-  if (!isPlaying) {
-    el.pause();
-    return;
-  }
-
-  const track = pickActiveAudioTrackAtTime(t, tracks);
-  if (!track) {
-    el.pause();
-    return;
-  }
-
-  const url = track.audioUrl;
-  const rel = t - track.startTime;
-  const key = `${track.id}|${url}`;
-
-  if (url && el.dataset.mtTimelineKey !== key) {
-    el.dataset.mtTimelineKey = key;
-    el.pause();
-    el.src = url;
-    el.load();
-  }
-
-  if (Math.abs(el.currentTime - rel) > DRIFT_SEC) {
-    try {
-      el.currentTime = rel;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (el.paused) {
-    void el.play().catch((err) => {
-      console.warn('Timeline audio play failed:', err);
-    });
-  }
-}
-
-function rafLoop() {
-  rafId = null;
-  const playing = useSceneStore.getState().isPlaying;
-  if (!playing) {
-    sharedEl?.pause();
-    return;
-  }
-  applySyncFrame();
-  rafId = requestAnimationFrame(rafLoop);
-}
-
 function kickRafIfPlaying() {
-  const playing = useSceneStore.getState().isPlaying;
-  if (playing && rafId == null) {
+  if (useSceneStore.getState().isPlaying && rafId == null) {
     rafId = requestAnimationFrame(rafLoop);
   }
 }
 
-/** Trigger one immediate sync pass, intended to be called from the user's Play click handler. */
+/** One immediate sync pass; call from the Play click so the AudioContext resumes inside a user gesture. */
 export function kickTimelineAudioSyncNow() {
+  getAudioContext()?.resume().catch(() => undefined);
   applySyncFrame();
   kickRafIfPlaying();
 }
 
-/**
- * Idempotent: one zustand subscription + one RAF chain for the whole app.
- * Call from a root timeline hook once per app mount.
- */
+/** Idempotent: one zustand subscription + one RAF chain for the whole app. */
 export function ensureTimelineAudioSyncWired() {
   if (syncWired) return;
   syncWired = true;
@@ -124,16 +189,11 @@ export function ensureTimelineAudioSyncWired() {
       kickRafIfPlaying();
     } else {
       stopRaf();
-      sharedEl?.pause();
+      stopSession();
     }
   });
 
   kickRafIfPlaying();
-}
-
-/** Kept for API compatibility; single element is reused (no per-id pool). */
-export function pruneTimelineAudioPool(_tracks: AudioTrackItem[]) {
-  /* no-op: active track selection uses current store state each frame */
 }
 
 /** @internal Vitest only */
@@ -143,26 +203,15 @@ export function resetTimelineAudioControllerForTests() {
   storeUnsub?.();
   storeUnsub = null;
   stopRaf();
-  if (sharedEl) {
-    sharedEl.pause();
-    sharedEl.removeAttribute('src');
-    sharedEl.removeAttribute('data-mt-timeline-key');
-    sharedEl.load();
-  }
-  sharedEl = null;
-}
-
-/** @internal Vitest only */
-export function timelineAudioPoolSizeForTests() {
-  return sharedEl ? 1 : 0;
-}
-
-/** @internal Vitest only */
-export function timelineAudioRafScheduledForTests() {
-  return rafId != null;
+  stopSession();
 }
 
 /** @internal Vitest only — run one sync pass (same body as inside the RAF loop). */
 export function runTimelineAudioSyncFrameForTests() {
   applySyncFrame();
+}
+
+/** @internal Vitest only */
+export function timelineAudioSessionForTests() {
+  return session;
 }

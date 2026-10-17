@@ -198,7 +198,17 @@ export interface AudioTrackItem {
   /** Alternate key from some APIs / saved files; merged with `boundaries` in `getAudioBoundaries`. */
   word_boundaries?: WordBoundary[];
   startTime: number;
+  /** Clip length in seconds (after trimming). `boundaries` are relative to the clip, not the file. */
   duration: number;
+  /**
+   * Seconds into the audio file where the clip starts (non-destructive trim / split piece).
+   * Missing = 0. The clip plays `[sourceIn, sourceIn + duration)` of the file.
+   */
+  sourceIn?: number;
+  /** Full length of the audio file in seconds, when known (limits how far a trim can be undone). */
+  sourceDuration?: number;
+  /** Clip gain in dB (preview and export). Missing = 0. */
+  gainDb?: number;
   /** Per-clip fade-in at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
   fadeInMs?: number;
   /** Per-clip fade-out at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */

@@ -15,7 +15,7 @@ import {
 import type { SceneItem } from '@/types/scene';
 import { isTopLevelItem, timelineSpanEnd } from '@/lib/time';
 import TimelineTrack from './TimelineTrack';
-import AudioClip from './AudioClip';
+import AudioClip, { AUDIO_LANE_PX } from './AudioClip';
 import BedClip from './BedClip';
 import AudioClipEditPopup from './AudioClipEditPopup';
 import BackgroundBedPopup from '@/panels/BackgroundBedPopup';
@@ -375,7 +375,10 @@ export default function Timeline() {
           </div>
 
           {/* Narration audio lane */}
-          <div className="relative z-0 min-h-10 h-10 shrink-0 border-t border-rule bg-ink/40">
+          <div
+            className="relative z-0 shrink-0 border-t border-rule bg-ink/40"
+            style={{ height: AUDIO_LANE_PX }}
+          >
             <span className="pointer-events-none absolute top-1 left-1 z-0 text-meta text-chalk-faint">
               Narration
             </span>

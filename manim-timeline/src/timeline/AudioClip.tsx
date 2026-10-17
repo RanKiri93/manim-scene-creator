@@ -7,6 +7,10 @@ import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import BoundaryLabel, { isMathBoundaryWord } from './BoundaryLabel';
+import Waveform from './Waveform';
+
+/** Height of the narration lane (px); the waveform fills it. */
+export const AUDIO_LANE_PX = 56;
 
 interface AudioClipProps {
   item: AudioTrackItem;
@@ -172,6 +176,14 @@ export default function AudioClip({
         onEditRequest(item.id);
       }}
     >
+      <Waveform
+        url={item.audioUrl}
+        fromSec={item.sourceIn ?? 0}
+        toSec={(item.sourceIn ?? 0) + item.duration}
+        widthPx={width}
+        heightPx={AUDIO_LANE_PX - 2}
+        className="pointer-events-none absolute left-0 top-0 z-0 text-ink/35"
+      />
       <button
         type="button"
         className="absolute top-0.5 right-0.5 z-40 flex size-4 shrink-0 items-center justify-center rounded-ctl bg-ink/75 text-chalk-dim transition-colors hover:bg-danger hover:text-highlight-ink"

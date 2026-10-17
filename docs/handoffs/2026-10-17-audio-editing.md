@@ -113,6 +113,23 @@ None open; decisions recorded above.
   `/api/mixdown_audio` on a server with an isolated data dir: two clips (one trimmed) + bed →
   5.000 s, 48 kHz stereo, both clips −23.8 dB, bed alone −54 dB.
 
+### Phase 1 (2026-10-17)
+- `types/scene.ts`: optional `sourceIn`, `sourceDuration`, `gainDb` on `AudioTrackItem`
+  (optional + readers default them, so no version bump; audio items are saved whole).
+- `lib/audioSchedule.ts` (new): segments, fade envelope (linear like `afade`), `scheduleFrom`,
+  ramp points. `lib/waveformPeaks.ts` (new): 200 bins/s peaks, columns for a file range.
+- `timeline/audioBuffers.ts` (new): one AudioContext, decode cache by URL, peaks + subscribe.
+- `timeline/timelineAudioController.ts`: rewritten on Web Audio. All clips still ahead are
+  scheduled on the context clock (file offset, length, gain, fade ramps), bed looped from
+  `sceneTime % bedLength`; restarts on seek/drift > 0.2 s or when audio items / bed / default
+  fade change; stops on pause. `useTimelineAudioSync` no longer prunes a pool.
+- `timeline/Waveform.tsx` (new) drawn in every narration clip; lane 56 px.
+- Ran: build ok; `npm run test` 1056 passed; lint clean on new files (Timeline.tsx has two
+  pre-existing set-state-in-effect errors on untouched lines). Headless Chrome (CDP, the
+  extension was not connected) against the dev server: a 3 s file (1 s silence + tone) plus a
+  trimmed −6 dB piece of it → output RMS 0 / 0.172 / 0 / 0.087 at 0.5 / 1.5 / 3.2 / 4.0 s, as
+  expected; both waveform canvases drawn.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)
