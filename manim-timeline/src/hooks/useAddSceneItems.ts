@@ -24,7 +24,9 @@ import {
   guessImageMime,
   isSupportedImageFile,
 } from '@/lib/imageAssetPath';
-import type { ItemId, SceneItem, TargetAnimationMode } from '@/types/scene';
+import type { ItemId, MatrixItem, SceneItem, TargetAnimationMode } from '@/types/scene';
+import { matrixRows } from '@/lib/matrix';
+import { matrixStates } from '@/lib/matrixSteps';
 import {
   canBeExitTarget,
   canBeBlinkTarget,
@@ -381,6 +383,29 @@ export function useAddSceneItems() {
     [selectedIds, currentTime, activeFrameId, startFrameId, addItem, select],
   );
 
+  /** A matrix step on `matrixId` (else the selected matrix, else the first one), after its last step. */
+  const addMatrixStep = useCallback(
+    (matrixId?: ItemId) => {
+      const map = useSceneStore.getState().items;
+      const chosen = matrixId ? map.get(matrixId) : [...selectedIds].map((id) => map.get(id)).find((it) => it?.kind === 'matrix');
+      const matrices = [...map.values()].filter((it): it is MatrixItem => it.kind === 'matrix');
+      const fallback = sameFrameTargets(matrices, map, startFrameId, activeFrameId ?? startFrameId).sort(
+        (a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id),
+      )[0];
+      const matrix = chosen?.kind === 'matrix' ? chosen : fallback;
+      if (!matrix) return;
+      const states = matrixStates(matrix, map);
+      const last = states[states.length - 1]!;
+      const after = Math.max(holdEnd(matrix, map), last.end);
+      const clip = createTargetAnimation('matrix_step', [matrix.id], Math.max(currentTime, after), 1);
+      // One row cannot be swapped: start with a transpose then.
+      if (matrixRows(last.view) < 2) clip.targets[0]!.step = { ...clip.targets[0]!.step!, op: 'transpose' };
+      addItem(clip);
+      select(clip.id);
+    },
+    [selectedIds, currentTime, activeFrameId, startFrameId, addItem, select],
+  );
+
   const addSurroundingRectClip = useCallback(() => {
     const map = useSceneStore.getState().items;
     const selectedTargets = [...selectedIds]
@@ -470,6 +495,7 @@ export function useAddSceneItems() {
     addExitAnimationClip,
     addBlinkAnimationClip,
     addTargetAnimationClip,
+    addMatrixStep,
     addCameraMoveClip,
     addCameraFrameReturn,
     beginCameraRegionSelection: requestCameraRegionSelection,

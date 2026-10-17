@@ -27,6 +27,7 @@ import { defaultTargetAnimationRow } from '@/store/factories';
 import MathSubobjectPicker from './MathSubobjectPicker';
 import MathExpressionEditor from './MathExpressionEditor';
 import MatrixCellPicker from './MatrixCellPicker';
+import { matrixViewAt } from '@/lib/matrixSteps';
 import { PATH_T_PROFILE } from './mathExpressionPresets';
 import {
   graphFollowMinimumStartTime,
@@ -726,7 +727,7 @@ export default function TargetAnimationEditor({ item }: TargetAnimationEditorPro
 {item.mode === 'color' && target?.kind === 'matrix' ? (
                   <div className="w-full">
                     <div className="mb-1 text-meta text-chalk-faint">Entries (none chosen = whole matrix)</div>
-                    <MatrixCellPicker matrix={target} value={row.cells ?? []} onChange={(cells) => patchRow(index, { cells: cells.length ? cells : null })} />
+                    <MatrixCellPicker matrix={matrixViewAt(target, itemsMap, item.startTime)} value={row.cells ?? []} onChange={(cells) => patchRow(index, { cells: cells.length ? cells : null })} />
                   </div>
                 ) : null}
                 {target && (item.mode === 'graphFollow' ? isGraphFollowTarget(target) : canBeTargetAnimationTarget(target, item.mode)) ? (

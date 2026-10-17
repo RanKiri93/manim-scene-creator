@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, TargetAnimationItem } from '@/types/scene';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { matrixStepTitle } from '@/lib/matrixSteps';
 
 function summarizeRow(cl: TargetAnimationItem): string {
   const row = cl.targets[0];
@@ -28,6 +29,8 @@ function summarizeRow(cl: TargetAnimationItem): string {
     }
     case 'rotate':
       return `${typeof row.angleDeg === 'number' ? row.angleDeg : 0}°`;
+    case 'matrix_step':
+      return row.step ? matrixStepTitle(row.step) : 'matrix step';
     default:
       return cl.mode;
   }

@@ -1,4 +1,5 @@
 import { newId } from '@/lib/ids';
+import { defaultMatrixStepSpec } from '@/lib/matrixSteps';
 import {
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
@@ -183,6 +184,8 @@ export function defaultTargetAnimationRow(mode: TargetAnimationMode, targetId: I
       return { targetId, angleDeg: 45 };
     case 'graphFollow':
       return { targetId, graphPlotId: '', targetX: 0, easing: 'smooth' as const };
+    case 'matrix_step':
+      return { targetId, step: defaultMatrixStepSpec() };
     default:
       return { targetId };
   }

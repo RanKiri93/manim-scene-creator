@@ -1,5 +1,6 @@
 import type { ItemId, SceneItem } from '@/types/scene';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { matrixStepTitle } from '@/lib/matrixSteps';
 
 /**
  * Pure helpers for the Items panel "By object" view.
@@ -102,6 +103,7 @@ export function nestedChildTitle(item: SceneItem, parentId: ItemId): string {
     }
     case 'target_animation': {
       const m = item.mode;
+      if (m === 'matrix_step') return item.targets[0]?.step ? matrixStepTitle(item.targets[0].step) : 'Matrix step';
       return `${m[0]!.toUpperCase()}${m.slice(1)}`;
     }
     case 'surroundingRect':

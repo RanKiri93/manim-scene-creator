@@ -678,7 +678,8 @@ function concurrentBranchForTargetAnimationClip(
   if (!inner) {
     return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
   }
-  if (ta.mode === 'path') {
+  // Path groups and matrix steps carry their own run time.
+  if (ta.mode === 'path' || ta.mode === 'matrix_step') {
     return `Succession(Wait(${wStr}), ${inner})`;
   }
   return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;

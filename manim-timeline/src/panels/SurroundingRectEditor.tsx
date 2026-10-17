@@ -24,6 +24,7 @@ import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 import MatrixCellPicker from './MatrixCellPicker';
+import { matrixViewAt } from '@/lib/matrixSteps';
 
 function formatSegmentIndices(idxs: number[] | null | undefined): string {
   if (!idxs?.length) return '';
@@ -195,7 +196,8 @@ export default function SurroundingRectEditor({ item }: SurroundingRectEditorPro
     targetIdsList.length === 1 ? itemsMap.get(targetIdsList[0]!) : null;
   const lineTarget =
     soleTarget?.kind === 'textLine' ? (soleTarget as TextLineItem) : null;
-  const matrixTarget = soleTarget?.kind === 'matrix' ? soleTarget : null;
+  // Entries as they are when the highlight appears (after any matrix steps before it).
+  const matrixTarget = soleTarget?.kind === 'matrix' ? matrixViewAt(soleTarget, itemsMap, effectiveStart(item, itemsMap)) : null;
 
   const baseContent = (
     <div className="flex flex-col gap-3">

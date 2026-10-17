@@ -30,6 +30,7 @@ export type InsertActionId =
   | 'scale'
   | 'rotate'
   | 'color'
+  | 'matrixStep'
   | 'blink'
   | 'surroundingRect'
   | 'exit'
@@ -98,6 +99,7 @@ export const INSERT_ACTIONS: readonly InsertActionDef[] = [
   { id: 'scale', label: 'Scale', title: 'Persistent scale. Uses compatible selected objects, or the first eligible one.', group: 'animate', subgroup: 'change', keywords: 'grow shrink resize size' },
   { id: 'rotate', label: 'Rotate', title: 'Persistent rotation. Prefers text, shapes and highlights.', group: 'animate', subgroup: 'change', keywords: 'turn spin angle' },
   { id: 'color', label: 'Color', title: 'Persistent color change. Works on the same objects as Blink.', group: 'animate', subgroup: 'change', keywords: 'recolor paint fill colour' },
+  { id: 'matrixStep', label: 'Matrix step', title: 'Matrix step: swap, scale or add rows, edit entries, or transpose (selected matrix, or the first one)', group: 'animate', subgroup: 'change', keywords: 'row operation swap scale add gaussian elimination reduce transpose matrix' },
   { id: 'blink', label: 'Blink', title: 'Blink animation (pulse scale/color; does not remove targets)', group: 'animate', subgroup: 'emphasize', keywords: 'highlight flash pulse indicate emphasize' },
   { id: 'surroundingRect', label: 'Surrounding rect', title: 'Surrounding rectangle (select targets or uses first eligible)', group: 'animate', subgroup: 'emphasize', keywords: 'highlight box frame surround emphasize' },
   { id: 'exit', label: 'Exit', title: 'Exit animation (multi-select targets; replaces prior exits on those targets)', group: 'animate', subgroup: 'leave', keywords: 'fade out remove disappear hide uncreate' },

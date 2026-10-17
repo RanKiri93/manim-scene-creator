@@ -22,6 +22,7 @@ import {
 } from '@/lib/blinkTextTargets';
 import { allCells, matrixCellsFor, matrixCols, matrixRows } from '@/lib/matrix';
 import { matrixColorsBefore } from '@/lib/matrixPreview';
+import { matrixViewAt } from '@/lib/matrixSteps';
 import { matrixCellsExpr, matrixTargetExpr } from './matrixCodegen';
 
 export const DEFAULT_BLINK_SCALE_FACTOR = 1.15;
@@ -58,7 +59,10 @@ function blinkRowAnimParts(
   idToVarName: Map<ItemId, string>,
   _itemsMap: Map<ItemId, SceneItem>,
   forward: boolean,
-  /** Clip start: a matrix restores the colours its colour clips set before this. */
+  /**
+   * Clip start: a matrix's entries are those of its state then (after any matrix steps), and it
+   * restores the colours its colour clips set before this.
+   */
   atTime = Number.POSITIVE_INFINITY,
 ): string[] | null {
   const mode = spec.mode;
@@ -132,8 +136,9 @@ function blinkRowAnimParts(
   if (target.kind === 'matrix') {
     const v = idToVarName.get(target.id);
     if (!v) return null;
-    const sel = matrixCellsFor(target, spec.cells);
-    const g = matrixTargetExpr(target, v, sel);
+    const view = matrixViewAt(target, _itemsMap, atTime);
+    const sel = matrixCellsFor(view, spec.cells);
+    const g = matrixTargetExpr(view, v, sel);
     const parts: string[] = [];
     if (usesScale(mode)) {
       parts.push(`${g}.animate.scale(${(forward ? sf : inv).toFixed(6)})`);
@@ -145,7 +150,7 @@ function blinkRowAnimParts(
         // Back to each entry's colour when the blink started (grouped by colour), brackets / bar likewise.
         const before = matrixColorsBefore(target, atTime, _itemsMap);
         const byColor = new Map<string, typeof sel>();
-        for (const c of sel.length ? sel : allCells(matrixRows(target), matrixCols(target))) {
+        for (const c of sel.length ? sel : allCells(matrixRows(view), matrixCols(view))) {
           const col = before.cell(c.row, c.col);
           byColor.set(col, [...(byColor.get(col) ?? []), c]);
         }
@@ -373,8 +378,10 @@ export function permanentBlinkStyleParts(
   spec: BlinkTargetSpec,
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
+  /** Clip start (a matrix's entries are those of its state then). */
+  atTime = Number.POSITIVE_INFINITY,
 ): string[] | null {
-  return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true);
+  return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true, atTime);
 }
 
 function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemId, string>, itemsMap: Map<ItemId, SceneItem>): {

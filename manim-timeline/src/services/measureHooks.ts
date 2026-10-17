@@ -3,43 +3,49 @@ import { useSceneStore } from '@/store/useSceneStore';
 import { measureLine, measureMatrix } from './measureClient';
 import { MEASURE_DEBOUNCE_MS } from '@/lib/constants';
 import { matrixMeasureKey } from '@/lib/matrix';
+import { matrixStates } from '@/lib/matrixSteps';
 import type { ItemId, MatrixItem, TextLineItem } from '@/types/scene';
 
 /**
- * Keep every matrix in the scene measured: whenever a matrix's typeset fields change (see
- * `matrixMeasureKey`), wait for edits to settle, then ask the measure server for its geometry and
- * preview. Unlike text lines this runs for all matrices, not just the inspected one, so a matrix
+ * Keep every matrix in the scene measured, and the result of each of its matrix steps: whenever
+ * their typeset fields change (see `matrixMeasureKey`), wait for edits to settle, then ask the
+ * measure server for the geometry and preview. Unlike text lines this runs for all matrices, not just the inspected one, so a matrix
  * the Copilot or a paste changed is previewed too. Mount once (the scene canvas does).
  */
 export function useMeasureMatrices() {
   const items = useSceneStore((s) => s.items);
   const measureConfig = useSceneStore((s) => s.measureConfig);
   const setMatrixMeasure = useSceneStore((s) => s.setMatrixMeasure);
+  const setMatrixStepMeasure = useSceneStore((s) => s.setMatrixStepMeasure);
   const inFlight = useRef(new Map<ItemId, string>());
 
   useEffect(() => {
     if (!measureConfig.enabled) return;
-    const stale: { item: MatrixItem; key: string }[] = [];
+    // Every matrix, and the result of each of its steps (`id` = the matrix or the step clip).
+    const stale: { id: ItemId; view: MatrixItem; key: string; save: typeof setMatrixMeasure }[] = [];
     for (const item of items.values()) {
       if (item.kind !== 'matrix') continue;
-      const key = matrixMeasureKey(item);
-      if (item.measureKey === key || inFlight.current.get(item.id) === key) continue;
-      stale.push({ item, key });
+      for (const state of matrixStates(item, items)) {
+        const id = state.clip?.id ?? item.id;
+        const key = matrixMeasureKey(state.view);
+        if (state.view.measureKey === key || inFlight.current.get(id) === key) continue;
+        stale.push({ id, view: state.view, key, save: state.clip ? setMatrixStepMeasure : setMatrixMeasure });
+      }
     }
     if (stale.length === 0) return;
     const timer = setTimeout(() => {
-      for (const { item, key } of stale) {
-        inFlight.current.set(item.id, key);
-        measureMatrix(measureConfig.url, item, measureConfig.includePreview)
-          .then((r) => setMatrixMeasure(item.id, key, r.measure ? { measure: r.measure, previewDataUrl: r.previewDataUrl } : null, r.error))
-          .catch((e: unknown) => setMatrixMeasure(item.id, key, null, String(e)))
+      for (const { id, view, key, save } of stale) {
+        inFlight.current.set(id, key);
+        measureMatrix(measureConfig.url, view, measureConfig.includePreview)
+          .then((r) => save(id, key, r.measure ? { measure: r.measure, previewDataUrl: r.previewDataUrl } : null, r.error))
+          .catch((e: unknown) => save(id, key, null, String(e)))
           .finally(() => {
-            if (inFlight.current.get(item.id) === key) inFlight.current.delete(item.id);
+            if (inFlight.current.get(id) === key) inFlight.current.delete(id);
           });
       }
     }, MEASURE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [items, measureConfig.enabled, measureConfig.url, measureConfig.includePreview, setMatrixMeasure]);
+  }, [items, measureConfig.enabled, measureConfig.url, measureConfig.includePreview, setMatrixMeasure, setMatrixStepMeasure]);
 }
 
 /**

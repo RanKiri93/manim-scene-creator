@@ -71,6 +71,7 @@ import {
 import {
   generateSurroundingRectPosBlock,
   generateSurroundingRectPlay,
+  surroundBuiltWhenShown,
   resolveSurroundRectTargetExpr,
   surroundPlacementLeafId,
 } from './surroundCodegen';
@@ -91,7 +92,7 @@ import {
   generateImagePlay,
   imageNeedsEmbeddedDataHelper,
 } from './imageCodegen';
-import { anyMatrix, generateMatrixDef, generateMatrixPlay, generateMatrixPos } from './matrixCodegen';
+import { anyMatrix, anyMatrixStep, generateMatrixDef, generateMatrixPlay, generateMatrixPos } from './matrixCodegen';
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
   sequentialAnimSecondsForExit,
@@ -550,8 +551,14 @@ function exportManimCodeInner(
   }
 
   const surroundByAnchor = new Map<ItemId, SurroundingRectItem[]>();
+  // Highlights on a matrix that a matrix step changes first: built right before they play.
+  const surroundsBuiltLate = new Set<ItemId>();
   for (const raw of items) {
     if (raw.kind !== 'surroundingRect') continue;
+    if (surroundBuiltWhenShown(raw, itemsMap)) {
+      surroundsBuiltLate.add(raw.id);
+      continue;
+    }
     const placementId = surroundPlacementLeafId(raw, flat, itemsMap);
     if (!placementId) continue;
     const list = surroundByAnchor.get(placementId) ?? [];
@@ -819,6 +826,7 @@ function exportManimCodeInner(
     }
   }
   for (const sr of srSorted) {
+    if (surroundsBuiltLate.has(sr.id)) continue;
     const sv = idToVarName.get(sr.id);
     const anchorId = surroundPlacementLeafId(sr, flat, itemsMap);
     const anchor = anchorId ? itemsMap.get(anchorId) : null;
@@ -1250,7 +1258,14 @@ function exportManimCodeInner(
     for (const a of audios) {
       playStr += generateUnboundAudioAddSoundLine(a.track, base);
     }
+    const buildLateSurround = (sr: SurroundingRectItem) => {
+      const sv = idToVarName.get(sr.id);
+      if (sv && surroundsBuiltLate.has(sr.id)) {
+        playStr += generateSurroundingRectPosBlock(sr, sv, idToVarName, itemsMap, base);
+      }
+    };
     for (const vc of visualClustersInGroup) {
+      vc.surroundingRects.forEach(buildLateSurround);
       for (const track of unboundAudio) {
         if (!clusterScheduledAudioIds.has(track.id)) continue;
         if (emittedClusterAudioIds.has(track.id)) continue;
@@ -1295,6 +1310,7 @@ function exportManimCodeInner(
     for (const su of surrounds) {
       const sv = idToVarName.get(su.sr.id);
       if (sv) {
+        buildLateSurround(su.sr);
         playStr += generateSurroundingRectPlay(su.sr, sv, base);
       }
     }
@@ -1500,7 +1516,7 @@ function exportManimCodeInner(
     header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
-  if (anyMatrix(flat)) header += 'from hebrew_matrix import HebrewMatrix\n';
+  if (anyMatrix(flat)) header += `from hebrew_matrix import HebrewMatrix${anyMatrixStep(items) ? ', MatrixStep' : ''}\n`;
   // Before any helper `class`: multi-scene export splits each file at its first `class`.
   if (usesTimelineWait) header += '\n\n' + timelineWaitHelperSource();
   const hasGraphDots = items.some((it) => it.kind === 'graphDot');

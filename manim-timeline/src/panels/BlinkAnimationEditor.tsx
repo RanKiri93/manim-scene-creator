@@ -26,6 +26,7 @@ import {
 } from '@/codegen/blinkCodegen';
 import MathSubobjectPicker from './MathSubobjectPicker';
 import MatrixCellPicker from './MatrixCellPicker';
+import { matrixViewAt } from '@/lib/matrixSteps';
 
 interface BlinkAnimationEditorProps {
   item: BlinkAnimationItem;
@@ -377,7 +378,7 @@ export default function BlinkAnimationEditor({ item }: BlinkAnimationEditorProps
 {target?.kind === 'matrix' ? (
                   <div className="w-full">
                     <div className="mb-1 text-meta text-chalk-faint">Entries (none chosen = whole matrix)</div>
-                    <MatrixCellPicker matrix={target} value={row.cells ?? []} onChange={(cells) => patchRow(index, { cells: cells.length ? cells : null })} />
+                    <MatrixCellPicker matrix={matrixViewAt(target, itemsMap, item.startTime)} value={row.cells ?? []} onChange={(cells) => patchRow(index, { cells: cells.length ? cells : null })} />
                   </div>
                 ) : null}
                 {target && canBeBlinkTarget(target) ? (

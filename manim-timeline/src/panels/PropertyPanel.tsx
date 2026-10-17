@@ -15,6 +15,7 @@ import GraphAreaEditor from './GraphAreaEditor';
 import ExitAnimationEditor from './ExitAnimationEditor';
 import BlinkAnimationEditor from './BlinkAnimationEditor';
 import TargetAnimationEditor from './TargetAnimationEditor';
+import MatrixStepEditor from './MatrixStepEditor';
 import CameraMoveEditor from './CameraMoveEditor';
 import FrameAssignmentPanel from './FrameAssignmentPanel';
 import SurroundingRectEditor from './SurroundingRectEditor';
@@ -107,7 +108,7 @@ export default function PropertyPanel() {
       body = <BlinkAnimationEditor item={item} />;
       break;
     case 'target_animation':
-      body = <TargetAnimationEditor item={item} />;
+      body = item.mode === 'matrix_step' ? <MatrixStepEditor item={item} /> : <TargetAnimationEditor item={item} />;
       break;
     case 'camera_move':
       body = <CameraMoveEditor item={item} />;

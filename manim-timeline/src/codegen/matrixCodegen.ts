@@ -1,6 +1,7 @@
-import type { AudioTrackItem, ItemId, MatrixCell, MatrixItem, SceneItem } from '@/types/scene';
-import { matrixCellsFor, matrixEntryColors } from '@/lib/matrix';
+import type { AudioTrackItem, ItemId, MatrixCell, MatrixItem, SceneItem, TargetAnimationItem } from '@/types/scene';
+import { matrixCellsFor, matrixEntryColors, matrixRows } from '@/lib/matrix';
 import { MATRIX_INTRO_LAG, matrixHasFrame } from '@/lib/matrixPreview';
+import { isMatrixStepClip, matrixStates, stepPythonKwargs } from '@/lib/matrixSteps';
 import { emitNextToPython } from './nextToCodegen';
 import { pythonStringLiteral } from './texUtils';
 import { manimColor } from './graphCodegen';
@@ -21,14 +22,22 @@ export function anyMatrix(items: Iterable<SceneItem>): boolean {
   return false;
 }
 
+export function anyMatrixStep(items: Iterable<SceneItem>): boolean {
+  for (const it of items) if (isMatrixStepClip(it)) return true;
+  return false;
+}
+
+function entriesLiteral(entries: readonly (readonly string[])[]): string {
+  return `[${entries.map((r) => `[${r.map(pythonStringLiteral).join(', ')}]`).join(', ')}]`;
+}
+
 function num(v: number, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
 export function generateMatrixDef(item: MatrixItem, varName: string, indent: number): string {
   const pad = ' '.repeat(indent);
-  const rows = item.entries.map((r) => `[${r.map(pythonStringLiteral).join(', ')}]`).join(', ');
-  const args = [`[${rows}]`, `bracket="${item.bracket}"`];
+  const args = [entriesLiteral(item.entries), `bracket="${item.bracket}"`];
   if (item.align !== 'center') args.push(`align="${item.align}"`);
   const cols = item.entries[0]?.length ?? 0;
   if (item.augmentCol != null && item.augmentCol > 0 && item.augmentCol < cols) args.push(`augment_col=${item.augmentCol}`);
@@ -102,6 +111,26 @@ export function matrixCellsExpr(varName: string, cells: readonly MatrixCell[]): 
 export function matrixTargetExpr(item: MatrixItem, varName: string, cells: readonly MatrixCell[] | null | undefined): string {
   const sel = matrixCellsFor(item, cells);
   return sel.length ? matrixCellsExpr(varName, sel) : varName;
+}
+
+/**
+ * `MatrixStep(matrix, entries, ...)` for a matrix step clip (with its run time), or null when the
+ * clip is not a step of `matrix`. The step turns the matrix object itself into the next state, so
+ * later clips keep using the same variable.
+ */
+export function matrixStepAnimExpr(
+  clip: TargetAnimationItem,
+  matrix: MatrixItem,
+  varName: string,
+  itemsMap: Map<ItemId, SceneItem>,
+): string | null {
+  const states = matrixStates(matrix, itemsMap);
+  const k = states.findIndex((s) => s.clip?.id === clip.id);
+  if (k <= 0) return null;
+  const spec = states[k]!.spec!;
+  const kwargs = stepPythonKwargs(spec, matrixRows(states[k - 1]!.view));
+  const rt = Math.max(0.05, clip.duration).toFixed(6);
+  return `MatrixStep(${varName}, ${entriesLiteral(states[k]!.view.entries)}${kwargs}, run_time=${rt})`;
 }
 
 /**

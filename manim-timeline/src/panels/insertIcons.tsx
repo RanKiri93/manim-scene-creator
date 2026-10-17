@@ -164,6 +164,13 @@ const ACTION_ICONS: Record<InsertActionId, ReactNode> = {
       <path d="M17 4.5V15.5A1.5 1.5 0 0 1 15.5 17H4.5z" fill="currentColor" stroke="none" />
     </>
   ),
+  matrixStep: (
+    <>
+      <path d="M4.5 3.5h-2v13h2M15.5 3.5h2v13h-2" />
+      <path d="M6.5 6.5h7M6.5 13.5h7" />
+      <path d="M11.8 8.6l1.7-2.1-1.7-2.1M8.2 15.6l-1.7-2.1 1.7-2.1" />
+    </>
+  ),
   blink: (
     <>
       <rect x="7" y="7" width="6" height="6" rx="1" fill="currentColor" stroke="none" />

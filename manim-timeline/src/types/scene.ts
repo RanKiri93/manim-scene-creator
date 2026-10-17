@@ -357,7 +357,7 @@ export interface BlinkAnimationItem {
 }
 
 /** Permanent transform played at `startTime` for `duration`; state lives on clips, not mutated target fields. */
-export type TargetAnimationMode = 'scale' | 'color' | 'move' | 'path' | 'rotate' | 'graphFollow';
+export type TargetAnimationMode = 'scale' | 'color' | 'move' | 'path' | 'rotate' | 'graphFollow' | 'matrix_step';
 export type TargetAnimationPathKind = 'polyline' | 'parametric';
 
 export interface TargetAnimationParametricPath {
@@ -404,6 +404,8 @@ export interface TargetAnimationTargetSpec {
   mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
   /** For `matrix` targets (`mode === 'color'`): recolour only these entries. Omit or empty = all. */
   cells?: MatrixCell[] | null;
+  /** `mode === 'matrix_step'` (one row, targeting a matrix): the operation and its result. */
+  step?: MatrixStepSpec | null;
 }
 
 export interface TargetAnimationItem {
@@ -744,6 +746,36 @@ export interface MatrixMeasure {
 }
 
 /**
+ * What a matrix step does (export: `MatrixStep`): swap two rows, multiply a row by a factor, add a
+ * multiple of one row to another, change entries by hand, or transpose.
+ */
+export type MatrixStepOp = 'swap_rows' | 'scale_row' | 'add_row' | 'edit' | 'transpose';
+
+/**
+ * One step of a matrix (a `target_animation` clip with `mode: 'matrix_step'`): the matrix turns
+ * into its next state. The result is worked out from the operation and the state before, unless
+ * `entries` holds a result typed by hand.
+ */
+export interface MatrixStepSpec {
+  op: MatrixStepOp;
+  /** 0-based. `swap_rows`: one of the rows; `scale_row`: the row scaled; `add_row`: the row that changes. */
+  row: number;
+  /** 0-based. `swap_rows`: the other row; `add_row`: the row whose multiple is added. */
+  otherRow: number;
+  /** `scale_row` / `add_row` multiplier as LaTeX: `-2`, `\frac{1}{3}`, `0.5`, `k`. */
+  factor: string;
+  /** The result typed by hand (always for `edit`); unset = worked out from the operation. */
+  entries?: string[][] | null;
+  /** The entries before the step when `entries` was typed, to tell when they changed since. */
+  basis?: string[][] | null;
+  /** Measure-server geometry and preview of the result (like a matrix's own). */
+  measure: MatrixMeasure | null;
+  measureError?: string | null;
+  previewDataUrl: string | null;
+  measureKey?: string | null;
+}
+
+/**
  * A matrix of LaTeX math entries, typeset by LaTeX in one piece (export: `HebrewMatrix`), whose
  * entries can be coloured, blinked, boxed or crossed out one by one.
  */
@@ -755,9 +787,9 @@ export interface MatrixItem extends SceneItemBase {
   align: MatrixAlign;
   /** Augmented matrix: a vertical bar after this many columns. Unset / null = none. */
   augmentCol?: number | null;
-  /** Row height multiplier (LaTeX `rraystretch`); 1 = LaTeX default. */
+  /** Row height multiplier (LaTeX `\arraystretch`); 1 = LaTeX default. */
   rowSpacing: number;
-  /** Column gap multiplier (LaTeX `rraycolsep`); 1 = LaTeX default. */
+  /** Column gap multiplier (LaTeX `\arraycolsep`); 1 = LaTeX default. */
   colSpacing: number;
   fontSize: number;
   /** Colour of the brackets, bar and every entry without its own colour. */

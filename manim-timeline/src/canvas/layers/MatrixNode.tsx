@@ -8,10 +8,14 @@ import { FRAME_H, FRAME_W } from '@/lib/constants';
 import { CANVAS_CHROME } from '@/lib/theme';
 import { texPreviewText } from '@/lib/texPreviewText';
 import { cellColorAt, cellKey, cellsBounds, matrixGeometry, measuredMatrixGeometry } from '@/lib/matrix';
+import { matrixStateIndexAt, matrixStates, stepProgress } from '@/lib/matrixSteps';
 import {
   matrixColorState,
   matrixIntroState,
+  matrixStepPieces,
   type ColorLayer,
+  type MatrixPieceRef,
+  type PieceColorLayers,
   type PieceReveal,
 } from '@/lib/matrixPreview';
 import { lerpHexColor } from '@/lib/visualPlaybackPreview';
@@ -87,10 +91,57 @@ function layeredColor(base: string, layers: readonly ColorLayer[] | undefined): 
   return c;
 }
 
+/** Loaded typeset previews by data URL, so stepping back and forth does not reload them. */
+const imageCache = new Map<string, HTMLImageElement>();
+const IMAGE_CACHE_MAX = 48;
+
+function cachedImage(url: string | null | undefined): HTMLImageElement | null {
+  const img = url ? imageCache.get(url) : undefined;
+  return img && img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+/** Loads `urls` into the cache; re-renders when one arrives. */
+function usePreviewImages(urls: readonly (string | null | undefined)[]): void {
+  const [, setTick] = useState(0);
+  const key = urls.filter(Boolean).join('\n');
+  useEffect(() => {
+    const pending: HTMLImageElement[] = [];
+    for (const url of key ? key.split('\n') : []) {
+      if (imageCache.has(url)) continue;
+      const el = new window.Image();
+      el.onload = () => setTick((t) => t + 1);
+      el.src = url;
+      imageCache.set(url, el);
+      pending.push(el);
+      while (imageCache.size > IMAGE_CACHE_MAX) imageCache.delete(imageCache.keys().next().value!);
+    }
+    return () => {
+      for (const el of pending) el.onload = null;
+    };
+  }, [key]);
+}
+
+const NO_LAYERS: PieceColorLayers = { frame: [], cells: new Map() };
+
+/** Every colour laid over some piece, as a stable key. */
+function layerColorKey(layers: PieceColorLayers): string {
+  return [...new Set([...layers.frame, ...[...layers.cells.values()].flat()].map((l) => l.color))].sort().join('|');
+}
+
+/** One state's typeset preview, ready to crop (null until measured and loaded). */
+interface StateArt {
+  view: MatrixItem;
+  geom: MatrixMeasure;
+  img: HTMLImageElement | null;
+  layers: PieceColorLayers;
+}
+
 /**
  * A matrix on the canvas. With a fresh typeset preview from the measure server, each piece
- * (bracket, bar, entry) is a crop of that image, so intros, colour clips and blinks act on the
- * same pieces as the export's `HebrewMatrix`; until then a plain-text stand-in is drawn.
+ * (bracket, bar, entry) is a crop of that image, so intros, steps, colour clips and blinks act on
+ * the same pieces as the export's `HebrewMatrix`; until then a plain-text stand-in is drawn.
+ * After a matrix step the preview of that state is shown; while a step plays, the pieces of the
+ * states before and after move and cross-fade as `MatrixStep` animates them.
  */
 export default function MatrixNode({
   item,
@@ -118,27 +169,39 @@ export default function MatrixNode({
   const posX = (resolvedX / FRAME_W + 0.5) * canvasWidth;
   const posY = (0.5 - resolvedY / FRAME_H) * canvasHeight;
 
-  const measured = measuredMatrixGeometry(item);
-  const geom: MatrixMeasure = measured ?? matrixGeometry(item);
+  const states = useMemo(() => matrixStates(item, itemsMap), [item, itemsMap]);
+  const k = matrixStateIndexAt(states, currentTime);
+  const state = states[k]!;
+  const progress = stepProgress(state, currentTime);
+  const prevView = progress != null && k > 0 ? states[k - 1]!.view : null;
+  const curMeasured = measuredMatrixGeometry(state.view);
+  const prevMeasured = prevView ? measuredMatrixGeometry(prevView) : null;
+  // Preview images only for fresh measures (the crops are placed with that geometry).
+  const curUrl = curMeasured && curMeasured.widthInk > 0 ? state.view.previewDataUrl : null;
+  const prevUrl = prevView && prevMeasured && prevMeasured.widthInk > 0 ? prevView.previewDataUrl : null;
+  usePreviewImages([curUrl, prevUrl]);
 
-  // Last loaded preview stays up while a new one loads (like text lines).
-  const [loaded, setLoaded] = useState<{ url: string; img: HTMLImageElement } | null>(null);
-  useEffect(() => {
-    const url = item.previewDataUrl;
-    if (!url) return;
-    let cancelled = false;
-    const el = new window.Image();
-    el.onload = () => {
-      if (!cancelled) setLoaded({ url, img: el });
-    };
-    el.src = url;
-    return () => {
-      cancelled = true;
-      el.onload = null;
-    };
-  }, [item.previewDataUrl]);
-  const img = measured && item.previewDataUrl && loaded?.url === item.previewDataUrl && geom.widthInk > 0 ? loaded.img : null;
+  const colors = useMemo(() => matrixColorState(item, currentTime, itemsMap), [item, currentTime, itemsMap]);
+  const prevLayers = colors.previous ?? NO_LAYERS;
 
+  // One tinted copy of a preview per colour in use; the set stays the same through a clip.
+  const curTintKey = layerColorKey(colors);
+  const prevTintKey = prevView ? layerColorKey(prevLayers) : '';
+  const curLoaded = cachedImage(curUrl) != null;
+  const prevLoaded = cachedImage(prevUrl) != null;
+  const tints = useMemo(() => {
+    const m = new Map<string, HTMLCanvasElement>();
+    const curImg = curLoaded ? cachedImage(curUrl) : null;
+    const prevImg = prevLoaded ? cachedImage(prevUrl) : null;
+    if (curImg) for (const c of curTintKey.split('|').filter(Boolean)) m.set(`cur|${c}`, tintCanvas(curImg, c));
+    if (prevImg) for (const c of prevTintKey.split('|').filter(Boolean)) m.set(`prev|${c}`, tintCanvas(prevImg, c));
+    return m;
+  }, [curUrl, curLoaded, curTintKey, prevUrl, prevLoaded, prevTintKey]);
+
+  const cur: StateArt = { view: state.view, geom: curMeasured ?? matrixGeometry(state.view), img: cachedImage(curUrl), layers: colors };
+  const prev: StateArt | null = prevView
+    ? { view: prevView, geom: prevMeasured ?? matrixGeometry(prevView), img: cachedImage(prevUrl), layers: prevLayers }
+    : null;
 
   const toPx = (b: SegmentLocalBox, pad = 0): PxBox => ({
     x: (b.cx - b.w / 2 - pad) * ppuX,
@@ -146,115 +209,131 @@ export default function MatrixNode({
     w: (b.w + 2 * pad) * ppuX,
     h: (b.h + 2 * pad) * ppuY,
   });
-  const ink: PxBox = {
+  const inkOf = (geom: MatrixMeasure): PxBox => ({
     x: geom.inkLeftX * ppuX,
     y: -geom.inkTopY * ppuY,
     w: (geom.inkRightX - geom.inkLeftX) * ppuX,
     h: (geom.inkTopY - geom.inkBottomY) * ppuY,
+  });
+  const ink = inkOf(cur.geom);
+
+  // Only the matrix as created has an intro; later states are on screen already.
+  const intro = useMemo(
+    () => (k === 0 ? matrixIntroState(item, matrixGeometry(item), currentTime, itemsMap, audioItems) : null),
+    [k, item, currentTime, itemsMap, audioItems],
+  );
+
+  const fontPx = 0.62 * 0.346 * (item.fontSize / 48) * ppuY * 1.45;
+
+  /** Stand-in for a piece when there is no typeset preview yet. */
+  const fallbackPiece = (a: StateArt, ref: MatrixPieceRef, b: PxBox, layers: readonly ColorLayer[] | undefined): ReactNode => {
+    if ('cell' in ref) {
+      const { row, col } = ref.cell;
+      return (
+        <Text
+          x={b.x - b.w}
+          y={b.y + b.h / 2 - fontPx * 0.55}
+          width={b.w * 3}
+          align="center"
+          text={texPreviewText(a.view.entries[row]?.[col] ?? '')}
+          fontSize={fontPx}
+          fontStyle="italic"
+          fontFamily="Times New Roman, serif"
+          fill={layeredColor(cellColorAt(a.view, row, col), layers)}
+          wrap="none"
+        />
+      );
+    }
+    const color = layeredColor(item.color, layers);
+    return ref.frame === 'bar' ? (
+      <Rect x={b.x} y={b.y} width={Math.max(1, b.w)} height={b.h} fill={color} />
+    ) : (
+      <Path data={bracketPath(item.bracket, b, ref.frame === 'lb' ? 'left' : 'right')} stroke={color} strokeWidth={Math.max(1, fontPx * 0.07)} lineCap="round" lineJoin="round" />
+    );
   };
 
-  const intro = useMemo(
-    () => matrixIntroState(item, geom, currentTime, itemsMap, audioItems),
-    [item, geom, currentTime, itemsMap, audioItems],
-  );
-  const colors = useMemo(() => matrixColorState(item, currentTime, itemsMap), [item, currentTime, itemsMap]);
-  // One tinted copy of the preview per colour in use; the set stays the same through a clip.
-  const tintKey = [...new Set([...colors.frame, ...[...colors.cells.values()].flat()].map((l) => l.color))].sort().join('|');
-  const tints = useMemo(() => {
-    const m = new Map<string, HTMLCanvasElement>();
-    if (img) for (const c of tintKey.split('|').filter(Boolean)) m.set(c, tintCanvas(img, c));
-    return m;
-  }, [img, tintKey]);
-  const tinted = (color: string): HTMLCanvasElement | null => tints.get(color) ?? null;
-
-  /** One piece cropped from the preview (or drawn by `fallback`), revealed and recoloured. */
-  const piece = (key: string, box: SegmentLocalBox, reveal: PieceReveal, layers: readonly ColorLayer[] | undefined, fallback: (b: PxBox) => ReactNode) => {
+  /** One piece cropped from a state's preview at `crop`, drawn at `box`, revealed and recoloured. */
+  const piece = (key: string, a: StateArt, which: 'cur' | 'prev', ref: MatrixPieceRef, crop: SegmentLocalBox, box: SegmentLocalBox, reveal: PieceReveal) => {
     if (reveal.opacity <= 0 || reveal.wipe <= 0) return null;
+    const layers = 'cell' in ref ? a.layers.cells.get(cellKey(ref.cell)) : a.layers.frame;
+    const img = a.img;
     if (!img) {
       return (
         <Group key={key} opacity={reveal.opacity * (reveal.wipe < 1 ? reveal.wipe : 1)} listening={false}>
-          {fallback(toPx(box))}
+          {fallbackPiece(a, ref, toPx(box), layers)}
         </Group>
       );
     }
-    const px = toPx(box, PIECE_PAD);
-    const fx = (v: number) => (v - ink.x) / ink.w;
-    const fy = (v: number) => (v - ink.y) / ink.h;
-    const w = px.w * reveal.wipe;
-    const crop = {
-      x: fx(px.x) * img.naturalWidth,
-      y: fy(px.y) * img.naturalHeight,
-      width: Math.max(1, (w / ink.w) * img.naturalWidth),
-      height: Math.max(1, (px.h / ink.h) * img.naturalHeight),
+    const src = toPx(crop, PIECE_PAD);
+    const dst = toPx(box, PIECE_PAD);
+    const srcInk = inkOf(a.geom);
+    const fx = (v: number) => (v - srcInk.x) / srcInk.w;
+    const fy = (v: number) => (v - srcInk.y) / srcInk.h;
+    const w = dst.w * reveal.wipe;
+    const c = {
+      x: fx(src.x) * img.naturalWidth,
+      y: fy(src.y) * img.naturalHeight,
+      width: Math.max(1, ((src.w * reveal.wipe) / srcInk.w) * img.naturalWidth),
+      height: Math.max(1, (src.h / srcInk.h) * img.naturalHeight),
     };
+    // A layer at full opacity replaces the colour: start from its tinted copy instead of drawing
+    // it over the original, which would thicken the antialiased edges.
+    const all = layers ?? [];
+    let first = -1;
+    all.forEach((l, i) => {
+      if (l.opacity >= 0.999 && tints.has(`${which}|${l.color}`)) first = i;
+    });
+    const base = first >= 0 ? tints.get(`${which}|${all[first]!.color}`)! : img;
     return (
       <Group key={key} opacity={reveal.opacity} listening={false}>
-        <KonvaImage image={img} x={px.x} y={px.y} width={w} height={px.h} crop={crop} />
-        {(layers ?? []).map((l, i) => {
-          const t = tinted(l.color);
-          return t ? <KonvaImage key={i} image={t} x={px.x} y={px.y} width={w} height={px.h} crop={crop} opacity={l.opacity} /> : null;
+        <KonvaImage image={base} x={dst.x} y={dst.y} width={w} height={dst.h} crop={c} />
+        {all.slice(first + 1).map((l, i) => {
+          const t = tints.get(`${which}|${l.color}`);
+          return t ? <KonvaImage key={i} image={t} x={dst.x} y={dst.y} width={w} height={dst.h} crop={c} opacity={l.opacity} /> : null;
         })}
       </Group>
     );
   };
 
-  const fontPx = 0.62 * 0.346 * (item.fontSize / 48) * ppuY * 1.45;
-  const frameColor = layeredColor(item.color, colors.frame);
-  const framePieces: ReactNode[] = [];
-  const frameBoxes: [string, SegmentLocalBox | null, 'left' | 'right' | 'bar'][] = [
-    ['lb', geom.leftBracket, 'left'],
-    ['rb', geom.rightBracket, 'right'],
-    ['bar', geom.bar, 'bar'],
-  ];
-  for (const [key, box, side] of frameBoxes) {
-    if (!box) continue;
-    framePieces.push(
-      piece(key, box, intro.frame, colors.frame, (b) =>
-        side === 'bar' ? (
-          <Rect x={b.x} y={b.y} width={Math.max(1, b.w)} height={b.h} fill={frameColor} />
-        ) : (
-          <Path data={bracketPath(item.bracket, b, side)} stroke={frameColor} strokeWidth={Math.max(1, fontPx * 0.07)} lineCap="round" lineJoin="round" />
-        ),
-      ),
+  let content: ReactNode;
+  if (prev && progress != null && state.spec) {
+    // A step is playing: pieces of both states, moving and cross-fading.
+    content = matrixStepPieces(state.spec, prev.view, prev.geom, cur.view, cur.geom, progress).map((p) =>
+      piece(p.key, p.from === 'prev' ? prev : cur, p.from, p.ref, p.crop, p.box, { opacity: p.opacity, wipe: 1 }),
     );
-  }
-
-  const scaled = colors.blinkScale;
-  const scaledKeys = new Set(scaled?.cells.map(cellKey) ?? []);
-  const cellPiece = (c: (typeof geom.cells)[number]) => {
-    const key = cellKey(c);
-    const reveal = intro.cells.get(key) ?? { opacity: 1, wipe: 1 };
-    const layers = colors.cells.get(key);
-    return piece(`c${key}`, c, reveal, layers, (b) => (
-      <Text
-        x={b.x - b.w}
-        y={b.y + b.h / 2 - fontPx * 0.55}
-        width={b.w * 3}
-        align="center"
-        text={texPreviewText(item.entries[c.row]?.[c.col] ?? '')}
-        fontSize={fontPx}
-        fontStyle="italic"
-        fontFamily="Times New Roman, serif"
-        fill={layeredColor(cellColorAt(item, c.row, c.col), layers)}
-        wrap="none"
-      />
-    ));
-  };
-  const plainCells = geom.cells.filter((c) => !scaledKeys.has(cellKey(c))).map(cellPiece);
-  let scaledGroup: ReactNode = null;
-  if (scaled) {
-    const b = cellsBounds(geom, scaled.cells);
-    if (b) {
-      const cx = ((b.left + b.right) / 2) * ppuX;
-      const cy = -((b.top + b.bottom) / 2) * ppuY;
-      scaledGroup = (
-        <Group x={cx} y={cy} scaleX={scaled.scale} scaleY={scaled.scale} listening={false}>
-          <Group x={-cx} y={-cy}>
-            {geom.cells.filter((c) => scaledKeys.has(cellKey(c))).map(cellPiece)}
-          </Group>
-        </Group>
-      );
+  } else {
+    const geom = cur.geom;
+    const frameReveal = intro?.frame ?? { opacity: 1, wipe: 1 };
+    const framePieces: ReactNode[] = [];
+    for (const [name, box] of [['lb', geom.leftBracket], ['rb', geom.rightBracket], ['bar', geom.bar]] as const) {
+      if (box) framePieces.push(piece(name, cur, 'cur', { frame: name }, box, box, frameReveal));
     }
+    const scaled = colors.blinkScale;
+    const scaledKeys = new Set(scaled?.cells.map(cellKey) ?? []);
+    const cellPiece = (c: (typeof geom.cells)[number]) =>
+      piece(`c${cellKey(c)}`, cur, 'cur', { cell: { row: c.row, col: c.col } }, c, c, intro?.cells.get(cellKey(c)) ?? { opacity: 1, wipe: 1 });
+    let scaledGroup: ReactNode = null;
+    if (scaled) {
+      const b = cellsBounds(geom, scaled.cells);
+      if (b) {
+        const cx = ((b.left + b.right) / 2) * ppuX;
+        const cy = -((b.top + b.bottom) / 2) * ppuY;
+        scaledGroup = (
+          <Group x={cx} y={cy} scaleX={scaled.scale} scaleY={scaled.scale} listening={false}>
+            <Group x={-cx} y={-cy}>
+              {geom.cells.filter((c) => scaledKeys.has(cellKey(c))).map(cellPiece)}
+            </Group>
+          </Group>
+        );
+      }
+    }
+    content = (
+      <>
+        {framePieces}
+        {geom.cells.filter((c) => !scaledKeys.has(cellKey(c))).map(cellPiece)}
+        {scaledGroup}
+      </>
+    );
   }
 
   return (
@@ -285,9 +364,7 @@ export default function MatrixNode({
         dash={!draggable ? [6, 3] : isSelected ? undefined : [4, 4]}
         cornerRadius={2}
       />
-      {framePieces}
-      {plainCells}
-      {scaledGroup}
+      {content}
     </Group>
   );
 }

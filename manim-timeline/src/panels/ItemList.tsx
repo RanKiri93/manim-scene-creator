@@ -3,6 +3,7 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, SceneItem } from '@/types/scene';
 import { isTopLevelItem } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { matrixStepTitle } from '@/lib/matrixSteps';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { associatedFrameId, frameDisplayName, readingOrderFrames } from '@/lib/frameGrid';
 import { cx } from '@/lib/cx';
@@ -149,6 +150,10 @@ export default function ItemList() {
                   names.length <= 2
                     ? names.join(', ')
                     : `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+                if (item.mode === 'matrix_step') {
+                  const step = item.targets[0]?.step;
+                  return `${step ? matrixStepTitle(step) : 'Matrix step'} → ${joined}`;
+                }
                 return `${item.mode} → ${joined}`;
               })()
             : item.kind === 'surroundingRect'

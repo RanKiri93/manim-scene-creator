@@ -16,6 +16,7 @@ import {
   pythonOverlaySuffix,
   resolveExitTargetsForExport,
 } from './graphCodegen';
+import { matrixStepAnimExpr } from './matrixCodegen';
 
 export function targetAnimationClipHasActiveTargets(clip: TargetAnimationItem): boolean {
   return clip.targets.length > 0;
@@ -275,6 +276,7 @@ export function targetAnimationRowAnimParts(
       toBlinkSpec(row, 'scale'),
       idToVarName,
       itemsMap,
+      clip.startTime,
     );
   }
 
@@ -284,6 +286,7 @@ export function targetAnimationRowAnimParts(
       toBlinkSpec(row, 'color'),
       idToVarName,
       itemsMap,
+      clip.startTime,
     );
   }
 
@@ -354,6 +357,13 @@ export function targetAnimationRowAnimParts(
     }
     const inners = ps.map((p: string) => `MoveAlongPath(${p}, ${pathVarName})`);
     return [`AnimationGroup(${inners.join(', ')}, lag_ratio=0)`];
+  }
+
+  if (mode === 'matrix_step') {
+    const v = idToVarName.get(tgt.id);
+    if (tgt.kind !== 'matrix' || !v) return null;
+    const expr = matrixStepAnimExpr(clip, tgt, v, itemsMap);
+    return expr ? [expr] : null;
   }
 
   if (mode === 'rotate') {

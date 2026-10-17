@@ -107,6 +107,7 @@ export function useInsertActionState() {
     scale: () => actions.addTargetAnimationClip('scale'),
     rotate: () => actions.addTargetAnimationClip('rotate'),
     color: () => actions.addTargetAnimationClip('color'),
+    matrixStep: () => actions.addMatrixStep(),
     blink: actions.addBlinkAnimationClip,
     surroundingRect: actions.addSurroundingRectClip,
     exit: actions.addExitAnimationClip,
@@ -144,6 +145,14 @@ export function useInsertActionState() {
       case 'rotate':
       case 'color':
         return { title: def.title, ...fitsSelection(compatibleModes.has(def.id)) };
+      case 'matrixStep': {
+        const hasMatrix = [...itemsMap.values()].some((it) => it.kind === 'matrix');
+        return {
+          title: hasMatrix ? def.title : 'Add a matrix first',
+          ...fitsSelection(selectedItems.some((it) => it.kind === 'matrix')),
+          disabled: !hasMatrix,
+        };
+      }
       case 'blink':
         return { title: def.title, ...fitsSelection(hasBlinkTarget) };
       case 'surroundingRect':

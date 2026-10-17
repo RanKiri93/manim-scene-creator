@@ -520,6 +520,14 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
     error: string | null,
   ) => void;
 
+  /** Like {@link setMatrixMeasure}, for the result of a matrix step clip (outside undo history). */
+  setMatrixStepMeasure: (
+    clipId: ItemId,
+    key: string,
+    result: { measure: MatrixMeasure; previewDataUrl: string | null } | null,
+    error: string | null,
+  ) => void;
+
   /**
    * Change a text line's source (and optionally its base direction) in one undo step. Old
    * segments are matched to the new ones so colour, bold, italic, anim time and waits follow
@@ -1483,6 +1491,25 @@ export const useSceneStore = create<SceneStore>()(
             // A failed measure must not leave an older geometry looking current.
             item.measure = result?.measure ?? null;
             item.previewDataUrl = result?.previewDataUrl ?? null;
+          });
+        } finally {
+          if (wasTracking) history.resume();
+        }
+      },
+
+      setMatrixStepMeasure: (clipId, key, result, error) => {
+        const history = useSceneStore.temporal.getState();
+        const wasTracking = history.isTracking;
+        if (wasTracking) history.pause();
+        try {
+          set((s) => {
+            const clip = s.items.get(clipId);
+            const step = clip?.kind === 'target_animation' && clip.mode === 'matrix_step' ? clip.targets[0]?.step : null;
+            if (!step) return;
+            step.measureKey = key;
+            step.measureError = error;
+            step.measure = result?.measure ?? null;
+            step.previewDataUrl = result?.previewDataUrl ?? null;
           });
         } finally {
           if (wasTracking) history.resume();

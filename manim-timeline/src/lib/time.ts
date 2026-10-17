@@ -75,6 +75,8 @@ export function canBeTargetAnimationTargetKind(
         kind === 'matrix' ||
         kind === 'surroundingRect'
       );
+    case 'matrix_step':
+      return kind === 'matrix';
     default:
       return false;
   }

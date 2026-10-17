@@ -23,6 +23,8 @@ import PropertyTabs from './PropertyTabs';
 import VisibleAtSceneStartRow from './VisibleAtSceneStartRow';
 import TargetAnimationEffectsNote from './TargetAnimationEffectsNote';
 import MatrixCellPicker from './MatrixCellPicker';
+import { useAddSceneItems } from '@/hooks/useAddSceneItems';
+import { matrixStepClips } from '@/lib/matrixSteps';
 
 const ALIGNS: { value: MatrixAlign; label: string }[] = [
   { value: 'center', label: 'Centre' },
@@ -49,6 +51,9 @@ export default function MatrixEditor({ item }: MatrixEditorProps) {
   const setItemAudioBinding = useSceneStore((s) => s.setItemAudioBinding);
   const removeItem = useSceneStore((s) => s.removeItem);
   const setMatrixMeasure = useSceneStore((s) => s.setMatrixMeasure);
+  const itemsMap = useSceneStore((s) => s.items);
+  const { addMatrixStep } = useAddSceneItems();
+  const stepCount = matrixStepClips(item.id, itemsMap).length;
   const set = useCallback((patch: Partial<MatrixItem>) => updateItem(item.id, patch), [item.id, updateItem]);
 
   const rows = matrixRows(item);
@@ -215,6 +220,16 @@ export default function MatrixEditor({ item }: MatrixEditorProps) {
           {pasteError ? <p className="m-0 text-meta text-danger">{pasteError}</p> : null}
         </div>
       )}
+
+      <div className="flex flex-col gap-1">
+        <button type="button" className="self-start rounded-ctl bg-raised px-2 py-1 text-ctl text-chalk hover:bg-rule" onClick={() => addMatrixStep(item.id)}>
+          Add a step
+        </button>
+        <p className="m-0 text-meta text-chalk-faint">
+          Swap, scale or add rows, edit entries, or transpose, as a clip after {stepCount ? `its ${stepCount} step${stepCount === 1 ? '' : 's'}` : 'the matrix appears'}.
+          The entries above are the matrix before any step.
+        </p>
+      </div>
 
       <TargetAnimationEffectsNote targetId={item.id} />
 

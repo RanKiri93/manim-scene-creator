@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { exportManimCode } from '@/codegen/manimExporter';
 import { generateMatrixDef, generateMatrixPos, matrixIntroAnimExpr, matrixTargetExpr } from '@/codegen/matrixCodegen';
-import { createBlinkAnimation, createMatrixItem, createSurroundingRect, createTargetAnimation, defaultSceneDefaults } from '@/store/factories';
-import type { MatrixItem, SceneItem, SurroundingRectItem } from '@/types/scene';
+import { createBlinkAnimation, createMatrixItem, createSurroundingRect, createTargetAnimation, createTextLine, defaultSceneDefaults } from '@/store/factories';
+import type { MatrixItem, MatrixStepSpec, SceneItem, SurroundingRectItem } from '@/types/scene';
 
 const matrix = (over: Partial<MatrixItem> = {}): MatrixItem => ({ ...createMatrixItem(defaultSceneDefaults(), 0), id: 'm1', ...over });
 
@@ -102,5 +102,53 @@ describe('matrix entries in clips', () => {
     expect(exportManimCode([m(), strike], opts)).toContain(
       'sr_1 = matrix_1.strike_lines([(0, 0), (0, 1), (1, 0)], buff=0.1500, color=ManimColor("#fbbf24"), stroke_width=2.0000)',
     );
+  });
+});
+
+describe('matrix steps', () => {
+  const opts = { fullFile: true, defaults: defaultSceneDefaults() };
+  const m = () => matrix({ entries: [['1', '2', '3'], ['2', '-1', '0']], augmentCol: 2, color: '#ffffff', visibleAtSceneStart: true });
+  const step = (id: string, start: number, s: Partial<MatrixStepSpec>, duration = 1) => {
+    const clip = createTargetAnimation('matrix_step', ['m1'], start, duration);
+    clip.id = id;
+    clip.targets[0]!.step = { ...clip.targets[0]!.step!, ...s };
+    return clip;
+  };
+
+  it('plays MatrixStep with the worked-out entries and imports it', () => {
+    const code = exportManimCode([m(), step('s1', 1, { op: 'swap_rows', row: 0, otherRow: 1 }, 1.5), step('s2', 3, { op: 'add_row', row: 1, otherRow: 0, factor: '-2' })], opts);
+    expect(code).toContain('from hebrew_matrix import HebrewMatrix, MatrixStep');
+    expect(code).toContain('self.play(MatrixStep(matrix_1, [["2", "-1", "0"], ["1", "2", "3"]], swap=(0, 1), run_time=1.500000), run_time=1.5000)');
+    expect(code).toContain('MatrixStep(matrix_1, [["2", "-1", "0"], ["-3", "4", "3"]], run_time=1.000000)');
+    expect(exportManimCode([m()], opts)).toContain('from hebrew_matrix import HebrewMatrix\n');
+  });
+
+  it('transposes, and later clips address the entries of the state they play in', () => {
+    const t = step('t1', 1, { op: 'transpose' });
+    const colour = createTargetAnimation('color', ['m1'], 3, 0.5);
+    colour.targets[0] = { targetId: 'm1', color: '#ff0000', cells: [{ row: 2, col: 0 }, { row: 2, col: 1 }] };
+    const code = exportManimCode([m(), t, colour], opts);
+    expect(code).toContain('MatrixStep(matrix_1, [["1", "2"], ["2", "-1"], ["3", "0"]], transpose=True, run_time=1.000000)');
+    // Row 2 only exists after the transpose (3 × 2).
+    expect(code).toContain('matrix_1.cells((2, 0), (2, 1)).animate.set_color(ManimColor("#ff0000"))');
+  });
+
+  it('builds a highlight on a stepped matrix just before it plays', () => {
+    const box = { ...createSurroundingRect(['m1'], 3), cells: [{ row: 2, col: 0 }] } as SurroundingRectItem;
+    const code = exportManimCode([m(), step('t1', 1, { op: 'transpose' }), box], opts);
+    const stepAt = code.indexOf('MatrixStep(matrix_1');
+    const boxAt = code.indexOf('sr_1_tgt = matrix_1.cells((2, 0))');
+    expect(stepAt).toBeGreaterThan(0);
+    expect(boxAt).toBeGreaterThan(stepAt);
+    expect(code.indexOf('Create(sr_1)')).toBeGreaterThan(boxAt);
+    // Without a step before it, it is built with the other definitions.
+    const early = exportManimCode([m(), { ...box, cells: [{ row: 0, col: 0 }] } as SurroundingRectItem, step('t1', 5, { op: 'transpose' })], opts);
+    expect(early.indexOf('sr_1_tgt = matrix_1.cells((0, 0))')).toBeLessThan(early.indexOf('MatrixStep(matrix_1'));
+  });
+
+  it('keeps its own run time inside a cluster of overlapping clips', () => {
+    const line = { ...createTextLine(defaultSceneDefaults(), 1.5), id: 'tl', raw: '$x$', duration: 1 };
+    const code = exportManimCode([m(), step('s1', 1, { op: 'swap_rows' }, 2), line], opts);
+    expect(code).toMatch(/Succession\(Wait\(0\.0000\), MatrixStep\(matrix_1, .*run_time=2\.000000\)\)/);
   });
 });

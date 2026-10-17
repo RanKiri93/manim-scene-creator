@@ -1,6 +1,7 @@
 import type { ItemId, SceneItem } from '@/types/scene';
 import { effectiveStart } from '@/lib/time';
 import { FRAME_W } from '@/lib/constants';
+import { matrixStepTitle } from '@/lib/matrixSteps';
 
 function trunc(s: string, max: number): string {
   const t = s.trim();
@@ -53,6 +54,10 @@ export function itemClipDisplayName(item: SceneItem): string {
     if (m === 'path') return 'Target · path';
     if (m === 'rotate') return 'Target · rotate';
     if (m === 'graphFollow') return 'Move along graph';
+    if (m === 'matrix_step') {
+      const step = item.targets[0]?.step;
+      return step ? `Matrix step · ${matrixStepTitle(step)}` : 'Matrix step';
+    }
     return 'Target animation';
   }
   if (item.kind === 'camera_move') {

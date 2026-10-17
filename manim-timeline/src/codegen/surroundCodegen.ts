@@ -4,7 +4,7 @@ import type {
   SurroundingRectItem,
   TextLineItem,
 } from '@/types/scene';
-import { canBeSurroundTarget } from '@/lib/time';
+import { canBeSurroundTarget, effectiveStart } from '@/lib/time';
 import { pythonStringLiteral } from './texUtils';
 import {
   resolveExitTargetsForExport,
@@ -12,6 +12,7 @@ import {
 } from './graphCodegen';
 import type { ExportLeaf } from './flattenExport';
 import { allCells, matrixCellsFor, matrixCols, matrixRows } from '@/lib/matrix';
+import { matrixStepClips, matrixViewAt } from '@/lib/matrixSteps';
 import { matrixTargetExpr } from './matrixCodegen';
 
 function dedupeTargetIds(ids: readonly ItemId[]): ItemId[] {
@@ -99,7 +100,7 @@ export function resolveSurroundRectTargetExpr(
     if (!tgt || !canBeSurroundTarget(tgt)) return null;
     if (ids.length === 1 && tgt.kind === 'matrix') {
       const v = idToVarName.get(tgt.id);
-      return v ? matrixTargetExpr(tgt, v, item.cells) : null;
+      return v ? matrixTargetExpr(matrixViewAt(tgt, itemsMap, effectiveStart(item, itemsMap)), v, item.cells) : null;
     }
     const seg =
       ids.length === 1 && tgt.kind === 'textLine'
@@ -111,6 +112,19 @@ export function resolveSurroundRectTargetExpr(
   }
   if (parts.length === 1) return parts[0]!;
   return `VGroup(${parts.join(', ')})`;
+}
+
+/**
+ * True for a highlight on one matrix that a matrix step changes before the highlight appears: it
+ * is built just before it plays (around the entries as they are then), not with the definitions.
+ */
+export function surroundBuiltWhenShown(sr: SurroundingRectItem, itemsMap: Map<ItemId, SceneItem>): boolean {
+  if (sr.visibleAtSceneStart) return false;
+  const ids = dedupeTargetIds(sr.targetIds ?? []);
+  const tgt = ids.length === 1 ? itemsMap.get(ids[0]!) : undefined;
+  if (tgt?.kind !== 'matrix') return false;
+  const start = effectiveStart(sr, itemsMap);
+  return matrixStepClips(tgt.id, itemsMap).some((c) => c.startTime <= start + 1e-9);
 }
 
 /**
@@ -153,8 +167,9 @@ export function generateSurroundingRectPosBlock(
   if (struck) {
     const v = idToVarName.get(struck.id);
     if (!v) return '';
-    const sel = matrixCellsFor(struck, item.cells);
-    const cells = (sel.length ? sel : allCells(matrixRows(struck), matrixCols(struck))).map((c) => `(${c.row}, ${c.col})`).join(', ');
+    const view = matrixViewAt(struck, itemsMap, effectiveStart(item, itemsMap));
+    const sel = matrixCellsFor(view, item.cells);
+    const cells = (sel.length ? sel : allCells(matrixRows(view), matrixCols(view))).map((c) => `(${c.row}, ${c.col})`).join(', ');
     s = `${pad}${srVar} = ${v}.strike_lines([${cells}], buff=${item.buff.toFixed(4)}, color=${manimColor(item.color)}, stroke_width=${item.strokeWidth.toFixed(4)})\n`;
   } else {
     const expr = resolveSurroundRectTargetExpr(item, idToVarName, itemsMap);
