@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ShapeItem, ShapeKind, ShapeLineStyle, ShapePoint } from '@/types/scene';
-import { polygonSides, usesPoints } from '@/lib/shapeGeometry';
+import { arcAngles, innerRadiusOf, isArcKind, polygonSides, usesPoints } from '@/lib/shapeGeometry';
 import { DEFAULT_SHAPE_POLYLINE_POINTS } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
@@ -22,6 +22,9 @@ const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'arrow', label: 'Arrow' },
   { value: 'line', label: 'Line' },
   { value: 'polyline', label: 'Polyline' },
+  { value: 'arc', label: 'Arc' },
+  { value: 'sector', label: 'Sector' },
+  { value: 'annulus', label: 'Ring' },
 ];
 
 const LINE_STYLES: { value: ShapeLineStyle; label: string }[] = [
@@ -126,6 +129,45 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
           min={0.02}
           step={0.05}
         />
+      )}
+
+      {isArcKind(item) && (
+        <div className="flex flex-wrap gap-3">
+          <NumberInput
+            label="Radius"
+            value={item.radius}
+            onChange={(v) => set({ radius: Math.max(0.02, v), ...(innerRadiusOf(item) >= v ? { innerRadius: Math.max(0, v / 2) } : {}) })}
+            min={0.02}
+            step={0.05}
+          />
+          {item.shapeType !== 'arc' && (
+            <NumberInput
+              label="Inner radius"
+              value={innerRadiusOf(item)}
+              onChange={(v) => set({ innerRadius: Math.max(0, Math.min(v, item.radius * 0.98)) })}
+              min={0}
+              step={0.05}
+            />
+          )}
+          {item.shapeType !== 'annulus' && (
+            <>
+              <NumberInput
+                label="Start angle (°)"
+                value={arcAngles(item).start}
+                onChange={(v) => set({ startAngleDeg: v })}
+                step={15}
+              />
+              <NumberInput
+                label="Angle (°)"
+                value={arcAngles(item).sweep}
+                onChange={(v) => set({ angleDeg: Math.max(-360, Math.min(360, v)) })}
+                min={-360}
+                max={360}
+                step={15}
+              />
+            </>
+          )}
+        </div>
       )}
 
       {item.shapeType === 'regularPolygon' && (
@@ -362,7 +404,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         </select>
       </label>
 
-      {item.shapeType !== 'polyline' ? (
+      {item.shapeType !== 'polyline' && item.shapeType !== 'arc' ? (
         <div className="flex flex-col gap-2">
           <label className="text-ctl text-chalk-dim flex items-center gap-2">
             <input

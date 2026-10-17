@@ -4,6 +4,7 @@ import {
   Circle,
   Ellipse,
   Rect,
+  Ring,
   Line as KonvaLine,
   Transformer,
 } from 'react-konva';
@@ -17,14 +18,19 @@ import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { CANVAS_CHROME } from '@/lib/theme';
 import { fillWithAlpha } from '@/lib/riemann';
 import {
+  arcAngles,
+  arcPoints,
   arrowStrokeWidth,
   arrowTipLength,
   clampedCornerRadius,
+  innerRadiusOf,
+  isArcKind,
   konvaDash,
   nearestSegment,
   POLYLINE_TIP_LENGTH,
   regularPolygonVertices,
   shapeLocalBounds,
+  shapeOutlinePoints,
   shapeStrokePx,
   snapDirection,
   usesPoints,
@@ -78,7 +84,9 @@ interface ShapeNodeProps {
  * (no rotation); rectangles and polylines get eight handles and a rotation handle (Shift keeps
  * proportions, Alt scales from the centre, rotation snaps to 15°); lines and arrows get a handle on
  * each end (Shift snaps the angle); polylines also get a handle per vertex (double-click the line
- * to add one, Alt+click a vertex to remove it). Strokes, fills and arrow tips follow Manim's sizes.
+ * to add one, Alt+click a vertex to remove it); arcs and sectors get a handle on each end (angle and
+ * radius; Shift snaps to 15°) and sectors and rings one for the inner radius. Strokes, fills and arrow
+ * tips follow Manim's sizes.
  */
 export default function ShapeNode({
   item: storedItem,
@@ -123,7 +131,9 @@ export default function ShapeNode({
   const draggable = !locked && isFreelyDraggable(item.posSteps);
   const editable = isSelected && draggable && selectedIds.size === 1 && selectedIds.has(item.id);
   const twoPoint = kind === 'line' || kind === 'arrow';
-  const showTransformer = editable && !twoPoint;
+  const arcKind = isArcKind(item);
+  const showTransformer = editable && !twoPoint && !arcKind;
+  const showArcHandles = editable && arcKind;
   const showEndHandles = editable && twoPoint;
   const showVertexHandles = editable && usesPoints(item);
   /** Shapes that only scale evenly (one size): circles and regular polygons. */
@@ -168,7 +178,7 @@ export default function ShapeNode({
     n.scaleY(scale);
     transformerRef.current?.forceUpdate();
     n.getLayer()?.batchDraw();
-  }, [posX, posY, rotation, scale, item.radius, item.width, item.height, item.endX, item.endY, kind, item.points, item.id]);
+  }, [posX, posY, rotation, scale, item.radius, item.width, item.height, item.endX, item.endY, kind, item.points, item.id, item.startAngleDeg, item.angleDeg, item.innerRadius]);
 
   const onDragStart = (e: Konva.KonvaEventObject<DragEvent>) => {
     if (e.target !== shapeGroupRef.current) return;
@@ -279,6 +289,63 @@ export default function ShapeNode({
     updateItem(item.id, { points: [...item.points.slice(0, i + 1), p, ...item.points.slice(i + 1)] });
   };
 
+  // ── Arc / sector / ring handles (local units, angles counter-clockwise like Manim) ──
+  const arcHandles = (() => {
+    if (!arcKind) return [];
+    const polar = (r: number, deg: number) => localPxToParent(unitToLocalPx({ x: r * Math.cos((deg * Math.PI) / 180), y: r * Math.sin((deg * Math.PI) / 180) }));
+    const inner = innerRadiusOf(item);
+    if (kind === 'annulus') {
+      return [
+        { key: 'outer', at: polar(item.radius, 45) },
+        { key: 'inner', at: polar(inner, 45) },
+      ] as const;
+    }
+    // Handles sit on the counter-clockwise ends, so a clockwise arc is edited as its mirror.
+    const { start, sweep } = arcAngles(item);
+    const from = sweep >= 0 ? start : start + sweep;
+    const turn = Math.abs(sweep);
+    const out: { key: 'start' | 'end' | 'inner' | 'outer'; at: { x: number; y: number } }[] = [
+      { key: 'start', at: polar(item.radius, from) },
+      { key: 'end', at: polar(item.radius, from + turn) },
+    ];
+    if (kind === 'sector') out.push({ key: 'inner', at: polar(inner, from + turn / 2) });
+    return out;
+  })();
+  const moveArcHandle = (which: 'start' | 'end' | 'inner' | 'outer', px: { x: number; y: number }, snap: boolean, commit: boolean) => {
+    const p = parentToLocalUnit(px);
+    const dist = Math.hypot(p.x, p.y);
+    let deg = (Math.atan2(p.y, p.x) * 180) / Math.PI;
+    if (snap) deg = Math.round(deg / 15) * 15;
+    const inner = innerRadiusOf(item);
+    const { start, sweep } = arcAngles(item);
+    const from = sweep >= 0 ? start : start + sweep;
+    const to = from + Math.abs(sweep);
+    const turnFrom = (a: number, b: number) => {
+      const t = (((b - a) % 360) + 360) % 360;
+      return t < 0.5 ? 360 : t;
+    };
+    const minR = 0.05;
+    let patch: Partial<ShapeItem>;
+    switch (which) {
+      case 'start':
+        patch = { startAngleDeg: deg, angleDeg: turnFrom(deg, to), radius: Math.max(minR, inner + 0.02, dist) };
+        break;
+      case 'end':
+        patch = { startAngleDeg: from, angleDeg: turnFrom(from, deg), radius: Math.max(minR, inner + 0.02, dist) };
+        break;
+      case 'outer':
+        patch = { radius: Math.max(minR, inner + 0.02, dist) };
+        break;
+      case 'inner':
+        patch = { innerRadius: Math.max(0, Math.min(dist, item.radius - 0.02)) };
+        break;
+    }
+    if (commit) {
+      updateItem(item.id, patch);
+      setDraft(null);
+    } else setDraft(patch);
+  };
+
   // ── Drawing ──
   const stroke = previewStrokeColor ?? (item.strokeColor || '#60a5fa');
   const fillSource = previewFillColor !== undefined ? previewFillColor : item.fillColor;
@@ -300,6 +367,14 @@ export default function ShapeNode({
       }
       case 'regularPolygon':
         return <KonvaLine points={toFlat(regularPolygonVertices(item.sides, item.radius))} closed stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} lineJoin="miter" />;
+      case 'arc': {
+        const { start, sweep } = arcAngles(item);
+        return <KonvaLine points={toFlat(arcPoints(item.radius, start, sweep))} stroke={stroke} strokeWidth={sw} dash={dash} lineCap="butt" hitStrokeWidth={12} />;
+      }
+      case 'sector':
+        return <KonvaLine points={toFlat(shapeOutlinePoints(item) ?? [])} closed stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} lineJoin="miter" />;
+      case 'annulus':
+        return <Ring innerRadius={innerRadiusOf(item) * pxPerUnitX} outerRadius={item.radius * pxPerUnitX} stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} />;
       case 'polygon':
         return (
           <KonvaLine
@@ -496,6 +571,14 @@ export default function ShapeNode({
           <KonvaLine points={[ends.a.x, ends.a.y, ends.b.x, ends.b.y]} stroke={CANVAS_CHROME.selection} strokeWidth={1} dash={[4, 4]} listening={false} />
           {handle('end-a', ends.a, (p, snap, commit) => moveEnd('a', p, snap, commit))}
           {handle('end-b', ends.b, (p, snap, commit) => moveEnd('b', p, snap, commit))}
+        </>
+      )}
+      {showArcHandles && (
+        <>
+          {kind !== 'annulus' && (
+            <Circle x={posX} y={posY} radius={item.radius * pxPerUnitX * scale} stroke={CANVAS_CHROME.selection} strokeWidth={1} dash={[4, 4]} opacity={0.6} listening={false} />
+          )}
+          {arcHandles.map((h) => handle(`arc-${h.key}`, h.at, (px, snap, commit) => moveArcHandle(h.key, px, snap, commit)))}
         </>
       )}
       {showVertexHandles &&

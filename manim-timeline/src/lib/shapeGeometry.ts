@@ -54,6 +54,11 @@ export function shapeLocalBounds(item: ShapeItem): LocalBounds {
     case 'polyline':
     case 'polygon':
       return pointsBounds(item.points);
+    case 'arc':
+    case 'sector':
+      return pointsBounds(shapeOutlinePoints(item) ?? []);
+    case 'annulus':
+      return { left: -item.radius, right: item.radius, bottom: -item.radius, top: item.radius };
     default:
       return { left: -0.25, right: 0.25, bottom: -0.25, top: 0.25 };
   }
@@ -137,6 +142,52 @@ export function konvaDash(style: ShapeLineStyle | undefined, pxPerUnit: number):
 }
 
 /** Shapes drawn through `points` (relative to the anchor): open polylines and closed polygons. */
+/** Arcs, sectors and rings: drawn around the anchor (their circle's centre). */
+export function isArcKind(item: Pick<ShapeItem, 'shapeType'>): boolean {
+  return item.shapeType === 'arc' || item.shapeType === 'sector' || item.shapeType === 'annulus';
+}
+
+export const DEFAULT_ARC_START_DEG = 0;
+export const DEFAULT_ARC_ANGLE_DEG = 90;
+
+/** Start and turn of an arc / sector in degrees, with the turn kept within ±360° and never 0. */
+export function arcAngles(item: Pick<ShapeItem, 'startAngleDeg' | 'angleDeg'>): { start: number; sweep: number } {
+  const start = Number.isFinite(item.startAngleDeg) ? item.startAngleDeg! : DEFAULT_ARC_START_DEG;
+  const raw = Number.isFinite(item.angleDeg) ? item.angleDeg! : DEFAULT_ARC_ANGLE_DEG;
+  const sweep = Math.max(-360, Math.min(360, raw));
+  return { start, sweep: Math.abs(sweep) < 0.01 ? 0.01 : sweep };
+}
+
+/** Inner radius of a sector (default 0) or ring (default half the radius), kept below the radius. */
+export function innerRadiusOf(item: Pick<ShapeItem, 'shapeType' | 'radius' | 'innerRadius'>): number {
+  const fallback = item.shapeType === 'annulus' ? item.radius / 2 : 0;
+  const r = Number.isFinite(item.innerRadius) ? item.innerRadius! : fallback;
+  return Math.max(0, Math.min(r, item.radius * 0.98));
+}
+
+/** Points along an arc (local units, y up), about one every 3°. */
+export function arcPoints(radius: number, startDeg: number, sweepDeg: number): ShapePoint[] {
+  const n = Math.max(8, Math.ceil(Math.abs(sweepDeg) / 3));
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const a = ((startDeg + (sweepDeg * i) / n) * Math.PI) / 180;
+    return { x: radius * Math.cos(a), y: radius * Math.sin(a) };
+  });
+}
+
+/**
+ * Outline of shapes whose box is not centred on the anchor: regular polygon vertices, an arc's
+ * points, or a sector's closed outline (outer arc, then the centre or the inner arc back).
+ */
+export function shapeOutlinePoints(item: ShapeItem): ShapePoint[] | null {
+  if (item.shapeType === 'regularPolygon') return regularPolygonVertices(item.sides, item.radius);
+  if (item.shapeType !== 'arc' && item.shapeType !== 'sector') return null;
+  const { start, sweep } = arcAngles(item);
+  const outer = arcPoints(item.radius, start, sweep);
+  if (item.shapeType === 'arc') return outer;
+  const inner = innerRadiusOf(item);
+  return inner > 1e-6 ? [...outer, ...arcPoints(inner, start + sweep, -sweep)] : [...outer, { x: 0, y: 0 }];
+}
+
 export function usesPoints(item: Pick<ShapeItem, 'shapeType'>): boolean {
   return item.shapeType === 'polyline' || item.shapeType === 'polygon';
 }

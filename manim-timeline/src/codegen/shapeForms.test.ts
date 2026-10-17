@@ -68,3 +68,26 @@ describe('line styles export', () => {
     expect(full).toContain('tips = a.pop_tips()');
   });
 });
+
+describe('arcs, sectors and rings export', () => {
+  it('emits an Arc in radians, centred on the anchor', () => {
+    const item = shape({ shapeType: 'arc', radius: 1.5, startAngleDeg: 30, angleDeg: -120, x: 1, y: 2 });
+    expect(generateShapeDef(item, 's1', 0)).toContain('s1 = Arc(radius=1.5000, angle=-2.094395, start_angle=0.523599,');
+    expect(generateShapeDef(item, 's1', 0)).toContain('fill_opacity=0');
+    expect(pos(item)).toContain('s1.shift(1.000000*RIGHT + 2.000000*UP)');
+  });
+
+  it('emits sectors as AnnularSector (inner radius 0 = a pie slice) and rings as Annulus', () => {
+    expect(generateShapeDef(shape({ shapeType: 'sector', radius: 1, fillColor: '#ff0000' }), 's1', 0)).toContain(
+      'AnnularSector(inner_radius=0.0000, outer_radius=1.0000, angle=1.570796, start_angle=0.000000,',
+    );
+    expect(generateShapeDef(shape({ shapeType: 'sector', radius: 1, innerRadius: 0.4 }), 's1', 0)).toContain('inner_radius=0.4000');
+    expect(generateShapeDef(shape({ shapeType: 'annulus', radius: 1 }), 's1', 0)).toContain('Annulus(inner_radius=0.5000, outer_radius=1.0000,');
+  });
+
+  it('dashes each closed part of a ring on its own', () => {
+    const full = exportManimCode([shape({ shapeType: 'annulus', radius: 1, lineStyle: 'dashed' })], { fullFile: true, defaults: defaultSceneDefaults() });
+    expect(full).toContain('for path in sub.get_subpaths():');
+    expect(full).toMatch(/_dashed\(Annulus\(/);
+  });
+});

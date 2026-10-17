@@ -2124,3 +2124,16 @@ describe('validateAgentResponse basic shape forms', () => {
     expect(create({ shapeType: 'polygon', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }).ok).toBe(false);
   });
 });
+
+describe('validateAgentResponse arcs', () => {
+  const create = (item: Record<string, unknown>) =>
+    validateAgentResponse({ reply: 'x', actions: [{ action: 'CREATE', item: { id: 's1', kind: 'shape', label: 'x', startTime: 0, ...item } }] }, new Map());
+
+  it('keeps arc angles and inner radii', () => {
+    const r = create({ shapeType: 'sector', radius: 1, startAngleDeg: 45, angleDeg: 500, innerRadius: 0.3 });
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const a = r.response.actions[0]!;
+    if (a.action !== 'CREATE' || a.item.kind !== 'shape') throw new Error('expected shape');
+    expect(a.item).toMatchObject({ shapeType: 'sector', startAngleDeg: 45, angleDeg: 360, innerRadius: 0.3 });
+  });
+});

@@ -2423,6 +2423,9 @@ const AGENT_SHAPE_KINDS = new Set<ShapeKind>([
   'arrow',
   'line',
   'polyline',
+  'arc',
+  'sector',
+  'annulus',
 ]);
 
 const AGENT_LINE_STYLES = new Set<ShapeLineStyle>(['solid', 'dashed', 'dotted']);
@@ -2625,6 +2628,10 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
     ...(shapeType === 'regularPolygon' ? { sides: polygonSides(asNum(raw.sides, 6)) } : {}),
     ...(shapeType === 'rectangle' && cornerRadius > 0 ? { cornerRadius } : {}),
     ...(lineStyle ? { lineStyle } : {}),
+    ...(shapeType === 'arc' || shapeType === 'sector'
+      ? { startAngleDeg: asNum(raw.startAngleDeg, 0), angleDeg: Math.max(-360, Math.min(360, asNum(raw.angleDeg, 90))) }
+      : {}),
+    ...((shapeType === 'sector' || shapeType === 'annulus') && raw.innerRadius != null ? { innerRadius: Math.max(0, asNum(raw.innerRadius, 0)) } : {}),
   };
 }
 

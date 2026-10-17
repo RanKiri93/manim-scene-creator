@@ -16,7 +16,7 @@ import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
 import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
 import { isAngleMark, isConnectorShape, resolveAngleMark, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
-import { regularPolygonVertices, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
+import { shapeLocalBounds, shapeOutlinePoints, usesPoints } from '@/lib/shapeGeometry';
 import { registerLoopToolEnv } from '@/agent/loop/env';
 import { renderDraftFrame } from '@/agent/loop/manimFrame';
 import { measureLine } from '@/services/measureClient';
@@ -608,8 +608,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
         boxes.push({ id: item.id, left: x - hw, right: x + hw, bottom: y - hh, top: y + hh });
       } else {
         const angle = (item.rotationDeg * Math.PI) / 180;
-        const localPoints = usesPoints(item) || item.shapeType === 'regularPolygon'
-          ? (usesPoints(item) ? item.points : regularPolygonVertices(item.sides, item.radius)).map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
+        const outline = usesPoints(item) ? item.points : shapeOutlinePoints(item);
+        const localPoints = outline
+          ? outline.map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
           : item.shapeType === 'line' || item.shapeType === 'arrow'
             ? [
                 { x: -item.endX * item.scale / 2, y: item.endY * item.scale / 2 },

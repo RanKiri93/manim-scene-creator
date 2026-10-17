@@ -11,8 +11,11 @@ import {
   tangentSource,
 } from '@/lib/shapeAnchors';
 import {
+  arcAngles,
   clampedCornerRadius,
   DASH_PATTERNS,
+  innerRadiusOf,
+  isArcKind,
   polygonSides,
   regularPolygonStartAngle,
   usesPoints,
@@ -30,7 +33,7 @@ import {
 import type { AudioTrackItem } from '@/types/scene';
 
 function fillKwArgs(item: ShapeItem): string {
-  if (item.shapeType === 'polyline') {
+  if (item.shapeType === 'polyline' || item.shapeType === 'arc') {
     return ', fill_opacity=0';
   }
   if (item.fillColor?.trim()) {
@@ -111,6 +114,19 @@ export function generateShapeDef(
       const pts = effectivePolylinePoints(item).map((p) => `[${p.x.toFixed(4)}, ${p.y.toFixed(4)}, 0]`).join(', ');
       return `${pad}${varName} = ${styled(`Polygon(${pts}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
     }
+    case 'arc':
+    case 'sector': {
+      // Built around the origin (the circle's centre), then shifted like a regular polygon.
+      const { start, sweep } = arcAngles(item);
+      const ang = `angle=${((sweep * Math.PI) / 180).toFixed(6)}, start_angle=${((start * Math.PI) / 180).toFixed(6)}`;
+      const ctor =
+        item.shapeType === 'arc'
+          ? `Arc(radius=${item.radius.toFixed(4)}, ${ang}, color=${stroke}, stroke_width=${sw}${fill})`
+          : `AnnularSector(inner_radius=${innerRadiusOf(item).toFixed(4)}, outer_radius=${item.radius.toFixed(4)}, ${ang}, color=${stroke}, stroke_width=${sw}${fill})`;
+      return `${pad}${varName} = ${styled(ctor)}\n`;
+    }
+    case 'annulus':
+      return `${pad}${varName} = ${styled(`Annulus(inner_radius=${innerRadiusOf(item).toFixed(4)}, outer_radius=${item.radius.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
     case 'arrow': {
       const ex = item.endX.toFixed(4);
       const ey = item.endY.toFixed(4);
@@ -335,7 +351,7 @@ export function generateShapePos(
 
 /** Shapes built around the origin and placed by shifting (points or a vertex-centred polygon). */
 function anchoredAtOrigin(item: ShapeItem): boolean {
-  return usesPoints(item) || item.shapeType === 'regularPolygon';
+  return usesPoints(item) || item.shapeType === 'regularPolygon' || isArcKind(item);
 }
 
 export const SHAPE_DASHED_FN = '_dashed';
@@ -366,11 +382,13 @@ export function shapeDashSource(indent = 0): string {
     `    for sub in m.family_members_with_points():`,
     `        if sub.get_fill_opacity() > 0:`,
     `            out.add(sub.copy().set_stroke(opacity=0))`,
-    `        n = max(2, int(round(sub.get_arc_length() / period)))`,
-    `        d = DashedVMobject(sub, num_dashes=n, dashed_ratio=ratio)`,
-    `        d.set_stroke(color=sub.get_stroke_color(), width=sub.get_stroke_width(), opacity=sub.get_stroke_opacity())`,
-    `        d.set_fill(opacity=0)`,
-    `        out.add(d)`,
+    `        for path in sub.get_subpaths():`,
+    `            piece = VMobject().set_points(path)`,
+    `            n = max(2, int(round(piece.get_arc_length() / period)))`,
+    `            d = DashedVMobject(piece, num_dashes=n, dashed_ratio=ratio)`,
+    `            d.set_stroke(color=sub.get_stroke_color(), width=sub.get_stroke_width(), opacity=sub.get_stroke_opacity())`,
+    `            d.set_fill(opacity=0)`,
+    `            out.add(d)`,
     `    return out`,
     `def ${SHAPE_DASHED_ARROW_FN}(a, period, ratio):`,
     `    tips = a.pop_tips()`,

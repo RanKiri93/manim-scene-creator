@@ -10,7 +10,7 @@ import { createProgress } from '@/lib/createPlaybackPreview';
 import { frameCenterById } from '@/lib/frameGrid';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { measuredInkBox } from '@/lib/textSnap';
-import { regularPolygonVertices, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
+import { shapeLocalBounds, shapeOutlinePoints, usesPoints } from '@/lib/shapeGeometry';
 import type { FrameDef, ItemId, SceneItem, ShapePoint } from '@/types/scene';
 
 export type CameraBoundsResult =
@@ -169,9 +169,9 @@ export function cameraObjectSnapshotBounds(
       return unavailable('Polyline geometry is invalid. Use a region zoom.');
     }
     points = item.points;
-  } else if (item.shapeType === 'regularPolygon') {
+  } else if (item.shapeType === 'regularPolygon' || item.shapeType === 'arc' || item.shapeType === 'sector') {
     if (!(item.radius > 0)) return unavailable('Shape geometry is invalid. Use a region zoom.');
-    points = regularPolygonVertices(item.sides, item.radius);
+    points = shapeOutlinePoints(item) ?? [];
   } else if (item.shapeType === 'line' || item.shapeType === 'arrow') {
     if (![item.endX, item.endY].every(Number.isFinite)) {
       return unavailable('Line geometry is invalid. Use a region zoom.');

@@ -474,7 +474,13 @@ export type ShapeKind =
   | 'polygon'
   | 'arrow'
   | 'line'
-  | 'polyline';
+  | 'polyline'
+  /** Circular arc around the anchor: `radius`, `startAngleDeg`, `angleDeg` (outline only). */
+  | 'arc'
+  /** Pie slice around the anchor (`startAngleDeg`, `angleDeg`); annular when `innerRadius` > 0. */
+  | 'sector'
+  /** Ring around the anchor between `innerRadius` and `radius`. */
+  | 'annulus';
 
 /** Outline style: solid, dashed or dotted (export: `DashedVMobject` / `DashedLine`). */
 export type ShapeLineStyle = 'solid' | 'dashed' | 'dotted';
@@ -597,6 +603,12 @@ export interface ShapeItem extends SceneItemBase {
   sides?: number;
   /** Outline style; unset = solid. */
   lineStyle?: ShapeLineStyle;
+  /** Arc / sector: where the arc starts, degrees counter-clockwise from +x (Manim). Default 0. */
+  startAngleDeg?: number;
+  /** Arc / sector: how far it turns, degrees (positive = counter-clockwise). Default 90. */
+  angleDeg?: number;
+  /** Sector / annulus: inner radius (sector default 0, annulus default half the radius). */
+  innerRadius?: number;
 }
 
 /**
