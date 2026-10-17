@@ -38,8 +38,13 @@ import { InsertActionIcon, InsertGroupIcon, InsertSearchIcon } from './insertIco
 import InsertSearch from './InsertSearch';
 import { isInsertSearchShortcut, isTypingTarget } from './insertSearchKeys';
 import { useInsertActionState } from './useInsertActionState';
+import ShapePicker from './ShapePicker';
+import { requestShapeDraw } from '@/canvas/hooks/useShapeDraw';
+import type { ShapeDrawPreset } from '@/lib/shapeDraw';
 
 type FlyoutGroupId = Exclude<InsertGroupId, 'create'>;
+/** A flyout is a group's actions, or the Shape picker (opened from the Shape button, rail or sidebar). */
+type FlyoutId = FlyoutGroupId | 'shapes';
 
 /** Rail sections, separated by hairlines. Create actions sit on the rail; the rest open flyouts. */
 const RAIL_SECTIONS: readonly (readonly InsertGroupId[])[] = [
@@ -217,9 +222,10 @@ function InsertSidebarHeader({
 }
 
 /**
- * Insert surface. Collapsed (default): a short icon rail; Text, Shape and Image insert directly
- * and Graph, Animate, Camera and Audio open a labelled flyout beside the rail. Expanded: every
- * action listed with labels, in the same groups.
+ * Insert surface. Collapsed (default): a short icon rail; Text and Image insert directly, Shape
+ * opens the shape picker (pick one, then draw it on the canvas) and Graph, Animate, Camera and
+ * Audio open a labelled flyout beside the rail. Expanded: every action listed with labels, in the
+ * same groups; Shape still opens the picker beside it.
  */
 export default function AddObjectToolbar({
   collapsed,
@@ -231,14 +237,14 @@ export default function AddObjectToolbar({
   const { run, stateFor, groupHints, hasAnyAnimationTarget } = useInsertActionState();
 
   // ---- Flyout (collapsed rail only) ----
-  const [openGroup, setOpenGroup] = useState<FlyoutGroupId | null>(null);
+  const [openGroup, setOpenGroup] = useState<FlyoutId | null>(null);
   const [pinned, setPinned] = useState(false);
   const [flyoutPos, setFlyoutPos] = useState<{ top: number; left: number } | null>(null);
-  const triggerRefs = useRef<Partial<Record<FlyoutGroupId, HTMLButtonElement | null>>>({});
+  const triggerRefs = useRef<Partial<Record<FlyoutId, HTMLButtonElement | null>>>({});
   const flyoutRef = useRef<HTMLDivElement | null>(null);
   const focusFirstTile = useRef(false);
   const flyoutId = useId();
-  const activeGroup = collapsed ? openGroup : null;
+  const activeGroup = collapsed || openGroup === 'shapes' ? openGroup : null;
 
   const closeFlyout = useCallback(
     (refocusTrigger: boolean) => {
@@ -251,7 +257,7 @@ export default function AddObjectToolbar({
     [openGroup],
   );
 
-  const toggleGroup = (id: FlyoutGroupId) => {
+  const toggleGroup = (id: FlyoutId) => {
     if (activeGroup === id) {
       closeFlyout(false);
       return;
@@ -325,6 +331,12 @@ export default function AddObjectToolbar({
     if (!pinned) closeFlyout(true);
   };
 
+  const pickShape = (preset: ShapeDrawPreset) => {
+    requestShapeDraw(preset);
+    // Focus stays off the rail so Esc and Enter reach the canvas draw mode.
+    if (!pinned) closeFlyout(false);
+  };
+
   // ---- Search ("/" anywhere outside a text field, or the rail button) ----
   const [searchOpen, setSearchOpen] = useState(false);
   const focusBeforeSearch = useRef<HTMLElement | null>(null);
@@ -341,7 +353,8 @@ export default function AddObjectToolbar({
   }, []);
   const runFromSearch = (id: InsertActionId) => {
     closeSearch();
-    run[id]();
+    if (id === 'shape') toggleGroup('shapes');
+    else run[id]();
   };
 
   useEffect(() => {
@@ -357,16 +370,26 @@ export default function AddObjectToolbar({
 
   const renderAction = (def: InsertActionDef, inFlyout: boolean) => {
     const st = stateFor(def);
+    const opensPicker = def.id === 'shape' && !inFlyout;
     return (
       <ToolButton
         key={def.id}
         collapsed={collapsed && !inFlyout}
         label={def.label}
-        title={st.title}
-        onClick={inFlyout ? () => runFromFlyout(def.id) : run[def.id]}
+        title={opensPicker ? 'Shape: pick one, then draw it on the canvas' : st.title}
+        onClick={opensPicker ? () => toggleGroup('shapes') : inFlyout ? () => runFromFlyout(def.id) : run[def.id]}
         active={st.active}
         dimmed={st.dimmed}
         disabled={st.disabled}
+        buttonRef={
+          opensPicker
+            ? (el) => {
+                triggerRefs.current.shapes = el;
+              }
+            : undefined
+        }
+        flyoutId={opensPicker ? flyoutId : undefined}
+        open={opensPicker ? activeGroup === 'shapes' : undefined}
       >
         <InsertActionIcon id={def.id} />
       </ToolButton>
@@ -459,7 +482,12 @@ export default function AddObjectToolbar({
       );
     });
 
-  const openDef = activeGroup ? groupDef(activeGroup) : null;
+  const openDef =
+    activeGroup === 'shapes'
+      ? { label: 'Shapes', kindGroup: 'shape' as const }
+      : activeGroup
+        ? groupDef(activeGroup)
+        : null;
 
   return (
     <RailTipLayer enabled={collapsed}>
@@ -499,8 +527,12 @@ export default function AddObjectToolbar({
                 <KindSwatch group={openDef.kindGroup} />
                 <PanelTitle as="h3">{openDef.label}</PanelTitle>
               </div>
-              {groupHints[activeGroup] && (
-                <p className="m-0 mt-0.5 text-meta text-chalk-faint">{groupHints[activeGroup]}</p>
+              {activeGroup === 'shapes' ? (
+                <p className="m-0 mt-0.5 text-meta text-chalk-faint">Pick a shape, then drag on the canvas.</p>
+              ) : (
+                groupHints[activeGroup] && (
+                  <p className="m-0 mt-0.5 text-meta text-chalk-faint">{groupHints[activeGroup]}</p>
+                )
               )}
             </div>
             <Button
@@ -513,7 +545,9 @@ export default function AddObjectToolbar({
               {pinned ? 'Pinned' : 'Pin'}
             </Button>
           </div>
-          <div data-insert-tiles>{renderGroupBody(activeGroup, true)}</div>
+          <div data-insert-tiles>
+            {activeGroup === 'shapes' ? <ShapePicker onPick={pickShape} /> : renderGroupBody(activeGroup, true)}
+          </div>
         </div>
       )}
       {searchOpen && <InsertSearch onClose={closeSearch} onRun={runFromSearch} stateFor={stateFor} />}

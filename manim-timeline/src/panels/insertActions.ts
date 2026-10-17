@@ -78,7 +78,7 @@ export const INSERT_SUBGROUP_LABELS: Record<InsertSubgroupId, string> = {
 
 export const INSERT_ACTIONS: readonly InsertActionDef[] = [
   { id: 'textLine', label: 'Text line', title: 'Text line', group: 'create', keywords: 'hebrew latex math title label words' },
-  { id: 'shape', label: 'Shape', title: 'Shape (circle, rectangle, arrow, line)', group: 'create', keywords: 'circle rectangle square arrow line polygon polyline' },
+  { id: 'shape', label: 'Shape', title: 'Shape: pick one, then draw it on the canvas', group: 'create', keywords: 'circle ellipse rectangle square triangle hexagon polygon arrow double curved line dashed polyline arc sector pie ring annulus brace curly' },
   { id: 'image', label: 'Image', title: 'Image (PNG, JPG, GIF as still picture)', group: 'create', keywords: 'picture photo png jpg gif' },
 
   { id: 'axes', label: 'Axes', title: 'Axes', group: 'graph', keywords: 'grid coordinate plane number line' },

@@ -10,6 +10,10 @@ import {
 import GridLayer from './layers/GridLayer';
 import TextLineNode from './layers/TextLineNode';
 import ShapeNode from './layers/ShapeNode';
+import ShapeDrawLayer from './layers/ShapeDrawLayer';
+import { SHAPE_DRAW_REQUEST_EVENT } from './hooks/useShapeDraw';
+import { drawsByPoints, type ShapeDrawPreset } from '@/lib/shapeDraw';
+import { isTwoPointKind } from '@/lib/shapeGeometry';
 import ImageNode from './layers/ImageNode';
 import SurroundingRectNode from './layers/SurroundingRectNode';
 import GraphNode from './layers/GraphNode';
@@ -217,6 +221,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const [cameraAuthoringError, setCameraAuthoringError] = useState<string | null>(null);
   const [regionCapture, setRegionCapture] = useState<RegionCaptureState | null>(null);
   const [fitPreview, setFitPreview] = useState<FitPreviewState | null>(null);
+  /** Shape picked in the Insert rail, waiting to be drawn on the canvas. */
+  const [shapeDraw, setShapeDraw] = useState<ShapeDrawPreset | null>(null);
   const panRef = useRef<{
     active: boolean;
     startX: number;
@@ -402,6 +408,44 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       window.removeEventListener(CAMERA_FIT_REQUEST_EVENT, onFitRequest);
     };
   }, [isPlaying, boardView, targetAnimationPathCapture, polylinePointCaptureId, authoringContext, selectedIds, itemsMap, frames, startFrameId, currentTime, cameraObjectFitPadding]);
+
+  useEffect(() => {
+    const onDrawRequest = (event: Event) => {
+      const preset = (event as CustomEvent<ShapeDrawPreset>).detail;
+      if (!preset) return;
+      if (isPlaying) {
+        setCameraAuthoringError('Pause playback before drawing a shape.');
+        return;
+      }
+      if (boardView) {
+        setCameraAuthoringError('Leave Board view before drawing a shape.');
+        return;
+      }
+      if (regionCapture || fitPreview || targetAnimationPathCapture || polylinePointCaptureId) {
+        setCameraAuthoringError('Finish or cancel the active canvas capture first.');
+        return;
+      }
+      setCameraAuthoringError(null);
+      setShapeDraw(preset);
+    };
+    window.addEventListener(SHAPE_DRAW_REQUEST_EVENT, onDrawRequest);
+    return () => window.removeEventListener(SHAPE_DRAW_REQUEST_EVENT, onDrawRequest);
+  }, [isPlaying, boardView, regionCapture, fitPreview, targetAnimationPathCapture, polylinePointCaptureId]);
+
+  // Playback or Board view ends drawing.
+  useEffect(() => {
+    if (shapeDraw && (isPlaying || boardView)) setShapeDraw(null);
+  }, [shapeDraw, isPlaying, boardView]);
+
+  const finishShapeDraw = useCallback(
+    (item: ShapeItem | null) => {
+      setShapeDraw(null);
+      if (!item) return;
+      useSceneStore.getState().addItem(item);
+      select(item.id);
+    },
+    [select],
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -689,7 +733,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     { rect: AnchorRect; containerWidth: number; containerHeight: number } | null
   >(null);
   const showAnimateBar =
-    !isPlaying && !stageGesture && !regionCapture && !fitPreview &&
+    !isPlaying && !stageGesture && !regionCapture && !fitPreview && !shapeDraw &&
     !targetAnimationPathCapture && !polylinePointCaptureId;
 
   const measureSelectionAnchor = useCallback(() => {
@@ -863,7 +907,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
       <div
         ref={containerRef}
         className="relative w-full h-full flex-1 min-h-0 rounded-pop overflow-hidden border border-rule bg-stage flex items-center justify-center"
-        style={{ cursor: regionCapture ? 'crosshair' : !isPlaying && !boardView ? 'grab' : 'default' }}
+        style={{ cursor: regionCapture || shapeDraw ? 'crosshair' : !isPlaying && !boardView ? 'grab' : 'default' }}
       >
         <Stage
           ref={stageRef}
@@ -1056,7 +1100,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               y={contentTransform.y}
               scaleX={contentTransform.scale}
               scaleY={contentTransform.scale}
-              listening={!regionCapture}
+              listening={!regionCapture && !shapeDraw}
             >
             {boardView &&
               frames.map((frame) => {
@@ -1435,7 +1479,36 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
             })}
             </Group>
           </Layer>
+          {shapeDraw && (
+            <ShapeDrawLayer
+              preset={shapeDraw}
+              width={size.width}
+              height={size.height}
+              transform={contentTransform}
+              frameCenter={frameCenterById(frames, useSceneStore.getState().activeFrameId ?? startFrameId)}
+              startTime={currentTime}
+              onDone={finishShapeDraw}
+            />
+          )}
         </Stage>
+        {shapeDraw ? (
+          <div className="absolute top-2 left-1/2 z-10 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-2 rounded-ctl bg-panel/95 py-0.5 pr-0.5 pl-2 text-ctl text-chalk shadow-lg ring-1 ring-highlight/45 ring-inset">
+            <span>
+              {shapeDraw.label}:{' '}
+              {drawsByPoints(shapeDraw.shapeType)
+                ? 'click each point (Shift: 45°); double-click or Enter finishes, Backspace removes the last point'
+                : shapeDraw.shapeType === 'arc' || shapeDraw.shapeType === 'sector' || shapeDraw.shapeType === 'annulus'
+                  ? 'drag out from the centre (Shift snaps the direction); click for the default size'
+                  : isTwoPointKind(shapeDraw.shapeType)
+                    ? 'drag from start to end (Shift: 45° steps); click for the default size'
+                    : 'drag a box (Shift keeps it square, Alt draws from the centre); click for the default size'}
+              . Esc cancels.
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setShapeDraw(null)}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
         {showAnimateBar && selectionAnchor && (
           <SelectionAnimateBar
             anchor={selectionAnchor.rect}

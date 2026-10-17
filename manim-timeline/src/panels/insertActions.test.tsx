@@ -59,7 +59,7 @@ describe('AddObjectToolbar', () => {
       'Camera',
       'Audio',
     ]);
-    expect(html.match(/aria-expanded="false"/g)?.length).toBe(4 + 1); // 4 flyouts + label toggle
+    expect(html.match(/aria-expanded="false"/g)?.length).toBe(5 + 1); // 4 group flyouts + the Shape picker + label toggle
   });
 
   it('expanded sidebar lists every action with its label', () => {
