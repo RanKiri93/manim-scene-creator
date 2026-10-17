@@ -1,4 +1,4 @@
-import type { ShapeItem, ShapePoint } from '@/types/scene';
+import type { ShapeItem, ShapeLineStyle, ShapePoint } from '@/types/scene';
 
 /** Manim `stroke_width` is in hundredths of a scene unit (same factor as the axes preview). */
 export const MANIM_STROKE_UNITS_PER_WIDTH = 0.01;
@@ -41,7 +41,10 @@ export function shapeLocalBounds(item: ShapeItem): LocalBounds {
     case 'circle':
       return { left: -item.radius, right: item.radius, bottom: -item.radius, top: item.radius };
     case 'rectangle':
+    case 'ellipse':
       return { left: -item.width / 2, right: item.width / 2, bottom: -item.height / 2, top: item.height / 2 };
+    case 'regularPolygon':
+      return pointsBounds(regularPolygonVertices(item.sides, item.radius));
     case 'line':
     case 'arrow': {
       const hx = Math.abs(item.endX) / 2;
@@ -49,6 +52,7 @@ export function shapeLocalBounds(item: ShapeItem): LocalBounds {
       return { left: -hx, right: hx, bottom: -hy, top: hy };
     }
     case 'polyline':
+    case 'polygon':
       return pointsBounds(item.points);
     default:
       return { left: -0.25, right: 0.25, bottom: -0.25, top: 0.25 };
@@ -91,4 +95,48 @@ export function nearestSegment(points: readonly ShapePoint[], p: ShapePoint): nu
     }
   }
   return best;
+}
+
+/** Sides of a regular polygon, 3–12 (default 6). */
+export function polygonSides(sides: number | undefined): number {
+  return Math.max(3, Math.min(12, Math.round(Number.isFinite(sides) ? sides! : 6)));
+}
+
+/** First vertex angle (radians) that gives a regular polygon a flat bottom edge. */
+export function regularPolygonStartAngle(sides: number): number {
+  return -Math.PI / 2 + Math.PI / sides;
+}
+
+/** Vertices of a regular polygon around (0, 0): `radius` = centre to vertex, flat bottom edge. */
+export function regularPolygonVertices(sides: number | undefined, radius: number): ShapePoint[] {
+  const n = polygonSides(sides);
+  const a0 = regularPolygonStartAngle(n);
+  return Array.from({ length: n }, (_, i) => ({ x: radius * Math.cos(a0 + (2 * Math.PI * i) / n), y: radius * Math.sin(a0 + (2 * Math.PI * i) / n) }));
+}
+
+/** Corner radius a rectangle can actually have (at most half its shorter side). */
+export function clampedCornerRadius(item: Pick<ShapeItem, 'cornerRadius' | 'width' | 'height'>): number {
+  const r = Number.isFinite(item.cornerRadius) ? Math.max(0, item.cornerRadius!) : 0;
+  return Math.min(r, Math.abs(item.width) / 2, Math.abs(item.height) / 2);
+}
+
+/**
+ * Dash pattern of an outline style in scene units: one dash plus its gap (`period`) and the share
+ * of it that is drawn (`ratio`). Dotted = very short dashes, which read as dots at normal widths.
+ */
+export const DASH_PATTERNS: Record<Exclude<ShapeLineStyle, 'solid'>, { period: number; ratio: number }> = {
+  dashed: { period: 0.2, ratio: 0.55 },
+  dotted: { period: 0.1, ratio: 0.2 },
+};
+
+/** Konva `dash` array (px) for an outline style, or undefined when solid. */
+export function konvaDash(style: ShapeLineStyle | undefined, pxPerUnit: number): number[] | undefined {
+  if (!style || style === 'solid') return undefined;
+  const { period, ratio } = DASH_PATTERNS[style];
+  return [period * ratio * pxPerUnit, period * (1 - ratio) * pxPerUnit];
+}
+
+/** Shapes drawn through `points` (relative to the anchor): open polylines and closed polygons. */
+export function usesPoints(item: Pick<ShapeItem, 'shapeType'>): boolean {
+  return item.shapeType === 'polyline' || item.shapeType === 'polygon';
 }

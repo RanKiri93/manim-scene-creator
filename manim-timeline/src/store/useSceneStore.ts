@@ -924,6 +924,7 @@ export const useSceneStore = create<SceneStore>()(
           typeof patch === 'object' &&
           'shapeType' in patch &&
           patch.shapeType !== 'polyline' &&
+          patch.shapeType !== 'polygon' &&
           s.polylinePointCaptureId === id
         ) {
           s.polylinePointCaptureId = null;

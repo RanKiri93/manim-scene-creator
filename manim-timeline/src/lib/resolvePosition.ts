@@ -1,6 +1,7 @@
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import type { SceneItem, ItemId, ManimDirection, PosStep, PosStepToEdge } from '@/types/scene';
 import { computeNextToMobCenter } from '@/lib/nextToGeometry';
+import { shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { polylinePointExtents } from '@/lib/polylineExtents';
 
 export interface ItemBBox {
@@ -79,29 +80,13 @@ export function getItemBBox(item: SceneItem): ItemBBox {
     h = (yMax - yMin) * item.scaleY;
     return { x, y, w, h };
   } else if (item.kind === 'shape') {
-    switch (item.shapeType) {
-      case 'circle':
-        w = 2 * item.radius;
-        h = 2 * item.radius;
-        break;
-      case 'rectangle':
-        w = item.width;
-        h = item.height;
-        break;
-      case 'arrow':
-      case 'line':
-        w = Math.max(0.15, Math.abs(item.endX));
-        h = Math.max(0.15, Math.abs(item.endY));
-        break;
-      case 'polyline': {
-        const d = polylinePointExtents(item.points);
-        w = d.w;
-        h = d.h;
-        break;
-      }
-      default:
-        w = 0.5;
-        h = 0.5;
+    if (usesPoints(item)) {
+      ({ w, h } = polylinePointExtents(item.points));
+    } else {
+      const b = shapeLocalBounds(item);
+      const thin = item.shapeType === 'line' || item.shapeType === 'arrow' ? 0.15 : 0;
+      w = Math.max(thin, b.right - b.left);
+      h = Math.max(thin, b.top - b.bottom);
     }
   } else if (item.kind === 'image') {
     w = Number.isFinite(item.width) && item.width > 0 ? item.width : 3;

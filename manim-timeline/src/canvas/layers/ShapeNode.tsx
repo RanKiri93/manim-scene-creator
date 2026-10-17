@@ -2,9 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import {
   Group,
   Circle,
+  Ellipse,
   Rect,
   Line as KonvaLine,
-  Arrow as KonvaArrow,
   Transformer,
 } from 'react-konva';
 import { tickSegments } from '@/lib/shapeAnchors';
@@ -19,11 +19,15 @@ import { fillWithAlpha } from '@/lib/riemann';
 import {
   arrowStrokeWidth,
   arrowTipLength,
+  clampedCornerRadius,
+  konvaDash,
   nearestSegment,
   POLYLINE_TIP_LENGTH,
+  regularPolygonVertices,
   shapeLocalBounds,
   shapeStrokePx,
   snapDirection,
+  usesPoints,
 } from '@/lib/shapeGeometry';
 
 const ALL_ANCHORS = ['top-left', 'top-center', 'top-right', 'middle-right', 'middle-left', 'bottom-left', 'bottom-center', 'bottom-right'];
@@ -36,6 +40,19 @@ function polyArrowSegment(points: ShapePoint[], at: 'head' | 'tail'): [ShapePoin
   if (points.length < 2) return null;
   const [a, b] = at === 'head' ? [points[points.length - 2]!, points[points.length - 1]!] : [points[1]!, points[0]!];
   return Math.hypot(b.x - a.x, b.y - a.y) < 1e-9 ? null : [a, b];
+}
+
+/**
+ * Filled triangle tip in px, apex at (bx, by) pointing away from (ax, ay). Manim tips have no
+ * outline, so the preview fills them without a stroke (a stroked Konva Arrow tip draws too big).
+ */
+function arrowHeadFlat(ax: number, ay: number, bx: number, by: number, length: number, width = length): number[] {
+  const d = Math.hypot(bx - ax, by - ay) || 1;
+  const ux = (bx - ax) / d;
+  const uy = (by - ay) / d;
+  const baseX = bx - ux * length;
+  const baseY = by - uy * length;
+  return [bx, by, baseX - uy * (width / 2), baseY + ux * (width / 2), baseX + uy * (width / 2), baseY - ux * (width / 2)];
 }
 
 interface ShapeNodeProps {
@@ -108,7 +125,9 @@ export default function ShapeNode({
   const twoPoint = kind === 'line' || kind === 'arrow';
   const showTransformer = editable && !twoPoint;
   const showEndHandles = editable && twoPoint;
-  const showVertexHandles = editable && kind === 'polyline';
+  const showVertexHandles = editable && usesPoints(item);
+  /** Shapes that only scale evenly (one size): circles and regular polygons. */
+  const evenScale = kind === 'circle' || kind === 'regularPolygon';
 
   const anchorPos = draft && draft.x != null && draft.y != null ? manimToCanvas(draft.x, draft.y) : null;
   const posX = anchorPos?.x ?? (resolvedX / FRAME_W + 0.5) * canvasWidth;
@@ -192,10 +211,15 @@ export default function ShapeNode({
         patch.radius = Math.max(minDim, base.radius * Math.sqrt(Math.max(1e-8, sx * sy)));
         break;
       case 'rectangle':
+      case 'ellipse':
         patch.width = Math.max(minDim, base.width * sx);
         patch.height = Math.max(minDim, base.height * sy);
         break;
+      case 'regularPolygon':
+        patch.radius = Math.max(minDim, base.radius * Math.sqrt(Math.max(1e-8, sx * sy)));
+        break;
       case 'polyline':
+      case 'polygon':
         patch.points = base.points.map((p) => ({ x: p.x * sx, y: p.y * sy }));
         break;
       default:
@@ -243,12 +267,14 @@ export default function ShapeNode({
       setDraft(null);
     } else setDraft({ points });
   };
-  const insertVertex = () => {
+  const insertVertex = (closed: boolean) => {
     const n = shapeGroupRef.current;
     const local = n?.getRelativePointerPosition();
     if (!local) return;
     const p = { x: local.x / pxPerUnitX, y: -local.y / pxPerUnitY };
-    const i = nearestSegment(item.points, p);
+    // A closed polygon also has the edge from the last point back to the first.
+    const ring = closed && item.points.length > 2 ? [...item.points, item.points[0]!] : item.points;
+    const i = nearestSegment(ring, p);
     if (i < 0) return;
     updateItem(item.id, { points: [...item.points.slice(0, i + 1), p, ...item.points.slice(i + 1)] });
   };
@@ -258,31 +284,59 @@ export default function ShapeNode({
   const fillSource = previewFillColor !== undefined ? previewFillColor : item.fillColor;
   const fill = fillSource?.trim() ? fillWithAlpha(fillSource, item.fillOpacity) : undefined;
   const sw = shapeStrokePx(item.strokeWidth, ppu);
+  const dash = konvaDash(item.lineStyle, ppu);
+  const toFlat = (pts: ShapePoint[]) => pts.flatMap((p) => [p.x * pxPerUnitX, -p.y * pxPerUnitY]);
 
   const inner = (() => {
     switch (kind) {
       case 'circle':
-        return <Circle radius={item.radius * pxPerUnitX} stroke={stroke} strokeWidth={sw} fill={fill} />;
+        return <Circle radius={item.radius * pxPerUnitX} stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} />;
+      case 'ellipse':
+        return <Ellipse radiusX={(item.width / 2) * pxPerUnitX} radiusY={(item.height / 2) * pxPerUnitY} stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} />;
       case 'rectangle': {
         const w = item.width * pxPerUnitX;
         const h = item.height * pxPerUnitY;
-        return <Rect x={-w / 2} y={-h / 2} width={w} height={h} stroke={stroke} strokeWidth={sw} fill={fill} />;
+        return <Rect x={-w / 2} y={-h / 2} width={w} height={h} cornerRadius={clampedCornerRadius(item) * ppu} stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} />;
       }
+      case 'regularPolygon':
+        return <KonvaLine points={toFlat(regularPolygonVertices(item.sides, item.radius))} closed stroke={stroke} strokeWidth={sw} fill={fill} dash={dash} lineJoin="miter" />;
+      case 'polygon':
+        return (
+          <KonvaLine
+            points={toFlat(item.points)}
+            closed
+            stroke={stroke}
+            strokeWidth={sw}
+            fill={fill}
+            dash={dash}
+            lineJoin="miter"
+            hitStrokeWidth={12}
+            onDblClick={(e) => {
+              if (!showVertexHandles) return;
+              e.cancelBubble = true;
+              insertVertex(true);
+            }}
+          />
+        );
       case 'arrow': {
         const x2 = item.endX * pxPerUnitX;
         const y2 = -item.endY * pxPerUnitY;
         const len = Math.hypot(item.endX, item.endY);
         const tip = arrowTipLength(len) * ppu;
+        const lenPx = Math.hypot(x2, y2) || 1;
+        // Like Manim, the shaft stops at the tip's base so it never pokes past the apex.
+        const back = Math.min(tip * 0.9, lenPx);
         return (
-          <KonvaArrow
-            points={[-x2 / 2, -y2 / 2, x2 / 2, y2 / 2]}
-            stroke={stroke}
-            fill={stroke}
-            strokeWidth={shapeStrokePx(arrowStrokeWidth(item.strokeWidth, len), ppu)}
-            pointerLength={tip}
-            pointerWidth={tip}
-            hitStrokeWidth={12}
-          />
+          <Group>
+            <KonvaLine
+              points={[-x2 / 2, -y2 / 2, x2 / 2 - (x2 / lenPx) * back, y2 / 2 - (y2 / lenPx) * back]}
+              stroke={stroke}
+              strokeWidth={shapeStrokePx(arrowStrokeWidth(item.strokeWidth, len), ppu)}
+              dash={dash}
+              hitStrokeWidth={12}
+            />
+            <KonvaLine points={arrowHeadFlat(-x2 / 2, -y2 / 2, x2 / 2, y2 / 2, tip)} closed fill={stroke} />
+          </Group>
         );
       }
       case 'line': {
@@ -292,7 +346,7 @@ export default function ShapeNode({
         const ticks = tickSegments({ x: -item.endX / 2, y: -item.endY / 2 }, { x: item.endX / 2, y: item.endY / 2 }, item.endpoints?.ticks ?? 0);
         return (
           <Group>
-            <KonvaLine points={[-x2 / 2, -y2 / 2, x2 / 2, y2 / 2]} stroke={stroke} strokeWidth={sw} hitStrokeWidth={12} />
+            <KonvaLine points={[-x2 / 2, -y2 / 2, x2 / 2, y2 / 2]} stroke={stroke} strokeWidth={sw} dash={dash} hitStrokeWidth={12} />
             {ticks.map(([a, b], i) => (
               <KonvaLine key={`tick-${i}`} points={[a.x * pxPerUnitX, -a.y * pxPerUnitY, b.x * pxPerUnitX, -b.y * pxPerUnitY]} stroke={stroke} strokeWidth={sw} />
             ))}
@@ -303,31 +357,32 @@ export default function ShapeNode({
         const pts = item.points;
         if (pts.length === 0) return <KonvaLine points={[0, 0, 0.5, 0]} stroke={stroke} strokeWidth={1} opacity={0.35} dash={[4, 4]} />;
         const tip = POLYLINE_TIP_LENGTH * ppu;
-        const tipLine = (seg: [ShapePoint, ShapePoint] | null, key: string) =>
-          seg ? (
-            <KonvaArrow
+        const tipLine = (seg: [ShapePoint, ShapePoint] | null, key: string) => {
+          if (!seg) return null;
+          const t = Math.min(tip, Math.hypot(seg[1].x - seg[0].x, seg[1].y - seg[0].y) * ppu);
+          return (
+            <KonvaLine
               key={key}
-              points={[seg[0].x * pxPerUnitX, -seg[0].y * pxPerUnitY, seg[1].x * pxPerUnitX, -seg[1].y * pxPerUnitY]}
-              stroke={stroke}
+              points={arrowHeadFlat(seg[0].x * pxPerUnitX, -seg[0].y * pxPerUnitY, seg[1].x * pxPerUnitX, -seg[1].y * pxPerUnitY, t)}
+              closed
               fill={stroke}
-              strokeWidth={sw}
-              pointerLength={tip}
-              pointerWidth={tip}
             />
-          ) : null;
+          );
+        };
         return (
           <Group>
             <KonvaLine
               points={pts.flatMap((p) => [p.x * pxPerUnitX, -p.y * pxPerUnitY])}
               stroke={stroke}
               strokeWidth={sw}
-              lineCap="round"
+              lineCap={dash ? 'butt' : 'round'}
               lineJoin="round"
+              dash={dash}
               hitStrokeWidth={12}
               onDblClick={(e) => {
                 if (!showVertexHandles) return;
                 e.cancelBubble = true;
-                insertVertex();
+                insertVertex(false);
               }}
             />
             {item.headArrow ? tipLine(polyArrowSegment(pts, 'head'), 'head') : null}
@@ -422,8 +477,8 @@ export default function ShapeNode({
           rotateEnabled={kind !== 'circle'}
           rotationSnaps={ROTATION_SNAPS}
           rotationSnapTolerance={4}
-          enabledAnchors={kind === 'circle' ? CORNER_ANCHORS : ALL_ANCHORS}
-          keepRatio={kind === 'circle'}
+          enabledAnchors={evenScale ? CORNER_ANCHORS : ALL_ANCHORS}
+          keepRatio={evenScale}
           ignoreStroke
           padding={4}
           borderStroke={CANVAS_CHROME.selection}
@@ -450,7 +505,8 @@ export default function ShapeNode({
             localPxToParent(unitToLocalPx(p)),
             (px, snap, commit) => moveVertex(i, px, snap, commit),
             () => {
-              if (item.points.length > 2) updateItem(item.id, { points: item.points.filter((_, j) => j !== i) });
+              const min = kind === 'polygon' ? 3 : 2;
+              if (item.points.length > min) updateItem(item.id, { points: item.points.filter((_, j) => j !== i) });
             },
           ),
         )}

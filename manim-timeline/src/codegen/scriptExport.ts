@@ -16,6 +16,7 @@ import type {
 import { isTopLevelItem, effectiveStart, runDuration } from '@/lib/time';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
+import { polygonSides, usesPoints } from '@/lib/shapeGeometry';
 
 export type SceneState = {
   items: Map<ItemId, SceneItem>;
@@ -229,10 +230,14 @@ function appendGraphPointSequence(
 function appendShape(lines: string[], item: ShapeItem): void {
   lines.push('');
   lines.push(`## Shape (${item.shapeType})`);
-  if (item.shapeType === 'polyline') {
+  if (item.shapeType === 'regularPolygon') lines.push(`sides: ${polygonSides(item.sides)}`);
+  if (item.lineStyle && item.lineStyle !== 'solid') lines.push(`line: ${item.lineStyle}`);
+  if (usesPoints(item)) {
     lines.push(
       `points: ${item.points.map((p) => `(${p.x}, ${p.y})`).join(' -> ')}`,
     );
+  }
+  if (item.shapeType === 'polyline') {
     lines.push(
       `arrowheads: ${item.tailArrow && item.headArrow ? 'both' : item.tailArrow ? 'tail' : item.headArrow ? 'head' : 'none'}`,
     );

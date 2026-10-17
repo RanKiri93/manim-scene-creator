@@ -10,6 +10,13 @@ import {
   TICK_SPACING,
   tangentSource,
 } from '@/lib/shapeAnchors';
+import {
+  clampedCornerRadius,
+  DASH_PATTERNS,
+  polygonSides,
+  regularPolygonStartAngle,
+  usesPoints,
+} from '@/lib/shapeGeometry';
 import { PLOT_SLOPE_STEP } from '@/lib/graphLiveValue';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { emitNextToPython } from './nextToCodegen';
@@ -79,11 +86,31 @@ export function generateShapeDef(
   const sw = item.strokeWidth.toFixed(4);
   const fill = fillKwArgs(item);
 
+  // Dashed / dotted outlines: the shape is redrawn as dashes (fill kept underneath).
+  const dash = dashArgs(item);
+  const styled = (ctor: string) => (dash ? `${SHAPE_DASHED_FN}(${ctor}, ${dash})` : ctor);
   switch (item.shapeType) {
     case 'circle':
-      return `${pad}${varName} = Circle(radius=${item.radius.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})\n`;
-    case 'rectangle':
-      return `${pad}${varName} = Rectangle(width=${item.width.toFixed(4)}, height=${item.height.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})\n`;
+      return `${pad}${varName} = ${styled(`Circle(radius=${item.radius.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
+    case 'ellipse':
+      return `${pad}${varName} = ${styled(`Ellipse(width=${item.width.toFixed(4)}, height=${item.height.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
+    case 'rectangle': {
+      const r = clampedCornerRadius(item);
+      const ctor =
+        r > 1e-6
+          ? `RoundedRectangle(corner_radius=${r.toFixed(4)}, width=${item.width.toFixed(4)}, height=${item.height.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`
+          : `Rectangle(width=${item.width.toFixed(4)}, height=${item.height.toFixed(4)}, color=${stroke}, stroke_width=${sw}${fill})`;
+      return `${pad}${varName} = ${styled(ctor)}\n`;
+    }
+    case 'regularPolygon': {
+      // Built around the origin with a flat bottom edge, then shifted (its box centre is not its centre).
+      const n = polygonSides(item.sides);
+      return `${pad}${varName} = ${styled(`RegularPolygon(n=${n}, radius=${item.radius.toFixed(4)}, start_angle=${regularPolygonStartAngle(n).toFixed(6)}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
+    }
+    case 'polygon': {
+      const pts = effectivePolylinePoints(item).map((p) => `[${p.x.toFixed(4)}, ${p.y.toFixed(4)}, 0]`).join(', ');
+      return `${pad}${varName} = ${styled(`Polygon(${pts}, color=${stroke}, stroke_width=${sw}${fill})`)}\n`;
+    }
     case 'arrow': {
       const ex = item.endX.toFixed(4);
       const ey = item.endY.toFixed(4);
@@ -95,9 +122,7 @@ export function generateShapeDef(
     case 'line': {
       const ex = item.endX.toFixed(4);
       const ey = item.endY.toFixed(4);
-      return (
-        `${pad}${varName} = Line(start=[0, 0, 0], end=[${ex}, ${ey}, 0], color=${stroke}, stroke_width=${sw})\n`
-      );
+      return `${pad}${varName} = ${styled(`Line(start=[0, 0, 0], end=[${ex}, ${ey}, 0], color=${stroke}, stroke_width=${sw})`)}\n`;
     }
     case 'polyline': {
       const pathVar = `_${varName}_path`;
@@ -108,6 +133,7 @@ export function generateShapeDef(
       const strokeFill = fillKwArgs(item);
       let block = `${pad}${pathVar} = VMobject(color=${stroke}, stroke_width=${sw}${strokeFill})\n`;
       block += `${pad}${pathVar}.set_points_as_corners([\n${cornerLines}\n${pad}])\n`;
+      if (dash) block += `${pad}${pathVar} = ${SHAPE_DASHED_FN}(${pathVar}, ${dash})\n`;
 
       const rawPts = item.points ?? [];
       const groupParts: string[] = [pathVar];
@@ -183,7 +209,7 @@ export function generateShapePos(
     const step = item.posSteps[si]!;
     switch (step.kind) {
       case 'absolute':
-        if (item.shapeType === 'polyline') {
+        if (anchoredAtOrigin(item)) {
           lines.push(
             `${pad}${varName}.shift(${item.x.toFixed(6)}*RIGHT + ${item.y.toFixed(6)}*UP)`,
           );
@@ -240,7 +266,7 @@ export function generateShapePos(
 
   // Match canvas `resolvePosition`: if no placement ran, still apply store coords.
   if (!emittedPlacement) {
-    if (item.shapeType === 'polyline') {
+    if (anchoredAtOrigin(item)) {
       lines.push(
         `${pad}${varName}.shift(${item.x.toFixed(6)}*RIGHT + ${item.y.toFixed(6)}*UP)`,
       );
@@ -272,7 +298,7 @@ export function generateShapePos(
         `${pad}${rp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
         `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES, about_point=${rp})`,
       );
-    } else if (item.shapeType === 'polyline') {
+    } else if (anchoredAtOrigin(item)) {
       const ap = resolvePosition(item, itemsMap);
       lines.push(
         `${pad}${varName}.rotate(${manimDeg.toFixed(4)} * DEGREES, about_point=[${ap.x.toFixed(6)}, ${ap.y.toFixed(6)}, 0])`,
@@ -290,7 +316,7 @@ export function generateShapePos(
         `${pad}${sp} = (${varName}.get_start() + ${varName}.get_end()) / 2`,
         `${pad}${varName}.scale(${item.scale.toFixed(6)}, about_point=${sp})`,
       );
-    } else if (item.shapeType === 'polyline') {
+    } else if (anchoredAtOrigin(item)) {
       const ap = resolvePosition(item, itemsMap);
       lines.push(
         `${pad}${varName}.scale(${item.scale.toFixed(6)}, about_point=[${ap.x.toFixed(6)}, ${ap.y.toFixed(6)}, 0])`,
@@ -300,7 +326,58 @@ export function generateShapePos(
     }
   }
 
+  // A dashed arrow is dashed after placement: the shaft centring above needs the real Arrow.
+  const dash = dashArgs(item);
+  if (dash && item.shapeType === 'arrow') lines.push(`${pad}${varName} = ${SHAPE_DASHED_ARROW_FN}(${varName}, ${dash})`);
+
   return lines.join('\n') + (lines.length ? '\n' : '');
+}
+
+/** Shapes built around the origin and placed by shifting (points or a vertex-centred polygon). */
+function anchoredAtOrigin(item: ShapeItem): boolean {
+  return usesPoints(item) || item.shapeType === 'regularPolygon';
+}
+
+export const SHAPE_DASHED_FN = '_dashed';
+export const SHAPE_DASHED_ARROW_FN = '_dashed_arrow';
+
+/** `period, ratio` for a dashed / dotted outline, or null when solid. */
+function dashArgs(item: ShapeItem): string | null {
+  if (!item.lineStyle || item.lineStyle === 'solid') return null;
+  const { period, ratio } = DASH_PATTERNS[item.lineStyle];
+  return `${period}, ${ratio}`;
+}
+
+/** True when some static shape is dashed or dotted (the scene then needs {@link shapeDashSource}). */
+export function anyDashedShape(items: readonly SceneItem[]): boolean {
+  return items.some((it) => it.kind === 'shape' && !!it.lineStyle && it.lineStyle !== 'solid' && !isBoundShape(it));
+}
+
+/**
+ * `_dashed(m, period, ratio)`: every outline of `m` as dashes of that period (the share `ratio`
+ * drawn), keeping its colour and width, with any fill kept underneath; `_dashed_arrow` dashes
+ * the shaft and keeps the tip solid.
+ */
+export function shapeDashSource(indent = 0): string {
+  const p = ' '.repeat(indent);
+  return [
+    `def ${SHAPE_DASHED_FN}(m, period, ratio):`,
+    `    out = VGroup()`,
+    `    for sub in m.family_members_with_points():`,
+    `        if sub.get_fill_opacity() > 0:`,
+    `            out.add(sub.copy().set_stroke(opacity=0))`,
+    `        n = max(2, int(round(sub.get_arc_length() / period)))`,
+    `        d = DashedVMobject(sub, num_dashes=n, dashed_ratio=ratio)`,
+    `        d.set_stroke(color=sub.get_stroke_color(), width=sub.get_stroke_width(), opacity=sub.get_stroke_opacity())`,
+    `        d.set_fill(opacity=0)`,
+    `        out.add(d)`,
+    `    return out`,
+    `def ${SHAPE_DASHED_ARROW_FN}(a, period, ratio):`,
+    `    tips = a.pop_tips()`,
+    `    return VGroup(${SHAPE_DASHED_FN}(a, period, ratio), *tips)`,
+  ]
+    .map((line) => p + line)
+    .join('\n') + '\n';
 }
 
 export function generateShapePlay(

@@ -16,6 +16,7 @@ import GraphNode from './layers/GraphNode';
 import SelectionAnimateBar from './SelectionAnimateBar';
 import { anchorItemIdFor, canvasItemNodeId, unionRects, type AnchorRect } from './selectionAnchor';
 import { isAngleMark, isConnectorShape, resolveAngleMark, resolveConnectorEndpoints } from '@/lib/shapeAnchors';
+import { regularPolygonVertices, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { registerLoopToolEnv } from '@/agent/loop/env';
 import { renderDraftFrame } from '@/agent/loop/manimFrame';
 import { measureLine } from '@/services/measureClient';
@@ -607,16 +608,17 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
         boxes.push({ id: item.id, left: x - hw, right: x + hw, bottom: y - hh, top: y + hh });
       } else {
         const angle = (item.rotationDeg * Math.PI) / 180;
-        const localPoints = item.shapeType === 'polyline'
-          ? item.points.map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
+        const localPoints = usesPoints(item) || item.shapeType === 'regularPolygon'
+          ? (usesPoints(item) ? item.points : regularPolygonVertices(item.sides, item.radius)).map((point) => ({ x: point.x * item.scale, y: point.y * item.scale }))
           : item.shapeType === 'line' || item.shapeType === 'arrow'
             ? [
                 { x: -item.endX * item.scale / 2, y: item.endY * item.scale / 2 },
                 { x: item.endX * item.scale / 2, y: -item.endY * item.scale / 2 },
               ]
             : (() => {
-                const hw = (item.shapeType === 'circle' ? item.radius : item.width / 2) * item.scale;
-                const hh = (item.shapeType === 'circle' ? item.radius : item.height / 2) * item.scale;
+                const b = shapeLocalBounds(item);
+                const hw = ((b.right - b.left) / 2) * item.scale;
+                const hh = ((b.top - b.bottom) / 2) * item.scale;
                 return [{ x: -hw, y: -hh }, { x: -hw, y: hh }, { x: hw, y: -hh }, { x: hw, y: hh }];
               })();
         const rotated = localPoints.map((point) => ({
@@ -1012,7 +1014,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
               if (
                 pos &&
                 raw?.kind === 'shape' &&
-                raw.shapeType === 'polyline' &&
+                usesPoints(raw) &&
                 Math.abs(raw.rotationDeg) < 1e-6 &&
                 Math.abs(raw.scale - 1) < 1e-6
               ) {

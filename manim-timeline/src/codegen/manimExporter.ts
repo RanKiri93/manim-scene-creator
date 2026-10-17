@@ -82,6 +82,8 @@ import {
   generateAngleMarkBind,
   anyGeometryMarks,
   geometryMarksSource,
+  anyDashedShape,
+  shapeDashSource,
 } from './shapeCodegen';
 import {
   generateImageDef,
@@ -1451,7 +1453,8 @@ function exportManimCodeInner(
     const trailHelper = anyFadingTrail(items) ? `${graphFadingTrailSource(0)}\n` : '';
     const riemannHelper = anyRiemannArea(items) ? `${riemannRectsSource(0)}\n` : '';
     const marksHelper = anyGeometryMarks(items) ? `${geometryMarksSource(0)}\n` : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    const dashHelper = anyDashedShape(items) ? `${shapeDashSource(0)}\n` : '';
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1476,6 +1479,7 @@ function exportManimCodeInner(
   if (anyFadingTrail(items)) header += '\n\n' + graphFadingTrailSource(0);
   if (anyRiemannArea(items)) header += '\n\n' + riemannRectsSource(0);
   if (anyGeometryMarks(items)) header += '\n\n' + geometryMarksSource(0);
+  if (anyDashedShape(items)) header += '\n\n' + shapeDashSource(0);
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster

@@ -11,6 +11,7 @@ import type {
   SegmentLocalBox,
   NextToBoundsMode,
 } from '@/types/scene';
+import { shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import { polylinePointExtents } from '@/lib/polylineExtents';
 
 export function rawDirectionComponents(dir: ManimDirection): { dx: number; dy: number } {
@@ -151,32 +152,11 @@ export function alignBoxForItemAt(
   }
 
   if (item.kind === 'shape') {
-    let w: number;
-    let h: number;
-    switch (item.shapeType) {
-      case 'circle':
-        w = 2 * item.radius;
-        h = 2 * item.radius;
-        break;
-      case 'rectangle':
-        w = item.width;
-        h = item.height;
-        break;
-      case 'arrow':
-      case 'line':
-        w = Math.max(0.15, Math.abs(item.endX));
-        h = Math.max(0.15, Math.abs(item.endY));
-        break;
-      case 'polyline': {
-        const d = polylinePointExtents(item.points);
-        w = d.w;
-        h = d.h;
-        break;
-      }
-      default:
-        w = 0.5;
-        h = 0.5;
-    }
+    const b = shapeLocalBounds(item);
+    const thin = item.shapeType === 'line' || item.shapeType === 'arrow' ? 0.15 : 0;
+    const ext = usesPoints(item) ? polylinePointExtents(item.points) : null;
+    let w = ext ? ext.w : Math.max(thin, b.right - b.left);
+    let h = ext ? ext.h : Math.max(thin, b.top - b.bottom);
     w *= item.scale;
     h *= item.scale;
     return { cx: mobX, cy: mobY, hw: w / 2, hh: h / 2 };

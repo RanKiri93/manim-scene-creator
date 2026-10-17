@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import type { ShapeItem, ShapeKind, ShapePoint } from '@/types/scene';
+import type { ShapeItem, ShapeKind, ShapeLineStyle, ShapePoint } from '@/types/scene';
+import { polygonSides, usesPoints } from '@/lib/shapeGeometry';
 import { DEFAULT_SHAPE_POLYLINE_POINTS } from '@/types/scene';
 import NumberInput from '@/components/NumberInput';
 import ColorPicker from '@/components/ColorPicker';
@@ -14,10 +15,19 @@ import AngleMarkEditor from './AngleMarkEditor';
 
 const SHAPE_TYPES: { value: ShapeKind; label: string }[] = [
   { value: 'circle', label: 'Circle' },
+  { value: 'ellipse', label: 'Ellipse' },
   { value: 'rectangle', label: 'Rectangle' },
+  { value: 'regularPolygon', label: 'Regular polygon' },
+  { value: 'polygon', label: 'Polygon' },
   { value: 'arrow', label: 'Arrow' },
   { value: 'line', label: 'Line' },
   { value: 'polyline', label: 'Polyline' },
+];
+
+const LINE_STYLES: { value: ShapeLineStyle; label: string }[] = [
+  { value: 'solid', label: 'Solid' },
+  { value: 'dashed', label: 'Dashed' },
+  { value: 'dotted', label: 'Dotted' },
 ];
 
 interface ShapeEditorProps {
@@ -40,7 +50,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
   const isCapturing = polylinePointCaptureId === item.id;
   const pickBlocked =
-    item.shapeType === 'polyline' &&
+    usesPoints(item) &&
     (Math.abs(item.rotationDeg) > 1e-6 || Math.abs(item.scale - 1) > 1e-6);
 
   useEffect(() => {
@@ -94,8 +104,9 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
           value={item.shapeType}
           onChange={(e) => {
             const shapeType = e.target.value as ShapeKind;
-            set({ shapeType });
-            if (shapeType !== 'polyline') setPolylinePointCaptureId(null);
+            // A polygon needs three points; start from the default triangle when there are fewer.
+            set({ shapeType, ...(shapeType === 'polygon' && item.points.length < 3 ? { points: DEFAULT_SHAPE_POLYLINE_POINTS.map((q) => ({ ...q })) } : {}) });
+            if (!usesPoints({ shapeType })) setPolylinePointCaptureId(null);
           }}
           className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
         >
@@ -117,7 +128,37 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         />
       )}
 
+      {item.shapeType === 'regularPolygon' && (
+        <div className="flex flex-wrap gap-3">
+          <NumberInput
+            label="Sides"
+            value={polygonSides(item.sides)}
+            onChange={(v) => set({ sides: polygonSides(v) })}
+            min={3}
+            max={12}
+            step={1}
+          />
+          <NumberInput
+            label="Radius"
+            value={item.radius}
+            onChange={(v) => set({ radius: Math.max(0.02, v) })}
+            min={0.02}
+            step={0.05}
+          />
+        </div>
+      )}
+
       {item.shapeType === 'rectangle' && (
+        <NumberInput
+          label="Corner radius"
+          value={item.cornerRadius ?? 0}
+          onChange={(v) => set({ cornerRadius: Math.max(0, v) })}
+          min={0}
+          step={0.05}
+        />
+      )}
+
+      {(item.shapeType === 'rectangle' || item.shapeType === 'ellipse') && (
         <div className="flex flex-wrap gap-3">
           <NumberInput
             label="Width"
@@ -157,12 +198,12 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
 
       {item.shapeType === 'polyline' && <AngleMarkEditor item={item} />}
 
-      {item.shapeType === 'polyline' && !item.angle && (
+      {usesPoints(item) && !item.angle && (
         <div className="flex flex-col gap-3 border border-rule rounded-ctl p-3 bg-ink/40">
           <div className="text-ctl font-medium text-chalk-dim">Points</div>
           <p className="text-meta text-chalk-faint leading-snug">
-            Click the canvas to append points in order. Tail is the first point; head is the last
-            point. Point picking matches the anchor at rotation 0 and scale 1.
+            Click the canvas to append points in order (for a polyline, the tail is the first point
+            and the head the last). Point picking matches the anchor at rotation 0 and scale 1.
           </p>
           {pickBlocked ? (
             <p className="text-meta text-warn">
@@ -205,6 +246,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
             </button>
           </div>
 
+          {item.shapeType === 'polyline' && (
           <label className="text-ctl text-chalk-dim block">
             Arrowheads
             <select
@@ -232,6 +274,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
               <option value="both">Both</option>
             </select>
           </label>
+          )}
 
           <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
             {item.points.length === 0 ? (
@@ -304,6 +347,21 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
         />
       </div>
 
+      <label className="text-ctl text-chalk-dim block">
+        Line
+        <select
+          value={item.lineStyle ?? 'solid'}
+          onChange={(e) => set({ lineStyle: e.target.value === 'solid' ? undefined : (e.target.value as ShapeLineStyle) })}
+          className="mt-1 w-full max-w-xs bg-raised border border-rule rounded-ctl px-2 py-1 text-ctl text-chalk"
+        >
+          {LINE_STYLES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
       {item.shapeType !== 'polyline' ? (
         <div className="flex flex-col gap-2">
           <label className="text-ctl text-chalk-dim flex items-center gap-2">
@@ -315,7 +373,7 @@ export default function ShapeEditor({ item }: ShapeEditorProps) {
               }
               className="accent-highlight"
             />
-            Fill (circle / rectangle / arrow tip)
+            Fill
           </label>
           {item.fillColor?.trim() ? (
             <div className="flex flex-wrap items-center gap-2">

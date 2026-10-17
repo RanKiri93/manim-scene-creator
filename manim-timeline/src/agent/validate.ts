@@ -32,6 +32,7 @@ import {
   type ShapeAngleMark,
   type ShapeEndpoints,
   type ShapeKind,
+  type ShapeLineStyle,
   type ShapePoint,
   type SurroundingRectItem,
   type TextLineItem,
@@ -48,6 +49,7 @@ import {
 } from './types';
 import { canBeTargetAnimationTargetKind } from '@/lib/time';
 import { MAX_COPILOT_NOTE_LENGTH } from '@/lib/copilotNotes';
+import { polygonSides } from '@/lib/shapeGeometry';
 import {
   angleMarkStaticGeometry,
   connectorStaticGeometry,
@@ -2414,11 +2416,16 @@ function normalizeGraphPointSequence(
 
 const AGENT_SHAPE_KINDS = new Set<ShapeKind>([
   'circle',
+  'ellipse',
   'rectangle',
+  'regularPolygon',
+  'polygon',
   'arrow',
   'line',
   'polyline',
 ]);
+
+const AGENT_LINE_STYLES = new Set<ShapeLineStyle>(['solid', 'dashed', 'dotted']);
 
 function normalizeShapePoints(rawPoints: unknown): ShapePoint[] {
   if (!Array.isArray(rawPoints)) return DEFAULT_SHAPE_POLYLINE_POINTS.map((p) => ({ ...p }));
@@ -2583,6 +2590,16 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
     endpoints = normalizeShapeEndpoints(raw.endpoints, `${prefix}.item.endpoints`, errors);
     if (!endpoints) return null;
   }
+  if (shapeType === 'polygon' && Array.isArray(raw.points) && raw.points.length < 3) {
+    errors.push(`${prefix}.item.points: a polygon needs at least 3 points.`);
+    return null;
+  }
+  if (raw.lineStyle != null && !AGENT_LINE_STYLES.has(raw.lineStyle as ShapeLineStyle)) {
+    errors.push(`${prefix}.item.lineStyle must be "solid", "dashed" or "dotted".`);
+    return null;
+  }
+  const lineStyle = raw.lineStyle === 'dashed' || raw.lineStyle === 'dotted' ? raw.lineStyle : undefined;
+  const cornerRadius = asNum(raw.cornerRadius, 0);
   return {
     ...base,
     kind: 'shape',
@@ -2605,6 +2622,9 @@ function normalizeShape(raw: Record<string, unknown>, errors: string[], prefix: 
       (raw.introStyle as ShapeItem['introStyle']) ?? 'create',
     ...(endpoints ? { endpoints } : {}),
     ...(angle ? { angle, headArrow: false, tailArrow: false } : {}),
+    ...(shapeType === 'regularPolygon' ? { sides: polygonSides(asNum(raw.sides, 6)) } : {}),
+    ...(shapeType === 'rectangle' && cornerRadius > 0 ? { cornerRadius } : {}),
+    ...(lineStyle ? { lineStyle } : {}),
   };
 }
 

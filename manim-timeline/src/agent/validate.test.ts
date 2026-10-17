@@ -2099,3 +2099,28 @@ describe('connectors', () => {
     expect(act.updates).toMatchObject({ endX: 3, endY: 2 });
   });
 });
+
+describe('validateAgentResponse basic shape forms', () => {
+  const create = (item: Record<string, unknown>) =>
+    validateAgentResponse({ reply: 'x', actions: [{ action: 'CREATE', item: { id: 's1', kind: 'shape', label: 'x', startTime: 0, ...item } }] }, new Map());
+  const shapeOf = (r: ReturnType<typeof create>) => {
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const a = r.response.actions[0]!;
+    if (a.action !== 'CREATE' || a.item.kind !== 'shape') throw new Error('expected shape');
+    return a.item;
+  };
+
+  it('keeps the new kinds with their own fields', () => {
+    expect(shapeOf(create({ shapeType: 'ellipse', width: 3, height: 1 }))).toMatchObject({ shapeType: 'ellipse', width: 3, height: 1 });
+    expect(shapeOf(create({ shapeType: 'regularPolygon', sides: 20, radius: 1 }))).toMatchObject({ shapeType: 'regularPolygon', sides: 12 });
+    expect(shapeOf(create({ shapeType: 'rectangle', cornerRadius: 0.2, lineStyle: 'dashed' }))).toMatchObject({ cornerRadius: 0.2, lineStyle: 'dashed' });
+    const tri = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }];
+    expect(shapeOf(create({ shapeType: 'polygon', points: tri })).points).toEqual(tri);
+  });
+
+  it('drops solid line style and rejects bad styles and two-point polygons', () => {
+    expect(shapeOf(create({ shapeType: 'line', lineStyle: 'solid' })).lineStyle).toBeUndefined();
+    expect(create({ shapeType: 'line', lineStyle: 'wavy' }).ok).toBe(false);
+    expect(create({ shapeType: 'polygon', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }).ok).toBe(false);
+  });
+});

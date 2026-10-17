@@ -165,8 +165,9 @@ CRITICAL ARCHITECTURE RULES:
    - \`streamPoints: [{ "x", "y" }]\` adds a stream line from each seed: it follows the field forward only (to increasing x in a slope field) for \`streamVirtualTime\` seconds of the flow (a slope field moves \`slopeArrowLength\` graph units per second), and stops half a unit outside the axes.
 
 8b. Shapes (\`kind: "shape"\`):
-   - \`shapeType\`: "circle" | "rectangle" | "arrow" | "line" | "polyline".
-   - For \`shapeType: "polyline"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points. Use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).
+   - \`shapeType\`: "circle" (radius) | "ellipse" (width, height) | "rectangle" (width, height, optional \`cornerRadius\` for rounded corners) | "regularPolygon" (\`sides\` 3–12 and radius; sides 3 is an equilateral triangle with a flat bottom) | "polygon" (closed, \`points\`) | "arrow" | "line" | "polyline" (open, \`points\`).
+   - For \`shapeType: "polyline"\` or \`"polygon"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points (three for a polygon, which closes itself). On a polyline, use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).
+   - \`lineStyle\`: "solid" (default) | "dashed" | "dotted" for the outline; use dashed for helper lines and construction marks, solid for the main figure.
 
 9. exit_animation workflow (removing items from the scene):
    To make any visible scene item disappear, emit a CREATE with \`kind: "exit_animation"\` — do NOT try to "update away" or delete the item itself, and do NOT emit a new CREATE that overwrites it.

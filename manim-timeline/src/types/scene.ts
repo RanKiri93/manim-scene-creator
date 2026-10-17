@@ -464,7 +464,20 @@ export interface SurroundingRectItem {
   visibleAtSceneStart?: boolean;
 }
 
-export type ShapeKind = 'circle' | 'rectangle' | 'arrow' | 'line' | 'polyline';
+export type ShapeKind =
+  | 'circle'
+  | 'ellipse'
+  | 'rectangle'
+  /** Regular polygon (triangle, square, pentagon…) with `sides`, `radius` = centre to vertex, a flat bottom edge. */
+  | 'regularPolygon'
+  /** Closed polygon through `points` (may be filled). */
+  | 'polygon'
+  | 'arrow'
+  | 'line'
+  | 'polyline';
+
+/** Outline style: solid, dashed or dotted (export: `DashedVMobject` / `DashedLine`). */
+export type ShapeLineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface ShapePoint {
   x: number;
@@ -578,6 +591,12 @@ export interface ShapeItem extends SceneItemBase {
   fillColor: string | null;
   fillOpacity: number;
   introStyle: 'create' | 'fade_in';
+  /** Rectangle: rounded corners of this radius (Manim units; `RoundedRectangle`). Unset or 0 = sharp. */
+  cornerRadius?: number;
+  /** Regular polygon: number of sides (3–12); default 6. */
+  sides?: number;
+  /** Outline style; unset = solid. */
+  lineStyle?: ShapeLineStyle;
 }
 
 /**

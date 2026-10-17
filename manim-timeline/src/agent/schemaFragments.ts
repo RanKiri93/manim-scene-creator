@@ -96,6 +96,18 @@ const SHAPE_ANCHOR_SCHEMA = {
   },
 } as const;
 
+/** Shape kind and outline style (shape items). */
+export const SHAPE_PROPERTIES = {
+  shapeType: {
+    type: 'string',
+    enum: ['circle', 'ellipse', 'rectangle', 'regularPolygon', 'polygon', 'arrow', 'line', 'polyline'],
+    description: 'shape: which shape. ellipse uses width/height; regularPolygon uses sides + radius; polygon and polyline use points.',
+  },
+  lineStyle: { type: 'string', enum: ['solid', 'dashed', 'dotted'], description: 'shape: outline style (default solid).' },
+  sides: { type: 'integer', description: 'shape regularPolygon: number of sides, 3–12 (a flat edge at the bottom).' },
+  cornerRadius: { type: 'number', description: 'shape rectangle: rounded corners, in Manim units (0 = square corners).' },
+} as const;
+
 /** `shape.endpoints` (line / arrow): ends that follow other things every frame ("connector"). */
 export const SHAPE_ENDPOINTS_SCHEMA = {
   type: 'object',

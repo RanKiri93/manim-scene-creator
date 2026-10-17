@@ -7,6 +7,7 @@ import {
   SHAPE_ANGLE_SCHEMA,
   STYLE_NOTE_SCHEMA,
   SHAPE_ENDPOINTS_SCHEMA,
+  SHAPE_PROPERTIES,
   TARGET_ANIMATION_MODES,
   TEXT_ANIM_PROPERTIES,
   TIMELINE_EDIT_SCHEMA,
@@ -204,6 +205,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               dot: GRAPH_DOT_SCHEMA,
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
               angle: SHAPE_ANGLE_SCHEMA,
+              ...SHAPE_PROPERTIES,
               mode: {
                 type: 'string',
                 enum: [
@@ -403,6 +405,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               dot: GRAPH_DOT_SCHEMA,
               endpoints: SHAPE_ENDPOINTS_SCHEMA,
               angle: SHAPE_ANGLE_SCHEMA,
+              ...SHAPE_PROPERTIES,
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
               ...TEXT_ANIM_PROPERTIES,

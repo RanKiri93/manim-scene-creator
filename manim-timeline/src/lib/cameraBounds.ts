@@ -10,6 +10,7 @@ import { createProgress } from '@/lib/createPlaybackPreview';
 import { frameCenterById } from '@/lib/frameGrid';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { measuredInkBox } from '@/lib/textSnap';
+import { regularPolygonVertices, shapeLocalBounds, usesPoints } from '@/lib/shapeGeometry';
 import type { FrameDef, ItemId, SceneItem, ShapePoint } from '@/types/scene';
 
 export type CameraBoundsResult =
@@ -163,11 +164,14 @@ export function cameraObjectSnapshotBounds(
     return unavailable('Shape geometry is invalid. Use a region zoom.');
   }
   let points: ShapePoint[];
-  if (item.shapeType === 'polyline') {
+  if (usesPoints(item)) {
     if (item.points.length === 0 || item.points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
       return unavailable('Polyline geometry is invalid. Use a region zoom.');
     }
     points = item.points;
+  } else if (item.shapeType === 'regularPolygon') {
+    if (!(item.radius > 0)) return unavailable('Shape geometry is invalid. Use a region zoom.');
+    points = regularPolygonVertices(item.sides, item.radius);
   } else if (item.shapeType === 'line' || item.shapeType === 'arrow') {
     if (![item.endX, item.endY].every(Number.isFinite)) {
       return unavailable('Line geometry is invalid. Use a region zoom.');
@@ -177,8 +181,9 @@ export function cameraObjectSnapshotBounds(
       { x: item.endX / 2, y: item.endY / 2 },
     ];
   } else {
-    const halfWidth = item.shapeType === 'circle' ? item.radius : item.width / 2;
-    const halfHeight = item.shapeType === 'circle' ? item.radius : item.height / 2;
+    const b = shapeLocalBounds(item);
+    const halfWidth = (b.right - b.left) / 2;
+    const halfHeight = (b.top - b.bottom) / 2;
     if (![halfWidth, halfHeight].every(Number.isFinite) || halfWidth <= 0 || halfHeight <= 0) {
       return unavailable('Shape geometry is invalid. Use a region zoom.');
     }
