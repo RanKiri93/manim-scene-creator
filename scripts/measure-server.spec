@@ -46,6 +46,7 @@ hiddenimports = [
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
     "hebrew_math_line",
+    "hebrew_matrix",
     "hebrew_math_parser",
     "hebrew_tex_template",
 ]
@@ -57,6 +58,7 @@ hiddenimports += optional_submodules("gtts")
 
 datas = [
     (os.path.join(project_root, "hebrew_math_line.py"), "."),
+    (os.path.join(project_root, "hebrew_matrix.py"), "."),
     (os.path.join(project_root, "hebrew_math_parser.py"), "."),
     (os.path.join(project_root, "hebrew_tex_template.py"), "."),
 ]

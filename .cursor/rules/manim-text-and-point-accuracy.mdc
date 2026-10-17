@@ -14,6 +14,11 @@ The only text class in this project is `HebrewMathLine` from `hebrew_math_line.p
 from hebrew_math_line import HebrewMathLine
 ```
 
+The one exception is matrices: `HebrewMatrix` from `hebrew_matrix.py` (same Hebrew TeX
+template, one LaTeX compile split into entries, brackets and bar). Address entries with
+`get_entry(i, j)`, `get_rows()`, `get_columns()` or `cells((i, j), ...)`; never use Manim's
+`Matrix` (it builds brackets with `MathTex`).
+
 ### Default constructor values (use when user does not specify otherwise)
 
 | Parameter | Default |

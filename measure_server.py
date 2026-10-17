@@ -84,6 +84,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 from datetime import datetime, timezone
 from io import BytesIO
@@ -93,7 +94,7 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from manim import config
+from manim import WHITE, config
 from manim.camera.camera import Camera
 from manim.mobject.mobject import Mobject
 
@@ -106,9 +107,14 @@ except ImportError:  # older Manim CE: no ManimColor wrapper
 config.renderer = "cairo"
 
 from hebrew_math_line import HebrewMathLine
+from hebrew_matrix import BRACKETS as MATRIX_BRACKETS, MAX_SIZE as MATRIX_MAX_SIZE, HebrewMatrix
 from dataclasses import replace as dc_replace
 
 from hebrew_math_parser import Segment, parse_segments, segment_part
+
+# Manim compiles TeX in one shared media/Tex folder; two compiles at once can delete each
+# other's .aux files, so measuring (which builds HebrewMathLine / HebrewMatrix) runs one at a time.
+_TEX_LOCK = threading.Lock()
 
 # Set to False to disable LaTeX wrapping for bold/italic (instant rollback if TeX breaks).
 APPLY_TEX_BOLD_ITALIC: bool = True
@@ -202,6 +208,54 @@ class MeasureResponse(BaseModel):
     ink_bottom_y: float | None = None
     segment_boxes: list[SegmentBoxOut] | None = None
     math_child_boxes: list[MathSegmentChildrenOut] | None = None
+    error: str | None = None
+
+
+class MatrixMeasureRequest(BaseModel):
+    """A ``HebrewMatrix`` exactly as the exporter emits it."""
+
+    entries: list[list[str]] = Field(..., description="Rows of LaTeX math entries (no $), '' = empty")
+    bracket: Literal["square", "round", "curly", "bars", "double_bars", "none"] = "square"
+    align: Literal["center", "left", "right"] = "center"
+    augment_col: int | None = Field(None, ge=1, description="Vertical bar after this many columns")
+    row_spacing: float = Field(1.0, ge=0.5, le=4.0)
+    col_spacing: float = Field(1.0, ge=0.2, le=8.0)
+    font_size: float = Field(48.0, gt=0, le=400)
+    color: str | None = Field(None, description="CSS hex for entries and brackets")
+    entry_colors: list[list[str | None]] | None = Field(None, description="Per-entry CSS hex, None = color")
+    include_preview: bool = False
+
+
+class MatrixCellBoxOut(BaseModel):
+    """Ink box of entry (row, col) with the matrix centred at the origin; empty cells are left out."""
+
+    row: int
+    col: int
+    cx: float
+    cy: float
+    w: float
+    h: float
+
+
+class MatrixMeasureResponse(BaseModel):
+    ok: bool
+    width: float | None = None
+    height: float | None = None
+    width_ink: float | None = None
+    height_ink: float | None = None
+    offset_ink_x: float | None = None
+    offset_ink_y: float | None = None
+    ink_left_x: float | None = None
+    ink_right_x: float | None = None
+    ink_top_y: float | None = None
+    ink_bottom_y: float | None = None
+    png_base64: str | None = None
+    png_width: int | None = None
+    png_height: int | None = None
+    cell_boxes: list[MatrixCellBoxOut] | None = None
+    left_bracket_box: SegmentBoxOut | None = None
+    right_bracket_box: SegmentBoxOut | None = None
+    bar_box: SegmentBoxOut | None = None
     error: str | None = None
 
 
@@ -528,6 +582,73 @@ def measure_line(req: MeasureRequest) -> MeasureResponse:
             ok=False,
             error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
         )
+
+
+def _mob_box(mob: Mobject) -> SegmentBoxOut | None:
+    if not mob.family_members_with_points():
+        return None
+    c = mob.get_center()
+    return SegmentBoxOut(cx=float(c[0]), cy=float(c[1]), w=float(mob.get_width()), h=float(mob.get_height()))
+
+
+def measure_matrix(req: MatrixMeasureRequest) -> MatrixMeasureResponse:
+    """Build the ``HebrewMatrix`` the exporter would emit; return its boxes (and a preview PNG)."""
+    try:
+        rows = len(req.entries)
+        cols = len(req.entries[0]) if rows else 0
+        if not (1 <= rows <= MATRIX_MAX_SIZE and 1 <= cols <= MATRIX_MAX_SIZE):
+            raise ValueError(f"a matrix needs 1-{MATRIX_MAX_SIZE} rows and columns")
+        if any(len(r) != cols for r in req.entries):
+            raise ValueError("every row needs the same number of entries")
+        if any(len(e) > 500 for r in req.entries for e in r):
+            raise ValueError("an entry is longer than 500 characters")
+        if req.bracket not in MATRIX_BRACKETS:
+            raise ValueError(f"unknown bracket {req.bracket!r}")
+        color = _manim_color_maybe(req.color) if req.color else WHITE
+        entry_colors = None
+        if req.entry_colors is not None:
+            if len(req.entry_colors) != rows or any(len(r) != cols for r in req.entry_colors):
+                raise ValueError("entry_colors must have the same shape as entries")
+            entry_colors = [[_manim_color_maybe(c) if c else None for c in r] for r in req.entry_colors]
+        m = HebrewMatrix(
+            req.entries,
+            bracket=req.bracket,
+            align=req.align,
+            augment_col=req.augment_col,
+            row_spacing=req.row_spacing,
+            col_spacing=req.col_spacing,
+            font_size=req.font_size,
+            color=color,
+            entry_colors=entry_colors,
+        )
+        out = MatrixMeasureResponse(ok=True, width=float(m.get_width()), height=float(m.get_height()))
+        if req.include_preview:
+            (
+                out.png_base64, out.png_width, out.png_height, out.width_ink, out.height_ink,
+                out.offset_ink_x, out.offset_ink_y, out.ink_left_x, out.ink_right_x,
+                out.ink_top_y, out.ink_bottom_y,
+            ) = mobject_to_cropped_png_base64(m)
+        else:
+            out.width_ink, out.height_ink = out.width, out.height
+            out.offset_ink_x = out.offset_ink_y = 0.0
+            out.ink_left_x = float(m.get_left()[0])
+            out.ink_right_x = float(m.get_right()[0])
+            out.ink_top_y = float(m.get_top()[1])
+            out.ink_bottom_y = float(m.get_bottom()[1])
+        cells: list[MatrixCellBoxOut] = []
+        for i in range(m.n_rows):
+            for j in range(m.n_cols):
+                b = _mob_box(m.get_entry(i, j))
+                if b is not None:
+                    cells.append(MatrixCellBoxOut(row=i, col=j, cx=b.cx, cy=b.cy, w=b.w, h=b.h))
+        out.cell_boxes = cells
+        left, right = m.get_brackets()
+        out.left_bracket_box = _mob_box(left)
+        out.right_bracket_box = _mob_box(right)
+        out.bar_box = _mob_box(m.get_bar())
+        return out
+    except Exception as e:
+        return MatrixMeasureResponse(ok=False, error=f"{type(e).__name__}: {e}")
 
 
 def _manim_color_maybe(hex_str: str) -> object:
@@ -1132,7 +1253,13 @@ try:
 
     @app.post("/measure", response_model=MeasureResponse)
     def measure(req: MeasureRequest) -> MeasureResponse:
-        return measure_line(req)
+        with _TEX_LOCK:
+            return measure_line(req)
+
+    @app.post("/api/measure_matrix", response_model=MatrixMeasureResponse)
+    def measure_matrix_route(req: MatrixMeasureRequest) -> MatrixMeasureResponse:
+        with _TEX_LOCK:
+            return measure_matrix(req)
 
     @app.post("/api/preview_axes", response_model=AxesPreviewResponse)
     def preview_axes(req: AxesPreviewRequest) -> AxesPreviewResponse:
