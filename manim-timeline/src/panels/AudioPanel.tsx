@@ -421,8 +421,8 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           <span className="text-meta leading-snug text-chalk-faint">
             Off (recommended): captures a raw, untouched signal for consistent takes — auto-gain,
             noise suppression, and echo cancellation are disabled so every recording sounds the
-            same, then the cleanup chain is applied on import. Turn on only if your raw mic input
-            is unusable.
+            same. Use Clean in the clip editor afterwards for the cleanup chain. Turn on only if
+            your raw mic input is unusable.
           </span>
         </span>
       </label>

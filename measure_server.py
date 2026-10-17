@@ -111,6 +111,7 @@ from hebrew_matrix import BRACKETS as MATRIX_BRACKETS, MAX_SIZE as MATRIX_MAX_SI
 from dataclasses import replace as dc_replace
 
 from hebrew_math_parser import Segment, parse_segments, segment_part
+import audio_mixdown
 
 # Manim compiles TeX in one shared media/Tex folder; two compiles at once can delete each
 # other's .aux files, so measuring (which builds HebrewMathLine / HebrewMatrix) runs one at a time.
@@ -2436,6 +2437,9 @@ try:
         fade_in_ms: float = 0
         fade_out_ms: float = 0
         gain_db: float = 0
+        # Piece of the file this clip plays (non-destructive edits); None = to the end of the file.
+        source_in_sec: float = 0
+        duration_sec: float | None = None
 
     class MixdownBed(BaseModel):
         rel_path: str
@@ -2460,52 +2464,32 @@ try:
             )
 
         inputs: list[str] = []
-        filter_parts: list[str] = []
-        mix_labels: list[str] = []
-        idx = 0
-
+        mix_clips: list[audio_mixdown.MixClip] = []
         for clip in req.clips:
             abs_path = _resolve_safe_audio_asset(clip.rel_path)
             inputs.extend(["-i", abs_path])
-            dur = _ffprobe_duration_seconds(abs_path)
-            fade_in = max(0.0, float(clip.fade_in_ms) / 1000.0)
-            fade_out = max(0.0, float(clip.fade_out_ms) / 1000.0)
-            st_out = max(0.0, dur - fade_out) if fade_out > 0 else dur
+            mix_clips.append(
+                audio_mixdown.MixClip(
+                    file_duration=_ffprobe_duration_seconds(abs_path),
+                    start_sec=clip.start_sec,
+                    fade_in_ms=clip.fade_in_ms,
+                    fade_out_ms=clip.fade_out_ms,
+                    gain_db=clip.gain_db,
+                    source_in_sec=clip.source_in_sec,
+                    duration_sec=clip.duration_sec,
+                )
+            )
 
-            parts: list[str] = []
-            if clip.gain_db != 0:
-                parts.append(f"volume={clip.gain_db}dB")
-            if fade_in > 0:
-                parts.append(f"afade=t=in:st=0:d={fade_in:.4f}")
-            if fade_out > 0 and st_out < dur:
-                parts.append(f"afade=t=out:st={st_out:.4f}:d={fade_out:.4f}")
-            delay_ms = int(round(float(clip.start_sec) * 1000))
-            parts.append(f"adelay={delay_ms}|{delay_ms}")
-            filter_parts.append(f"[{idx}:a]" + ",".join(parts) + f"[a{idx}]")
-            mix_labels.append(f"[a{idx}]")
-            idx += 1
-
+        bed_gain: float | None = None
         if req.bed:
             bed_path = _resolve_safe_audio_asset(req.bed.rel_path)
             inputs.extend(["-stream_loop", "-1", "-i", bed_path])
-            filter_parts.append(
-                f"[{idx}:a]atrim=0:{total:.4f},asetpts=PTS-STARTPTS,"
-                f"volume={req.bed.gain_db}dB[bed]"
-            )
-            mix_labels.append("[bed]")
-            idx += 1
+            bed_gain = req.bed.gain_db
 
-        n = len(mix_labels)
-        if n == 1:
-            filter_parts.append(
-                f"{mix_labels[0]}atrim=0:{total:.4f},asetpts=PTS-STARTPTS[out]"
-            )
-        else:
-            joined = "".join(mix_labels)
-            filter_parts.append(
-                f"{joined}amix=inputs={n}:duration=longest:dropout_transition=0,"
-                f"atrim=0:{total:.4f},asetpts=PTS-STARTPTS[out]"
-            )
+        try:
+            graph = audio_mixdown.mixdown_filter_graph(mix_clips, total, bed_gain)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         out_name = f"master_{uuid.uuid4().hex}.wav"
         out_abs = os.path.join(_AUDIO_ASSETS_DIR, out_name)
@@ -2516,7 +2500,7 @@ try:
             "-y",
             *inputs,
             "-filter_complex",
-            ";".join(filter_parts),
+            graph,
             "-map",
             "[out]",
             "-ar",
