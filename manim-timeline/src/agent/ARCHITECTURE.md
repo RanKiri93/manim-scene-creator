@@ -138,8 +138,10 @@ Only these `kind` values may appear in CREATE actions (see `AGENT_ALLOWED_KINDS`
 
 ```
 textLine, axes, graphPlot, graphCurve, graphDot, graphFunctionSeries, graphPointSequence,
-graphArea, graphField, shape, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
+graphArea, graphField, shape, matrix, surroundingRect, exit_animation, blink_animation, target_animation, camera_move
 ```
+
+**`matrix`**: `entries` (rows of LaTeX math, `$` unwrapped, short rows padded, 1-12 × 1-12; a LaTeX matrix string is read with `parseMatrixLatex`), `bracket` (common names such as `pmatrix` or `determinant` are accepted), `align`, `augmentCol` (1 to columns − 1), spacing, `cellColors` and `introStyle` (`write` / `fade_in` / `rows` / `columns` / `entries`, shared with the area enum in the flat Gemini schema). Blink rows, `color` target-animation rows and a single-target `surroundingRect` take `cells: [{ row, col }]`; the surrounding rect also takes `mark: "strike"`. `checkMatrixCells` rejects cells outside the matrix the draft produces, cells on another kind and cells on a non-colour clip. `measureKey` is UI-only like `measure`.
 
 **Timeline edits** (`timelineEdits.ts`): a fourth action, `{ action: "TIMELINE", edit: { op: "insert" | "remove" | "scale", … } }`, runs the editor's planners in `lib/timelineSurgery.ts` (`applyTimelineEdit`, new `planScaleRange` / `scaledDurationPatch`). Actions apply in order: the draft scene and its narration (`DraftSession.audio()`) move, later actions see the moved times, and `checkTimelineEdits` reports a refused edit with the clips or narration in the way (validation gets the request-time audio through `ValidateOptions.audioItems`). Approve calls the store's `insertEmptyTimelineTime` / `closeTimelineRange` / new `scaleTimelineRange`; the approve preview moves clips but not the audio lanes.
 

@@ -299,9 +299,50 @@ export const GRAPH_AREA_PROPERTIES = {
   strokeWidth: { type: 'number', description: 'For kind="graphArea": outline width; 0 = none (default).' },
   introStyle: {
     type: 'string',
-    enum: ['fade_in', 'sweep_right', 'sweep_left', 'rise'],
+    enum: ['fade_in', 'sweep_right', 'sweep_left', 'rise', 'write', 'rows', 'columns', 'entries'],
     description:
-      'For kind="graphArea": how it enters over its duration. "sweep_right" fills from xMin to xMax (accumulating area), "sweep_left" from xMax back, "rise" grows from the axis (or the lower curve) up to the curve. Sweeps and rise apply to underCurve / betweenCurves; other areas fade. Default "fade_in".',
+      'For kind="graphArea": how it enters over its duration. "sweep_right" fills from xMin to xMax (accumulating area), "sweep_left" from xMax back, "rise" grows from the axis (or the lower curve) up to the curve. Sweeps and rise apply to underCurve / betweenCurves; other areas fade. Default "fade_in". For kind="matrix": "write" (default), "fade_in", or brackets first and then "rows" / "columns" / "entries" one after another.',
+  },
+} as const;
+
+/** Entries of a matrix (0-based row / col), e.g. one row, a block or a minor. */
+export const MATRIX_CELLS_SCHEMA = {
+  type: 'array',
+  description:
+    'Matrix entries, 0-based: [{ row, col }, ...]. On blink_animation / target_animation (color) rows and on a surroundingRect with exactly one matrix target: act on only these entries. Omit for the whole matrix.',
+  items: { type: 'object', properties: { row: { type: 'integer' }, col: { type: 'integer' } } },
+} as const;
+
+/** `matrix` items, and the entry fields effect clips / highlights use on them. */
+export const MATRIX_PROPERTIES = {
+  entries: {
+    type: 'array',
+    description:
+      'matrix: rows of LaTeX math entries WITHOUT $, every row the same length, 1-12 rows and columns; "" = a blank entry. Example [["1", "0"], ["0", "\\lambda"]].',
+    items: { type: 'array', items: { type: 'string' } },
+  },
+  bracket: {
+    type: 'string',
+    enum: ['square', 'round', 'curly', 'bars', 'double_bars', 'none'],
+    description: 'matrix: brackets. square [ ] (default), round ( ), curly { }, bars | | (determinant), double_bars (norm), none.',
+  },
+  align: { type: 'string', enum: ['center', 'left', 'right'], description: 'matrix: column alignment (default center).' },
+  augmentCol: { type: 'integer', description: 'matrix: augmented matrix, a vertical bar after this many columns (e.g. 3 for [A | b] with 3 unknowns). Omit for none.' },
+  rowSpacing: { type: 'number', description: 'matrix: row height multiplier, 1 = LaTeX default (0.5-4).' },
+  colSpacing: { type: 'number', description: 'matrix: column gap multiplier, 1 = LaTeX default (0.2-8).' },
+  fontSize: { type: 'number', description: 'textLine / matrix: font size (default 36).' },
+  color: { type: 'string', description: 'matrix: colour of the brackets, bar and entries without their own colour.' },
+  cellColors: {
+    type: 'array',
+    description: 'matrix: entries with their own colour: [{ row, col, color }].',
+    items: { type: 'object', properties: { row: { type: 'integer' }, col: { type: 'integer' }, color: { type: 'string' } } },
+  },
+  cells: MATRIX_CELLS_SCHEMA,
+  mark: {
+    type: 'string',
+    enum: ['box', 'strike'],
+    description:
+      'surroundingRect on one matrix: "box" (default) draws a rectangle around `cells`; "strike" crosses them out (a line through each complete row and column, a slash through any other entry), e.g. row i + column j for the minor M_ij.',
   },
 } as const;
 

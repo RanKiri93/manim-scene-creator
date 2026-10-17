@@ -2157,3 +2157,68 @@ describe('validateAgentResponse annotations', () => {
     expect(create({ shapeType: 'line', endpoints: { ...ends, ticks: 2 } }).ok).toBe(true);
   });
 });
+
+describe('validateAgentResponse matrices', () => {
+  const run = (actions: Record<string, unknown>[], scene = new Map()) => validateAgentResponse({ reply: 'x', actions }, scene);
+  const create = (item: Record<string, unknown>) => run([{ action: 'CREATE', item: { id: 'm1', kind: 'matrix', label: 'A', startTime: 0, ...item } }]);
+  const matrixOf = (r: ReturnType<typeof create>) => {
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const a = r.response.actions[0]!;
+    if (a.action !== 'CREATE' || a.item.kind !== 'matrix') throw new Error('expected matrix');
+    return a.item;
+  };
+
+  it('creates a matrix with factory defaults, unwrapping $ and padding short rows', () => {
+    const m = matrixOf(create({ entries: [['$1$', 2], ['\\lambda']] }));
+    expect(m).toMatchObject({
+      entries: [['1', '2'], ['\\lambda', '']],
+      bracket: 'square',
+      align: 'center',
+      augmentCol: null,
+      introStyle: 'write',
+      rowSpacing: 1,
+      colSpacing: 1,
+      measure: null,
+      previewDataUrl: null,
+    });
+  });
+
+  it('reads bracket names people use and a pasted LaTeX matrix', () => {
+    expect(matrixOf(create({ entries: [['1']], bracket: 'pmatrix' })).bracket).toBe('round');
+    expect(matrixOf(create({ entries: [['1']], bracket: 'determinant' })).bracket).toBe('bars');
+    const pasted = matrixOf(create({ entries: '\\begin{vmatrix} a & b \\\\ c & d \\end{vmatrix}' }));
+    expect(pasted).toMatchObject({ entries: [['a', 'b'], ['c', 'd']], bracket: 'bars' });
+  });
+
+  it('rejects missing or oversized entries, unknown brackets and a bar outside the columns', () => {
+    expect(create({}).ok).toBe(false);
+    expect(create({ entries: [Array.from({ length: 13 }, () => '0')] }).ok).toBe(false);
+    expect(create({ entries: [['1']], bracket: 'angle' }).ok).toBe(false);
+    expect(create({ entries: [['1', '2']], augmentCol: 2 }).ok).toBe(false);
+    expect(matrixOf(create({ entries: [['1', '2', '3']], augmentCol: 2 })).augmentCol).toBe(2);
+  });
+
+  it('accepts entry selections on blinks, colour clips and highlights of a matrix', () => {
+    const r = run([
+      { action: 'CREATE', item: { id: 'm1', kind: 'matrix', label: 'A', startTime: 0, entries: [['1', '2'], ['3', '4']] } },
+      { action: 'CREATE', item: { id: 'b1', kind: 'blink_animation', label: 'b', startTime: 2, targets: [{ targetId: 'm1', mode: 'color', cells: [{ row: 0, col: 0 }, [1, 1]] }] } },
+      { action: 'CREATE', item: { id: 'c1', kind: 'target_animation', label: 'c', mode: 'color', startTime: 3, targets: [{ targetId: 'm1', color: '#ff0000', cells: [{ row: 1, col: 0 }] }] } },
+      { action: 'CREATE', item: { id: 's1', kind: 'surroundingRect', label: 's', startTime: 4, targetIds: ['m1'], mark: 'strike', cells: [{ row: 0, col: 0 }, { row: 0, col: 1 }] } },
+    ]);
+    if (!r.ok) throw new Error(r.errors.join(' '));
+    const [, blink, colour, sr] = r.response.actions.map((a) => (a.action === 'CREATE' ? a.item : null));
+    expect(blink?.kind === 'blink_animation' && blink.targets[0]!.cells).toEqual([{ row: 0, col: 0 }, { row: 1, col: 1 }]);
+    expect(colour?.kind === 'target_animation' && colour.targets[0]!.cells).toEqual([{ row: 1, col: 0 }]);
+    expect(sr).toMatchObject({ mark: 'strike', cells: [{ row: 0, col: 0 }, { row: 0, col: 1 }] });
+  });
+
+  it('rejects entries outside the matrix, cells on other kinds, and cells on a scale clip', () => {
+    const m = { action: 'CREATE', item: { id: 'm1', kind: 'matrix', label: 'A', startTime: 0, entries: [['1', '2'], ['3', '4']] } };
+    const outside = run([m, { action: 'CREATE', item: { id: 'b1', kind: 'blink_animation', label: 'b', startTime: 2, targets: [{ targetId: 'm1', mode: 'color', cells: [{ row: 2, col: 0 }] }] } }]);
+    expect(outside.ok).toBe(false);
+    if (!outside.ok) expect(outside.errors.join(' ')).toContain('outside matrix "m1" (2 × 2');
+    const tl = { action: 'CREATE', item: { id: 't1', kind: 'textLine', label: 't', startTime: 0, raw: '$x$' } };
+    expect(run([tl, { action: 'CREATE', item: { id: 's1', kind: 'surroundingRect', label: 's', startTime: 1, targetIds: ['t1'], cells: [{ row: 0, col: 0 }] } }]).ok).toBe(false);
+    expect(run([m, { action: 'CREATE', item: { id: 'c1', kind: 'target_animation', label: 'c', mode: 'scale', startTime: 3, targets: [{ targetId: 'm1', scaleFactor: 2, cells: [{ row: 0, col: 0 }] }] } }]).ok).toBe(false);
+  });
+});

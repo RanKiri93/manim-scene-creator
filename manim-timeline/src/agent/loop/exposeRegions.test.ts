@@ -160,7 +160,8 @@ describe('area entrances', () => {
     const anyOf = AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items.anyOf as unknown as { properties: Record<string, { properties?: Record<string, unknown> }> }[];
     const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
     for (const schema of [anyOf[0]!.properties.item!.properties!, anyOf[1]!.properties.updates!.properties!, gemini.item.properties as Record<string, unknown>, gemini.updates.properties as Record<string, unknown>]) {
-      expect(schema).toHaveProperty('introStyle.enum', ['fade_in', 'sweep_right', 'sweep_left', 'rise']);
+      // Shared with matrix intros (write, rows, columns, entries) in the flat schema.
+      expect((schema as { introStyle: { enum: string[] } }).introStyle.enum).toEqual(expect.arrayContaining(['fade_in', 'sweep_right', 'sweep_left', 'rise']));
     }
     const prompt = buildSystemPrompt('', 'loop');
     expect(prompt).toContain('Never fake a sweep with many small areas');

@@ -171,10 +171,19 @@ CRITICAL ARCHITECTURE RULES:
    - For \`shapeType: "polyline"\` or \`"polygon"\`, provide \`points\` as an ordered array of local anchor-relative coordinates: \`[{ "x": number, "y": number }, ...]\` with at least two points (three for a polygon, which closes itself). On a polyline, use \`tailArrow\` and \`headArrow\` booleans for arrow tips at the first and last vertex (along the path direction).
    - \`lineStyle\`: "solid" (default) | "dashed" | "dotted" for the outline; use dashed for helper lines and construction marks, solid for the main figure.
 
+8h. Matrices (\`kind: "matrix"\`) — use one for any matrix, vector or determinant instead of a text line, so its entries can be pointed at:
+   - \`entries\`: rows of LaTeX math WITHOUT $, every row the same length, up to 12 × 12 ("" = blank), e.g. [["1", "2"], ["3", "\\lambda"]]. A column vector is one entry per row.
+   - \`bracket\`: "square" (default) | "round" | "curly" | "bars" (a determinant) | "double_bars" (a norm) | "none". \`augmentCol\`: a bar after that many columns, for an augmented matrix [A | b]. Also \`align\` ("center" | "left" | "right"), \`rowSpacing\` / \`colSpacing\` (1 = LaTeX), \`fontSize\`, \`color\`, \`cellColors\` ([{ row, col, color }]).
+   - \`introStyle\`: "write" (default) | "fade_in" | "rows" | "columns" | "entries" (brackets first, then one row / column / entry after another over the clip's duration).
+   - Entries count from 0: \`{ "row": 0, "col": 1 }\` is the first row, second column. To point at some entries, a blink_animation row or a target_animation with mode "color" takes \`cells: [{ row, col }, ...]\` (a row, a column, a block, the diagonal), and a surroundingRect with exactly one matrix target takes \`cells\` to box only those entries; with \`mark: "strike"\` it crosses them out instead (a line through each complete row and column picked, a slash through any other entry). For a minor M_ij, strike row i and column j (every entry in either), or box the remaining block.
+   - Move, scale and rotate act on the whole matrix. Remove it, or a highlight on it, with an exit_animation.
+   Example — box the top-left 2 × 2 block of matrix "A" at t=3:
+     { "action": "CREATE", "item": { "id": "<fresh>", "kind": "surroundingRect", "label": "Block", "startTime": 3, "targetIds": ["A"], "cells": [ { "row": 0, "col": 0 }, { "row": 0, "col": 1 }, { "row": 1, "col": 0 }, { "row": 1, "col": 1 } ] } }
+
 9. exit_animation workflow (removing items from the scene):
    To make any visible scene item disappear, emit a CREATE with \`kind: "exit_animation"\` — do NOT try to "update away" or delete the item itself, and do NOT emit a new CREATE that overwrites it.
    - \`targets\`: required, non-empty array. Each entry is \`{ targetId: "<id of an existing scene item>", animStyle: "<style>" }\`.
-   - Valid \`targetId\` kinds: textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect. ANY of these can be exited, including a full graphFunctionSeries (the whole family of curves leaves as one group).
+   - Valid \`targetId\` kinds: textLine, matrix, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect. ANY of these can be exited, including a full graphFunctionSeries (the whole family of curves leaves as one group).
    - Valid \`animStyle\` values: "fade_out" (default, safe for anything), "uncreate" (reverse-draw; nice for graphs / strokes / graphFunctionSeries), "shrink_to_center", "none" (skip this row).
    - \`startTime\`: when the item is created at \`t0\` with \`duration d\`, the exit clip's \`startTime\` MUST be ≥ \`t0 + d\` (otherwise the item is still animating in). When the user says "make it disappear after it finishes", compute \`startTime = target.startTime + target.duration\`.
    - \`duration\`: length of the exit animation itself (seconds). Default 1 unless the user asked for something specific.
@@ -200,7 +209,7 @@ CRITICAL ARCHITECTURE RULES:
    - \`startTime\`: must be ≥ each target's timeline \`startTime\` (when the object exists). Unlike exit_animation, you do NOT need to wait for the target's full \`duration\` unless you want the blink after it finishes appearing.
    - \`duration\`: total blink time in seconds (one or more up→down cycles; default ~0.6).
    - \`repetitions\`: integer ≥ 1; cycles packed into \`duration\` (default 1).
-   - Valid \`targetId\` kinds: same as exit_animation (textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect).
+   - Valid \`targetId\` kinds: same as exit_animation (textLine, matrix, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, surroundingRect). On a matrix, \`cells\` picks entries (rule 8h).
    Example — blink-scale a line "t1" starting at t=2s for 0.5s:
      { "action": "CREATE", "item": { "id": "<fresh>", "kind": "blink_animation", "label": "הדגשה", "startTime": 2, "duration": 0.5, "repetitions": 1, "targets": [ { "targetId": "t1", "mode": "scale", "scaleFactor": 1.12 } ] } }
 

@@ -46,6 +46,11 @@ function itemColours(item: SceneItem): { colour: string; what: string; min: numb
       return item.segments.filter((s) => s.text.trim() && s.color).map((s) => ({ colour: s.color, what: `text "${s.text.trim().slice(0, 20)}"`, min: MIN_TEXT_CONTRAST }));
     case 'shape':
       return item.strokeWidth > 0 ? [{ colour: item.strokeColor, what: 'outline', min: MIN_LINE_CONTRAST }] : [];
+    case 'matrix':
+      return [
+        { colour: item.color, what: 'matrix', min: MIN_TEXT_CONTRAST },
+        ...(item.cellColors ?? []).map((c) => ({ colour: c.color, what: `matrix entry (${c.row}, ${c.col})`, min: MIN_TEXT_CONTRAST })),
+      ];
     case 'graphPlot':
       return [{ colour: item.fn.color, what: 'curve', min: MIN_LINE_CONTRAST }];
     case 'graphDot':

@@ -4,6 +4,8 @@ import {
   GRAPH_DOT_SCHEMA,
   GRAPH_FIELD_PROPERTIES,
   GRAPH_FOLLOW_ROW_PROPERTIES,
+  MATRIX_CELLS_SCHEMA,
+  MATRIX_PROPERTIES,
   SHAPE_ANGLE_SCHEMA,
   STYLE_NOTE_SCHEMA,
   SHAPE_ENDPOINTS_SCHEMA,
@@ -75,6 +77,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               '• When `kind` is "graphField", set `fieldMode` "slope" (jsExprSlope / pyExprSlope = dy/dx in x and y) or "vector" (jsExprP / pyExprP and jsExprQ / pyExprQ); expressions use only x and y.\n' +
               '• When `kind` is "graphPointSequence", put coordinates at the TOP LEVEL as `jsXExpr` / `pyXExpr` (for x(n)) and `jsYExpr` / `pyYExpr` (for y(n)) with variable `n` (integer index). Set integer `nMin`, `nMax`, and `mode` ("accumulation" | "replacement"). Use "**" (not "^") for power.\n' +
               '• When `kind` is "target_animation" with `mode: "path"` and a row `pathKind: "parametric"`, put offset curves under that row as `parametricPath: { jsXExpr, pyXExpr, jsYExpr, pyYExpr, tMin, tMax }` with parameter `t` (JS `Math.*`, Python `np.*`, "**" never "^"). Never set `frameId` on target_animation (it follows its targets).\n' +
+              '• When `kind` is "matrix", put the entries at the TOP LEVEL as `entries`: rows of LaTeX math WITHOUT $ (every row the same length, up to 12 × 12), plus optional `bracket`, `align`, `augmentCol`, `cellColors`, `introStyle`. To act on some entries (a row, a block, the diagonal), blink / target_animation rows and a surroundingRect take `cells: [{ row, col }]` (0-based); a surroundingRect with `mark: "strike"` crosses them out.\n' +
               '• Set `frameId` on new drawable items (text, axes, graphs, shapes) to the payload `activeFrameId`, or to another frame id from the payload `frames` catalog when the user names a different frame. Never set `frameId` on exit_animation / blink_animation / target_animation (they follow their targets).\n',
             properties: {
               id: { type: 'string' },
@@ -248,6 +251,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
               ...TEXT_ANIM_PROPERTIES,
+              ...MATRIX_PROPERTIES,
               targets: {
                 type: 'array',
                 description:
@@ -259,7 +263,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                     targetId: {
                       type: 'string',
                       description:
-                        'Scene item id (textLine, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, or surroundingRect) — existing or same-batch CREATE.',
+                        'Scene item id (textLine, matrix, axes, graphPlot, graphCurve, graphDot, graphField, graphFunctionSeries, graphArea, shape, or surroundingRect) — existing or same-batch CREATE.',
                     },
                     animStyle: {
                       type: 'string',
@@ -351,6 +355,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
                       },
                     },
                     ...GRAPH_FOLLOW_ROW_PROPERTIES,
+                    cells: MATRIX_CELLS_SCHEMA,
                     segmentIndices: {
                       type: 'array',
                       description: 'blink_animation on textLine: segment indices (line[i]); omit for whole line.',
@@ -409,6 +414,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
               ...GRAPH_FIELD_PROPERTIES,
               ...GRAPH_AREA_PROPERTIES,
               ...TEXT_ANIM_PROPERTIES,
+              ...MATRIX_PROPERTIES,
             },
           },
         },

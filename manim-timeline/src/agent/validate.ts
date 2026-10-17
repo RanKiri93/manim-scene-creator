@@ -25,6 +25,11 @@ import {
   type GraphPointSequenceItem,
   type ItemId,
   type ManimDirection,
+  type MatrixBracket,
+  type MatrixCell,
+  type MatrixCellColor,
+  type MatrixIntroStyle,
+  type MatrixItem,
   type PosStep,
   type SceneItem,
   type ShapeItem,
@@ -38,7 +43,8 @@ import {
   type TextLineItem,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
-import { DEFAULT_FONT, DEFAULT_FONT_SIZE, FRAME_W } from '@/lib/constants';
+import { DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_MATH_COLOR, FRAME_W } from '@/lib/constants';
+import { MATRIX_MAX_SIZE, parseMatrixLatex } from '@/lib/matrix';
 import {
   AGENT_ALLOWED_KINDS,
   AGENT_UI_ONLY_FIELDS,
@@ -118,6 +124,7 @@ const EXIT_TARGET_KINDS: ReadonlySet<SceneItem['kind']> = new Set<SceneItem['kin
   'graphPointSequence',
   'graphArea',
   'shape',
+  'matrix',
   'surroundingRect',
 ]);
 
@@ -497,6 +504,7 @@ export function validateAgentResponse(
   checkConnectors(normalizedActions, currentItems, frameCtx, errors);
   checkLiveValueSlopes(normalizedActions, currentItems, errors);
   checkSegmentIndices(normalizedActions, currentItems, errors);
+  checkMatrixCells(normalizedActions, currentItems, errors);
   checkTimelineEdits(currentItems, options.audioItems ?? [], normalizedActions, errors);
   const draftScene = virtualSceneAfter(currentItems, normalizedActions, undefined, options.audioItems);
   const touchedIds = new Set(normalizedActions.map(actionItemId).filter((id): id is ItemId => id != null));
@@ -590,7 +598,8 @@ const OPTIONAL_FIELDS_BY_KIND: Partial<Record<SceneItem['kind'], readonly string
     'streamDt', 'streamVirtualTime',
   ],
   shape: ['endpoints', 'angle'],
-  surroundingRect: ['segmentIndices', 'runTime'],
+  matrix: ['entries', 'bracket', 'align', 'augmentCol', 'rowSpacing', 'colSpacing', 'fontSize', 'color', 'cellColors', 'introStyle'],
+  surroundingRect: ['segmentIndices', 'runTime', 'cells', 'mark'],
   target_animation: ['targets', 'mode'],
   exit_animation: ['targets'],
   blink_animation: ['targets', 'repetitions'],
@@ -636,6 +645,8 @@ function normalizeCreateItem(
       return normalizeGraphField(raw, baseDefaults(raw), errors, prefix);
     case 'shape':
       return normalizeShape(raw, errors, prefix);
+    case 'matrix':
+      return normalizeMatrix(raw, errors, prefix);
     case 'surroundingRect':
       return normalizeSurroundingRect(raw, errors, prefix);
     case 'exit_animation':
@@ -1053,6 +1064,13 @@ function normalizeUpdates(
     const angle = normalizeShapeAngle(patch.angle, `${prefix}.updates.angle`, errors);
     if (angle) next.angle = angle;
     else delete next.angle;
+  }
+  if (targetKind === 'matrix') {
+    Object.assign(next, normalizeMatrixUpdates(patch, existing?.kind === 'matrix' ? existing : undefined, `${prefix}.updates`, errors));
+  }
+  if (targetKind === 'surroundingRect') {
+    if ('cells' in patch) next.cells = normalizeCellList(patch.cells);
+    if ('mark' in patch) next.mark = patch.mark === 'strike' ? 'strike' : undefined;
   }
   if (targetKind === 'textLine') {
     if ('baseDir' in patch) next.baseDir = normalizeTextBaseDir(patch.baseDir);
@@ -2056,6 +2074,53 @@ function checkSegmentIndices(
 }
 
 /**
+ * Entry selections (`cells`) on blink / colour rows and surrounding rects must point at a matrix
+ * and fit its size after the draft; a strike highlight needs exactly one matrix target.
+ */
+function checkMatrixCells(actions: AgentAction[], currentItems: Map<ItemId, SceneItem>, errors: string[]): void {
+  const uses: { at: string; targetId: string; cells: MatrixCell[] }[] = [];
+  actions.forEach((action, i) => {
+    if (action.action !== 'CREATE') return;
+    const item = action.item;
+    if (item.kind === 'surroundingRect') {
+      if ((item.cells?.length || item.mark === 'strike') && item.targetIds.length !== 1) {
+        errors.push(`actions[${i}] surroundingRect "${item.id}": cells and mark "strike" need exactly one matrix target.`);
+        return;
+      }
+      if (item.cells?.length || item.mark === 'strike') uses.push({ at: `actions[${i}] surroundingRect "${item.id}"`, targetId: item.targetIds[0]!, cells: item.cells ?? [] });
+    }
+    if (item.kind === 'blink_animation' || item.kind === 'target_animation') {
+      item.targets.forEach((row, ti) => {
+        const cells = (row as { cells?: MatrixCell[] | null }).cells;
+        if (!cells?.length) return;
+        const at = `actions[${i}] ${item.kind} "${item.id}" targets[${ti}]`;
+        if (item.kind === 'target_animation' && item.mode !== 'color') {
+          errors.push(`${at}: cells only work in a color clip; a ${item.mode} clip acts on the whole matrix.`);
+          return;
+        }
+        uses.push({ at, targetId: row.targetId, cells });
+      });
+    }
+  });
+  if (!uses.length) return;
+  const virtual = virtualSceneAfter(currentItems, actions);
+  for (const use of uses) {
+    const target = virtual.get(use.targetId);
+    if (!target) continue;
+    if (target.kind !== 'matrix') {
+      errors.push(`${use.at}: cells / mark "strike" are for a matrix target, but "${use.targetId}" is a ${target.kind}.`);
+      continue;
+    }
+    const rows = target.entries.length;
+    const cols = target.entries[0]?.length ?? 0;
+    const bad = use.cells.filter((c) => c.row >= rows || c.col >= cols);
+    if (bad.length) {
+      errors.push(`${use.at}: ${bad.map((c) => `(${c.row}, ${c.col})`).join(', ')} is outside matrix "${use.targetId}" (${rows} × ${cols}, rows and columns count from 0).`);
+    }
+  }
+}
+
+/**
  * Check attached dots and Move-along-graph clips against the scene they would produce, with the
  * same resolver the canvas and the exporter use. Attached dots get their fallback dx/dy synced to
  * the resolved point; a free dot's clip without a plot picks the only plot on the dot's axes.
@@ -2703,6 +2768,152 @@ function checkConnectors(
   }
 }
 
+const MATRIX_BRACKET_ALIASES: Record<string, MatrixBracket> = {
+  square: 'square', bmatrix: 'square', brackets: 'square', '[': 'square',
+  round: 'round', pmatrix: 'round', parentheses: 'round', paren: 'round', '(': 'round',
+  curly: 'curly', Bmatrix: 'curly', braces: 'curly', '{': 'curly',
+  bars: 'bars', vmatrix: 'bars', determinant: 'bars', '|': 'bars',
+  double_bars: 'double_bars', Vmatrix: 'double_bars', norm: 'double_bars', '||': 'double_bars',
+  none: 'none', matrix: 'none', plain: 'none',
+};
+const MATRIX_INTRO_STYLES: readonly MatrixIntroStyle[] = ['write', 'fade_in', 'rows', 'columns', 'entries'];
+
+/** `[{ row, col }]` with non-negative integers (range is checked against the matrix later); null when none. */
+function normalizeCellList(v: unknown): MatrixCell[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: MatrixCell[] = [];
+  for (const ent of v) {
+    const rec = (Array.isArray(ent) ? { row: ent[0], col: ent[1] } : ent) as Record<string, unknown> | null;
+    const row = Number(rec?.row);
+    const col = Number(rec?.col);
+    if (Number.isInteger(row) && Number.isInteger(col) && row >= 0 && col >= 0) out.push({ row, col });
+  }
+  return out.length ? out : null;
+}
+
+/** Rows of entry strings: numbers become text, `$…$` is unwrapped, short rows are padded with blanks. */
+function normalizeMatrixEntries(v: unknown, path: string, errors: string[]): string[][] | null {
+  if (!Array.isArray(v) || v.length === 0 || !v.every(Array.isArray)) {
+    errors.push(`${path} must be rows of LaTeX entries, e.g. [["1", "2"], ["3", "4"]].`);
+    return null;
+  }
+  const rows = (v as unknown[][]).map((r) =>
+    r.map((e) => (typeof e === 'number' ? String(e) : typeof e === 'string' ? e.trim().replace(/^\$([\s\S]*)\$$/, '$1').trim() : '')),
+  );
+  const cols = Math.max(...rows.map((r) => r.length));
+  if (rows.length > MATRIX_MAX_SIZE || cols > MATRIX_MAX_SIZE || cols === 0) {
+    errors.push(`${path}: a matrix has 1-${MATRIX_MAX_SIZE} rows and columns (got ${rows.length} × ${cols}).`);
+    return null;
+  }
+  return rows.map((r) => Array.from({ length: cols }, (_, j) => r[j] ?? ''));
+}
+
+function asMatrixBracket(v: unknown, path: string, errors: string[]): MatrixBracket | null {
+  if (typeof v !== 'string') return 'square';
+  const b = MATRIX_BRACKET_ALIASES[v.trim()] ?? MATRIX_BRACKET_ALIASES[v.trim().toLowerCase()];
+  if (b) return b;
+  errors.push(`${path} "${v}" is not a bracket (square, round, curly, bars, double_bars, none).`);
+  return null;
+}
+
+function asMatrixIntro(v: unknown, path: string, errors: string[]): MatrixIntroStyle | null {
+  if (v == null || v === 'create') return 'write';
+  if (typeof v === 'string' && (MATRIX_INTRO_STYLES as readonly string[]).includes(v)) return v as MatrixIntroStyle;
+  errors.push(`${path} "${String(v)}" is not a matrix intro (${MATRIX_INTRO_STYLES.join(', ')}).`);
+  return null;
+}
+
+function normalizeCellColors(v: unknown): MatrixCellColor[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: MatrixCellColor[] = [];
+  for (const ent of v) {
+    const rec = ent as Record<string, unknown> | null;
+    const row = Number(rec?.row);
+    const col = Number(rec?.col);
+    if (Number.isInteger(row) && Number.isInteger(col) && row >= 0 && col >= 0 && typeof rec?.color === 'string' && rec.color.trim()) {
+      out.push({ row, col, color: rec.color.trim() });
+    }
+  }
+  return out.length ? out : undefined;
+}
+
+function checkAugmentCol(v: unknown, cols: number, path: string, errors: string[]): number | null | undefined {
+  if (v == null || v === 0) return null;
+  const n = Number(v);
+  if (Number.isInteger(n) && n > 0 && n < cols) return n;
+  errors.push(`${path} ${String(v)} must be a column count between 1 and ${cols - 1} (the bar goes after that many columns).`);
+  return undefined;
+}
+
+/**
+ * A matrix CREATE: `entries` required (a LaTeX matrix string is read too), the rest defaults like
+ * `createMatrixItem` (square brackets, centred, Write, the math colour).
+ */
+function normalizeMatrix(raw: Record<string, unknown>, errors: string[], prefix: string): MatrixItem | null {
+  const base = baseDefaults(raw);
+  const pasted = typeof raw.entries === 'string' ? parseMatrixLatex(raw.entries) : null;
+  const entries = pasted ? pasted.entries : normalizeMatrixEntries(raw.entries, `${prefix}.item.entries`, errors);
+  if (!entries) return null;
+  const bracket = raw.bracket == null && pasted ? pasted.bracket : asMatrixBracket(raw.bracket, `${prefix}.item.bracket`, errors);
+  const introStyle = asMatrixIntro(raw.introStyle, `${prefix}.item.introStyle`, errors);
+  const cols = entries[0]!.length;
+  const augmentCol = raw.augmentCol == null && pasted ? pasted.augmentCol : checkAugmentCol(raw.augmentCol, cols, `${prefix}.item.augmentCol`, errors);
+  if (!bracket || !introStyle || augmentCol === undefined) return null;
+  const cellColors = normalizeCellColors(raw.cellColors);
+  return {
+    ...base,
+    kind: 'matrix',
+    entries,
+    bracket,
+    align: raw.align === 'left' || raw.align === 'right' ? raw.align : 'center',
+    augmentCol,
+    rowSpacing: Math.min(4, Math.max(0.5, asNum(raw.rowSpacing, 1))),
+    colSpacing: Math.min(8, Math.max(0.2, asNum(raw.colSpacing, 1))),
+    fontSize: Math.max(4, asNum(raw.fontSize, DEFAULT_FONT_SIZE)),
+    color: asStr(raw.color, DEFAULT_MATH_COLOR),
+    ...(cellColors ? { cellColors } : {}),
+    introStyle,
+    measure: null,
+    measureError: null,
+    previewDataUrl: null,
+    measureKey: null,
+  };
+}
+
+/** Matrix UPDATE fields, checked like a CREATE (entries against the new size). */
+function normalizeMatrixUpdates(
+  patch: Record<string, unknown>,
+  existing: MatrixItem | undefined,
+  path: string,
+  errors: string[],
+): Partial<MatrixItem> {
+  const out: Partial<MatrixItem> = {};
+  if ('entries' in patch) {
+    const pasted = typeof patch.entries === 'string' ? parseMatrixLatex(patch.entries) : null;
+    const entries = pasted ? pasted.entries : normalizeMatrixEntries(patch.entries, `${path}.entries`, errors);
+    if (entries) out.entries = entries;
+    if (pasted && !('bracket' in patch)) out.bracket = pasted.bracket;
+  }
+  if ('bracket' in patch) {
+    const b = asMatrixBracket(patch.bracket, `${path}.bracket`, errors);
+    if (b) out.bracket = b;
+  }
+  if ('introStyle' in patch) {
+    const s = asMatrixIntro(patch.introStyle, `${path}.introStyle`, errors);
+    if (s) out.introStyle = s;
+  }
+  const cols = (out.entries ?? existing?.entries)?.[0]?.length ?? 0;
+  if ('augmentCol' in patch) {
+    const a = checkAugmentCol(patch.augmentCol, cols, `${path}.augmentCol`, errors);
+    if (a !== undefined) out.augmentCol = a;
+  }
+  if ('align' in patch) out.align = patch.align === 'left' || patch.align === 'right' ? patch.align : 'center';
+  if ('rowSpacing' in patch) out.rowSpacing = Math.min(4, Math.max(0.5, asNum(patch.rowSpacing, 1)));
+  if ('colSpacing' in patch) out.colSpacing = Math.min(8, Math.max(0.2, asNum(patch.colSpacing, 1)));
+  if ('cellColors' in patch) out.cellColors = normalizeCellColors(patch.cellColors) ?? [];
+  return out;
+}
+
 function normalizeSurroundingRect(
   raw: Record<string, unknown>,
   errors: string[],
@@ -2732,6 +2943,8 @@ function normalizeSurroundingRect(
     segmentIndices: Array.isArray(raw.segmentIndices)
       ? (raw.segmentIndices as number[])
       : null,
+    ...(normalizeCellList(raw.cells) ? { cells: normalizeCellList(raw.cells) } : {}),
+    ...(raw.mark === 'strike' ? { mark: 'strike' as const } : {}),
     buff: asNum(raw.buff, 0.15),
     color: asStr(raw.color, '#fbbf24'),
     cornerRadius: asNum(raw.cornerRadius, 0.08),
@@ -2833,6 +3046,8 @@ function normalizeBlinkAnimation(
       if (segmentIndices != null) {
         row.segmentIndices = segmentIndices;
       }
+      const cells = normalizeCellList(t.cells);
+      if (cells) row.cells = cells;
       const subRaw = t.mathSubtargets;
       if (Array.isArray(subRaw)) {
         const mrows: { segmentIndex: number; childIndices: number[] }[] = [];
@@ -2982,6 +3197,8 @@ function normalizeTargetAnimation(
         }
       }
       if (segmentIndices != null) row.segmentIndices = segmentIndices;
+      const cells = normalizeCellList(t.cells);
+      if (cells) row.cells = cells;
       applyGraphFollowRowFields(row, t);
       const subRaw = t.mathSubtargets;
       if (Array.isArray(subRaw)) {
