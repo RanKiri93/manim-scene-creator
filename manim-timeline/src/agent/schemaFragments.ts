@@ -398,6 +398,39 @@ export const TEXT_ANIM_PROPERTIES = {
   },
 } as const;
 
+/** `AUDIO` action: a narration edit (see agent/audioEdits.ts). */
+export const AUDIO_EDIT_SCHEMA = {
+  type: 'object',
+  description:
+    'AUDIO action: op "cut" removes scene range [from, to) from the one narration clip it lies in (the rest of the clip, later narration and clips anchored to later words move up; take cuts from audio_report); "gain" sets a narration clip\'s gain (trackId, gainDb); "anchor" starts clip itemId on the word that starts at scene time `at` and keeps it on that word when narration is edited.',
+  properties: {
+    op: { type: 'string', enum: ['cut', 'gain', 'anchor'] },
+    from: { type: 'number', description: 'cut: scene start (s).' },
+    to: { type: 'number', description: 'cut: scene end (s).' },
+    trackId: { type: 'string', description: 'gain: narration clip id.' },
+    gainDb: { type: 'number', description: 'gain: dB, −40 to 20.' },
+    itemId: { type: 'string', description: 'anchor: the clip to start on the word.' },
+    at: { type: 'number', description: 'anchor: scene start of the word (from narration words or find_words).' },
+  },
+} as const;
+
+/** Gemini's flat action has one `edit` object for TIMELINE and AUDIO alike. */
+export const ANY_EDIT_SCHEMA = {
+  type: 'object',
+  description: `${'TIMELINE action: insert / remove / scale (time edits). '}AUDIO action: cut / gain / anchor (narration edits).`,
+  properties: {
+    op: { type: 'string', enum: ['insert', 'remove', 'scale', 'cut', 'gain', 'anchor'] },
+    at: { type: 'number', description: 'TIMELINE insert: scene time. AUDIO anchor: scene start of the word.' },
+    seconds: { type: 'number', description: 'TIMELINE insert: how much empty time to add.' },
+    from: { type: 'number', description: 'TIMELINE remove / scale, AUDIO cut: range start (s).' },
+    to: { type: 'number', description: 'TIMELINE remove / scale, AUDIO cut: range end (s).' },
+    factor: { type: 'number', description: 'TIMELINE scale: 1.25 = 25% slower, 0.8 = 20% faster.' },
+    trackId: { type: 'string', description: 'AUDIO gain: narration clip id.' },
+    gainDb: { type: 'number', description: 'AUDIO gain: dB, −40 to 20.' },
+    itemId: { type: 'string', description: 'AUDIO anchor: the clip to start on the word.' },
+  },
+} as const;
+
 /** `TIMELINE` action: a time edit that moves every later clip and the narration with them. */
 export const TIMELINE_EDIT_SCHEMA = {
   type: 'object',

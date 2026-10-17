@@ -1,4 +1,5 @@
 import { applyTimelineEdit, type TimelineEdit } from '@/lib/timelineSurgery';
+import { applyAudioEdit, describeAudioEdit } from './audioEdits';
 import type { AudioTrackItem, ItemId, SceneItem } from '@/types/scene';
 import type { AgentAction } from './types';
 
@@ -66,7 +67,7 @@ export function checkTimelineEdits(
   actions: readonly AgentAction[],
   errors: string[],
 ): void {
-  if (!actions.some((a) => a.action === 'TIMELINE')) return;
+  if (!actions.some((a) => a.action === 'TIMELINE' || a.action === 'AUDIO')) return;
   let items = new Map(currentItems);
   let audio = [...audioItems];
   actions.forEach((action, i) => {
@@ -75,7 +76,15 @@ export function checkTimelineEdits(
       const previous = items.get(action.itemId);
       if (previous) items.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
     } else if (action.action === 'DELETE') items.delete(action.itemId);
-    else {
+    else if (action.action === 'AUDIO') {
+      const result = applyAudioEdit(items, audio, action.edit);
+      if (!result.ok) {
+        errors.push(`actions[${i}] AUDIO ${describeAudioEdit(action.edit)}: ${result.error}`);
+        return;
+      }
+      items = result.items;
+      audio = result.audioItems;
+    } else {
       const result = applyTimelineEdit(items, audio, action.edit);
       if (!result.ok) {
         const blockers = result.blockers.map((b) => `${b.kind === 'audio' ? 'narration' : 'clip'} "${b.label}" (${b.id}) ${s2(b.start)}–${s2(b.end)}`);

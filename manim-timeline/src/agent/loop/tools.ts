@@ -1,9 +1,11 @@
 import { exportManimCode } from '@/codegen/manimExporter';
+import { describeAudioEdit } from '../audioEdits';
 import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
 import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
 import { reviewScene } from './review';
 import { findWords } from '../narration';
+import { narrationReport } from '@/lib/narrationReport';
 import { describeTimelineEdit } from '../timelineEdits';
 import { normalizeStyleNote } from '../validate';
 import { STYLE_NOTE_SCHEMA } from '../schemaFragments';
@@ -38,7 +40,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
     {
       name: 'propose_changes',
       description:
-        'Add CREATE / UPDATE / DELETE / TIMELINE actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
+        'Add CREATE / UPDATE / DELETE / TIMELINE / AUDIO actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
       inputSchema: {
         type: 'object',
         properties: { actions: ACTIONS_SCHEMA },
@@ -70,6 +72,15 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
         type: 'object',
         properties: { text: { type: 'string', description: 'One word or a short phrase as it is spoken.' } },
         required: ['text'],
+      },
+    },
+    {
+      name: 'audio_report',
+      description:
+        'What could be tightened in the narration (draft applied), from its word timings: long pauses (with the clip-edge silence), filler words (אה, אמ, um, uh…), phrases said twice in a row (a retake), and how far apart the measured loudness of the clips is. Each finding has a ready AUDIO cut { from, to } in scene seconds; pauses keep half a second.',
+      inputSchema: {
+        type: 'object',
+        properties: { minPauseSec: { type: 'number', description: 'Shortest pause to report (default 1.2 s).' } },
       },
     },
     {
@@ -128,6 +139,7 @@ function describeAction(a: AgentAction): string {
   if (a.action === 'CREATE') return `CREATE ${a.item.kind} ${a.item.id}`;
   if (a.action === 'UPDATE') return `UPDATE ${a.itemId} (${Object.keys(a.updates).join(', ')})`;
   if (a.action === 'TIMELINE') return `TIMELINE ${describeTimelineEdit(a.edit)}`;
+  if (a.action === 'AUDIO') return `AUDIO ${describeAudioEdit(a.edit)}`;
   return `DELETE ${a.itemId}`;
 }
 
@@ -173,6 +185,14 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
         }
         const matches = findWords(audio, text);
         return ok(json({ matches }), `Found "${text}" ${matches.length} time${matches.length === 1 ? '' : 's'} in the narration`);
+      }
+      case 'audio_report': {
+        const audio = session.audio();
+        if (audio.length === 0) return ok(json({ note: 'The scene has no narration.' }), 'No narration to report on');
+        const minPauseSec = typeof input.minPauseSec === 'number' && input.minPauseSec > 0 ? input.minPauseSec : undefined;
+        const report = narrationReport(audio, { minPauseSec });
+        const n = report.pauses.length + report.fillers.length + report.repeats.length;
+        return ok(json(report), n ? `Narration report: ${report.pauses.length} long pause(s), ${report.fillers.length} filler(s), ${report.repeats.length} repeat(s)` : 'Narration report: nothing to tighten');
       }
       case 'review_scene': {
         const review = reviewScene(session, input);

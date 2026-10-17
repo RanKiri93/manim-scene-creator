@@ -45,6 +45,7 @@ import {
   type TextLineItem,
   DEFAULT_SHAPE_POLYLINE_POINTS,
 } from '@/types/scene';
+import { applyAudioEdit, normalizeAudioEdit } from './audioEdits';
 import { DEFAULT_FONT, DEFAULT_FONT_SIZE, DEFAULT_MATH_COLOR, FRAME_W } from '@/lib/constants';
 import { MATRIX_MAX_SIZE, parseMatrixLatex } from '@/lib/matrix';
 import { isMatrixStepClip, matrixStateBefore, matrixViewAt } from '@/lib/matrixSteps';
@@ -366,6 +367,17 @@ export function validateAgentResponse(
       return;
     }
 
+    if (a.action === 'AUDIO') {
+      const edit = normalizeAudioEdit(a, prefix, errors);
+      if (!edit) return;
+      if (edit.op === 'anchor' && !currentItems.has(edit.itemId) && !plannedCreates.has(edit.itemId)) {
+        errors.push(`${prefix}: AUDIO anchor target "${edit.itemId}" does not exist.`);
+        return;
+      }
+      normalizedActions.push({ action: 'AUDIO', edit });
+      return;
+    }
+
     if (a.action === 'DELETE') {
       const itemId = typeof a.itemId === 'string' ? a.itemId : '';
       if (!itemId) {
@@ -381,7 +393,7 @@ export function validateAgentResponse(
     }
 
     errors.push(
-      `${prefix}.action must be CREATE / UPDATE / DELETE / TIMELINE, got "${String(a.action)}".`,
+      `${prefix}.action must be CREATE / UPDATE / DELETE / TIMELINE / AUDIO, got "${String(a.action)}".`,
     );
   });
 
@@ -490,7 +502,11 @@ export function validateAgentResponse(
         const previous = virtual.get(action.itemId);
         if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
       } else if (action.action === 'DELETE') virtual.delete(action.itemId);
-      else {
+      else if (action.action === 'AUDIO') {
+        const result = applyAudioEdit(virtual, options.audioItems ?? [], action.edit);
+        if (result.ok) virtual = result.items;
+        continue;
+      } else {
         virtual = applyTimelineEdit(virtual, options.audioItems ?? [], action.edit).items;
         continue;
       }
@@ -2033,7 +2049,13 @@ export function virtualStateAfter(
         virtual.set(action.itemId, mergeTextLineUpdate(previous, action.updates as Partial<TextLineItem>, defaults));
       } else if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
     } else if (action.action === 'DELETE') virtual.delete(action.itemId);
-    else {
+    else if (action.action === 'AUDIO') {
+      const result = applyAudioEdit(virtual, audio, action.edit);
+      if (result.ok) {
+        virtual = result.items;
+        audio = result.audioItems;
+      }
+    } else {
       const result = applyTimelineEdit(virtual, audio, action.edit);
       if (result.ok) {
         virtual = result.items;
@@ -2221,7 +2243,7 @@ function checkGraphMotion(
   const errorCount = errors.length;
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
     const id = action.action === 'CREATE' ? action.item.id : action.itemId;
     const virtual = virtualSceneAfter(currentItems, actions);
     const item = virtual.get(id);
@@ -2276,7 +2298,7 @@ function checkGraphMotion(
   const values = [...virtual.values()];
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
     const clip = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (clip?.kind !== 'target_animation' || clip.mode !== 'graphFollow') continue;
     const startError = graphFollowStartTimeError(clip, virtual);
@@ -2816,7 +2838,7 @@ function checkConnectors(
   const ctx = { items: virtual, frames: frameCtx?.frames ?? [], startFrameId: frameCtx?.startFrameId ?? null };
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
     if (action.action === 'UPDATE' && !('endpoints' in action.updates) && !('angle' in action.updates)) continue;
     const shape = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (isAngleMark(shape)) {

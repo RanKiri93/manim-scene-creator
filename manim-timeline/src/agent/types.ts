@@ -1,10 +1,11 @@
-import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, MATRIX_CELLS_SCHEMA, MATRIX_PROPERTIES, MATRIX_STEP_SCHEMA, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, SHAPE_PROPERTIES, STYLE_NOTE_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA } from './schemaFragments';
+import { GRAPH_AREA_PROPERTIES, GRAPH_DOT_SCHEMA, GRAPH_FIELD_PROPERTIES, GRAPH_FOLLOW_ROW_PROPERTIES, MATRIX_CELLS_SCHEMA, MATRIX_PROPERTIES, MATRIX_STEP_SCHEMA, SHAPE_ANGLE_SCHEMA, SHAPE_ENDPOINTS_SCHEMA, SHAPE_PROPERTIES, STYLE_NOTE_SCHEMA, TEXT_ANIM_PROPERTIES, TIMELINE_EDIT_SCHEMA, AUDIO_EDIT_SCHEMA } from './schemaFragments';
 import type {
   ItemId,
   SceneDefaults,
   SceneItem,
 } from '@/types/scene';
 import type { TimelineEdit } from '@/lib/timelineSurgery';
+import type { AgentAudioEdit } from './audioEdits';
 
 /**
  * Whitelist of SceneItem kinds the agent is allowed to produce (images and audio are created
@@ -106,11 +107,16 @@ export type AgentAction =
   | { action: 'UPDATE'; itemId: ItemId; updates: Partial<SceneItem> }
   | { action: 'DELETE'; itemId: ItemId }
   /** Insert empty time, remove an empty range, or scale a range (moves clips and narration). */
-  | { action: 'TIMELINE'; edit: TimelineEdit };
+  | { action: 'TIMELINE'; edit: TimelineEdit }
+  /** Narration edit: cut a range, set a clip's gain, or anchor a clip to a spoken word. */
+  | { action: 'AUDIO'; edit: AgentAudioEdit };
 
 /** The item an action creates or changes (null for timeline edits, which move many). */
 export function actionItemId(a: AgentAction): ItemId | null {
-  return a.action === 'CREATE' ? a.item.id : a.action === 'TIMELINE' ? null : a.itemId;
+  if (a.action === 'CREATE') return a.item.id;
+  if (a.action === 'TIMELINE') return null;
+  if (a.action === 'AUDIO') return a.edit.op === 'anchor' ? a.edit.itemId : null;
+  return a.itemId;
 }
 
 /**
@@ -280,6 +286,15 @@ export const AGENT_CHAT_RESPONSE_JSON_SCHEMA = {
             properties: {
               action: { type: 'string', enum: ['TIMELINE'] },
               edit: TIMELINE_EDIT_SCHEMA,
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['action', 'edit'],
+            properties: {
+              action: { type: 'string', enum: ['AUDIO'] },
+              edit: AUDIO_EDIT_SCHEMA,
             },
           },
         ],

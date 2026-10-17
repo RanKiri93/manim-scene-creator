@@ -37,6 +37,8 @@ export function summarizeCameraProposal(
       if (existing.kind === 'camera_move' || updated.kind === 'camera_move') proposedCameraIds.add(action.itemId);
     } else if (action.action === 'TIMELINE') {
       virtualItems = applyTimelineEdit(virtualItems, [], action.edit).items;
+    } else if (action.action === 'AUDIO') {
+      continue;
     } else {
       if (virtualItems.get(action.itemId)?.kind === 'camera_move') proposedCameraIds.add(action.itemId);
       virtualItems.delete(action.itemId);

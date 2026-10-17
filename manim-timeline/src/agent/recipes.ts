@@ -70,6 +70,7 @@ R15. Time things to the narration ("show the point exactly when I say 'בנקו�
    1. Find each cue word: narration words in the payload, or find_words in the tool loop (it matches Hebrew prefixes and phrases). Spoken more than once: pick by the context or ask which. Not found: say so and name the closest words; do not guess a time.
    2. "Appear when I say X": the item's startTime = X's start, with a short entrance (0.3–0.6 s). "Start moving when I say Y": the motion clip's startTime = Y's start; the thing must have finished appearing before that.
    3. Durations stay inside their sentence: a clip ends by the next cue word or the end of the sentence (the last word before a pause).
+   4. Put the clip on its word with AUDIO anchor (at = the word's start) rather than a bare startTime, so it keeps following the word when the narration is moved or cut later.
 
 R16. Retime and make room ("everything after the graph appears is too fast: slow it down by 25% and add a 2 second pause before the point moves").
    1. Work out the times from the scene: "after the graph appears" = the graph's startTime + duration; "to the end" = the last clip's end.
@@ -103,6 +104,12 @@ R23. Review my scene ("check the scene and fix what doesn't look right", "בדו
    2. review_scene again; repeat once if something new appears.
    3. finish: list what you fixed, and what you left on purpose (for example an idle pause that holds a picture for the narration) so the user can decide.
 
+R24. Tighten or clean the narration ("cut the long pauses", "remove the ums", "the second take repeats a sentence", "תקצר את השתיקות").
+   1. audio_report first. Use its cuts as they are: pauses keep half a second, fillers and repeats cut in the middle of the surrounding pauses.
+   2. Only what was asked: pauses when asked about pauses, fillers when asked about fillers. For a repeat, cut the first saying (the report's cut). When the user asks for suggestions only, list the findings with their times in the reply and propose nothing.
+   3. Propose the cuts from the LAST to the FIRST, so earlier times stay valid while later audio moves up. Clips anchored to words follow by themselves; other clips stay where they are, so mention any visual that now starts in a different place than the speech it went with.
+   4. A clip much quieter or louder than the others (loudnessSpread above about 2 LU, or the user says so): suggest Normalize or Clean in the clip editor; gain (AUDIO gain) only for a small, deliberate change.
+
 R17. A tangent that rides along ("add the tangent line at the moving point, about 2 units long").
    1. The moving dot as in R2 (plot, dot attached to it, graphFollow).
    2. shape line with endpoints { start: { kind: "graphDot", dotId }, tangent: { length: 2 } }, starting with the dot (or when asked), a colour that stands out from the plot. It turns with the slope by itself; one connector is enough.
@@ -123,6 +130,7 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R13: field.arrows stays below about 400; each stream that should cross the picture has endedBy "left the axes".
    - R14: each step's transform lists pairs with their texts: "a → b" marks a piece that changes, check those are the moves you mean; the previous step shows onScreen false after the morph.
    - R15: inspect lists what is spoken during each clip (spoken); it should begin with the cue word.
+   - R24: audio_report again after the cuts: the pauses / fillers / repeats that were cut are gone, and find_words still finds the cue words of anchored clips at their clips' starts.
    - R16: inspect after the edit: the clips moved as intended and the cue clip starts after the pause; a refused edit names the clip or narration in the way.
    - R3: inspect shows each dot's liveLabel text at the times asked; check it reads as intended (decimals, the right value).
    - R19: inspect during the motion: the dot's trail lists where it starts (from) and its length so far; with fadeSeconds the start follows the dot.

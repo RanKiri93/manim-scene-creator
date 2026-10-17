@@ -206,9 +206,30 @@ None open; decisions recorded above.
   peak meter with hold, sticky clipping warning. Old MediaRecorder code removed here.
 - `store`: `addRecordedAudioTrack({ startTime })`.
 - Not changed: the bed popup's room-tone recorder still uses MediaRecorder.
-- Ran: build ok, `npm run test` 1094 passed, lint clean. Headless Chrome with the fake mic:
+- Ran: build ok, `npm run test` 1093 passed (1 skipped), lint clean. Headless Chrome with the fake mic:
   count-in text, playback running during the take and paused after, meter −2 dB with the
   clipping warning (fake beep is full scale), result RIFF 48 kHz, 2.13 s.
+
+### Phase 6 (2026-10-17)
+- `lib/narrationReport.ts` (new, tested): from word timings only — long pauses (incl. clip-edge
+  silence; cut keeps 0.5 s), filler words (Hebrew + English list), phrases of 1–5 words said
+  twice in a row (cut the first saying), measured-loudness spread. Server `silencedetect` was
+  planned but not needed for this; word gaps carry the same information for Whisper'd clips.
+- `agent/audioEdits.ts` (new): AUDIO action `cut` (scene range inside one narration clip) /
+  `gain` / `anchor` (word starting at `at` ±0.06 s); normalize, describe, `applyAudioEdit` on
+  copies, `locateCut`, `locateWord`.
+- Wired through `types.ts` (union, `actionItemId`, canonical anyOf branch with
+  `AUDIO_EDIT_SCHEMA`), `providers/gemini.ts` (enum + shared `ANY_EDIT_SCHEMA`), `validate.ts`
+  (normalize, anchor target exists, camera pass, `virtualStateAfter`), `timelineEdits.ts`
+  (ordered check of TIMELINE + AUDIO), `previewSelectors.ts` (anchor moves the clip), `commit.ts`
+  (store actions), `AgentPanel.tsx`, `cameraProposalSummary.ts`, `loop/history.ts`,
+  `loop/tools.ts` (`audio_report` tool), `systemPrompt.ts` (rule 16, tool list), `recipes.ts`
+  (R24 narration cleanup, R15 step 4 anchor, R7 check for R24), `ARCHITECTURE.md`.
+- Tests: `agent/loop/exposeAudio.test.ts` (report → anchor + cuts last-to-first → anchored clip
+  follows, refusals, preview, commit as one undo step); pinned schema/prompt/tool-list tests
+  updated for the fifth action and the new tool.
+- Ran: `npx vitest run src/agent` 271 passed; `npm run test` 1102 passed; build ok; lint clean
+  on `src/agent`; practice set (golden) passed. Not run against a live model.
 
 ## Verification (verifier)
 

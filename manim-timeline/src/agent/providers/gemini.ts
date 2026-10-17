@@ -13,7 +13,7 @@ import {
   SHAPE_PROPERTIES,
   TARGET_ANIMATION_MODES,
   TEXT_ANIM_PROPERTIES,
-  TIMELINE_EDIT_SCHEMA,
+  ANY_EDIT_SCHEMA,
 } from '../schemaFragments';
 import type { AgentChatMessage, AgentContextPayload } from '../types';
 import {
@@ -61,9 +61,9 @@ export const GEMINI_RESPONSE_SCHEMA = {
         properties: {
           action: {
             type: 'string',
-            enum: ['CREATE', 'UPDATE', 'DELETE', 'TIMELINE'],
+            enum: ['CREATE', 'UPDATE', 'DELETE', 'TIMELINE', 'AUDIO'],
             description:
-              'Discriminator. MUST be one of CREATE, UPDATE, DELETE, TIMELINE (a time edit: requires `edit`).',
+              'Discriminator. MUST be one of CREATE, UPDATE, DELETE, TIMELINE (a time edit: requires `edit`), AUDIO (a narration edit: requires `edit`).',
           },
           item: {
             type: 'object',
@@ -392,7 +392,7 @@ export const GEMINI_RESPONSE_SCHEMA = {
             type: 'string',
             description: 'Required for UPDATE and DELETE; id of an existing item.',
           },
-          edit: TIMELINE_EDIT_SCHEMA,
+          edit: ANY_EDIT_SCHEMA,
           updates: {
             type: 'object',
             description:

@@ -17,7 +17,7 @@ describe('camera provider schema parity', () => {
       expect(canonicalUpdate).toHaveProperty(field);
       expect(geminiUpdate).toHaveProperty(field);
     }
-    expect(AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items.anyOf).toHaveLength(4); // CREATE, UPDATE, DELETE, TIMELINE
+    expect(AGENT_CHAT_RESPONSE_JSON_SCHEMA.properties.actions.items.anyOf).toHaveLength(5); // CREATE, UPDATE, DELETE, TIMELINE, AUDIO
   });
 });
 

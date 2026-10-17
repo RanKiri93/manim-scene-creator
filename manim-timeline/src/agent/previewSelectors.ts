@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { locateWord } from './audioEdits';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { ItemId, SceneItem } from '@/types/scene';
 import { useAgentStore } from './useAgentStore';
@@ -80,6 +81,14 @@ export function buildPreviewState(
       const before = merged;
       merged = applyTimelineEdit(merged, [], a.edit).items;
       for (const [id, item] of merged) if (before.get(id) !== item && !ops.has(id)) ops.set(id, 'update');
+    } else if (a.action === 'AUDIO') {
+      // Narration edits show on the audio lanes after Approve; an anchor's new start shows now.
+      if (a.edit.op !== 'anchor') continue;
+      const hit = locateWord(useSceneStore.getState().audioItems, a.edit.at);
+      const current = merged.get(a.edit.itemId);
+      if (!hit || !current) continue;
+      merged.set(a.edit.itemId, { ...current, startTime: hit.start } as SceneItem);
+      if (!ops.has(a.edit.itemId)) ops.set(a.edit.itemId, 'update');
     } else {
       // DELETE — keep the item in the merged map so the UI can render it
       // with a "will be deleted" styling; `ops` flags it for the renderer

@@ -1,4 +1,5 @@
 import { useSceneStore } from '@/store/useSceneStore';
+import { locateCut, locateWord, type AgentAudioEdit } from './audioEdits';
 import type {
   FunctionSeriesDefaults,
   FunctionSeriesPerN,
@@ -58,9 +59,27 @@ function applyActions(actions: AgentAction[]): void {
       if (e.op === 'insert') s.insertEmptyTimelineTime(e.at, e.seconds);
       else if (e.op === 'remove') s.closeTimelineRange(e.from, e.to);
       else s.scaleTimelineRange(e.from, e.to, e.factor);
+    } else if (action.action === 'AUDIO') {
+      applyAudioAction(action.edit);
     } else {
       if (s.items.has(action.itemId)) s.removeItem(action.itemId);
     }
+  }
+}
+
+/** Narration edits through the store's own actions (one undo step with the rest of the proposal). */
+function applyAudioAction(edit: AgentAudioEdit): void {
+  const s = useSceneStore.getState();
+  if (edit.op === 'cut') {
+    const where = locateCut(s.audioItems, edit.from, edit.to);
+    if (typeof where !== 'string') s.deleteAudioRange(where.track.id, where.from, where.to);
+  } else if (edit.op === 'gain') {
+    s.setAudioClipGain(edit.trackId, edit.gainDb);
+  } else {
+    const hit = locateWord(s.audioItems, edit.at);
+    if (!hit || !s.items.has(edit.itemId)) return;
+    s.moveItem(edit.itemId, hit.start);
+    useSceneStore.getState().setWordAnchor(edit.itemId, { trackId: hit.track.id, wordIndex: hit.wordIndex });
   }
 }
 

@@ -116,14 +116,19 @@ describe('schemas and prompt', () => {
     expect(anyOf[3]!.properties.edit!.properties).toHaveProperty('factor');
     const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
     expect(gemini.action.enum).toContain('TIMELINE');
-    expect(gemini.edit.properties.op.enum).toEqual(['insert', 'remove', 'scale']);
+    expect(gemini.edit.properties.op.enum).toEqual(['insert', 'remove', 'scale', 'cut', 'gain', 'anchor']);
+    expect(anyOf[4]!.properties.action!.enum).toEqual(['AUDIO']);
+    expect(anyOf[4]!.properties.edit!.properties).toHaveProperty('gainDb');
+    expect(gemini.action.enum).toContain('AUDIO');
   });
 
   it('teaches timeline edits in both modes', () => {
     for (const prompt of [buildSystemPrompt(''), buildSystemPrompt('', 'loop')]) {
       expect(prompt).toContain('14. Timeline edits');
       expect(prompt).toContain('R16. Retime and make room');
-      expect(prompt).toContain('only TIMELINE edits (rule 14) move them');
+      expect(prompt).toContain('TIMELINE edits (rule 14) move them together with the clips');
+      expect(prompt).toContain('16. Narration edits');
+      expect(prompt).toContain('R24. Tighten or clean the narration');
     }
   });
 });

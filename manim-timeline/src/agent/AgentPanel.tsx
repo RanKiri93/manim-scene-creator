@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { describeAudioEdit } from './audioEdits';
 import type { AgentAction, AgentChatMessage } from './types';
 import { useAgentStore } from './useAgentStore';
 import type { ProviderId } from './providers';
@@ -502,6 +503,13 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
     return (
       <li className={`text-warn ${dimClass}`}>
         <span className="text-warn">TIMELINE</span> {describeTimelineEdit(action.edit)}
+      </li>
+    );
+  }
+  if (action.action === 'AUDIO') {
+    return (
+      <li className={`text-kind-audio ${dimClass}`}>
+        <span className="text-kind-audio">AUDIO</span> <bdi dir="auto">{describeAudioEdit(action.edit)}</bdi>
       </li>
     );
   }
