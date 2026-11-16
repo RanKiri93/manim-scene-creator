@@ -85,9 +85,11 @@ def get_hebrew_tex_template(
         language_preamble = "\n".join(language_lines)
 
     # amsmath must load before polyglossia (Hebrew loads bidi; bidi forbids amsmath after it).
+    # xcolor (also before bidi) lets HebrewMathLine compile a line once with tag-coloured segments.
     preamble = "\n".join(filter(None, [
         r"\usepackage{amsmath}",
         r"\usepackage{amssymb}",
+        r"\usepackage{xcolor}",
         r"\usepackage{polyglossia}",
         r"\setmainlanguage{hebrew}",
         r"\setotherlanguage{english}",

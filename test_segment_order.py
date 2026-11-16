@@ -116,3 +116,44 @@ def test_english_font_defaults_to_hebrew_font():
     assert r"\newfontfamily\englishfont{Alef}" in line._tex_template.preamble
     latin = HebrewMathLine(r"אם \en{x}", hebrew_font="Alef", english_font="Latin Modern Roman")
     assert r"\englishfont" not in latin._tex_template.preamble
+
+
+# ── single compile (tag colours) vs one phantom compile per segment ───
+
+
+def _geometry(line):
+    out = []
+    for seg in line.submobjects:
+        paths = seg.family_members_with_points()
+        if not paths:
+            out.append(None)
+            continue
+        c = seg.get_center()
+        out.append((round(float(c[0]), 4), round(float(c[1]), 4), round(float(seg.width), 4),
+                    round(float(seg.height), 4), len(paths)))
+    return out
+
+
+def test_single_compile_matches_phantom_compile():
+    corpus = [
+        ("rtl", r"משפט: אם $f(x)$ פונקציה רציפה בקטע $[a,b]$, אזי $\int_a^x f(t)\,{\rm d}t$ פונקציה גזירה."),
+        ("rtl", r"חלק א||חלק ב||$\frac{1}{2}$||$\sqrt{x+1}$||חלק ג"),
+        ("rtl", r"חלק א || חלק ב || $f(x)$ || חלק ג"),
+        ("rtl", r"אם \en{the function $f$ || is continuous} אז $x>0$"),
+        ("ltr", r"The function $f(x)$ is \he{רציפה בקטע} on $[a,b]$"),
+    ]
+    for base, raw in corpus:
+        single = HebrewMathLine(raw, hebrew_font="Alef", base_dir=base, compile_mode="single")
+        phantom = HebrewMathLine(raw, hebrew_font="Alef", base_dir=base, compile_mode="phantom")
+        assert _geometry(single) == _geometry(phantom), raw
+
+
+def test_auto_falls_back_when_the_source_sets_its_own_colour():
+    import pytest
+
+    raw = r"אם \textcolor{red}{מילה} אז"
+    with pytest.raises(ValueError):
+        HebrewMathLine(raw, hebrew_font="Alef", compile_mode="single")
+    auto = HebrewMathLine(raw, hebrew_font="Alef")
+    phantom = HebrewMathLine(raw, hebrew_font="Alef", compile_mode="phantom")
+    assert _geometry(auto) == _geometry(phantom)

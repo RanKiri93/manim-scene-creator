@@ -26,8 +26,10 @@ from hebrew_math_parser import (
     Segment,
     classify_segments,
     generate_phantom_source,
+    generate_tagged_source,
     parse_segments,
     reconstruct_line,
+    segment_tag_rgb,
 )
 from hebrew_tex_template import get_hebrew_tex_template
 
@@ -71,6 +73,11 @@ class HebrewMathLine(VGroup):
         line = HebrewMathLine(r"אם \en{the function $f$} רציפה", hebrew_font="Alef")
         line = HebrewMathLine(r"The function is \he{רציפה}", base_dir="ltr")
 
+    The line is compiled once, with each segment in its own tag colour, and
+    the SVG paths are split by colour; if that is not possible (e.g. the
+    source sets its own colours) it falls back to one compile per segment with
+    the others hidden.  ``compile_mode="single"`` / ``"phantom"`` forces one.
+
     Access individual segments for styling / animation.  ``line[i]`` is
     the i-th segment in the order it was given (typed order), which is
     also reading order, so ``Write(line)`` reveals the line as it is read::
@@ -91,10 +98,14 @@ class HebrewMathLine(VGroup):
         color: Any = WHITE,
         base_dir: str = "rtl",
         english_font: str | None = None,
+        compile_mode: str = "auto",
         **kwargs: Any,
     ):
         if base_dir not in ("rtl", "ltr"):
             raise ValueError(f"base_dir must be 'rtl' or 'ltr', got {base_dir!r}")
+        if compile_mode not in ("auto", "single", "phantom"):
+            raise ValueError(f"compile_mode must be 'auto', 'single' or 'phantom', got {compile_mode!r}")
+        self._compile_mode = compile_mode
         self.base_dir = base_dir
         self._base_lang = "en" if base_dir == "ltr" else "he"
         self._tex_environment = tex_environment
@@ -153,6 +164,64 @@ class HebrewMathLine(VGroup):
         )
 
     def _compile_all_segments(self) -> list[VMobject]:
+        """Return one mobject per segment, all in the same coordinate frame.
+
+        ``compile_mode="auto"`` (default) compiles the line once with tag-coloured
+        segments (:meth:`_compile_tagged`) and falls back to one phantom compile
+        per segment if that fails or leaves an untagged path (e.g. the source sets
+        its own colour).  ``"single"`` / ``"phantom"`` force one method (tests).
+        """
+        if self._compile_mode != "phantom":
+            try:
+                mobs = self._compile_tagged()
+            except Exception:
+                if self._compile_mode == "single":
+                    raise
+                mobs = None
+            if mobs is not None:
+                return mobs
+            if self._compile_mode == "single":
+                raise ValueError("single compile left paths without a segment tag colour")
+            logger.debug("HebrewMathLine: single compile not usable, using per-segment compile")
+        return self._compile_phantom()
+
+    def _compile_tagged(self) -> list[VMobject] | None:
+        """Compile the line once and split its paths by segment tag colour.
+
+        Same geometry as :meth:`_compile_phantom` in one TeX run instead of one
+        per segment.  Returns ``None`` when a path carries no known tag colour.
+        """
+        svg_file = tex_to_svg_file(
+            generate_tagged_source(self.segments, self._base_lang),
+            environment=self._tex_environment,
+            tex_template=self._tex_template,
+        )
+        mob = SVGMobject(
+            file_name=svg_file,
+            should_center=False,
+            height=None,
+            stroke_width=0,
+            path_string_config={
+                "should_subdivide_sharp_curves": True,
+                "should_remove_null_curves": True,
+            },
+            use_svg_cache=False,
+        )
+        tag_index = {segment_tag_rgb(i): i for i in range(len(self.segments))}
+        buckets: list[list[VMobject]] = [[] for _ in self.segments]
+        for path in mob.family_members_with_points():
+            rgb = tuple(int(round(c * 255)) for c in path.get_fill_color().to_rgb())
+            idx = tag_index.get(rgb)
+            if idx is None:
+                return None
+            path.color = self._target_color
+            path.set_fill(self._target_color, opacity=1)
+            path.set_stroke(self._target_color, width=0)
+            buckets[idx].append(path)
+        mob.submobjects = []
+        return [VGroup(*paths) for paths in buckets]
+
+    def _compile_phantom(self) -> list[VMobject]:
         """Return one SVGMobject per segment, all in the same coordinate frame.
 
         SVGMobject.generate_mobject() flips y via ``self.flip(RIGHT)``,

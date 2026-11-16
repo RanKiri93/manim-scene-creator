@@ -368,8 +368,42 @@ def generate_phantom_source(
     """
     if isinstance(visible, int):
         visible = {visible}
+    return _assemble_line(
+        segments,
+        base_lang,
+        lambda idx, seg: seg.latex if idx in visible else seg.phantom_latex,
+    )
 
-    pieces: list[str] = []
+
+def segment_tag_rgb(idx: int) -> tuple[int, int, int]:
+    """Tag colour for segment *idx* in :func:`generate_tagged_source` (never black)."""
+    return (1 + idx % 255, 37 + idx // 255, 91)
+
+
+def generate_tagged_source(segments: list[Segment], base_lang: str = "he") -> str:
+    r"""Build the whole line in one source, every segment in its own tag colour.
+
+    Compiling this once and splitting the SVG paths by fill colour gives the
+    same per-segment geometry as one phantom compile per segment.  The
+    ``\leavevmode`` starts the paragraph before the first colour switch
+    (otherwise the right-to-left paragraph setup drops it), and the ``{}``
+    after each ``\color`` keeps a segment's leading space, which ``\color``
+    would otherwise swallow.  Needs ``xcolor`` in the preamble.
+    """
+
+    def tagged(idx: int, seg: Segment) -> str:
+        r, g, b = segment_tag_rgb(idx)
+        return "{\\color[RGB]{" + f"{r},{g},{b}" + "}{}" + seg.latex + "}"
+
+    return _assemble_line(segments, base_lang, tagged, prefix="\\leavevmode")
+
+
+def _assemble_line(segments: list[Segment], base_lang: str, piece, prefix: str = "") -> str:
+    """Join per-segment pieces, grouping foreign-language runs and wrapping LTR lines.
+
+    *prefix* goes first inside the line (inside the ``english`` environment for LTR lines).
+    """
+    pieces: list[str] = [prefix]
     group_lang: str | None = None
     for idx, seg in enumerate(segments):
         foreign = seg.lang if seg.lang != base_lang else None
@@ -379,7 +413,7 @@ def generate_phantom_source(
             if foreign is not None:
                 pieces.append(_GROUP_CMD[foreign] + "{")
             group_lang = foreign
-        pieces.append(seg.latex if idx in visible else seg.phantom_latex)
+        pieces.append(piece(idx, seg))
     if group_lang is not None:
         pieces.append("}")
     body = "".join(pieces)
