@@ -1,7 +1,7 @@
 ---
 slug: copilot-expression-helper-parity
 created: 2026-09-11
-status: docs
+status: done
 owner_role: copilot-dev
 next_tool: any
 source: user request
@@ -92,3 +92,7 @@ Audit found three real gaps: the prompt never documented `graphPointSequence` or
   - I cannot independently attribute the unrelated panel/lib working-tree changes to earlier handoffs, but no task-scope diff was found in `types/scene.ts`, `store/`, `codegen/`, or `measure_server.py`.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: expression helpers in the graph editors (`GraphFieldExpressionHelp.tsx` etc.).

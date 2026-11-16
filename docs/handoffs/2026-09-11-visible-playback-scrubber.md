@@ -1,7 +1,7 @@
 ---
 slug: visible-playback-scrubber
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request / screenshot feedback
@@ -82,3 +82,7 @@ None. Proceed with the recommended visible-rail + blue-progress + slim-pill-hand
 - Claims in "Implementation notes" that could not be confirmed: manual browser smoke/visual confirmation was not run in this API session; attribution of unrelated WIP relies on the user's baseline note because there is no clean-tree baseline in git.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `timeline/PlaybackControls.tsx`.

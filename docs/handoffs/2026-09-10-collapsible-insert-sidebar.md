@@ -1,7 +1,7 @@
 ---
 slug: collapsible-insert-sidebar
 created: 2026-09-10
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: cursor
 source: user request
@@ -99,3 +99,7 @@ None. User chose: left sidebar placement, default expanded with labels, collapsi
   - Manual browser smoke at `http://localhost:5173/` was not run by verifier, so fresh-load expanded state, reload persistence, resizer behavior, visual emphasis, and click flows were checked only statically.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built (`App.tsx` `INSERT_SIDEBAR_COLLAPSED_KEY`); later replaced by the insert rail redesign (dd1e999).

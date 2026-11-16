@@ -1,7 +1,7 @@
 ---
 slug: image-objects-codegen
 created: 2026-09-11
-status: docs
+status: done
 owner_role: codegen-dev
 next_tool: any
 source: user request
@@ -286,3 +286,7 @@ Findings: **none remaining**.
 ## Verification status update (verifier — 2026-09-11)
 
 Reviewer second follow-up is now present with **no remaining findings**. The verification gates above passed after the second codegen-dev follow-up, so frontmatter status is set to `docs` for docs-keeper handoff.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `codegen/imageCodegen.ts`. Animated GIF playback stays future work (open-items review item `gif`).

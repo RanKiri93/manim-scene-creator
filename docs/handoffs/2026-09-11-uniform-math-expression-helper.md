@@ -1,7 +1,7 @@
 ---
 slug: uniform-math-expression-helper
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -130,3 +130,7 @@ Plot + Area pilot implemented per plan; no schema, codegen, server, or Copilot c
 - Claims in "Implementation notes" that could not be confirmed: in-browser manual smoke was explicitly not run in the implementation notes and was not repeated here; static review confirms the dialog keeps draft state and only `Apply` calls parent `onApply({ jsExpr, pyExpr })`, while `Cancel` calls `onClose`.
 
 Verdict: **pass** — required gates are green and the diff stays within the Plot + Area expression-helper pilot scope.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: expression helpers in the graph editors.

@@ -664,7 +664,7 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
 ## 13. Known limitations (v2 — chat)
 
 - Only kinds listed in **§3.3** (`AGENT_ALLOWED_KINDS`) can be CREATEd — includes `target_animation` and graph kinds such as `graphCurve` / `graphPointSequence` / `graphArea` / `graphField`; images and audio remain UI-only.
-- The Copilot is frame-aware in context (frame catalog + active frame in the payload, `frameId` validated per §7.5), but there are no dedicated frame actions yet — no `CREATE_FRAME` / `UPDATE_FRAME`, and no agent-driven camera panning between frames.
+- Frames: the Copilot sees the frame catalog and the active frame, and can add or rename frames with the `FRAME` action and move the camera to them in the same proposal (see **Frames** above). It cannot delete or move existing frames.
 - No token streaming: the UI shows a "Thinking…" indicator and waits for the full response. Reasoning/thinking output is surfaced as a collapsible block only after the turn completes.
 - The full chat history is re-sent on every turn; token usage grows linearly with conversation length. `MAX_PERSISTED_MESSAGES` (100) caps the persisted log but does not summarize older turns — long conversations may need a manual "New chat".
 - When a prior proposal is rejected or superseded, the model only sees a short parenthetical note in the re-sent assistant turn rather than the full diff of what was proposed. If this causes the model to re-propose the same edit, consider expanding the note to include the action list.

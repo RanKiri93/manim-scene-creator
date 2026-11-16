@@ -1,7 +1,7 @@
 ---
 slug: rasterized-axes-preview
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -89,3 +89,7 @@ Verdict: **pass**.
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `axisPreviewDataUrl` path in `canvas/layers/GraphNode.tsx`.

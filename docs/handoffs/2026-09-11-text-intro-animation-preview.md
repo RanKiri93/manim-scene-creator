@@ -1,7 +1,7 @@
 ---
 slug: text-intro-animation-preview
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -112,3 +112,7 @@ Verdict: **pass** — the previously failing ESLint gate is now clean, all named
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `textIntroSegmentStates`, `manimSmoothProgress` in `lib/visualPlaybackPreview.ts`.

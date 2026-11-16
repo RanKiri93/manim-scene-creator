@@ -1,7 +1,7 @@
 ---
 slug: image-export-live-blob-assets
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: bug report
@@ -97,3 +97,7 @@ Per-claim confirmation:
 - Claims in Implementation notes that could not be confirmed: browser/manual smoke (`npm run dev`) was not run; `imageCodegen.ts` / `groupPlaybackSpan.ts` / `types/scene.ts` / `measure_server.py` “untouched by this handoff” cannot be isolated from git because the working tree already contains out-of-scope uncommitted WIP in those areas, so this was verified only as “not listed in this handoff's touched files and reported out-of-scope.”
 
 Verdict: **pass** (status set to `docs`).
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `lib/imageExportAssets.ts`.

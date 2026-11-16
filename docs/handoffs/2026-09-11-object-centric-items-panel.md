@@ -1,7 +1,7 @@
 ---
 slug: object-centric-items-panel
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request / UX improvement
@@ -103,3 +103,7 @@ None for v1. Keep the existing chronological Items view and add `By object` as a
   - Manual browser smoke via `npm run dev` was not run; visual equivalence/interaction was checked statically from `ItemList.tsx` only.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: "By object" view in `panels/ItemList.tsx`.

@@ -1,7 +1,7 @@
 ---
 slug: image-objects-editor
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -134,3 +134,7 @@ Anything left undone: the codegen handoff (`2026-09-11-image-objects-codegen.md`
 - Confirmed invariant checks: `PROJECT_VERSION = 41`; `migrateItemsToV41` is wired after v40 with `migrateProjectToV41.test.ts`; `ImageItem` is in the `SceneItem` union and `PosStepNextTo.refKind`; `.mtproj` embeds/rehydrates `assets/textures/*` with checksum tests; README documents v41/textures and extends the trailer.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built. Leftover: fragment import does not remap image refs (open-items review item `fragimg`).

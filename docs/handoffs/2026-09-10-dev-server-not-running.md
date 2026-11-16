@@ -1,7 +1,7 @@
 ---
 slug: dev-server-not-running
 created: 2026-09-10
-status: planned
+status: done
 owner_role: editor-dev
 next_tool: cursor
 source: user request
@@ -36,3 +36,7 @@ Do not modify source code, run Tauri, start Manim renders, or start the measure 
 
 ### Open questions
 None.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. One-off request to start the dev server; nothing to build.

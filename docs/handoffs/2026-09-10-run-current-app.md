@@ -1,7 +1,7 @@
 ---
 slug: run-current-app
 created: 2026-09-10
-status: planned
+status: done
 owner_role: editor-dev
 next_tool: cursor
 source: user request
@@ -71,3 +71,7 @@ Findings in severity order, each with file:line and a concrete fix suggestion.
 - README sections touched, `*Last updated:*` trailer extended: yes/no
 - ARCHITECTURE.md touched: yes/no
 - idea.md item closed or updated: which
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. One-off request to run the app; nothing to build.

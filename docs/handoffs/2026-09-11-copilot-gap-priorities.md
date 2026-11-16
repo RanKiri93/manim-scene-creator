@@ -1,7 +1,7 @@
 ---
 slug: copilot-gap-priorities
 created: 2026-09-11
-status: docs
+status: done
 owner_role: copilot-dev
 next_tool: any
 source: user request / Copilot gap prioritization
@@ -116,3 +116,7 @@ Implemented gap #1 (frame-aware context + `frameId` validation). Other ranked ga
   - The `frameId: null` note is confirmed for UPDATE; on CREATE, the code treats non-string/null as missing and stamps the active/start fallback, and that null-CREATE path is not covered by the new tests.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `AgentFrameContext` in `agent/validate.ts`; frame actions added later (462dfae).

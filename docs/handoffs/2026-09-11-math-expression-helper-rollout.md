@@ -1,7 +1,7 @@
 ---
 slug: math-expression-helper-rollout
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -107,3 +107,7 @@ All five remaining expression surfaces migrated to the shared helper. No schema,
   - `GraphPlotEditor.tsx` / `GraphAreaEditor.tsx` being untouched by this specific rollout cannot be proven from the dirty checkout because both have pre-existing pilot diffs from `HEAD`; no rollout-only schema/store/codegen/server/Copilot impact was observed.
 
 Verdict: **pass** (status set to `docs`).
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: expression helpers in the graph editors.

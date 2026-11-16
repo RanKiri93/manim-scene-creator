@@ -1,7 +1,7 @@
 ---
 slug: camera-zoom-codegen
 created: 2026-09-24
-status: planned
+status: done
 owner_role: codegen-dev
 next_tool: any
 source: user request
@@ -140,3 +140,7 @@ Findings in severity order, each with file:line and a concrete fix suggestion.
 - README sections touched, `*Last updated:*` trailer extended: yes/no
 - ARCHITECTURE.md touched: yes/no
 - idea.md item closed or updated: which
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `codegen/cameraCodegen.ts`; finished under 2026-09-24-camera-zoom-codegen-resume (done).

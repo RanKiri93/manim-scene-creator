@@ -1,7 +1,7 @@
 ---
 slug: copilot-compatibility-audit
 created: 2026-09-11
-status: planned
+status: done
 owner_role: copilot-dev
 next_tool: any
 source: user request / compatibility audit
@@ -51,3 +51,7 @@ Exact commands from `manim-timeline/` for a compatibility audit or future Copilo
 
 ### Open questions
 What does “compatibilities” mean for the next implementation step: provider/model compatibility, supported scene item kinds, Hebrew/math task capability, or missing editor features the Copilot should learn next? The audit below can answer all at a high level, but a follow-up implementation should choose one dimension.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. Read-only audit that was never written; ARCHITECTURE.md has since been rewritten, so it is moot.

@@ -1,7 +1,7 @@
 ---
 slug: redesign-insert-controls
 created: 2026-09-10
-status: planned
+status: done
 owner_role: editor-dev
 next_tool: cursor
 source: user request
@@ -57,3 +57,7 @@ Do not change the persisted project schema, generated Manim Python, object/anima
 4. Should graph-related inserts remain visible all the time, or appear only after axes exist/are selected to reduce clutter?
 5. Is keyboard-driven insertion important now (e.g. `A` or `Ctrl+K` opens an add palette), or should this remain mouse-first?
 6. Should audio buttons be part of this redesign, or should the scope stay only objects and animations?
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. Superseded by the collapsible insert sidebar and then the insert rail redesign (dd1e999).

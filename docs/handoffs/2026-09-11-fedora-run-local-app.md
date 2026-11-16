@@ -1,7 +1,7 @@
 ---
 slug: fedora-run-local-app
 created: 2026-09-11
-status: planned
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -49,3 +49,7 @@ Empty.
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. Environment setup on another machine; not product work.

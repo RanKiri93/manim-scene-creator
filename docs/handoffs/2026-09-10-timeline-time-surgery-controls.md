@@ -1,7 +1,7 @@
 ---
 slug: timeline-time-surgery-controls
 created: 2026-09-10
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request / bug report
@@ -117,3 +117,7 @@ None for v1. This plan deliberately chooses the safest semantics: close/insert o
   - Git can show the current App/AddObjectToolbar/README diffs and the prior Insert-sidebar handoff covering them, but cannot prove author/time of those pre-existing uncommitted edits inside this verifier session.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: `lib/timelineSurgery.ts`, `timeline/TimelineSurgeryDialog.tsx`.

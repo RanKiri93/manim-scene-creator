@@ -1,7 +1,7 @@
 ---
 slug: fedora-dev-setup
 created: 2026-09-11
-status: planned
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -45,3 +45,7 @@ Document and verify a Fedora development setup path so a new Fedora workstation 
 ### Open questions
 - Should Fedora setup instructions be committed into `manim-timeline/README.md`, or is a one-off setup answer sufficient?
 - Do you want optional audio transcription/TTS parity (`gTTS`, `openai-whisper`, model downloads) and optional Tauri desktop shell setup on this Fedora machine now, or only the web app + measure/render server?
+
+## Status review (docs-keeper, 2026-11-17)
+
+Closed as obsolete; status set to `done` after checking the code. Environment setup on another machine; not product work.

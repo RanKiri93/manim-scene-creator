@@ -1,7 +1,7 @@
 ---
 slug: axes-attachment-visibility
 created: 2026-09-11
-status: docs
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -91,3 +91,7 @@ Implemented option 1 (axis chip on every graph row), in both Timeline and By obj
 - Claims in "Implementation notes" that could not be confirmed: in-browser smoke remains unrun; frame-filter interaction and visual behavior in the browser were only statically checked through shared `visibleItems`/`renderRow` paths.
 
 Verdict: **pass**.
+
+## Status review (docs-keeper, 2026-11-17)
+
+Done in code; status set to `done` after checking the code. Built: axes chip on graph rows in `panels/ItemList.tsx`.
