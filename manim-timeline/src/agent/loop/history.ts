@@ -1,5 +1,6 @@
 import type { AgentAction, AgentChatMessage, AgentContextPayload } from '../types';
 import { describeAudioEdit } from '../audioEdits';
+import { describeFrameEdit } from '../frameEdits';
 import { describeTimelineEdit } from '../timelineEdits';
 
 export interface PlainTurn {
@@ -12,6 +13,7 @@ function actionLine(a: AgentAction): string {
   if (a.action === 'UPDATE') return `UPDATE "${a.itemId}": ${Object.keys(a.updates).join(', ')}`;
   if (a.action === 'TIMELINE') return `TIMELINE ${describeTimelineEdit(a.edit)}`;
   if (a.action === 'AUDIO') return `AUDIO ${describeAudioEdit(a.edit)}`;
+  if (a.action === 'FRAME') return `FRAME ${describeFrameEdit(a.edit)}`;
   return `DELETE "${a.itemId}"`;
 }
 

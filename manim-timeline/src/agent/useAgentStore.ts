@@ -22,6 +22,7 @@ import type { LoopLogEntry, LoopProvider } from './loop/types';
 import { createChatgptLoopProvider, DEFAULT_CHATGPT_MODEL, type ChatgptAuth } from './providers/chatgptLoop';
 import { DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
 import { DEFAULT_OPENAI_MODEL } from './providers/openai';
+import { planFrameEdits } from './frameEdits';
 import { resolveCameraRequests } from './cameraRequests';
 
 export type AgentStatus = 'idle' | 'loading' | 'error';
@@ -176,8 +177,10 @@ export const useAgentStore = create<AgentStoreShape>()(
           const hasActions = outcome.actions.length > 0;
           const autoApply = hasActions && get().autoApply && !outcome.stoppedEarly;
           if (autoApply) commitActions(outcome.actions);
+          // Camera clips and new frames are planned against the frame grid as it was: re-check on Approve.
           const touchesCamera = outcome.actions.some(
             (a) =>
+              a.action === 'FRAME' ||
               (a.action === 'CREATE' && a.item.kind === 'camera_move') ||
               (a.action === 'UPDATE' && req.base.items.get(a.itemId)?.kind === 'camera_move'),
           );
@@ -323,10 +326,18 @@ export const useAgentStore = create<AgentStoreShape>()(
             includeThinking: state.showThinking,
             signal: controller.signal,
           });
+          // Camera moves may target frames this response adds; the validator reports bad FRAME edits.
+          const rawActions = (raw as { actions?: unknown } | null)?.actions;
+          const plannedFrames = Array.isArray(rawActions)
+            ? planFrameEdits(rawActions, requestFrames, {
+                activeFrameId: sceneState.activeFrameId,
+                isItemId: (id) => requestItems.has(id),
+              }).frames
+            : requestFrames;
           const normalizedRaw = resolveCameraRequests(raw, {
             currentTimeSec: requestTime,
             items: requestItems,
-            frames: requestFrames,
+            frames: plannedFrames,
             startFrameId: sceneState.startFrameId,
             activeFrameId: sceneState.activeFrameId,
           });
@@ -371,7 +382,7 @@ export const useAgentStore = create<AgentStoreShape>()(
               ? {
                   actions: resp.actions,
                   actionsStatus: 'pending' as const,
-                  ...(resp.actions.some((action) => action.action === 'CREATE' && action.item.kind === 'camera_move' || action.action === 'UPDATE' && requestItems.get(action.itemId)?.kind === 'camera_move') ? { cameraSnapshotKey } : {}),
+                  ...(resp.actions.some((action) => action.action === 'FRAME' || action.action === 'CREATE' && action.item.kind === 'camera_move' || action.action === 'UPDATE' && requestItems.get(action.itemId)?.kind === 'camera_move') ? { cameraSnapshotKey } : {}),
                 }
               : {}),
           };

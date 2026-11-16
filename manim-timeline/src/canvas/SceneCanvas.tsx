@@ -4,6 +4,7 @@ import { Stage, Layer, Group, Rect, Text, Line as KonvaLine } from 'react-konva'
 import { useSceneStore } from '@/store/useSceneStore';
 import {
   usePreviewMergedItems,
+  usePreviewFrames,
   usePreviewOps,
   type PreviewOp,
 } from '@/agent/previewSelectors';
@@ -246,7 +247,8 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const isPlaying = useSceneStore((s) => s.isPlaying);
   const activeSceneId = useProjectScenesStore((s) => s.activeSceneId);
   const audioItems = useSceneStore((s) => s.audioItems);
-  const frames = useSceneStore((s) => s.frames);
+  // Frames a pending Copilot proposal adds show (and take the camera) before Approve.
+  const frames = usePreviewFrames();
   const startFrameId = useSceneStore((s) => s.startFrameId);
   const cameraObjectFitPadding = useSceneStore((s) => s.cameraObjectFitPadding);
   const itemsMap = usePreviewMergedItems();

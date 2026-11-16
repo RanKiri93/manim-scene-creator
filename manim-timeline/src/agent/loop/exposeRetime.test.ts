@@ -116,7 +116,7 @@ describe('schemas and prompt', () => {
     expect(anyOf[3]!.properties.edit!.properties).toHaveProperty('factor');
     const gemini = GEMINI_RESPONSE_SCHEMA.properties.actions.items.properties;
     expect(gemini.action.enum).toContain('TIMELINE');
-    expect(gemini.edit.properties.op.enum).toEqual(['insert', 'remove', 'scale', 'cut', 'gain', 'anchor']);
+    expect(gemini.edit.properties.op.enum).toEqual(['insert', 'remove', 'scale', 'cut', 'gain', 'anchor', 'add', 'rename']);
     expect(anyOf[4]!.properties.action!.enum).toEqual(['AUDIO']);
     expect(anyOf[4]!.properties.edit!.properties).toHaveProperty('gainDb');
     expect(gemini.action.enum).toContain('AUDIO');

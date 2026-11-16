@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { locateWord } from './audioEdits';
 import { useSceneStore } from '@/store/useSceneStore';
-import type { ItemId, SceneItem } from '@/types/scene';
+import type { FrameDef, ItemId, SceneItem } from '@/types/scene';
+import { framesAfterActions } from './frameEdits';
 import { useAgentStore } from './useAgentStore';
 import type { AgentAction } from './types';
 import { applyTimelineEdit } from '@/lib/timelineSurgery';
@@ -47,6 +48,16 @@ export function usePreviewMergedItems(): Map<ItemId, SceneItem> {
   }, [items, actions]);
 }
 
+/** React hook: camera-grid frames including those the pending proposal adds (FRAME actions). */
+export function usePreviewFrames(): FrameDef[] {
+  const frames = useSceneStore((s) => s.frames);
+  const actions = useActivePreviewActions();
+  return useMemo(() => {
+    if (!actions?.some((a) => a.action === 'FRAME')) return frames;
+    return framesAfterActions(frames, actions);
+  }, [frames, actions]);
+}
+
 /** React hook: map of item id → preview op (create | update | delete). */
 export function usePreviewOps(): Map<ItemId, PreviewOp> {
   const items = useSceneStore((s) => s.items);
@@ -81,6 +92,8 @@ export function buildPreviewState(
       const before = merged;
       merged = applyTimelineEdit(merged, [], a.edit).items;
       for (const [id, item] of merged) if (before.get(id) !== item && !ops.has(id)) ops.set(id, 'update');
+    } else if (a.action === 'FRAME') {
+      continue;
     } else if (a.action === 'AUDIO') {
       // Narration edits show on the audio lanes after Approve; an anchor's new start shows now.
       if (a.edit.op !== 'anchor') continue;

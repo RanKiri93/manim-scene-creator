@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { describeAudioEdit } from './audioEdits';
+import { describeFrameEdit, framesAfterActions } from './frameEdits';
 import type { AgentAction, AgentChatMessage } from './types';
 import { useAgentStore } from './useAgentStore';
 import type { ProviderId } from './providers';
@@ -310,7 +311,7 @@ function AssistantBubble({
   const items = useSceneStore((s) => s.items);
   const frames = useSceneStore((s) => s.frames);
   const startFrameId = useSceneStore((s) => s.startFrameId);
-  const cameraSummaries = summarizeCameraProposal(message.actions, items, frames, startFrameId);
+  const cameraSummaries = summarizeCameraProposal(message.actions, items, framesAfterActions(frames, message.actions), startFrameId);
   const hasErr = message.error && message.error.length > 0;
   const hasActions = !!message.actions && message.actions.length > 0;
   const pending = hasActions && message.actionsStatus === 'pending';
@@ -503,6 +504,13 @@ function ActionRow({ action, dim }: { action: AgentAction; dim: boolean }) {
     return (
       <li className={`text-warn ${dimClass}`}>
         <span className="text-warn">TIMELINE</span> {describeTimelineEdit(action.edit)}
+      </li>
+    );
+  }
+  if (action.action === 'FRAME') {
+    return (
+      <li className={`text-kind-camera ${dimClass}`}>
+        <span className="text-kind-camera">FRAME</span> <bdi dir="auto">{describeFrameEdit(action.edit)}</bdi>
       </li>
     );
   }

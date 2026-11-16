@@ -163,7 +163,7 @@ export function reviewScene(session: DraftSession, input: { times?: unknown } = 
     fullFile: false,
     defaults: session.base.defaults,
     audioItems: session.audio(),
-    frames: [...session.base.frames],
+    frames: session.frames(),
     startFrameId: session.base.startFrameId ?? undefined,
   });
   for (const m of code.matchAll(/# EXPORT ERROR: (.*)/g)) push({ kind: 'exportError', message: m[1]!.trim() });

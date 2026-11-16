@@ -1,5 +1,6 @@
 import { exportManimCode } from '@/codegen/manimExporter';
 import { describeAudioEdit } from '../audioEdits';
+import { describeFrameEdit } from '../frameEdits';
 import { AGENT_CHAT_RESPONSE_JSON_SCHEMA, type AgentAction } from '../types';
 import type { DraftSession, MeasureText } from './draft';
 import { inspectDraft } from './inspect';
@@ -40,7 +41,7 @@ export function loopToolSpecs(env: LoopToolEnv): LoopToolSpec[] {
     {
       name: 'propose_changes',
       description:
-        'Add CREATE / UPDATE / DELETE / TIMELINE / AUDIO actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
+        'Add CREATE / UPDATE / DELETE / TIMELINE / AUDIO / FRAME actions to the draft (same action shapes as in the rules). The whole draft is validated; if anything is invalid nothing is added and you get the errors to fix. On success you get the touched ids and any warnings. The user sees the draft live on the canvas.',
       inputSchema: {
         type: 'object',
         properties: { actions: ACTIONS_SCHEMA },
@@ -140,6 +141,7 @@ function describeAction(a: AgentAction): string {
   if (a.action === 'UPDATE') return `UPDATE ${a.itemId} (${Object.keys(a.updates).join(', ')})`;
   if (a.action === 'TIMELINE') return `TIMELINE ${describeTimelineEdit(a.edit)}`;
   if (a.action === 'AUDIO') return `AUDIO ${describeAudioEdit(a.edit)}`;
+  if (a.action === 'FRAME') return `FRAME ${describeFrameEdit(a.edit)}`;
   return `DELETE ${a.itemId}`;
 }
 
@@ -205,7 +207,7 @@ export async function runLoopTool(call: LoopToolCall, session: DraftSession, env
           fullFile: false,
           defaults: session.base.defaults,
           audioItems: session.audio(),
-          frames: session.base.frames,
+          frames: session.frames(),
           startFrameId: session.base.startFrameId ?? undefined,
         });
         const error = /# EXPORT ERROR: (.*)/.exec(code)?.[1];

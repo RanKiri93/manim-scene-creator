@@ -47,7 +47,8 @@ interface Rect {
 
 /** What the camera shows at `time` (world units), or null without a start frame. */
 function cameraRect(session: DraftSession, scene: Map<ItemId, SceneItem>, time: number): Rect | null {
-  const { frames, startFrameId } = session.base;
+  const { startFrameId } = session.base;
+  const frames = session.frames();
   if (!startFrameId) return null;
   const pose = cameraPoseAtTime(time, scene, frames, startFrameId);
   const h = (pose.width * FRAME_H) / FRAME_W;
@@ -128,7 +129,8 @@ function itemFacts(
   times: number[],
   words: readonly SpokenWord[],
 ) {
-  const { frames, startFrameId } = session.base;
+  const { startFrameId } = session.base;
+  const frames = session.frames();
   const ctx = (time: number) => ({ items: scene, time, frames, startFrameId });
   const facts: Record<string, unknown> = { id: item.id, kind: item.kind, name: itemClipDisplayName(item) };
   if (words.length) {
@@ -276,7 +278,8 @@ function itemFacts(
  * times (at most 10).
  */
 function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, times: number[]) {
-  const { frames, startFrameId } = session.base;
+  const { startFrameId } = session.base;
+  const frames = session.frames();
   const lines = [...scene.values()].filter((it): it is TextLineItem => it.kind === 'textLine' && !!it.measure);
   const morphPair = (a: string, b: string) => morphTargets(a, scene).includes(b) || morphTargets(b, scene).includes(a);
   const out: { t: number; ids: [string, string]; overlap: [number, number] }[] = [];
@@ -314,7 +317,8 @@ function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, time
  */
 export function inspectDraft(session: DraftSession, input: { times?: unknown; itemIds?: unknown }): Record<string, unknown> {
   const scene = session.scene();
-  const { frames, startFrameId } = session.base;
+  const { startFrameId } = session.base;
+  const frames = session.frames();
   const audioItems = session.audio();
   const times = Array.isArray(input.times)
     ? input.times.filter((t): t is number => typeof t === 'number' && Number.isFinite(t)).slice(0, 8).map(r3)

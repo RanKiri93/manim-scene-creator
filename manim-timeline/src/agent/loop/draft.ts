@@ -2,6 +2,7 @@ import type { AudioTrackItem, FrameDef, ItemId, MeasureResult, SceneDefaults, Sc
 import type { AgentAction } from '../types';
 import { validateAgentResponse, virtualStateAfter } from '../validate';
 import { resolveCameraRequests } from '../cameraRequests';
+import { framesAfterActions, planFrameEdits } from '../frameEdits';
 
 /** Scene snapshot the loop works against (frozen at request time). */
 export interface DraftBase {
@@ -68,6 +69,11 @@ export class DraftSession {
     return scene;
   }
 
+  /** Camera-grid frames as they would be after the draft (FRAME actions add or rename them). */
+  frames(): FrameDef[] {
+    return framesAfterActions(this.base.frames, this.normalized);
+  }
+
   /** Narration tracks as they would be after the draft (TIMELINE edits move them). */
   audio(): AudioTrackItem[] {
     return virtualStateAfter(this.base.items, this.base.audioItems, this.normalized, this.base.defaults).audio;
@@ -102,12 +108,17 @@ export class DraftSession {
 
   propose(rawActions: unknown[]): ProposeResult {
     const candidate = [...this.raw, ...rawActions];
+    // Camera moves may target frames added in this draft; the validator reports bad FRAME edits.
+    const plannedFrames = planFrameEdits(candidate, this.base.frames, {
+      activeFrameId: this.base.activeFrameId,
+      isItemId: (id) => this.base.items.has(id),
+    }).frames;
     const resolved = resolveCameraRequests(
       { reply: 'draft', actions: structuredClone(candidate) },
       {
         currentTimeSec: this.base.currentTimeSec,
         items: this.base.items,
-        frames: this.base.frames,
+        frames: plannedFrames,
         startFrameId: this.base.startFrameId,
         activeFrameId: this.base.activeFrameId,
       },

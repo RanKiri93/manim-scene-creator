@@ -61,9 +61,9 @@ export const GEMINI_RESPONSE_SCHEMA = {
         properties: {
           action: {
             type: 'string',
-            enum: ['CREATE', 'UPDATE', 'DELETE', 'TIMELINE', 'AUDIO'],
+            enum: ['CREATE', 'UPDATE', 'DELETE', 'TIMELINE', 'AUDIO', 'FRAME'],
             description:
-              'Discriminator. MUST be one of CREATE, UPDATE, DELETE, TIMELINE (a time edit: requires `edit`), AUDIO (a narration edit: requires `edit`).',
+              'Discriminator. MUST be one of CREATE, UPDATE, DELETE, TIMELINE (a time edit: requires `edit`), AUDIO (a narration edit: requires `edit`), FRAME (add or rename a camera-grid frame: requires `edit`).',
           },
           item: {
             type: 'object',

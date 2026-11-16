@@ -414,12 +414,36 @@ export const AUDIO_EDIT_SCHEMA = {
   },
 } as const;
 
-/** Gemini's flat action has one `edit` object for TIMELINE and AUDIO alike. */
+/** `FRAME` action: add a camera-grid frame or rename one (see agent/frameEdits.ts). */
+export const FRAME_EDIT_SCHEMA = {
+  type: 'object',
+  description:
+    'FRAME action: op "add" creates a new camera-sized frame with a new `id` (and optional `label`), either `direction` (left / right / up / down) of frame `fromFrameId` (default: the active frame) or at integer grid cell `col`, `row`; later actions may use the new id as a camera_move targetFrameId or a drawable frameId. op "rename" sets `label` on frame `frameId`.',
+  properties: {
+    op: { type: 'string', enum: ['add', 'rename'] },
+    id: { type: 'string', description: 'add: the new frame id (not used by any frame or item).' },
+    label: { type: 'string', description: 'add: optional name shown in the editor. rename: the new name.' },
+    direction: { type: 'string', enum: ['left', 'right', 'up', 'down'], description: 'add: where the new frame goes relative to `fromFrameId`.' },
+    fromFrameId: { type: 'string', description: 'add: the frame id the direction is measured from (default: active frame).' },
+    col: { type: 'integer', description: 'add without direction: grid column (x grows to the right).' },
+    row: { type: 'integer', description: 'add without direction: grid row (row + 1 is below).' },
+    frameId: { type: 'string', description: 'rename: the frame to rename.' },
+  },
+} as const;
+
+/** Gemini's flat action has one `edit` object for TIMELINE, AUDIO and FRAME alike. */
 export const ANY_EDIT_SCHEMA = {
   type: 'object',
-  description: `${'TIMELINE action: insert / remove / scale (time edits). '}AUDIO action: cut / gain / anchor (narration edits).`,
+  description: `${'TIMELINE action: insert / remove / scale (time edits). '}AUDIO action: cut / gain / anchor (narration edits). FRAME action: add (a new frame by direction from another frame, or at col/row) / rename (camera-grid frames).`,
   properties: {
-    op: { type: 'string', enum: ['insert', 'remove', 'scale', 'cut', 'gain', 'anchor'] },
+    op: { type: 'string', enum: ['insert', 'remove', 'scale', 'cut', 'gain', 'anchor', 'add', 'rename'] },
+    id: { type: 'string', description: 'FRAME add: the new frame id.' },
+    label: { type: 'string', description: 'FRAME add: optional name. FRAME rename: the new name.' },
+    direction: { type: 'string', enum: ['left', 'right', 'up', 'down'], description: 'FRAME add: where the new frame goes relative to `fromFrameId`.' },
+    fromFrameId: { type: 'string', description: 'FRAME add: the frame the direction is measured from (default: active frame).' },
+    col: { type: 'integer', description: 'FRAME add without direction: grid column.' },
+    row: { type: 'integer', description: 'FRAME add without direction: grid row (row + 1 is below).' },
+    frameId: { type: 'string', description: 'FRAME rename: the frame to rename.' },
     at: { type: 'number', description: 'TIMELINE insert: scene time. AUDIO anchor: scene start of the word.' },
     seconds: { type: 'number', description: 'TIMELINE insert: how much empty time to add.' },
     from: { type: 'number', description: 'TIMELINE remove / scale, AUDIO cut: range start (s).' },

@@ -82,6 +82,7 @@ import { checkTextTransforms, normalizeAnimStyle, normalizeTransformConfig } fro
 import { checkTimelineEdits, normalizeTimelineEdit } from './timelineEdits';
 import { applyTimelineEdit } from '@/lib/timelineSurgery';
 import type { AudioTrackItem } from '@/types/scene';
+import { planFrameEdits } from './frameEdits';
 import { checkGraphRegions, normalizeAreaIntroStyle, normalizeAreaMode, normalizeFieldFields, normalizeGraphArea, normalizeGraphField } from './graphRegions';
 
 export type ValidationResult =
@@ -157,7 +158,7 @@ const GRAPH_DOT_TOP_LEVEL_ALIASES = [
 export function validateAgentResponse(
   raw: unknown,
   currentItems: Map<ItemId, SceneItem>,
-  frameCtx?: AgentFrameContext,
+  frameCtxIn?: AgentFrameContext,
   options: ValidateOptions = {},
 ): ValidationResult {
   const errors: string[] = [];
@@ -202,6 +203,24 @@ export function validateAgentResponse(
   // them. This rescues a very common LLM omission without hiding genuine errors
   // (ambiguous cases with 0 or >1 candidate axes still fail validation later).
   autoLinkAxesIds(rawActions);
+
+  // FRAME actions are applied before everything else at commit, so every other action may use
+  // the frames they add (a camera move to a new frame, a text line placed in it).
+  const rawCreateIds = new Set(
+    rawActions.flatMap((r) => {
+      const item = (r as { action?: unknown; item?: { id?: unknown } } | null)?.item;
+      return (r as { action?: unknown } | null)?.action === 'CREATE' && typeof item?.id === 'string' ? [item.id] : [];
+    }),
+  );
+  const framePlan = planFrameEdits(rawActions, frameCtxIn?.frames ?? [], {
+    activeFrameId: frameCtxIn?.activeFrameId ?? null,
+    isItemId: (id) => currentItems.has(id) || rawCreateIds.has(id),
+  });
+  const addedFrameIds = [...framePlan.edits.values()].flatMap((e) => (e.op === 'add' ? [e.id] : []));
+  const frameCtx: AgentFrameContext | undefined =
+    frameCtxIn && framePlan.edits.size > 0
+      ? { ...frameCtxIn, frameIds: [...frameCtxIn.frameIds, ...addedFrameIds], ...(frameCtxIn.frames ? { frames: framePlan.frames } : {}) }
+      : frameCtxIn;
 
   const plannedCreates = new Map<ItemId, SceneItem['kind']>(); // id -> kind
   const plannedCreateRaw = new Map<ItemId, unknown>(); // id -> raw item for dedup
@@ -367,6 +386,13 @@ export function validateAgentResponse(
       return;
     }
 
+    if (a.action === 'FRAME') {
+      const edit = framePlan.edits.get(idx);
+      if (edit) normalizedActions.push({ action: 'FRAME', edit });
+      else errors.push(`${prefix}: ${framePlan.errors.get(idx) ?? 'invalid FRAME edit.'}`);
+      return;
+    }
+
     if (a.action === 'AUDIO') {
       const edit = normalizeAudioEdit(a, prefix, errors);
       if (!edit) return;
@@ -393,7 +419,7 @@ export function validateAgentResponse(
     }
 
     errors.push(
-      `${prefix}.action must be CREATE / UPDATE / DELETE / TIMELINE / AUDIO, got "${String(a.action)}".`,
+      `${prefix}.action must be CREATE / UPDATE / DELETE / TIMELINE / AUDIO / FRAME, got "${String(a.action)}".`,
     );
   });
 
@@ -502,6 +528,7 @@ export function validateAgentResponse(
         const previous = virtual.get(action.itemId);
         if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
       } else if (action.action === 'DELETE') virtual.delete(action.itemId);
+      else if (action.action === 'FRAME') continue;
       else if (action.action === 'AUDIO') {
         const result = applyAudioEdit(virtual, options.audioItems ?? [], action.edit);
         if (result.ok) virtual = result.items;
@@ -2049,6 +2076,7 @@ export function virtualStateAfter(
         virtual.set(action.itemId, mergeTextLineUpdate(previous, action.updates as Partial<TextLineItem>, defaults));
       } else if (previous) virtual.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
     } else if (action.action === 'DELETE') virtual.delete(action.itemId);
+    else if (action.action === 'FRAME') continue;
     else if (action.action === 'AUDIO') {
       const result = applyAudioEdit(virtual, audio, action.edit);
       if (result.ok) {
@@ -2243,7 +2271,7 @@ function checkGraphMotion(
   const errorCount = errors.length;
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO' || action.action === 'FRAME') continue;
     const id = action.action === 'CREATE' ? action.item.id : action.itemId;
     const virtual = virtualSceneAfter(currentItems, actions);
     const item = virtual.get(id);
@@ -2298,7 +2326,7 @@ function checkGraphMotion(
   const values = [...virtual.values()];
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO' || action.action === 'FRAME') continue;
     const clip = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (clip?.kind !== 'target_animation' || clip.mode !== 'graphFollow') continue;
     const startError = graphFollowStartTimeError(clip, virtual);
@@ -2838,7 +2866,7 @@ function checkConnectors(
   const ctx = { items: virtual, frames: frameCtx?.frames ?? [], startFrameId: frameCtx?.startFrameId ?? null };
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i]!;
-    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO') continue;
+    if (action.action === 'DELETE' || action.action === 'TIMELINE' || action.action === 'AUDIO' || action.action === 'FRAME') continue;
     if (action.action === 'UPDATE' && !('endpoints' in action.updates) && !('angle' in action.updates)) continue;
     const shape = virtual.get(action.action === 'CREATE' ? action.item.id : action.itemId);
     if (isAngleMark(shape)) {

@@ -17,7 +17,7 @@ Every turn you MUST respond with a single JSON object of shape:
     - Answer questions about the current scene.
     - Acknowledge, confirm, or push back on the user's request.
   Write \`reply\` in natural language, not JSON. Prefer plain text; use short markdown if it helps (bullet lists, inline code).
-- \`actions\` is an ordered list of CREATE / UPDATE / DELETE / TIMELINE operations to apply to the scene. Use an EMPTY array (\`[]\`) when you are only discussing, asking a clarifying question, or answering something that doesn't require scene changes. Do NOT invent edits when you are unsure — ask instead.
+- \`actions\` is an ordered list of CREATE / UPDATE / DELETE / TIMELINE / AUDIO / FRAME operations to apply to the scene. Use an EMPTY array (\`[]\`) when you are only discussing, asking a clarifying question, or answering something that doesn't require scene changes. Do NOT invent edits when you are unsure — ask instead.
 - When the user's instruction could reasonably be interpreted multiple ways, ask a clarifying question in \`reply\` with \`actions: []\` rather than guessing.
 
 Proposed actions are shown to the user as a preview on the canvas/timeline and only applied after the user clicks Approve. If the user rejects or supersedes a proposal, treat it in subsequent turns as if it had never been applied.
@@ -198,6 +198,8 @@ CRITICAL ARCHITECTURE RULES:
     - New drawable items (text, axes, graphs, shapes) belong to \`activeFrameId\` by default — set \`frameId\` to it explicitly, or to another valid frame id from \`frames\` when the user names a different frame. Use ONLY ids listed in \`frames\`.
     - Do NOT set \`frameId\` on exit_animation / blink_animation / target_animation clips — they follow their targets' frames automatically.
     - If the user names a frame you cannot match to the catalog, ask which frame they mean (actions: []) instead of guessing.
+    - New frames: \`{ "action": "FRAME", "edit": { "op": "add", "id": "<new id>", "direction": "left" | "right" | "up" | "down", "fromFrameId": "<frame id>", "label": "<optional name>" } }\` adds a camera-sized frame next to \`fromFrameId\` (omit it to go from \`activeFrameId\`). "Left of the frame we are in" means direction "left" from the frame the camera shows at currentTimeSec (usually activeFrameId). Instead of a direction you may give integer \`col\`, \`row\` (col + 1 is to the right, row + 1 is below). Add a label only when the user names the frame. If that cell already holds a frame, use it instead of adding one. Rename: \`{ "op": "rename", "frameId", "label" }\`.
+    - Every other action in the same response may use the new frame id: "move to a new frame on the left" = a FRAME add plus a camera_move CREATE with targetMode "frame" and targetFrameId = the new id (startTime = currentTimeSec unless told otherwise, duration about 1.5 s); things the user asks to put "there" get frameId = the new id.
 
  10. blink_animation workflow (emphasize / pulse without removing items):
    To briefly highlight visible objects (scale and/or color, then restore), emit CREATE \`kind: "blink_animation"\`. Targets stay on screen; this is not an exit.
@@ -269,7 +271,7 @@ const RULES_START = 'CRITICAL ARCHITECTURE RULES:';
 export const LOOP_FORMAT_SECTION = `WORKING WITH TOOLS
 
 You change the scene through tools, on a draft the user watches live on the canvas. Never answer with raw JSON.
-- propose_changes({ actions }) adds CREATE / UPDATE / DELETE / TIMELINE / AUDIO actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
+- propose_changes({ actions }) adds CREATE / UPDATE / DELETE / TIMELINE / AUDIO / FRAME actions (the action shapes in the rules below) to the draft. The editor validates the whole draft: if anything is wrong, nothing is added and you get the errors. Fix them and propose again. On success you get the touched ids and any warnings.
 - reset_draft() discards the draft.
 - inspect_scene({ times?, itemIds? }) returns exact facts about the scene with the draft applied: scene length, the camera view, and per item its visible window and resolved position at those times (graph dots also in graph coordinates, connectors as both ends). Use it to verify motion, timing and layout instead of assuming.
 - find_words({ text }) finds where words are spoken in the narration (scene times).

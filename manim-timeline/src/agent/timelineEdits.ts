@@ -76,6 +76,7 @@ export function checkTimelineEdits(
       const previous = items.get(action.itemId);
       if (previous) items.set(action.itemId, { ...previous, ...action.updates } as SceneItem);
     } else if (action.action === 'DELETE') items.delete(action.itemId);
+    else if (action.action === 'FRAME') return;
     else if (action.action === 'AUDIO') {
       const result = applyAudioEdit(items, audio, action.edit);
       if (!result.ok) {

@@ -48,8 +48,17 @@ export function commitActions(actions: AgentAction[]): void {
 }
 
 function applyActions(actions: AgentAction[]): void {
+  // Frames first: the validator let every other action use the frames this proposal adds.
+  for (const action of actions) {
+    if (action.action !== 'FRAME') continue;
+    const s = useSceneStore.getState();
+    const e = action.edit;
+    if (e.op === 'add') s.addFrame({ id: e.id, col: e.col, row: e.row, ...(e.label ? { label: e.label } : {}) });
+    else s.updateFrame(e.frameId, { label: e.label });
+  }
   for (const action of actions) {
     const s = useSceneStore.getState();
+    if (action.action === 'FRAME') continue;
     if (action.action === 'CREATE') {
       s.addItem(ensureTextLineSegments(action.item, s.defaults));
     } else if (action.action === 'UPDATE') {
