@@ -121,6 +121,8 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
     }
     case 'axes':
     case 'shape':
+    case 'image':
+    case 'matrix':
       it.posSteps = remapPosSteps(it.posSteps, m);
       if (it.kind === 'shape' && it.endpoints) {
         const tangent = it.endpoints.tangent;
@@ -243,6 +245,9 @@ export function remapSceneItem(it: SceneItem, m: Map<string, string>): void {
       break;
     case 'surroundingRect':
       it.targetIds = it.targetIds.map((tid) => m.get(tid) ?? tid);
+      break;
+    case 'camera_move':
+      if (it.follow?.targetId) it.follow = { targetId: m.get(it.follow.targetId) ?? it.follow.targetId };
       break;
     default:
       break;

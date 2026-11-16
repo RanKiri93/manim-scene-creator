@@ -7,6 +7,7 @@ import {
 } from '@/lib/projectFragment';
 import type { AudioTrackItem, CameraMoveItem, SceneItem } from '@/types/scene';
 import { FRAME_W } from '@/lib/constants';
+import { createCameraMove, createImageItem, createMatrixItem, defaultSceneDefaults } from '@/store/factories';
 
 function axes(id: string): SceneItem {
   return {
@@ -179,5 +180,27 @@ describe('fragment time shift', () => {
     expect(moved.targetFrameId).toBe('frame-2');
     expect(moved.targetWidth).toBe(4.5);
     expect(FRAME_W).toBeGreaterThan(4.5);
+  });
+});
+
+describe('remapping images, matrices and camera follow', () => {
+  it('points an image and a matrix next_to step, their narration and a camera follow at the copies', () => {
+    const ref = axes('ax');
+    const img = {
+      ...createImageItem({ srcUrl: 'data:image/png;base64,AA==', fileName: 'i.png', mimeType: 'image/png', width: 1, height: 1 }),
+      id: 'img',
+      posSteps: [{ kind: 'next_to', refKind: 'axes', refId: 'ax', dir: 'RIGHT', buff: 0.2, alignedEdge: null, refSegmentIndex: null, selfSegmentIndex: null, bounds: null }],
+      audioTrackId: 'a1',
+    } as SceneItem;
+    const mat = { ...createMatrixItem(defaultSceneDefaults()), id: 'mat', posSteps: [{ kind: 'next_to', refKind: 'image', refId: 'img', dir: 'DOWN', buff: 0.2, alignedEdge: null, refSegmentIndex: null, selfSegmentIndex: null, bounds: null }] } as SceneItem;
+    const cam = { ...createCameraMove('f1', 2, 1), id: 'cam', follow: { targetId: 'img' } } as CameraMoveItem;
+    const audio = [{ id: 'a1' } as AudioTrackItem];
+    const m = remapFragmentItemsInPlace([ref, img, mat, cam], audio, new Set(['ax', 'img', 'mat', 'cam', 'a1']));
+    const step = (it: SceneItem) => (it as { posSteps: { refId?: string | null }[] }).posSteps[0]!.refId;
+    expect(step(img)).toBe(m.get('ax'));
+    expect((img as { audioTrackId?: string | null }).audioTrackId).toBe(m.get('a1'));
+    expect(step(mat)).toBe(m.get('img'));
+    expect(cam.follow?.targetId).toBe(m.get('img'));
+    expect(m.get('img')).not.toBe('img');
   });
 });
