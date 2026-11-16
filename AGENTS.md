@@ -42,6 +42,8 @@ in `src/lib/`, never in a component.
 - Frontend change: `npm run build` and `npm run test` green; `npm run lint` clean for touched files.
 - Codegen change: additionally a test in `src/codegen/*.test.ts` covering the new emitted
   Python, and the per-leaf duration table in README "Per-leaf duration accuracy" still holds.
+  When emitted timing changes (run times, waits, clusters, audio), the timing sweep passes:
+  `python manim-timeline/scripts/timing-sweep/run_sweep.py` from the repo root (Manim dry run, about a minute).
 - `types/scene.ts` change that alters persisted shape: `PROJECT_VERSION` bump + migration +
   migration test (skill `project-schema-migration`).
 - Server change: `pytest test_parser.py test_script_alignment.py` green, `/health` returns

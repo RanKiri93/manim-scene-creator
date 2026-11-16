@@ -1135,6 +1135,10 @@ export function generateGraphFieldPlay(
   const seeds = item.streamPoints ?? [];
 
   let s = '';
+  // Stream lines are drawn together with the field, inside the clip's run time.
+  const intro = seeds.length > 0
+    ? `AnimationGroup(Create(${vfVar}), Create(${streamsVar}), lag_ratio=0)`
+    : `Create(${vfVar})`;
   const recorded = resolveRecordedPlayback(item, itemsMap, audioItems);
   if (recorded) {
     const rt = recorded.runTime.toFixed(6);
@@ -1144,12 +1148,9 @@ export function generateGraphFieldPlay(
     ) {
       s += `${pad}${pySoundCall(recorded.track)}\n`;
     }
-    s += `${pad}self.play(Create(${vfVar}), run_time=${rt})\n`;
+    s += `${pad}self.play(${intro}, run_time=${rt})\n`;
   } else {
-    s += `${pad}self.play(Create(${vfVar}), run_time=${item.duration})\n`;
-  }
-  if (seeds.length > 0) {
-    s += `${pad}self.play(Create(${streamsVar}))\n`;
+    s += `${pad}self.play(${intro}, run_time=${item.duration})\n`;
   }
   if (recorded) {
     s += appendAudioTailAfterLeafPlayback(

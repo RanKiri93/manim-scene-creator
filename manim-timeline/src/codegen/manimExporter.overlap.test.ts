@@ -3,12 +3,15 @@ import { exportManimCode } from './manimExporter';
 import { AUDIO_BINDING_NONE } from '@/lib/audioBinding';
 import {
   createAxes,
+  createBlinkAnimation,
   createExitAnimation,
   createGraphCurve,
   createGraphPlot,
   createCameraMove,
   createFrame,
   createGraphDotItem,
+  createGraphFieldItem,
+  createGraphStreamPoint,
   createImageItem,
   createShape,
   createSurroundingRect,
@@ -105,7 +108,8 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
     });
     expect(code).toContain('class _CameraPoseAnimation(Animation):');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_camera_follow_dot');
-    expect(code).toContain('Succession(Wait(1.0000), UpdateFromAlphaFunc');
+    // Run time sits on an inner Succession so the 1 s lead-in Wait is not rescaled.
+    expect(code).toContain('Succession(Wait(1.0000), Succession(UpdateFromAlphaFunc');
     expect(code).toContain('AnimationGroup(');
   });
 
@@ -127,7 +131,7 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
       'FadeIn(axes_1_dot_early_dot_guide_h, run_time=0.400000), Write(axes_1_dot_early_dot_lbl, run_time=0.400000), ' +
       'lag_ratio=0, run_time=0.400000))',
     );
-    expect(code).toContain('Succession(Wait(0.2000), AnimationGroup(UpdateFromAlphaFunc');
+    expect(code).toContain('Succession(Wait(0.2000), Succession(AnimationGroup(UpdateFromAlphaFunc');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_coord, lambda _mob, alpha: None');
     expect(code).toContain('UpdateFromAlphaFunc(axes_1_dot_early_dot_guide_h, lambda _mob, alpha: None');
     expect(code.match(/axes_1_dot_early_dot_coord/g)?.length).toBeGreaterThan(1); // existing mobject is referenced by intro and motion, not reconstructed
@@ -586,7 +590,8 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
 
     expect(code).toContain('AnimationGroup(');
     expect(code).toContain('Succession(Wait(0.0000), Write(');
-    expect(code).toContain('Succession(Wait(2.0000), Create(');
+    // Rect starts 2 s into the cluster; its 0.45 s run time must not swallow the lead-in Wait.
+    expect(code).toContain('Succession(Wait(2.0000), Succession(Create(sr_1), run_time=0.4500))');
     expect(code).not.toMatch(
       /Write\([^)]+\), run_time=[\d.]+\)\s*\n\s*self\.play\(Create\(sr_/,
     );
@@ -645,10 +650,11 @@ describe('exportManimCode concurrent overlap (composable leaves)', () => {
 
     expect(code).toContain('AnimationGroup(');
     expect(code).toContain('Succession(Wait(0.0000), FadeIn(image_1, run_time=2.000000))');
-    expect(code).toContain('Succession(Wait(0.5000), Create(shape_1), run_time=1.500000)');
-    // The delayed image/shape cluster wall is 2.0s. The image branch's FadeIn keeps
-    // its full 2.0s run_time instead of sharing that branch run_time with Wait(rel).
+    expect(code).toContain('Succession(Wait(0.5000), Succession(Create(shape_1), run_time=1.500000))');
+    // The delayed image/shape cluster wall is 2.0s. Each branch keeps its full run time instead
+    // of sharing it with Wait(rel): Manim would rescale the Wait and start the clip early.
     expect(code).not.toContain('Succession(Wait(0.0000), FadeIn(image_1), run_time=2.000000)');
+    expect(code).not.toContain('Succession(Wait(0.5000), Create(shape_1), run_time=1.500000)');
     expect(code).toMatch(/run_time=2\.0000\)/);
   });
 
@@ -1175,5 +1181,67 @@ describe('exportManimCode absolute timeline waits', () => {
     const a = createTextLine(defaults, 0); a.raw = 'a'; a.segments = [seg('a')]; a.duration = 1;
     const code = exportManimCode([a], { fullFile: true, defaults });
     expect(code).not.toContain('_wait_to');
+  });
+});
+
+describe('exportManimCode delayed cluster branches', () => {
+  it('keeps the lead-in Wait of delayed exit, blink and target branches at its real length', () => {
+    const defaults = defaultSceneDefaults();
+    const a = createTextLine(defaults, 0); a.id = 'branch_a'; a.raw = 'a'; a.segments = [seg('a')]; a.duration = 3;
+    const b = createShape(0); b.id = 'branch_b'; b.duration = 0.5;
+    const blink = createBlinkAnimation([a.id], 1.2, 0.6); blink.id = 'branch_blink';
+    const move = createTargetAnimation('move', [b.id], 1.5, 0.8); move.id = 'branch_move';
+    const exit = createExitAnimation([b.id], 2.5, 0.4); exit.id = 'branch_exit';
+    const code = exportManimCode([a, b, blink, move, exit], { fullFile: true, defaults });
+    // Hand timeline: line 0..3 holds the cluster open; blink at 1.2, move at 1.5, exit at 2.5.
+    expect(code).toMatch(/Succession\(Wait\(1\.2000\), Succession\([^\n]*, run_time=0\.6000\)\)/);
+    expect(code).toMatch(/Succession\(Wait\(1\.5000\), Succession\([^\n]*, run_time=0\.8000\)\)/);
+    expect(code).toContain('Succession(Wait(2.5000), Succession(FadeOut(shape_1), run_time=0.4000))');
+    expect(code).not.toMatch(/Succession\(Wait\([1-9][\d.]*\), [^\n]*\), run_time=0\.[468]000\),?\n/);
+  });
+});
+
+describe('exportManimCode shared narration file', () => {
+  it('adds one file under two clips once, at its own start, when the first clip starts with it', () => {
+    const defaults = defaultSceneDefaults();
+    const shape = createShape(8); shape.id = 'shared_shape'; shape.duration = 1;
+    const line = createTextLine(defaults, 10); line.id = 'shared_line'; line.raw = 'b'; line.segments = [seg('b')]; line.duration = 1;
+    const code = exportManimCode([shape, line], {
+      fullFile: true,
+      defaults,
+      audioItems: [{
+        id: 'long', text: 'l', audioUrl: '/assets/audio/long.wav', assetRelPath: 'assets/audio/long.wav',
+        startTime: 8, duration: 4,
+      }],
+    });
+    expect(code.match(/self\.add_sound\("assets\/audio\/long\.wav"/g)).toHaveLength(1);
+    expect(code.indexOf('self.add_sound(')).toBeLessThan(code.indexOf('Create(shape_1)'));
+    expect(code.indexOf('_wait_to(self, 8.0000)')).toBeLessThan(code.indexOf('self.add_sound('));
+  });
+});
+
+describe('exportManimCode graph field stream lines', () => {
+  function fieldScene(lineStart: number) {
+    const defaults = defaultSceneDefaults();
+    const axes = createAxes(defaults, 0); axes.id = 'field_axes'; axes.visibleAtSceneStart = true;
+    const field = createGraphFieldItem(axes.id, 0); field.id = 'field_f'; field.duration = 1.2;
+    field.streamPoints = [createGraphStreamPoint()];
+    const line = createTextLine(defaults, lineStart); line.id = 'field_line'; line.raw = 'x'; line.segments = [seg('x')]; line.duration = 0.5;
+    return exportManimCode([axes, field, line], { fullFile: true, defaults });
+  }
+
+  it('creates the stream lines together with the field inside the clip when played on its own', () => {
+    const code = fieldScene(2);
+    expect(code).toMatch(/self\.play\(AnimationGroup\(Create\(axes_1_vf_\w+\), Create\(axes_1_streams_\w+\), lag_ratio=0\), run_time=1\.2\)/);
+    expect(code).not.toMatch(/self\.play\(Create\(axes_1_streams_\w+\)\)/);
+    // Hand timeline: field 0..1.2 (streams included), line at 2.
+    expect(code).toContain('_wait_to(self, 2.0000)');
+  });
+
+  it('keeps the stream lines inside the clip in an overlapping cluster', () => {
+    const code = fieldScene(0.6);
+    expect(code).toMatch(/AnimationGroup\(Create\(axes_1_vf_\w+, run_time=1\.200000\), Create\(axes_1_streams_\w+, run_time=1\.200000\), lag_ratio=0, run_time=1\.200000\)/);
+    // Hand timeline: field 0..1.2, line 0.6..1.1, so the cluster runs 1.2 s.
+    expect(code).toContain('), run_time=1.2000)');
   });
 });

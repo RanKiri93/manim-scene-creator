@@ -26,7 +26,7 @@ and a test asserting the emitted `_wait_to(self, …)` / `self.wait(...)` values
 | `textLine` | `effectiveDuration` (anim + segment `waitAfterSec`) | `sceneClockSecForLeafBoundPlayback` |
 | `axes`, `graphPlot`, `graphFunctionSeries`, `shape` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
 | `graphDot` | `duration` (label is written inside the intro group) | `sceneClockSecForLeafBoundPlayback` |
-| `graphField` | `duration + (seeds ? 1 : 0)` | bound value already includes the streams second — do not add again |
+| `graphField` | `duration` (stream lines are created inside the intro group) | `sceneClockSecForLeafBoundPlayback` |
 
 `add_sound` does not advance Manim's clock. `padAfter` exists to compensate.
 
@@ -96,6 +96,14 @@ or be excluded explicitly.
       kind's own `*.test.ts` for the emitted snippet. Assert on the exact `self.wait(…)` and
       `run_time=` numbers, derived by hand from the timeline in the test.
 - [ ] `npm run test` and `npm run build` green (skill `verify-frontend`).
+- [ ] Emitted timing changed: `python manim-timeline/scripts/timing-sweep/run_sweep.py` from the repo root
+      exits 0. It exports the fixtures in `src/codegen/timingSweep.ts`, dry-runs them in
+      Manim with every `play`/`add_sound` logged, and checks each clip against
+      `clipAnimationWindow` (`src/lib/clipWindows.ts`). New clip kinds or emission shapes
+      get a fixture there.
+- [ ] Concurrent branches: put `run_time=` on the animation after `Wait(rel)` (see
+      `delayedTimedBranch`), never on the whole `Succession(Wait(rel), …)`; Manim rescales the
+      lead-in wait too and the clip starts early.
 - [ ] If the generated Python changed shape, ask for `manim-reviewer` (skill
       `manim-render-check`) in the handoff.
 - [ ] README "Per-leaf duration accuracy" table and the "Last updated" trailer updated, or

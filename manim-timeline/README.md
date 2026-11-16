@@ -232,7 +232,7 @@ For the padding math to produce correct `self.wait` gaps, `sequentialAnimSeconds
 | `axes`, `graphPlot`, `graphFunctionSeries` | `leaf.duration` | `sceneClockSecForLeafBoundPlayback` |
 | `shape`, `image` | `Math.max(0.05, leaf.duration)` | `sceneClockSecForLeafBoundPlayback` |
 | `graphDot` | `leaf.duration` (label written inside the clip) | `sceneClockSecForLeafBoundPlayback` |
-| `graphField` | `leaf.duration + (seeds ? 1 : 0)` | `sceneClockSecForLeafBoundPlayback` (already includes the streams `Create` second — do **not** add it again) |
+| `graphField` | `leaf.duration` (stream lines created inside the clip) | `sceneClockSecForLeafBoundPlayback` |
 
 `graphDot` plays one intro group over its clip run time (`graphDotIntroParts` in `graphCodegen.ts`): `FadeIn` of the dot, live coordinate and projection guides plus `Write` of the fixed label, `lag_ratio=0`, in both the sequential and the concurrent path. The label used to be written for an extra 1 s after the clip; the canvas preview fades the same group in over the same run time (`graphDotIntroOpacity`).
 
@@ -240,6 +240,7 @@ For the padding math to produce correct `self.wait` gaps, `sequentialAnimSeconds
 
 - **`src/codegen/manimExporter.overlap.test.ts`** — Overlap clustering, early **`add_sound`**, **tail ceiling** for two lines sharing one long track, segment **`waitAfterSec`**, audio tail when file longer than slice, etc.
 - **`src/codegen/cameraCodegen.test.ts`** — Exact emitted camera helper/runtime, absolute widths, easing, malformed clips and partial-export prerequisites; **`manimExporter.overlap.test.ts`** covers cursor waits and camera/object/audio concurrency.
+- **Timing sweep** — `python manim-timeline/scripts/timing-sweep/run_sweep.py` (repo root; needs Node, Manim, LaTeX; about a minute). Exports the fixture scenes in `src/codegen/timingSweep.ts` (every clip kind: sequential, overlapping, narrated), runs them in Manim with `--dry_run` while logging every animation and `add_sound`, and checks each clip's real window against **`clipAnimationWindow`** (`src/lib/clipWindows.ts`), the window the preview follows. Each narration file must be added exactly once, at its own start. Exits 1 on any mismatch.
 
 ### Files to read first
 

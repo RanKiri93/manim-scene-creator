@@ -35,7 +35,8 @@ Read the handoff file given to you. Run exactly the gates its "Test plan" names,
 `pytest` from the repo root). Then `git status --short` and `git diff --stat`: every changed file
 must appear in the plan's "Touched files"; list any that do not. Read the diff of each touched
 file once and check the plan's "Invariants at risk" against it — for codegen work, confirm a test
-asserts the emitted `self.wait`/`run_time` numbers; for schema work, confirm `PROJECT_VERSION`
+asserts the emitted `self.wait`/`run_time` numbers and, when emitted timing changed, run the timing sweep
+(`python manim-timeline/scripts/timing-sweep/run_sweep.py`, exit 0); for schema work, confirm `PROJECT_VERSION`
 bump + migration + test; for Copilot work, confirm both schemas changed.
 
 Append the "Verification" section to the handoff: a table of gate → command → result with a

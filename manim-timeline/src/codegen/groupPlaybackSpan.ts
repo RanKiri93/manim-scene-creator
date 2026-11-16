@@ -17,9 +17,6 @@ import {
   sceneClockSecForLeafBoundPlayback,
 } from './lineCodegen';
 
-/** Manim default `run_time` when omitted on `Animation` / `self.play`. */
-const MANIM_DEFAULT_PLAY_SEC = 1;
-
 function textLinePlaySeconds(
   item: Extract<ExportLeaf, { kind: 'textLine' }>,
   itemsMap: Map<ItemId, SceneItem>,
@@ -88,18 +85,14 @@ export function sequentialAnimSecondsForLeaf(
       return clock ?? leaf.duration;
     }
     case 'graphField': {
-      const seeds = leaf.streamPoints ?? [];
-      const extra = seeds.length > 0 ? MANIM_DEFAULT_PLAY_SEC : 0;
+      // Stream lines are created together with the field, inside the clip run time.
       const clock = sceneClockSecForLeafBoundPlayback(
         leaf,
         itemsMap,
         audioItems,
         tailOpts,
       );
-      // When audio is bound, sceneClockSecForLeafBoundPlayback already accounts for the
-      // streams Create() extra second via sceneAnimEndForBoundAudioTail — do not add it again.
-      if (clock != null) return clock;
-      return leaf.duration + extra;
+      return clock ?? leaf.duration;
     }
     case 'graphFunctionSeries': {
       const clock = sceneClockSecForLeafBoundPlayback(

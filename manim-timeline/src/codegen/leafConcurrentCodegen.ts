@@ -57,7 +57,6 @@ import type { CameraTransitionSegment } from '@/lib/camera';
 import { cameraFollowExprFor, formatConcurrentCameraBranch } from './cameraCodegen';
 import { matrixIntroAnimExpr } from './matrixCodegen';
 
-const MANIM_DEFAULT_PLAY_SEC = 1;
 
 /** Require real overlap (not edge-touching / float noise) before merging into one AnimationGroup. */
 const MIN_INTERVAL_OVERLAP_SEC = 1e-4;
@@ -517,7 +516,9 @@ function concurrentBranchForLeaf(
     const recorded = resolveRecordedPlayback(leaf, itemsMap, audioItems);
     const baseRt = recorded ? recorded.runTime : leaf.duration;
     if (seeds.length > 0) {
-      return `Succession(Wait(${wStr}), Create(${vf}, run_time=${fmtRt(baseRt)}), Create(${streamsVar}, run_time=${MANIM_DEFAULT_PLAY_SEC})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
+      // Stream lines are created together with the field, inside the clip run time.
+      const rt = fmtRt(baseRt);
+      return `Succession(Wait(${wStr}), AnimationGroup(Create(${vf}, run_time=${rt}), Create(${streamsVar}, run_time=${rt}), lag_ratio=0, run_time=${rt})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
     }
     return `Succession(Wait(${wStr}), Create(${vf}, run_time=${fmtRt(baseRt)})${concurrentAudioTailArg(recorded, leaf, itemsMap, audioItems, tailOpts)})`;
   }
@@ -572,7 +573,7 @@ function concurrentBranchForLeaf(
     }
     const intro =
       leaf.introStyle === 'fade_in' ? `FadeIn(${varName})` : `Create(${varName})`;
-    return `Succession(Wait(${wStr}), ${intro}, run_time=${rtStr})`;
+    return delayedTimedBranch(wStr, intro, rtStr);
   }
 
   if (leaf.kind === 'image') {
@@ -598,6 +599,16 @@ function concurrentBranchForLeaf(
   return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
 }
 
+/**
+ * Branch that waits `wStr` seconds, then plays `inner` (one animation or a comma-separated
+ * sequence) over exactly `rt` seconds. The run time goes on an inner `Succession`: on the outer
+ * one, Manim's `AnimationGroup.interpolate` would rescale the lead-in `Wait` as well and start
+ * the clip early whenever it begins after its cluster does.
+ */
+function delayedTimedBranch(wStr: string, inner: string, rt: string): string {
+  return `Succession(Wait(${wStr}), Succession(${inner}, run_time=${rt}))`;
+}
+
 function concurrentBranchForSurroundingRect(
   sr: SurroundingRectItem,
   relWait: number,
@@ -610,9 +621,9 @@ function concurrentBranchForSurroundingRect(
   const intro =
     sr.introStyle === 'fade_in' ? `FadeIn(${sv})` : `Create(${sv})`;
   if (sr.labelText.trim()) {
-    return `Succession(Wait(${wStr}), AnimationGroup(${intro}, Write(${sv}_lbl), lag_ratio=0), run_time=${rtStr})`;
+    return delayedTimedBranch(wStr, `AnimationGroup(${intro}, Write(${sv}_lbl), lag_ratio=0)`, rtStr);
   }
-  return `Succession(Wait(${wStr}), ${intro}, run_time=${rtStr})`;
+  return delayedTimedBranch(wStr, intro, rtStr);
 }
 
 function concurrentBranchForExitClip(
@@ -639,12 +650,12 @@ function concurrentBranchForExitClip(
     const p = parts[0]!;
     const inner = exitAnimationExpr(p.targetsStr, p.animStyle);
     if (!inner) return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
-    return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
+    return delayedTimedBranch(wStr, inner, rt);
   }
   const anims = parts
     .map((p) => exitAnimationExpr(p.targetsStr, p.animStyle))
     .filter(Boolean);
-  return `Succession(Wait(${wStr}), AnimationGroup(${anims.join(', ')}, lag_ratio=0), run_time=${rt})`;
+  return delayedTimedBranch(wStr, `AnimationGroup(${anims.join(', ')}, lag_ratio=0)`, rt);
 }
 
 function concurrentBranchForBlinkClip(
@@ -659,7 +670,7 @@ function concurrentBranchForBlinkClip(
   if (!inner) {
     return `Succession(Wait(${wStr}), Wait(0.01), run_time=0.01)`;
   }
-  return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
+  return delayedTimedBranch(wStr, inner, rt);
 }
 
 function concurrentBranchForTargetAnimationClip(
@@ -683,7 +694,7 @@ function concurrentBranchForTargetAnimationClip(
   if (ta.mode === 'path' || ta.mode === 'matrix_step') {
     return `Succession(Wait(${wStr}), ${inner})`;
   }
-  return `Succession(Wait(${wStr}), ${inner}, run_time=${rt})`;
+  return delayedTimedBranch(wStr, inner, rt);
 }
 
 type VisualParticipant =

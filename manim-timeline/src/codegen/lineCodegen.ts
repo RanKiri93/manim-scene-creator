@@ -30,7 +30,7 @@ import {
 import { transformSourceIds } from '@/lib/transformMapping';
 import { resolvePosition } from '@/lib/resolvePosition';
 import { getSegmentAnimSec } from '@/lib/segmentAnimDurations';
-import type { ExportLeaf } from './flattenExport';
+import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import { buildExportParts, pythonStringLiteral } from './texUtils';
 
 const BOUNDARY_SNAP_SEC = 0.15;
@@ -157,21 +157,21 @@ export function listUnboundAudioTracksForExport(
   itemsMap: Map<ItemId, SceneItem>,
 ): AudioTrackItem[] {
   if (!audioItems.length) return [];
-  const boundIds = new Set<string>();
+  const boundCount = boundLeafCountByTrack(flat, itemsMap, audioItems);
   const earlyBoundById = new Map<string, AudioTrackItem>();
 
   for (const leaf of flat) {
     if (isVisibleAtSceneStartItem(leaf)) continue;
     const t = findAudioTrackForLeaf(leaf, itemsMap, audioItems);
     if (!t) continue;
-    boundIds.add(t.id);
     const leafT0 = effectiveStart(leaf, itemsMap);
-    if (t.startTime < leafT0 - 1e-9) {
+    // Early narration, or one file under several clips: added once at the track's own start.
+    if (t.startTime < leafT0 - 1e-9 || (boundCount.get(t.id) ?? 0) > 1) {
       earlyBoundById.set(t.id, t);
     }
   }
 
-  const trulyUnbound = audioItems.filter((a) => !boundIds.has(a.id));
+  const trulyUnbound = audioItems.filter((a) => !boundCount.has(a.id));
   const merged = new Map<string, AudioTrackItem>();
   for (const t of earlyBoundById.values()) merged.set(t.id, t);
   for (const t of trulyUnbound) merged.set(t.id, t);
@@ -180,7 +180,26 @@ export function listUnboundAudioTracksForExport(
   );
 }
 
-/** Bound track plays from timeline `startTime` before this leaf's visual `effectiveStart`. */
+/** Playback leaves (scene-start leaves excluded) bound to each audio track id. */
+function boundLeafCountByTrack(
+  flat: ExportLeaf[],
+  itemsMap: Map<ItemId, SceneItem>,
+  audioItems: AudioTrackItem[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const leaf of flat) {
+    if (isVisibleAtSceneStartItem(leaf)) continue;
+    const t = findAudioTrackForLeaf(leaf, itemsMap, audioItems);
+    if (t) counts.set(t.id, (counts.get(t.id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * The leaf's bound track is added by the event stream at the track's own `startTime`
+ * (`listUnboundAudioTracksForExport`), so the leaf must not add it again: either the track
+ * starts before this leaf, or it is bound to several leaves (one file under several clips).
+ */
 export function boundSoundEmittedAtTrackStart(
   item: ExportLeafWithAudio,
   itemsMap: Map<ItemId, SceneItem>,
@@ -189,10 +208,10 @@ export function boundSoundEmittedAtTrackStart(
   if (!audioItems?.length) return false;
   const track = findAudioTrackForLeaf(item, itemsMap, audioItems);
   if (!track) return false;
-  return track.startTime < effectiveStart(item, itemsMap) - 1e-9;
+  if (track.startTime < effectiveStart(item, itemsMap) - 1e-9) return true;
+  const flat = flattenExportLeaves([...itemsMap.values()]);
+  return (boundLeafCountByTrack(flat, itemsMap, audioItems).get(track.id) ?? 0) > 1;
 }
-
-const DEFAULT_PLAY_AFTER_RECORDED = 1;
 
 /** Global scene time when bound-audio-driven animations for this leaf have finished (before tail wait). */
 export function sceneAnimEndForBoundAudioTail(
@@ -201,15 +220,8 @@ export function sceneAnimEndForBoundAudioTail(
   rec: ResolvedRecordedPlayback,
 ): number {
   const t0 = effectiveStart(leaf, itemsMap);
-  let extra = 0;
-  if (leaf.kind === 'textLine') {
-    extra = segmentWaitTotal(leaf.segments);
-  } else if (
-    leaf.kind === 'graphField' &&
-    (leaf.streamPoints?.length ?? 0) > 0
-  ) {
-    extra = DEFAULT_PLAY_AFTER_RECORDED;
-  }
+  // Text segment pauses are the only scene time a leaf spends beyond its run time.
+  const extra = leaf.kind === 'textLine' ? segmentWaitTotal(leaf.segments) : 0;
   return t0 + rec.runTime + extra;
 }
 
