@@ -494,6 +494,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 
 ---
 
+*Last updated: **Blink during another clip now renders** — a blink that overlaps another clip (exported inside a concurrent cluster) was invisible in the Manim render although the preview showed it: its colour/scale steps were `.animate` builders on one mobject built together in a single `Succession`, and Manim gives them all the last step's end state. Those steps are now `ApplyFunction(lambda m: m.…, target)`, which reads the mobject when each step starts; blinks played on their own keep `.animate`. Timing unchanged.*
+
 *Last updated: **Background text measuring + Copilot frames** — every text line in the scene is measured by the server in the background (up to 3 at a time) when it is created or its typeset fields change, so Copilot or pasted lines get their previews without selecting each one; measure results no longer add undo steps. The Copilot can add and rename camera-grid frames (`FRAME` action) and move the camera to a frame it just added.*
 
 *Last updated: **Surrounding-rectangle entrance preview** — surrounding rectangles and matrix strikes now fade in or are drawn like Manim's `Create` over their run time on the canvas instead of appearing at once; export unchanged.

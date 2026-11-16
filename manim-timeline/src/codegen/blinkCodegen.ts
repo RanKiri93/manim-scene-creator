@@ -42,6 +42,17 @@ function resolvedBlinkColorExpr(spec: BlinkTargetSpec): string {
   return manimColor(h);
 }
 
+/**
+ * `target.animate.chain`, or with `lazy` an `ApplyFunction` that applies the chain when its step
+ * starts. Manim's `.animate` writes the end state into `target.target` as soon as the expression is
+ * evaluated, so several `.animate` steps on one mobject built inside one `Succession` (a blink in a
+ * concurrent cluster: colour on, colour off, …) all end at the LAST state and the blink is
+ * invisible; `ApplyFunction` builds each end state from the mobject as it is then.
+ */
+function animateExpr(target: string, chain: string, lazy: boolean): string {
+  return lazy ? `ApplyFunction(lambda m: m.${chain}, ${target})` : `${target}.animate.${chain}`;
+}
+
 function usesScale(mode: BlinkMode): boolean {
   return mode === 'scale';
 }
@@ -64,6 +75,8 @@ function blinkRowAnimParts(
    * restores the colours its colour clips set before this.
    */
   atTime = Number.POSITIVE_INFINITY,
+  /** Steps run inside one `Succession` (concurrent cluster): see {@link animateExpr}. */
+  lazy = false,
 ): string[] | null {
   const mode = spec.mode;
   const sf = resolvedScaleFactor(spec);
@@ -83,8 +96,8 @@ function blinkRowAnimParts(
       if (wholeScale || n === 0) {
         parts.push(
           forward
-            ? `${v}.animate.scale(${sf.toFixed(6)})`
-            : `${v}.animate.scale(${inv.toFixed(6)})`,
+            ? animateExpr(`${v}`, `scale(${sf.toFixed(6)})`, lazy)
+            : animateExpr(`${v}`, `scale(${inv.toFixed(6)})`, lazy),
         );
       } else {
         const exprs = textBlinkMobjectExprs(v, target, spec);
@@ -94,8 +107,8 @@ function blinkRowAnimParts(
             : `VGroup(${exprs.join(', ')})`;
         parts.push(
           forward
-            ? `${g}.animate.scale(${sf.toFixed(6)})`
-            : `${g}.animate.scale(${inv.toFixed(6)})`,
+            ? animateExpr(`${g}`, `scale(${sf.toFixed(6)})`, lazy)
+            : animateExpr(`${g}`, `scale(${inv.toFixed(6)})`, lazy),
         );
       }
     }
@@ -103,8 +116,8 @@ function blinkRowAnimParts(
       if (n === 0) {
         parts.push(
           forward
-            ? `${v}.animate.set_color(${bc})`
-            : `${v}.animate.set_color(${manimColor('#ffffff')})`,
+            ? animateExpr(`${v}`, `set_color(${bc})`, lazy)
+            : animateExpr(`${v}`, `set_color(${manimColor('#ffffff')})`, lazy),
         );
       } else {
         for (const p of pieces) {
@@ -113,16 +126,16 @@ function blinkRowAnimParts(
             const i = p.segmentIndex;
             parts.push(
               forward
-                ? `${v}[${i}].animate.set_color(${bc})`
-                : `${v}[${i}].animate.set_color(${orig})`,
+                ? animateExpr(`${v}[${i}]`, `set_color(${bc})`, lazy)
+                : animateExpr(`${v}[${i}]`, `set_color(${orig})`, lazy),
             );
           } else {
             for (const c of p.childIndices) {
               const i = p.segmentIndex;
               parts.push(
                 forward
-                  ? `${v}[${i}][${c}].animate.set_color(${bc})`
-                  : `${v}[${i}][${c}].animate.set_color(${orig})`,
+                  ? animateExpr(`${v}[${i}][${c}]`, `set_color(${bc})`, lazy)
+                  : animateExpr(`${v}[${i}][${c}]`, `set_color(${orig})`, lazy),
               );
             }
           }
@@ -141,11 +154,11 @@ function blinkRowAnimParts(
     const g = matrixTargetExpr(view, v, sel);
     const parts: string[] = [];
     if (usesScale(mode)) {
-      parts.push(`${g}.animate.scale(${(forward ? sf : inv).toFixed(6)})`);
+      parts.push(animateExpr(`${g}`, `scale(${(forward ? sf : inv).toFixed(6)})`, lazy));
     }
     if (usesColor(mode)) {
       if (forward) {
-        parts.push(`${g}.animate.set_color(${bc})`);
+        parts.push(animateExpr(`${g}`, `set_color(${bc})`, lazy));
       } else {
         // Back to each entry's colour when the blink started (grouped by colour), brackets / bar likewise.
         const before = matrixColorsBefore(target, atTime, _itemsMap);
@@ -154,19 +167,19 @@ function blinkRowAnimParts(
           const col = before.cell(c.row, c.col);
           byColor.set(col, [...(byColor.get(col) ?? []), c]);
         }
-        for (const [col, cells] of byColor) parts.push(`${matrixCellsExpr(v, cells)}.animate.set_color(${manimColor(col)})`);
-        if (!sel.length) parts.push(`VGroup(${v}.get_brackets(), ${v}.get_bar()).animate.set_color(${manimColor(before.frame)})`);
+        for (const [col, cells] of byColor) parts.push(animateExpr(`${matrixCellsExpr(v, cells)}`, `set_color(${manimColor(col)})`, lazy));
+        if (!sel.length) parts.push(animateExpr(`VGroup(${v}.get_brackets(), ${v}.get_bar())`, `set_color(${manimColor(before.frame)})`, lazy));
       }
     }
     return parts.length ? parts : null;
   }
 
   if (target.kind === 'graphDot') {
-    return blinkGraphDotParts(target, spec, idToVarName, forward, sf, inv, bc);
+    return blinkGraphDotParts(target, spec, idToVarName, forward, sf, inv, bc, lazy);
   }
 
   if (target.kind === 'graphField') {
-    return blinkGraphFieldParts(target, spec, idToVarName, forward, sf, inv, bc);
+    return blinkGraphFieldParts(target, spec, idToVarName, forward, sf, inv, bc, lazy);
   }
 
   if (target.kind === 'image' && usesColor(mode)) {
@@ -179,22 +192,22 @@ function blinkRowAnimParts(
   if (usesScale(mode) && usesColor(mode)) {
     return [
       forward
-        ? `${expr}.animate.scale(${sf.toFixed(6)}).set_color(${bc})`
-        : `${expr}.animate.scale(${inv.toFixed(6)}).set_color(${restore})`,
+        ? animateExpr(`${expr}`, `scale(${sf.toFixed(6)}).set_color(${bc})`, lazy)
+        : animateExpr(`${expr}`, `scale(${inv.toFixed(6)}).set_color(${restore})`, lazy),
     ];
   }
   if (usesScale(mode)) {
     return [
       forward
-        ? `${expr}.animate.scale(${sf.toFixed(6)})`
-        : `${expr}.animate.scale(${inv.toFixed(6)})`,
+        ? animateExpr(`${expr}`, `scale(${sf.toFixed(6)})`, lazy)
+        : animateExpr(`${expr}`, `scale(${inv.toFixed(6)})`, lazy),
     ];
   }
   if (usesColor(mode)) {
     return [
       forward
-        ? `${expr}.animate.set_color(${bc})`
-        : `${expr}.animate.set_color(${restore})`,
+        ? animateExpr(`${expr}`, `set_color(${bc})`, lazy)
+        : animateExpr(`${expr}`, `set_color(${restore})`, lazy),
     ];
   }
   return null;
@@ -208,6 +221,7 @@ function blinkGraphDotParts(
   sf: number,
   inv: number,
   bc: string,
+  lazy: boolean,
 ): string[] | null {
   const mode = spec.mode;
   const axVar = idToVarName.get(item.axesId);
@@ -219,18 +233,18 @@ function blinkGraphDotParts(
   const animDot = (() => {
     if (usesScale(mode) && usesColor(mode)) {
       return forward
-        ? `${dVar}.animate.scale(${sf.toFixed(6)}).set_color(${bc})`
-        : `${dVar}.animate.scale(${inv.toFixed(6)}).set_color(${dCol})`;
+        ? animateExpr(`${dVar}`, `scale(${sf.toFixed(6)}).set_color(${bc})`, lazy)
+        : animateExpr(`${dVar}`, `scale(${inv.toFixed(6)}).set_color(${dCol})`, lazy);
     }
     if (usesScale(mode)) {
       return forward
-        ? `${dVar}.animate.scale(${sf.toFixed(6)})`
-        : `${dVar}.animate.scale(${inv.toFixed(6)})`;
+        ? animateExpr(`${dVar}`, `scale(${sf.toFixed(6)})`, lazy)
+        : animateExpr(`${dVar}`, `scale(${inv.toFixed(6)})`, lazy);
     }
     if (usesColor(mode)) {
       return forward
-        ? `${dVar}.animate.set_color(${bc})`
-        : `${dVar}.animate.set_color(${dCol})`;
+        ? animateExpr(`${dVar}`, `set_color(${bc})`, lazy)
+        : animateExpr(`${dVar}`, `set_color(${dCol})`, lazy);
     }
     return null;
   })();
@@ -241,18 +255,18 @@ function blinkGraphDotParts(
   const animLbl = (() => {
     if (usesScale(mode) && usesColor(mode)) {
       return forward
-        ? `${dVar}_lbl.animate.scale(${sf.toFixed(6)}).set_color(${bc})`
-        : `${dVar}_lbl.animate.scale(${inv.toFixed(6)}).set_color(${lblRestore})`;
+        ? animateExpr(`${dVar}_lbl`, `scale(${sf.toFixed(6)}).set_color(${bc})`, lazy)
+        : animateExpr(`${dVar}_lbl`, `scale(${inv.toFixed(6)}).set_color(${lblRestore})`, lazy);
     }
     if (usesScale(mode)) {
       return forward
-        ? `${dVar}_lbl.animate.scale(${sf.toFixed(6)})`
-        : `${dVar}_lbl.animate.scale(${inv.toFixed(6)})`;
+        ? animateExpr(`${dVar}_lbl`, `scale(${sf.toFixed(6)})`, lazy)
+        : animateExpr(`${dVar}_lbl`, `scale(${inv.toFixed(6)})`, lazy);
     }
     if (usesColor(mode)) {
       return forward
-        ? `${dVar}_lbl.animate.set_color(${bc})`
-        : `${dVar}_lbl.animate.set_color(${lblRestore})`;
+        ? animateExpr(`${dVar}_lbl`, `set_color(${bc})`, lazy)
+        : animateExpr(`${dVar}_lbl`, `set_color(${lblRestore})`, lazy);
     }
     return null;
   })();
@@ -268,6 +282,7 @@ function blinkGraphFieldParts(
   sf: number,
   inv: number,
   bc: string,
+  lazy: boolean,
 ): string[] | null {
   if (target.fieldMode === 'none') return null;
   const mode = spec.mode;
@@ -282,18 +297,18 @@ function blinkGraphFieldParts(
   const animVf = (() => {
     if (usesScale(mode) && usesColor(mode)) {
       return forward
-        ? `${vfVar}.animate.scale(${sf.toFixed(6)}).set_color(${bc})`
-        : `${vfVar}.animate.scale(${inv.toFixed(6)}).set_color(${rest})`;
+        ? animateExpr(`${vfVar}`, `scale(${sf.toFixed(6)}).set_color(${bc})`, lazy)
+        : animateExpr(`${vfVar}`, `scale(${inv.toFixed(6)}).set_color(${rest})`, lazy);
     }
     if (usesScale(mode)) {
       return forward
-        ? `${vfVar}.animate.scale(${sf.toFixed(6)})`
-        : `${vfVar}.animate.scale(${inv.toFixed(6)})`;
+        ? animateExpr(`${vfVar}`, `scale(${sf.toFixed(6)})`, lazy)
+        : animateExpr(`${vfVar}`, `scale(${inv.toFixed(6)})`, lazy);
     }
     if (usesColor(mode)) {
       return forward
-        ? `${vfVar}.animate.set_color(${bc})`
-        : `${vfVar}.animate.set_color(${rest})`;
+        ? animateExpr(`${vfVar}`, `set_color(${bc})`, lazy)
+        : animateExpr(`${vfVar}`, `set_color(${rest})`, lazy);
     }
     return null;
   })();
@@ -302,18 +317,18 @@ function blinkGraphFieldParts(
   const animSt = (() => {
     if (usesScale(mode) && usesColor(mode)) {
       return forward
-        ? `${streamsVar}.animate.scale(${sf.toFixed(6)}).set_color(${bc})`
-        : `${streamsVar}.animate.scale(${inv.toFixed(6)}).set_color(${rest})`;
+        ? animateExpr(`${streamsVar}`, `scale(${sf.toFixed(6)}).set_color(${bc})`, lazy)
+        : animateExpr(`${streamsVar}`, `scale(${inv.toFixed(6)}).set_color(${rest})`, lazy);
     }
     if (usesScale(mode)) {
       return forward
-        ? `${streamsVar}.animate.scale(${sf.toFixed(6)})`
-        : `${streamsVar}.animate.scale(${inv.toFixed(6)})`;
+        ? animateExpr(`${streamsVar}`, `scale(${sf.toFixed(6)})`, lazy)
+        : animateExpr(`${streamsVar}`, `scale(${inv.toFixed(6)})`, lazy);
     }
     if (usesColor(mode)) {
       return forward
-        ? `${streamsVar}.animate.set_color(${bc})`
-        : `${streamsVar}.animate.set_color(${rest})`;
+        ? animateExpr(`${streamsVar}`, `set_color(${bc})`, lazy)
+        : animateExpr(`${streamsVar}`, `set_color(${rest})`, lazy);
     }
     return null;
   })();
@@ -384,7 +399,7 @@ export function permanentBlinkStyleParts(
   return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true, atTime);
 }
 
-function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemId, string>, itemsMap: Map<ItemId, SceneItem>): {
+function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemId, string>, itemsMap: Map<ItemId, SceneItem>, lazy: boolean): {
   rowGroupsFwd: string[];
   rowGroupsRev: string[];
 } | null {
@@ -394,8 +409,8 @@ function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemI
   for (const row of clip.targets) {
     const tgt = itemsMap.get(row.targetId);
     if (!tgt) continue;
-    const fwd = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, true, clip.startTime);
-    const rev = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, false, clip.startTime);
+    const fwd = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, true, clip.startTime, lazy);
+    const rev = blinkRowAnimParts(tgt, row, idToVarName, itemsMap, false, clip.startTime, lazy);
     if (!fwd?.length || !rev?.length) continue;
     const fInner = fwd.join(', ');
     const rInner = rev.join(', ');
@@ -419,7 +434,8 @@ export function buildBlinkConcurrentSuccessionInner(
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
 ): string | null {
-  const groups = buildRowCombinedGroups(clip, idToVarName, itemsMap);
+  // All steps sit in one Succession built up front: they must read the mobject when they start.
+  const groups = buildRowCombinedGroups(clip, idToVarName, itemsMap, true);
   if (!groups) return null;
   const { rowGroupsFwd, rowGroupsRev } = groups;
   const reps = Math.max(1, Math.round(clip.repetitions) || 1);
@@ -444,7 +460,8 @@ export function formatBlinkClipPlay(
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
 ): string {
-  const groups = buildRowCombinedGroups(clip, idToVarName, itemsMap);
+  // One self.play per step: `.animate` is built just before it plays.
+  const groups = buildRowCombinedGroups(clip, idToVarName, itemsMap, false);
   if (!groups) return '';
 
   const reps = Math.max(1, Math.round(clip.repetitions) || 1);
