@@ -8,6 +8,7 @@ import {
   createGraphPlot,
   createFrame,
   createImageItem,
+  createShape,
   createTargetAnimation,
   createTextLine,
   defaultSceneDefaults,
@@ -349,5 +350,38 @@ describe('formatTargetAnimationClipPlay', () => {
 
     expect(code).toContain('image_a.animate.rotate(45.000000 * DEGREES)');
     expect(code).toContain('run_time=0.7500');
+  });
+});
+
+describe('several moves of one object in a concurrent cluster', () => {
+  // Manim's `.animate` computes its end state when the expression is built, so a second move built
+  // in the same AnimationGroup started from the object's original place: the object jumped back
+  // when the second move began (it ended at (0, 1) instead of (2, 1)). Steps there are lazy.
+  function scene() {
+    const d = defaultSceneDefaults();
+    const s = createShape(0);
+    Object.assign(s, { id: 'S', startTime: 0, duration: 1, x: 0, y: 0 });
+    const t = createShape(1);
+    Object.assign(t, { id: 'T', startTime: 1, duration: 2, x: -4, y: -2 });
+    const m1 = createTargetAnimation('move', ['S'], 1, 1);
+    Object.assign(m1.targets[0]!, { dx: 2, dy: 0 });
+    const m2 = createTargetAnimation('move', ['S'], 2, 1);
+    Object.assign(m2.targets[0]!, { dx: 0, dy: 1 });
+    return { d, items: [s, t, m1, m2] };
+  }
+
+  it('builds each move with ApplyFunction, so the second starts where the first ended', () => {
+    const { d, items } = scene();
+    const code = exportManimCode(items, { fullFile: false, defaults: d });
+    expect(code).toContain('ApplyFunction(lambda m: m.shift(2.000000 * RIGHT), shape_1)');
+    expect(code).toContain('ApplyFunction(lambda m: m.shift(1.000000 * UP), shape_1)');
+    expect(code).not.toMatch(/shape_1\.animate\./);
+  });
+
+  it('keeps .animate for a move played on its own', () => {
+    const { d, items } = scene();
+    const code = exportManimCode([items[0]!, items[2]!], { fullFile: false, defaults: d });
+    expect(code).toContain('shape_1.animate.shift(2.000000 * RIGHT)');
+    expect(code).not.toContain('ApplyFunction');
   });
 });

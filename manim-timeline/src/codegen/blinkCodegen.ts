@@ -49,7 +49,7 @@ function resolvedBlinkColorExpr(spec: BlinkTargetSpec): string {
  * concurrent cluster: colour on, colour off, …) all end at the LAST state and the blink is
  * invisible; `ApplyFunction` builds each end state from the mobject as it is then.
  */
-function animateExpr(target: string, chain: string, lazy: boolean): string {
+export function animateExpr(target: string, chain: string, lazy: boolean): string {
   return lazy ? `ApplyFunction(lambda m: m.${chain}, ${target})` : `${target}.animate.${chain}`;
 }
 
@@ -420,8 +420,10 @@ export function permanentBlinkStyleParts(
   itemsMap: Map<ItemId, SceneItem>,
   /** Clip start (a matrix's entries are those of its state then). */
   atTime = Number.POSITIVE_INFINITY,
+  /** Inside a concurrent cluster: see {@link animateExpr}. */
+  lazy = false,
 ): string[] | null {
-  return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true, atTime);
+  return blinkRowAnimParts(target, spec, idToVarName, itemsMap, true, atTime, lazy);
 }
 
 function buildRowCombinedGroups(clip: BlinkAnimationItem, idToVarName: Map<ItemId, string>, itemsMap: Map<ItemId, SceneItem>, lazy: boolean): {

@@ -8,7 +8,7 @@ import type {
   TargetAnimationItem,
   TargetAnimationTargetSpec,
 } from '@/types/scene';
-import { permanentBlinkStyleParts } from './blinkCodegen';
+import { animateExpr, permanentBlinkStyleParts } from './blinkCodegen';
 import { canBeTargetAnimationTarget } from '@/lib/time';
 import { graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
 import {
@@ -201,14 +201,14 @@ function firstTargetMobExprForPath(
   return first ?? null;
 }
 
-function movePartsForTarget(mobExpr: string, dx: number, dy: number): string[] {
+function movePartsForTarget(mobExpr: string, dx: number, dy: number, lazy: boolean): string[] {
   const vec = shiftVecExpr(dx, dy);
   if (vec === 'ORIGIN') return [];
   const parts = mobExpr.split(',').map((s: string) => s.trim()).filter(Boolean);
   if (parts.length <= 1) {
-    return [`${parts[0] ?? mobExpr}.animate.shift(${vec})`];
+    return [animateExpr(`${parts[0] ?? mobExpr}`, `shift(${vec})`, lazy)];
   }
-  const anims = parts.map((p) => `${p}.animate.shift(${vec})`);
+  const anims = parts.map((p) => animateExpr(`${p}`, `shift(${vec})`, lazy));
   return [
     anims.length === 1
       ? anims[0]!
@@ -216,24 +216,25 @@ function movePartsForTarget(mobExpr: string, dx: number, dy: number): string[] {
   ];
 }
 
-function rotatePartsForMob(mobExpr: string, angleDeg: number): string[] {
+function rotatePartsForMob(mobExpr: string, angleDeg: number, lazy: boolean): string[] {
   if (Math.abs(angleDeg) < 1e-9) return [];
-  return [`${mobExpr}.animate.rotate(${angleDeg.toFixed(6)} * DEGREES)`];
+  return [animateExpr(`${mobExpr}`, `rotate(${angleDeg.toFixed(6)} * DEGREES)`, lazy)];
 }
 
 function rotateRowGraphDot(
   item: GraphDotItem,
   angleDeg: number,
   idToVarName: Map<ItemId, string>,
+  lazy: boolean,
 ): string[] | null {
   if (Math.abs(angleDeg) < 1e-9) return [];
   const axVar = idToVarName.get(item.axesId);
   if (!axVar) return null;
   const dVar = overlayDotVar(axVar, item.id);
   const lbl = item.dot.label.trim();
-  const rDot = `${dVar}.animate.rotate(${angleDeg.toFixed(6)} * DEGREES)`;
+  const rDot = animateExpr(`${dVar}`, `rotate(${angleDeg.toFixed(6)} * DEGREES)`, lazy);
   if (!lbl) return [rDot];
-  const rLbl = `${dVar}_lbl.animate.rotate(${angleDeg.toFixed(6)} * DEGREES)`;
+  const rLbl = animateExpr(`${dVar}_lbl`, `rotate(${angleDeg.toFixed(6)} * DEGREES)`, lazy);
   return [`AnimationGroup(${rDot}, ${rLbl}, lag_ratio=0)`];
 }
 
@@ -241,6 +242,7 @@ function rotateRowGraphField(
   target: Extract<SceneItem, { kind: 'graphField' }>,
   angleDeg: number,
   idToVarName: Map<ItemId, string>,
+  lazy: boolean,
 ): string[] | null {
   if (target.fieldMode === 'none' || Math.abs(angleDeg) < 1e-9) return [];
   const axVar = idToVarName.get(target.axesId);
@@ -249,9 +251,9 @@ function rotateRowGraphField(
   const vfVar = `${axVar}_vf_${suf}`;
   const streamsVar = `${axVar}_streams_${suf}`;
   const seeds = target.streamPoints ?? [];
-  const rVf = `${vfVar}.animate.rotate(${angleDeg.toFixed(6)} * DEGREES)`;
+  const rVf = animateExpr(`${vfVar}`, `rotate(${angleDeg.toFixed(6)} * DEGREES)`, lazy);
   if (seeds.length === 0) return [rVf];
-  const rSt = `${streamsVar}.animate.rotate(${angleDeg.toFixed(6)} * DEGREES)`;
+  const rSt = animateExpr(`${streamsVar}`, `rotate(${angleDeg.toFixed(6)} * DEGREES)`, lazy);
   return [`AnimationGroup(${rVf}, ${rSt}, lag_ratio=0)`];
 }
 
@@ -264,6 +266,8 @@ export function targetAnimationRowAnimParts(
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
   pathVarName: string,
+  /** Inside a concurrent cluster: build each end state when the step starts (see animateExpr). */
+  lazy = false,
 ): string[] | null {
   const tgt = itemsMap.get(row.targetId);
   if (!tgt || !canBeTargetAnimationTarget(tgt, clip.mode)) return null;
@@ -277,6 +281,7 @@ export function targetAnimationRowAnimParts(
       idToVarName,
       itemsMap,
       clip.startTime,
+      lazy,
     );
   }
 
@@ -287,6 +292,7 @@ export function targetAnimationRowAnimParts(
       idToVarName,
       itemsMap,
       clip.startTime,
+      lazy,
     );
   }
 
@@ -299,9 +305,9 @@ export function targetAnimationRowAnimParts(
       const dVar = overlayDotVar(axVar, tgt.id);
       const vec = shiftVecExpr(dx, dy);
       if (vec === 'ORIGIN') return null;
-      const dotP = `${dVar}.animate.shift(${vec})`;
+      const dotP = animateExpr(`${dVar}`, `shift(${vec})`, lazy);
       if (!tgt.dot.label.trim()) return [dotP];
-      const lblP = `${dVar}_lbl.animate.shift(${vec})`;
+      const lblP = animateExpr(`${dVar}_lbl`, `shift(${vec})`, lazy);
       return [`AnimationGroup(${dotP}, ${lblP}, lag_ratio=0)`];
     }
     if (tgt.kind === 'graphField' && tgt.fieldMode !== 'none') {
@@ -312,15 +318,15 @@ export function targetAnimationRowAnimParts(
       const streamsVar = `${axVar}_streams_${suf}`;
       const vec = shiftVecExpr(dx, dy);
       if (vec === 'ORIGIN') return null;
-      const a = `${vfVar}.animate.shift(${vec})`;
+      const a = animateExpr(`${vfVar}`, `shift(${vec})`, lazy);
       const seeds = tgt.streamPoints ?? [];
       if (seeds.length === 0) return [a];
-      const b = `${streamsVar}.animate.shift(${vec})`;
+      const b = animateExpr(`${streamsVar}`, `shift(${vec})`, lazy);
       return [`AnimationGroup(${a}, ${b}, lag_ratio=0)`];
     }
     const expr = resolveExitTargetsForExport(tgt, idToVarName, 'exit');
     if (!expr) return null;
-    const parts = movePartsForTarget(expr, dx, dy);
+    const parts = movePartsForTarget(expr, dx, dy, lazy);
     return parts.length > 0 ? parts : null;
   }
 
@@ -372,19 +378,19 @@ export function targetAnimationRowAnimParts(
         ? row.angleDeg
         : 0;
     if (tgt.kind === 'graphDot') {
-      return rotateRowGraphDot(tgt, ang, idToVarName);
+      return rotateRowGraphDot(tgt, ang, idToVarName, lazy);
     }
     if (tgt.kind === 'graphField') {
-      return rotateRowGraphField(tgt, ang, idToVarName);
+      return rotateRowGraphField(tgt, ang, idToVarName, lazy);
     }
     const expr = resolveExitTargetsForExport(tgt, idToVarName, 'exit');
     if (!expr) return null;
     const parts = expr.split(',').map((s: string) => s.trim()).filter(Boolean);
     if (parts.length === 0) return null;
     if (parts.length === 1) {
-      return rotatePartsForMob(parts[0]!, ang);
+      return rotatePartsForMob(parts[0]!, ang, lazy);
     }
-    const rots = parts.flatMap((p: string) => rotatePartsForMob(p, ang));
+    const rots = parts.flatMap((p: string) => rotatePartsForMob(p, ang, lazy));
     if (rots.length === 0) return null;
     return rots.length === 1 ? rots : [`AnimationGroup(${rots.join(', ')}, lag_ratio=0)`];
   }
@@ -408,6 +414,8 @@ export function buildTargetAnimationPlayBlock(
   pad: string,
   idToVarName: Map<ItemId, string>,
   itemsMap: Map<ItemId, SceneItem>,
+  /** Inside a concurrent cluster (one Succession built up front): see animateExpr. */
+  lazy = false,
 ): { setup: string; innerPlayArg: string; runTimeStr: string } {
   const rt = Math.max(clip.mode === 'graphFollow' ? 0.01 : 0.05, clip.duration).toFixed(4);
   if (clip.mode === 'graphFollow') {
@@ -481,13 +489,13 @@ export function buildTargetAnimationPlayBlock(
           );
           if (lines) {
             setups.push(...lines);
-            parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, pathVar);
+            parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, pathVar, lazy);
           }
         } else if (corners) {
           setups.push(
             `${pad}${pathVar} = VMobject()\n${pad}${pathVar}.set_points_as_corners([${corners}])\n`,
           );
-          parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, pathVar);
+          parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, pathVar, lazy);
         }
       }
       rows.push({ parts: parts ?? [] });
@@ -495,7 +503,7 @@ export function buildTargetAnimationPlayBlock(
   } else {
     const dummy = 'path_unused';
     for (const row of clip.targets) {
-      const parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, dummy);
+      const parts = targetAnimationRowAnimParts(clip, row, idToVarName, itemsMap, dummy, lazy);
       rows.push({ parts: parts ?? [] });
     }
   }
@@ -543,11 +551,13 @@ export function buildTargetAnimationConcurrentSuccessionInner(
     if (rows.length === 0) return null;
     return `_DelayedPathGroup([${rows.join(', ')}], run_time=${Math.max(0.05, clip.duration).toFixed(6)})`;
   }
+  // Several clips in one cluster may move the same mobject: every step reads it when it starts.
   const { setup, innerPlayArg } = buildTargetAnimationPlayBlock(
     clip,
     '',
     idToVarName,
     itemsMap,
+    true,
   );
   if (!innerPlayArg) return null;
   if (setup.trim()) return null;

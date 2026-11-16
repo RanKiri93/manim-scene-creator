@@ -27,7 +27,8 @@ ROOT = UI.parent
 TOL = 0.01  # seconds; dry runs have no frame rounding
 
 EXIT = {"FadeOut", "Uncreate", "ShrinkToCenter", "Unwrite"}
-TARGET = {"_MethodAnimation", "MoveAlongPath", "UpdateFromAlphaFunc", "Rotate"}
+# In a concurrent cluster, move/rotate/scale/colour steps are ApplyFunction (see animateExpr).
+TARGET = {"_MethodAnimation", "ApplyFunction", "MoveAlongPath", "UpdateFromAlphaFunc", "Rotate"}
 # A blink inside a concurrent cluster is built from ApplyFunction steps (see animateExpr in blinkCodegen.ts).
 BLINK = {"_MethodAnimation", "ApplyFunction"}
 ROLE_CLASSES = {"exit": EXIT, "blink": BLINK, "target": TARGET}
