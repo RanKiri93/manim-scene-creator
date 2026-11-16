@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
-import { useMeasureLine } from '@/services/measureHooks';
 import { parseSegments } from '@/lib/textSegments';
 import { findUnwrappedForeignRuns, foreignLangOf, wrapForeignRuns } from '@/lib/textDirectionLint';
 import { effectiveStart } from '@/lib/time';
@@ -80,7 +79,6 @@ export default function LineEditor({ item }: LineEditorProps) {
   const setTextLineSource = useSceneStore((s) => s.setTextLineSource);
   const [mapperOpen, setMapperOpen] = useState(false);
 
-  useMeasureLine(item);
 
   const earlierTextLines = useMemo(() => {
     const list: TextLineItem[] = [];

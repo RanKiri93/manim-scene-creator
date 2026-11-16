@@ -536,6 +536,7 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   setItemScale: (id: ItemId, scale: number) => void;
 
   // Measurement
+  /** Store a text line's measured geometry and preview. Kept out of undo history: measuring is not an edit. */
   setMeasureResult: (
     id: ItemId,
     result: MeasureResult | null,
@@ -1535,19 +1536,30 @@ export const useSceneStore = create<SceneStore>()(
       }),
 
       // ── Measurement ──
-      setMeasureResult: (id, result, error = null) => set((s) => {
-        const item = s.items.get(id);
-        if (item && item.kind === 'textLine') {
-          const tl = item as TextLineItem;
-          tl.measure = result;
-          tl.measureError = error ?? null;
-          tl.previewDataUrl = result?.pngBase64
-            ? `data:image/png;base64,${result.pngBase64}`
-            : null;
-          tl.segmentMeasures = result?.segmentMeasures ?? null;
-          tl.mathChildMeasures = result?.mathChildMeasures ?? null;
+      setMeasureResult: (id, result, error = null) => {
+        // Measuring is not an edit: keep it out of undo history (every line in the scene is
+        // measured in the background, so one Undo must not walk back through measure writes).
+        const history = useSceneStore.temporal.getState();
+        const wasTracking = history.isTracking;
+        if (wasTracking) history.pause();
+        try {
+          set((s) => {
+            const item = s.items.get(id);
+            if (item && item.kind === 'textLine') {
+              const tl = item as TextLineItem;
+              tl.measure = result;
+              tl.measureError = error ?? null;
+              tl.previewDataUrl = result?.pngBase64
+                ? `data:image/png;base64,${result.pngBase64}`
+                : null;
+              tl.segmentMeasures = result?.segmentMeasures ?? null;
+              tl.mathChildMeasures = result?.mathChildMeasures ?? null;
+            }
+          });
+        } finally {
+          if (wasTracking) history.resume();
         }
-      }),
+      },
 
       setMatrixMeasure: (id, key, result, error) => {
         const history = useSceneStore.temporal.getState();

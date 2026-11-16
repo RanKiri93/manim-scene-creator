@@ -16,7 +16,7 @@ import { drawsByPoints, type ShapeDrawPreset } from '@/lib/shapeDraw';
 import { isTwoPointKind } from '@/lib/shapeGeometry';
 import ImageNode from './layers/ImageNode';
 import MatrixNode from './layers/MatrixNode';
-import { useMeasureMatrices } from '@/services/measureHooks';
+import { useMeasureMatrices, useMeasureTextLines } from '@/services/measureHooks';
 import { matrixBlinkIsPartial } from '@/lib/matrixPreview';
 import { matrixGeometry } from '@/lib/matrix';
 import SurroundingRectNode from './layers/SurroundingRectNode';
@@ -251,6 +251,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   const cameraObjectFitPadding = useSceneStore((s) => s.cameraObjectFitPadding);
   const itemsMap = usePreviewMergedItems();
   useMeasureMatrices();
+  useMeasureTextLines();
   const committedItems = useSceneStore((s) => s.items);
   const previewOps = usePreviewOps();
   const selectedIds = useSceneStore((s) => s.selectedIds);

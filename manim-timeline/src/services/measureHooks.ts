@@ -4,7 +4,7 @@ import { measureLine, measureMatrix } from './measureClient';
 import { MEASURE_DEBOUNCE_MS } from '@/lib/constants';
 import { matrixMeasureKey } from '@/lib/matrix';
 import { matrixStates } from '@/lib/matrixSteps';
-import type { ItemId, MatrixItem, TextLineItem } from '@/types/scene';
+import type { ItemId, MatrixItem, MeasureResult, SceneItem, TextLineItem } from '@/types/scene';
 
 /**
  * Keep every matrix in the scene measured, and the result of each of its matrix steps: whenever
@@ -48,42 +48,95 @@ export function useMeasureMatrices() {
   }, [items, measureConfig.enabled, measureConfig.url, measureConfig.includePreview, setMatrixMeasure, setMatrixStepMeasure]);
 }
 
-/**
- * Debounced measurement hook. Attach to the property panel:
- * whenever the inspected TextLineItem's raw/font/fontSize/baseDir/englishFont/segments change,
- * fire a measure request and write the result into the store.
- */
-export function useMeasureLine(item: TextLineItem | null) {
-  const measureConfig = useSceneStore((s) => s.measureConfig);
-  const setMeasureResult = useSceneStore((s) => s.setMeasureResult);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+/** Lines measured at once: a Copilot batch can add dozens and each is a TeX compile on the server. */
+const TEXT_LINE_MEASURE_CONCURRENCY = 3;
+/** `seen` value for a line whose request could not reach the server. */
+const RETRY = 'retry';
 
-  const raw = item?.raw;
-  const font = item?.font;
-  const fontSize = item?.fontSize;
-  const baseDir = item?.baseDir;
-  const englishFont = item?.englishFont;
-  const segJson = item ? JSON.stringify(item.segments.map((s) => [s.color, s.bold, s.italic])) : '';
-  const itemId = item?.id;
+/**
+ * What a text line's measure and preview PNG depend on (segment colours too: the preview is
+ * rendered in them), plus whether a preview was asked for.
+ */
+export function textLineMeasureKey(item: TextLineItem, includePreview: boolean): string {
+  return JSON.stringify([
+    item.raw,
+    item.font ?? null,
+    item.fontSize,
+    item.baseDir ?? 'rtl',
+    item.englishFont ?? null,
+    item.segments.map((seg) => [seg.color, seg.bold, seg.italic]),
+    includePreview,
+  ]);
+}
+
+/**
+ * Text lines that need a (new) measure. `seen` maps a line id to the key it was last measured
+ * (or is being measured) under; it is updated in place. A line met for the first time that already
+ * has a measure or an error (a loaded project, an earlier session) is trusted as is.
+ */
+export function staleTextLines(
+  items: ReadonlyMap<ItemId, SceneItem>,
+  seen: Map<ItemId, string>,
+  includePreview: boolean,
+): { item: TextLineItem; key: string }[] {
+  const stale: { item: TextLineItem; key: string }[] = [];
+  for (const item of items.values()) {
+    if (item.kind !== 'textLine' || !item.raw.trim()) continue;
+    const key = textLineMeasureKey(item, includePreview);
+    const last = seen.get(item.id);
+    if (last === key) continue;
+    if (last === undefined && (item.measure || item.measureError)) {
+      seen.set(item.id, key);
+      continue;
+    }
+    stale.push({ item, key });
+  }
+  for (const id of seen.keys()) if (items.get(id)?.kind !== 'textLine') seen.delete(id);
+  return stale;
+}
+
+/**
+ * Keep every text line in the scene measured: when a line is created or its typeset fields change
+ * (by the user, the Copilot, a paste or an undo), wait for edits to settle, then ask the measure
+ * server for its geometry and preview. Runs for all lines, not just the inspected one, so a batch
+ * of Copilot lines gets previews without clicking each. Mount once (the scene canvas does).
+ */
+export function useMeasureTextLines() {
+  const items = useSceneStore((s) => s.items);
+  const enabled = useSceneStore((s) => s.measureConfig.enabled);
+  const url = useSceneStore((s) => s.measureConfig.url);
+  const includePreview = useSceneStore((s) => s.measureConfig.includePreview);
+  const seen = useRef(new Map<ItemId, string>());
 
   useEffect(() => {
-    if (!item || !itemId || !measureConfig.enabled || !raw) return;
-
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      try {
-        const { result, error } = await measureLine(
-          measureConfig.url,
-          item,
-          measureConfig.includePreview,
-        );
-        setMeasureResult(itemId, result, error);
-      } catch (e) {
-        setMeasureResult(itemId, null, String(e));
-      }
+    if (!enabled) return;
+    const stale = staleTextLines(items, seen.current, includePreview);
+    if (stale.length === 0) return;
+    const timer = setTimeout(() => {
+      for (const { item, key } of stale) seen.current.set(item.id, key);
+      const queue = [...stale];
+      const save = (id: ItemId, key: string, result: MeasureResult | null, error: string | null) => {
+        const current = useSceneStore.getState().items.get(id);
+        // Changed since the request: its new key is already queued by a later run.
+        if (current?.kind !== 'textLine' || textLineMeasureKey(current, includePreview) !== key) return;
+        useSceneStore.getState().setMeasureResult(id, result, error);
+      };
+      const worker = async () => {
+        for (let next = queue.shift(); next; next = queue.shift()) {
+          const { item, key } = next;
+          try {
+            const { result, error } = await measureLine(url, item, includePreview);
+            save(item.id, key, result, error);
+          } catch (e) {
+            // Server unreachable: a marker no key equals, so the next scene change tries again
+            // (a TeX error from the server, above, waits for the line itself to change).
+            if (seen.current.get(item.id) === key) seen.current.set(item.id, RETRY);
+            save(item.id, key, null, String(e));
+          }
+        }
+      };
+      for (let i = 0; i < Math.min(TEXT_LINE_MEASURE_CONCURRENCY, queue.length); i += 1) void worker();
     }, MEASURE_DEBOUNCE_MS);
-
-    return () => clearTimeout(timerRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raw, font, fontSize, baseDir, englishFont, segJson, itemId, measureConfig.enabled, measureConfig.url, measureConfig.includePreview]);
+    return () => clearTimeout(timer);
+  }, [items, enabled, url, includePreview]);
 }
