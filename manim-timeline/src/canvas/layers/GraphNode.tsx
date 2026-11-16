@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { clipWindowAlpha } from '@/lib/clipWindows';
+import { laggedMemberProgress } from '@/lib/axesCreatePlan';
+import { clipPolylineByProgress } from '@/lib/createPlaybackPreview';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { Group, Rect, Line, Circle, Text, Ellipse, Arrow, Image as KonvaImage } from 'react-konva';
 import type {
@@ -191,6 +194,8 @@ export default function GraphNode({
 }: GraphNodeProps) {
   const updateItem = useSceneStore((s) => s.updateItem);
   const audioItems = useSceneStore((s) => s.audioItems);
+  const selectedIds = useSceneStore((s) => s.selectedIds);
+  const isPlaying = useSceneStore((s) => s.isPlaying);
 
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -386,10 +391,7 @@ export default function GraphNode({
   const cmap = field?.fieldColormap;
 
   const fieldArrows = useMemo(() => {
-    // TODO(animation): fade in / stagger these arrows over the field's
-    // effective run_time (currentTime - effectiveStart(field)) so the preview
-    // mirrors the Create(vf) animation emitted by graphCodegen. Kept static
-    // here for now — see plan "Align field preview with render".
+    // Full arrows; the render below grows them one after another like Create(vf) (fieldAlpha).
     if (!field || fieldMode === 'none')
       return [] as { key: string; points: number[]; color: string }[];
 
@@ -465,9 +467,7 @@ export default function GraphNode({
   }, [field, fieldMode, xMin, xMax, yMin, yMax, axW, axH, axesCoordinateGeom, useAxesRaster, vectorAxesOffset, cmap, cmin, cmax]);
 
   const streamPreviewLines = useMemo(() => {
-    // TODO(animation): in a future pass, reveal each streamline progressively
-    // (trim endpoints by `currentTime - effectiveStart(field)` over the stream
-    // run_time) to match the Create(streams) animation in graphCodegen.
+    // Full stream lines; the render below reveals them one after another like Create(streams).
     if (!field || fieldMode === 'none') return [] as { key: string; points: number[] }[];
     const seeds = field.streamPoints ?? [];
     if (seeds.length === 0) return [];
@@ -884,19 +884,26 @@ export default function GraphNode({
           // pointers instead of stubby caps. Clamped so it never exceeds
           // half the arrow length on small arrows.
           const headBase = Math.max(3, arrowSw * 1.6);
+          // Export: Create(field) and Create(streams) together over the clip (narration-aware), each
+          // a lagged Create: arrows one after another, stream lines one after another.
+          const fieldAlpha = clipWindowAlpha(field, currentTime, itemsMap, audioItems);
           return (
             <GraphPlaybackWrap key={key} exit={exit}>
             <Group listening={false}>
-              {fieldArrows.map((a) => {
-                const [sx, sy, ex, ey] = a.points;
+              {fieldArrows.map((a, ai) => {
+                const grow = laggedMemberProgress(ai, fieldArrows.length, fieldAlpha);
+                if (grow <= 0) return null;
+                const [sx, sy, fx, fy] = a.points;
+                const ex = sx + (fx - sx) * grow;
+                const ey = sy + (fy - sy) * grow;
                 const plen = Math.hypot(ex - sx, ey - sy);
                 // Below ~3px the arrowhead would dwarf the shaft and look
                 // like noise; fall back to a plain segment.
-                if (plen < 3) {
+                if (plen < 3 || grow < 1) {
                   return (
                     <Line
                       key={a.key}
-                      points={a.points}
+                      points={[sx, sy, ex, ey]}
                       stroke={a.color}
                       strokeWidth={arrowSw}
                       lineCap="round"
@@ -920,10 +927,10 @@ export default function GraphNode({
                   />
                 );
               })}
-              {streamPreviewLines.map((sl) => (
+              {streamPreviewLines.map((sl, si) => (
                 <Line
                   key={sl.key}
-                  points={sl.points}
+                  points={clipPolylineByProgress(sl.points, laggedMemberProgress(si, streamPreviewLines.length, fieldAlpha))}
                   stroke={streamStroke}
                   strokeWidth={2}
                   lineCap="round"
@@ -1093,6 +1100,19 @@ export default function GraphNode({
           return (
             <GraphPlaybackWrap key={key} exit={exit}>
             {trailSegments(it)}
+            {/* A selected dot keeps a faint ring while paused, so it can be found at opacity 0 (its clip start). */}
+            {!isPlaying && !hideEditorChrome && selectedIds.has(it.id) && (
+              <Circle
+                x={dotPreview.x}
+                y={dotPreview.y}
+                radius={dotPreview.radius + 5}
+                stroke={CANVAS_CHROME.selection}
+                strokeWidth={1.5}
+                dash={[3, 3]}
+                opacity={0.7}
+                listening={false}
+              />
+            )}
             {/* Export brings the dot, label, coordinates and guides in together over the clip. */}
             <Group opacity={graphDotIntroOpacity(it, currentTime, itemsMap, audioItems)}>
               {it.dot.showProjectionGuides === true && <>

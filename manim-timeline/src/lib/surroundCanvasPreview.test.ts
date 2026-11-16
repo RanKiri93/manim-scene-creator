@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createTextLine, defaultSceneDefaults } from '@/store/factories';
-import { textLineSurroundCenterAndHalfExtents } from '@/lib/surroundCanvasPreview';
+import { createSurroundingRect, createTextLine, defaultSceneDefaults } from '@/store/factories';
+import { surroundLabelLayout, textLineSurroundCenterAndHalfExtents } from '@/lib/surroundCanvasPreview';
+import type { SurroundingRectItem } from '@/types/scene';
 
 describe('scaled text ink surround bounds', () => {
   it('scales the measured Hebrew ink offset and half extents together', () => {
@@ -32,5 +33,25 @@ describe('scaled text ink surround bounds', () => {
     expect(textLineSurroundCenterAndHalfExtents(line, { x: 3, y: 4 }, { w: 2, h: 0.5 })).toEqual({
       cx: 3.5, cy: 4.1, hw: 1, hh: 0.25,
     });
+  });
+});
+
+describe('surroundLabelLayout', () => {
+  const box = { left: -1, right: 1, bottom: -0.5, top: 0.5 };
+  const rect = (labelText: string, labelDir: SurroundingRectItem['labelDir']) =>
+    ({ ...createSurroundingRect(['x'], 0), labelText, labelDir, labelFontSize: 48 }) as SurroundingRectItem;
+
+  it('places the label next_to the rect with the export buffer, like Manim', () => {
+    const up = surroundLabelLayout(rect('$\\alpha$ זווית', 'UP'), box)!;
+    expect(up.text).toBe('αזווית'); // texPreviewText drops the space after a command, as for matrices
+    expect(up.cx).toBeCloseTo(0);
+    expect(up.cy - up.height / 2).toBeCloseTo(0.5 + 0.12);
+    const dr = surroundLabelLayout(rect('a', 'DR'), box)!;
+    expect(dr.cx - dr.width / 2).toBeCloseTo(1 + 0.12);
+    expect(dr.cy + dr.height / 2).toBeCloseTo(-0.5 - 0.12);
+  });
+
+  it('has no label for empty text', () => {
+    expect(surroundLabelLayout(rect('  ', 'UP'), box)).toBeNull();
   });
 });

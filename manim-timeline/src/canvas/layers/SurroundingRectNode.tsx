@@ -1,8 +1,9 @@
-import { Group, Line, Rect, Shape } from 'react-konva';
+import { Group, Line, Rect, Shape, Text } from 'react-konva';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import type { SurroundingRectItem } from '@/types/scene';
 import type { Segment2 } from '@/lib/matrix';
 import { shapeCreateFrame, surroundCreatePlan } from '@/lib/shapeCreatePreview';
+import { surroundLabelLayout } from '@/lib/surroundCanvasPreview';
 
 export interface SurroundingRectNodeProps {
   item: SurroundingRectItem;
@@ -37,7 +38,64 @@ function manimAabbToCanvasRect(
   };
 }
 
-export default function SurroundingRectNode({
+/** The rect's label, written in step with its Create (export: `Write(label)` in the same play). */
+function SurroundLabel({
+  item,
+  bboxManim,
+  canvasWidth,
+  canvasHeight,
+  color,
+  progress,
+}: {
+  item: SurroundingRectItem;
+  bboxManim: SurroundingRectNodeProps['bboxManim'];
+  canvasWidth: number;
+  canvasHeight: number;
+  color: string;
+  progress: number;
+}) {
+  const label = surroundLabelLayout(item, bboxManim);
+  if (!label || progress <= 0) return null;
+  const pxPerUnit = canvasWidth / FRAME_W;
+  const w = label.width * pxPerUnit;
+  const h = label.height * pxPerUnit;
+  return (
+    <Text
+      listening={false}
+      x={(label.cx / FRAME_W + 0.5) * canvasWidth - w / 2}
+      y={(0.5 - label.cy / FRAME_H) * canvasHeight - h / 2}
+      width={w}
+      height={h}
+      align="center"
+      verticalAlign="middle"
+      wrap="none"
+      text={label.text}
+      fontSize={0.62 * label.em * pxPerUnit * 1.45}
+      fontFamily="'Frank Ruhl Libre', 'IBM Plex Sans Hebrew', serif"
+      fill={color}
+      opacity={Math.min(1, progress)}
+    />
+  );
+}
+
+export default function SurroundingRectNode(props: SurroundingRectNodeProps) {
+  const { item, bboxManim, canvasWidth, canvasHeight, createProgress } = props;
+  return (
+    <Group listening={false}>
+      <SurroundingRectBody {...props} />
+      <SurroundLabel
+        item={item}
+        bboxManim={bboxManim}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        color="#ffffff" // export: HebrewMathLine with no colour → Manim's default white
+        progress={createProgress ?? 1}
+      />
+    </Group>
+  );
+}
+
+function SurroundingRectBody({
   item,
   bboxManim,
   canvasWidth,

@@ -10,6 +10,7 @@ import {
 } from '@/lib/time';
 import type {
   ItemId,
+  ManimDirection,
   MatrixItem,
   SceneItem,
   SurroundingRectItem,
@@ -27,6 +28,7 @@ import {
   type Segment2,
 } from '@/lib/matrix';
 import { matrixViewAt } from '@/lib/matrixSteps';
+import { texPreviewText } from '@/lib/texPreviewText';
 
 /** The one matrix a highlight marks entries of (single matrix target), else null. */
 function surroundMatrixTarget(sr: SurroundingRectItem, items: Map<ItemId, SceneItem>): MatrixItem | null {
@@ -157,4 +159,37 @@ export function surroundPreviewBBoxManim(
     bottom: minB - buff,
     top: maxT + buff,
   };
+}
+
+const LABEL_DIR: Record<ManimDirection, [number, number]> = {
+  UP: [0, 1], DOWN: [0, -1], LEFT: [-1, 0], RIGHT: [1, 0],
+  UL: [-1, 1], UR: [1, 1], DL: [-1, -1], DR: [1, -1],
+};
+
+/** One TeX em at this `font_size`, in scene units (as the matrix estimate uses). */
+export function texEmUnits(fontSize: number): number {
+  return 0.346 * (fontSize / 48);
+}
+
+/**
+ * Where the export puts a surrounding rect's label: a `HebrewMathLine` placed with
+ * `next_to(rect, labelDir, buff=0.12)`. Text and size are a rough stand-in (the export typesets
+ * the real TeX); null when there is no label.
+ */
+export function surroundLabelLayout(
+  item: SurroundingRectItem,
+  bbox: { left: number; right: number; bottom: number; top: number },
+): { text: string; cx: number; cy: number; width: number; height: number; em: number } | null {
+  const text = texPreviewText(item.labelText ?? '');
+  if (!text) return null;
+  const em = texEmUnits(item.labelFontSize);
+  const width = Math.max(1, text.length) * 0.55 * em;
+  const height = 1.2 * em;
+  const [dx, dy] = LABEL_DIR[item.labelDir] ?? LABEL_DIR.UP;
+  const buff = 0.12;
+  const midX = (bbox.left + bbox.right) / 2;
+  const midY = (bbox.bottom + bbox.top) / 2;
+  const cx = dx === 0 ? midX : dx > 0 ? bbox.right + buff + width / 2 : bbox.left - buff - width / 2;
+  const cy = dy === 0 ? midY : dy > 0 ? bbox.top + buff + height / 2 : bbox.bottom - buff - height / 2;
+  return { text, cx, cy, width, height, em };
 }

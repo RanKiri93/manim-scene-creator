@@ -20,6 +20,17 @@ export function manimSmooth(t: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+/**
+ * Progress of member `index` of `members` in a Manim `Create` with `lag_ratio=1` (the default):
+ * each member gets an equal back-to-back slice of the run time and is eased with `smooth` on its
+ * own. `alpha` is the linear progress through the whole run time.
+ */
+export function laggedMemberProgress(index: number, members: number, alpha: number): number {
+  if (alpha >= 1) return 1;
+  if (alpha <= 0 || members <= 0) return 0;
+  return manimSmooth(Math.max(0, Math.min(1, alpha * members - index)));
+}
+
 /** numpy `arange(start, stop, step)`. */
 function arange(start: number, stop: number, step: number): number[] {
   const n = Math.max(0, Math.ceil((stop - start) / step));

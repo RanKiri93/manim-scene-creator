@@ -4,6 +4,7 @@ import {
   axesCreatePartProgress,
   axesCreatePlan,
   estimateLabelGlyphs,
+  laggedMemberProgress,
   manimAxisNumberText,
   manimAxisTickValues,
   manimSmooth,
@@ -82,5 +83,16 @@ describe('manimSmooth', () => {
     expect(manimSmooth(1)).toBe(1);
     // manim.utils.rate_functions.smooth(0.25) = 0.0701...
     expect(manimSmooth(0.25)).toBeCloseTo(0.0701, 3);
+  });
+});
+
+describe('laggedMemberProgress', () => {
+  it('gives each of n members an equal back-to-back slice, eased with smooth', () => {
+    expect(laggedMemberProgress(0, 4, 0)).toBe(0);
+    expect(laggedMemberProgress(0, 4, 0.25)).toBeCloseTo(1, 5);
+    expect(laggedMemberProgress(1, 4, 0.25)).toBeCloseTo(0, 5);
+    expect(laggedMemberProgress(1, 4, 0.375)).toBeCloseTo(manimSmooth(0.5), 5);
+    expect(laggedMemberProgress(3, 4, 0.9)).toBeCloseTo(manimSmooth(0.6), 5);
+    expect(laggedMemberProgress(3, 4, 1)).toBe(1);
   });
 });
