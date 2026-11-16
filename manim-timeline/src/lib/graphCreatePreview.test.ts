@@ -7,16 +7,14 @@ import {
   defaultSceneDefaults,
 } from '@/store/factories';
 import {
-  AXES_PREVIEW_PHASE_X_END,
   axesArrowPointerMetrics,
   buildAxesCreatePreviewSpec,
   buildAxesTickSegments,
   buildGraphDotPreviewSpec,
   buildPlotCreatePreviewSpec,
   clampedAxesZeroOffsets,
-  densifiedHorizontalAxisPoints,
-  densifiedVerticalAxisPoints,
 } from './graphCreatePreview';
+import { axesCreatePlan } from './axesCreatePlan';
 
 describe('buildAxesCreatePreviewSpec', () => {
   const def = defaultSceneDefaults();
@@ -37,81 +35,60 @@ describe('buildAxesCreatePreviewSpec', () => {
     scenePxPerUnit: 100,
   } as const;
 
-  it('before start: axis lines empty, no reveal head', () => {
-    const spec = buildAxesCreatePreviewSpec({
-      axes,
-      time: 9.99,
-      itemsMap,
-      ...geom,
-    });
+  it('before start: nothing drawn', () => {
+    const spec = buildAxesCreatePreviewSpec({ axes, time: 9.99, itemsMap, ...geom });
     expect(spec.xAxisPoints.length).toBe(0);
     expect(spec.yAxisPoints.length).toBe(0);
-    expect(spec.revealHead).toBeNull();
-    expect(spec.tickOpacity).toBe(0);
+    expect(spec.xTip).toBeNull();
+    expect(spec.xTickSegments.length).toBe(0);
   });
 
-  it('at mid X phase: grows horizontal axis first', () => {
-    const progressMidX = (AXES_PREVIEW_PHASE_X_END * 1) / 2;
-    const time = axes.startTime + progressMidX * axes.duration;
-    const spec = buildAxesCreatePreviewSpec({
-      axes,
-      time,
-      itemsMap,
-      ...geom,
-    });
-    expect(spec.xAxisPoints.length).toBeGreaterThanOrEqual(4);
-    expect(spec.yAxisPoints.length).toBe(0);
-    expect(spec.revealHead).not.toBeNull();
-    const full = densifiedHorizontalAxisPoints(geom.axW, geom.axH, geom.oy);
-    expect(spec.xAxisPoints.length).toBeLessThan(full.length);
+  it('draws pieces one after another like Create(axes): x line, x tip, x ticks, ...', () => {
+    const plan = axesCreatePlan(axes);
+    const at = (slot: number) =>
+      buildAxesCreatePreviewSpec({
+        axes,
+        time: axes.startTime + (slot / plan.members) * axes.duration,
+        itemsMap,
+        ...geom,
+      });
+    // Halfway through the first slot: half the x line, nothing else.
+    const s0 = at(0.5);
+    expect(s0.xAxisPoints[2]).toBeGreaterThan(-geom.axW / 2);
+    expect(s0.xAxisPoints[2]).toBeLessThan(0);
+    expect(s0.xTip).toBeNull();
+    expect(s0.yAxisPoints.length).toBe(0);
+    // Halfway through the third slot: tip done, first x tick half drawn.
+    const s2 = at(2.5);
+    expect(s2.xTip?.opacity).toBe(1);
+    expect(s2.xTickSegments.length).toBe(1);
+    expect(s2.yAxisPoints.length).toBe(0);
+    // Every slot before the y line done: all x ticks and numbers in, y line starting.
+    const yLine = plan.parts.find((p) => p.role === 'yLine')!;
+    const sy = at(yLine.first + 0.5);
+    expect(sy.xTickSegments.length).toBe(plan.xTicks.length);
+    expect(sy.xNumberLabels.every((n) => n.opacity === 1)).toBe(true);
+    expect(sy.yAxisPoints.length).toBe(4);
+    expect(sy.yAxisPoints[1]).toBe(geom.axH / 2); // y line grows bottom to top
+    expect(sy.yNumberLabels.length).toBe(0);
+    expect(sy.xAxisLabel).toBeNull();
   });
 
-  it('at 60pct create: horizontal done, vertical partial', () => {
-    const p = 0.6;
-    const time = axes.startTime + p * axes.duration;
-    const spec = buildAxesCreatePreviewSpec({
-      axes,
-      time,
-      itemsMap,
-      ...geom,
-    });
-    const fullX = densifiedHorizontalAxisPoints(geom.axW, geom.axH, geom.oy);
-    expect(spec.xAxisPoints.length).toBe(fullX.length);
-    expect(spec.yAxisPoints.length).toBeGreaterThanOrEqual(4);
-    const fullLen = densifiedHorizontalAxisPoints(
-      geom.axW,
-      geom.axH,
-      geom.oy,
-    ).length;
-    expect(fullLen).toBeGreaterThan(4);
-    expect(spec.revealHead).not.toBeNull();
-  });
-
-  it('near end: tick opacity rises', () => {
-    const time = axes.startTime + 0.9 * axes.duration;
-    const spec = buildAxesCreatePreviewSpec({
-      axes,
-      time,
-      itemsMap,
-      ...geom,
-    });
-    expect(spec.tickOpacity).toBeGreaterThan(0.2);
-    expect(spec.tickOpacity).toBeLessThanOrEqual(1);
+  it('follows Manim tick rules: no origin tick, no tick under the tip', () => {
     const ticks = buildAxesTickSegments({ axes, ...geom });
-    expect(ticks.xTicks.length).toBeGreaterThan(0);
-    expect(ticks.yTicks.length).toBeGreaterThan(0);
+    expect(ticks.xTickValues).toEqual([-5, -4, -3, -2, -1, 1, 2, 3, 4]);
+    expect(ticks.yTickValues).toEqual([-3, -2, -1, 1, 2]);
+    // Default tick_size 0.1 is the half length: 0.2 units at 100 px per unit.
+    expect(Math.abs(ticks.xTicks[0]![1]! - ticks.xTicks[0]![3]!)).toBeCloseTo(20);
   });
 
-  it('complete: reveal head clears', () => {
-    const time = axes.startTime + axes.duration;
-    const spec = buildAxesCreatePreviewSpec({
-      axes,
-      time,
-      itemsMap,
-      ...geom,
-    });
+  it('complete: everything drawn', () => {
+    const spec = buildAxesCreatePreviewSpec({ axes, time: axes.startTime + axes.duration, itemsMap, ...geom });
     expect(spec.progress).toBe(1);
-    expect(spec.revealHead).toBeNull();
+    expect(spec.xTip?.opacity).toBe(1);
+    expect(spec.yTip?.opacity).toBe(1);
+    expect(spec.xTickSegments.length).toBe(9);
+    expect(spec.yNumberLabels.map((n) => n.text)).toEqual(['-3', '-2', '-1', '1', '2']);
   });
 
   it('complete: pointer metrics scale with pxPerUnit and tipHeight', () => {
@@ -154,7 +131,7 @@ describe('buildAxesCreatePreviewSpec', () => {
     });
     expect(spec.xAxisLabel?.text).toBe('x');
     expect(spec.yAxisLabel?.text).toBe('y');
-    expect(spec.xLabelOpacity).toBe(1);
+    expect(spec.xAxisLabel?.opacity).toBe(1);
   });
 
   it('no tick numbers when includeNumbers is false', () => {
@@ -185,12 +162,6 @@ describe('buildAxesCreatePreviewSpec', () => {
     });
     expect(ox).toBe(0);
     expect(oy).toBe(geom.axH);
-  });
-
-  it('densifies vertical axis from bottom to top so arrow tips point upward', () => {
-    const pts = densifiedVerticalAxisPoints(geom.axW, geom.axH, geom.ox, 4);
-    expect(pts[1]).toBe(geom.axH / 2);
-    expect(pts[pts.length - 1]).toBe(-geom.axH / 2);
   });
 });
 

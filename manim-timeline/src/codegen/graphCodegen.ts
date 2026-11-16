@@ -145,13 +145,6 @@ export function generateAxesDef(item: AxesItem, axVar: string, indent: number): 
     s += `${inner}    _axis.ticks.set_stroke(${tickStylePairs.join(', ')})\n`;
   }
 
-  if (item.xLabel) {
-    s += `${pad}${axVar}_xlabel = ${axVar}.get_x_axis_label(${pythonStringLiteral(item.xLabel)})\n`;
-  }
-  if (item.yLabel) {
-    s += `${pad}${axVar}_ylabel = ${axVar}.get_y_axis_label(${pythonStringLiteral(item.yLabel)})\n`;
-  }
-
   if (item.includeTip) {
     const tipStrokePairs: string[] = [];
     if (
@@ -176,6 +169,25 @@ export function generateAxesDef(item: AxesItem, axVar: string, indent: number): 
         s += `${inner}    _tip.set_fill(opacity=${fillOp.toFixed(4)})\n`;
       }
     }
+  }
+
+  // Axis labels are placed like the measure server's axes raster (the canvas preview) and
+  // become submobjects, so Create, moves and exits of the axes carry them.
+  const xLabel = typeof item.xLabel === 'string' ? item.xLabel.trim() : '';
+  const yLabel = typeof item.yLabel === 'string' ? item.yLabel.trim() : '';
+  const labelVars: string[] = [];
+  if (xLabel) {
+    s += `${pad}${axVar}_xlabel = HebrewMathLine(${pythonStringLiteral(xLabel)}, font_size=36, hebrew_font="Alef")\n`;
+    s += `${pad}${axVar}_xlabel.next_to(${axVar}.x_axis.get_end(), DOWN, buff=0.25)\n`;
+    labelVars.push(`${axVar}_xlabel`);
+  }
+  if (yLabel) {
+    s += `${pad}${axVar}_ylabel = HebrewMathLine(${pythonStringLiteral(yLabel)}, font_size=36, hebrew_font="Alef")\n`;
+    s += `${pad}${axVar}_ylabel.next_to(${axVar}.y_axis.get_end(), LEFT, buff=0.25)\n`;
+    labelVars.push(`${axVar}_ylabel`);
+  }
+  if (labelVars.length > 0) {
+    s += `${pad}${axVar}.add(${labelVars.join(', ')})\n`;
   }
 
   return s;

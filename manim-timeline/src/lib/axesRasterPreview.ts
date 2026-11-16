@@ -1,6 +1,6 @@
-import type { AxesItem, ItemId, SceneItem } from '@/types/scene';
+import type { AudioTrackItem, AxesItem, ItemId, SceneItem } from '@/types/scene';
 import { AXES_PREVIEW_METADATA_VERSION, axesPreviewVisualKey } from '@/lib/axesPreviewRequest';
-import { createProgress } from '@/lib/createPlaybackPreview';
+import { axesCreateAlpha } from '@/lib/axesCreatePlan';
 
 /** Local Konva geometry (pixels, axes-centered) for a rasterized axes PNG. */
 export interface AxesRasterGeometry {
@@ -67,6 +67,7 @@ export interface AxesRasterPreviewArgs {
   axes: AxesItem;
   time: number;
   itemsMap: Map<ItemId, SceneItem>;
+  audioItems?: AudioTrackItem[];
   pxPerUnitX: number;
   pxPerUnitY: number;
 }
@@ -117,9 +118,8 @@ export function axesRasterGeometry(
   const geometry = axesRasterCoordinateGeometry(args);
   if (!geometry) return null;
 
-  // Keep the responsive vector reveal while Create is still playing; the
-  // raster is the completed-axes look. `createProgress` already returns 1
-  // immediately for `visibleAtSceneStart` axes.
-  if (createProgress(axes, time, itemsMap) < 1) return null;
+  // Keep the vector reveal while Create is still playing (same window as the
+  // vector preview); the raster is the completed-axes look.
+  if (axesCreateAlpha(axes, time, itemsMap, args.audioItems) < 1) return null;
   return geometry;
 }

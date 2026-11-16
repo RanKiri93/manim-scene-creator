@@ -18,13 +18,9 @@ function staticAddExprsForLeaf(
   switch (leaf.kind) {
     case 'textLine':
       return [idToVarName.get(leaf.id)!];
-    case 'axes': {
-      const ax = idToVarName.get(leaf.id)!;
-      const parts: string[] = [ax];
-      if (leaf.xLabel?.trim()) parts.push(`${ax}_xlabel`);
-      if (leaf.yLabel?.trim()) parts.push(`${ax}_ylabel`);
-      return parts;
-    }
+    case 'axes':
+      // Axis labels are submobjects of the axes (`generateAxesDef`).
+      return [idToVarName.get(leaf.id)!];
     case 'graphPlot': {
       const ax = idToVarName.get(leaf.axesId);
       if (!ax) return [];

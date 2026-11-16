@@ -174,6 +174,78 @@ Method (scratchpad `sweep/`, not committed):
 - 2c order: E1, E2, then preview gaps from most to least visible (shape, axes/plot/curve
   audio + easing, surrounding rect, area, field).
 
+### 2c, part 1: export fixes and the permanent timing sweep
+- **E1:** `leafConcurrentCodegen.ts` gains `delayedTimedBranch(wStr, inner, rt)` →
+  `Succession(Wait(w), Succession(inner, run_time=rt))`. It is used by shape (no audio),
+  surrounding rect, exit, blink and target-animation branches; the last includes
+  graphFollow, which the sweep also measured early (3.8–4.7 s vs. 3.9–5.1 s). Four
+  overlap-test assertions encoded the old form and were updated. New test: delayed exit,
+  blink and target branches.
+- **E2:** `lineCodegen.ts`: a track bound to more than one leaf is added by the event stream
+  at its own start (`listUnboundAudioTracksForExport`), and
+  `boundSoundEmittedAtTrackStart` then returns true for every leaf on it. All codegen
+  callers go through that function. New test: one file under a shape and a later line is
+  added once, at 8.0 s.
+- **E3:** field streams are created inside the clip. Sequential path:
+  `AnimationGroup(Create(vf), Create(streams), lag_ratio=0)` with the clip run time;
+  concurrent branch the same with per-part run times. Removed the `+1` in
+  `groupPlaybackSpan.ts` and `sceneAnimEndForBoundAudioTail`, and the now-unused constants.
+  New tests for both paths.
+- **Timing window contract:** `src/lib/clipWindows.ts` `clipAnimationWindow(item, items,
+  audio)` gives each clip's animation window as export plays it. It takes bound-narration
+  run time for every leaf that export narrates, image included. Tests in
+  `clipWindows.test.ts`, including parity with the emitted image `run_time`.
+- **Timing sweep (permanent, user decision):**
+  - `src/codegen/timingSweep.ts`: fixture scenes, variable map and expectations; verifier-only,
+    not imported by the app. `timingSweep.test.ts` keeps the fixtures exportable and mapped.
+  - `manim-timeline/scripts/timing-sweep/`: `export.ts` (vite-node),
+    `timing_sweep_instrument.py` and `run_sweep.py` (repo root; no ffmpeg needed; temp work
+    dir; exits 1 on mismatch).
+  - Result: 50 ok / 0 failed; the 2 camera clips are skipped, because their writer spans the
+    cluster and their segment times are unit-tested.
+  - Negative control: with the E1/E2 fixes reverted, the sweep reports 7 failures (6 early
+    cluster branches + `s4.wav` added twice) and exits 1. The fixes were then restored.
+- **Docs:**
+  - AGENTS.md codegen gate and both `verifier.md` prompts name the sweep.
+  - `codegen-invariants` skill: field row, sweep step, `delayedTimedBranch` rule.
+  - README: per-leaf table (field row), Tests (sweep) and trailer.
+- **Gates:** `npm run build` pass; `npm run test` 76 files / 620 tests; eslint clean on the
+  10 touched TS files; Python files compile; sweep exit 0.
+- **Next (2c part 2, preview):** shape intro, axes/plot/curve audio-aware run time + smooth
+  easing (via `clipAnimationWindow`), surrounding-rect intro + label, area intro, field
+  intro, selected-dot ring while paused, P2 image audio, P7 transform source hide.
+
+### 2c part 2, first item: axes look (user report 2026-10-15)
+
+User: "the ticks are animated differently in the exported video than in the preview" and
+"the labels from the preview do not appear at the exported video at all".
+
+- **Labels missing in export (bug):** `generateAxesDef` built `axes_k_xlabel` with
+  `get_x_axis_label(str)` (a `MathTex`, against the HebrewMathLine rule) but never added or
+  played it; only scene-start axes added it, at the pre-move position. New axes default to
+  "x"/"y", so every axes was affected. Fix: labels are `HebrewMathLine(..., font_size=36,
+  hebrew_font="Alef")` placed like the server raster (`next_to(x_axis.get_end(), DOWN, 0.25)`,
+  `next_to(y_axis.get_end(), LEFT, 0.25)`) and `axes.add(...)`-ed before positioning, so
+  `Create`, moves and exits carry them and the group centers like `/api/preview_axes`.
+  `staticAddCodegen` adds only the axes var.
+- **Create order (preview):** Manim `Create` has `lag_ratio=1`: every family member with
+  points gets an equal back-to-back slice, each `smooth`-eased. Measured order (0.20.1): x
+  line, x tip, x ticks, x number glyphs, y line, y tip, y ticks, y number glyphs, label
+  glyphs. New `src/lib/axesCreatePlan.ts` mirrors it (tick rule: no origin tick, no max tick
+  under a tip; number text from the step's decimals; label glyph estimate), with the exact
+  Manim `smooth`. `buildAxesCreatePreviewSpec` draws from it over `clipAnimationWindow`
+  (audio-aware; `axesRasterGeometry` uses the same alpha). The reveal-head dot is gone.
+- **Static look (vector fallback):** Manim defaults: white axes/numbers/labels, stroke
+  `width * 0.01` units, tick half-length `tick_size` (was half as long), full-opacity ticks,
+  numbers 0.25 from the axis.
+- **Check:** exported default-like axes (numbers on, moved to (1, 0.5)) rendered `-ql`: Manim
+  family size 32 = `axesCreatePlan(...).members`; frames at 0.3/0.9/1.5/2.4/3.3/3.85 s show
+  the plan's pieces (e.g. 0.9 s: ticks -4..1 done, tick 2 starting); both labels in the final
+  frame. Browser check not done (extension not connected).
+- **Gates:** build pass; 78 files / 631 tests; eslint clean on touched files; sweep 50 ok / 0
+  failed. New tests: `lib/axesCreatePlan.test.ts`, `codegen/axesCodegen.test.ts`; updated
+  `lib/graphCreatePreview.test.ts`.
+
 ## Verification (verifier)
 
 ## Review notes (manim-reviewer / ui-reviewer — optional)

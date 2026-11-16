@@ -1,4 +1,5 @@
 import type {
+  AudioTrackItem,
   AxesItem,
   GraphCurveItem,
   GraphDot,
@@ -9,18 +10,31 @@ import type {
 import { clipPolylineByProgress, createProgress } from '@/lib/createPlaybackPreview';
 import { effectiveStart } from '@/lib/time';
 import { graphProjectionGuides } from '@/lib/graphMotion';
+import {
+  axesCreateAlpha,
+  axesCreatePartProgress,
+  axesCreatePlan,
+  type AxesCreatePartRole,
+} from '@/lib/axesCreatePlan';
 import { buildGraphAnnotationLayout, type GraphTextAnnotationSpec } from '@/lib/graphAnnotationLayout';
 
-/** Denser polylines than a 2-point segment so Create previews read as drawing. */
-export const AXIS_LINE_DENSITY = 48;
+/** Manim `NumberLine` default `tick_size` (half the tick length, scene units). */
+const DEFAULT_TICK_SIZE_SCENE = 0.1;
 
-/** X axis line fills [0, pXEnd), Y axis fills [pXEnd, pYEnd), ticks fade in [tickStart, 1]. */
-export const AXES_PREVIEW_PHASE_X_END = 0.4;
-export const AXES_PREVIEW_PHASE_Y_END = 0.8;
-export const AXES_PREVIEW_TICK_PHASE_START = 0.8;
+/** Manim `NumberLine` default `stroke_width`; Cairo draws `width * 0.01` scene units. */
+const DEFAULT_AXIS_STROKE_WIDTH = 2;
+const MANIM_STROKE_UNITS_PER_WIDTH = 0.01;
 
-/** Default tick half-length in local px (Manim-like ~0.08 scene units at ~100px/unit). */
-const DEFAULT_TICK_HALF_PX = 8;
+/** Manim gap between an axis and its numbers (`line_to_number_buff`) and labels (export). */
+const NUMBER_BUFF_SCENE = 0.25;
+const LABEL_BUFF_SCENE = 0.25;
+
+/**
+ * Canvas font size (scene units) whose glyphs match Manim at `font_size=36`: digits are
+ * ~0.257 tall (`DecimalNumber`), a text-mode `HebrewMathLine` "x" ~0.198 (export labels).
+ */
+const NUMBER_EM_SCENE_AT_36 = 0.36;
+const LABEL_EM_SCENE = 0.38;
 
 /** Manim `NumberLine` default `tip_height` / `tip_width` (scene units) when unset. */
 const DEFAULT_TIP_HEIGHT_SCENE = 0.35;
@@ -45,47 +59,6 @@ export function clampedAxesZeroOffsets(args: {
   return { ox, oy };
 }
 
-function phase01(progress: number, segmentStart: number, segmentEnd: number): number {
-  if (!(segmentEnd > segmentStart)) return progress >= segmentEnd ? 1 : 0;
-  if (progress <= segmentStart) return 0;
-  if (progress >= segmentEnd) return 1;
-  return (progress - segmentStart) / (segmentEnd - segmentStart);
-}
-
-/** Generate polyline for horizontal axis across the plotting box bottom (local Konva coords). */
-export function densifiedHorizontalAxisPoints(
-  axW: number,
-  axH: number,
-  oy: number,
-  steps = AXIS_LINE_DENSITY,
-): number[] {
-  const yLine = -axH / 2 + oy;
-  const pts: number[] = [];
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps;
-    const x = -axW / 2 + t * axW;
-    pts.push(x, yLine);
-  }
-  return pts;
-}
-
-/** Generate polyline for vertical axis across the plotting box left (local Konva coords). */
-export function densifiedVerticalAxisPoints(
-  axW: number,
-  axH: number,
-  ox: number,
-  steps = AXIS_LINE_DENSITY,
-): number[] {
-  const xLine = -axW / 2 + ox;
-  const pts: number[] = [];
-  for (let s = 0; s <= steps; s++) {
-    const t = s / steps;
-    const y = axH / 2 - t * axH;
-    pts.push(xLine, y);
-  }
-  return pts;
-}
-
 /** Last vertex of polyline [x,y,...] */
 function polyEndpoint(pts: number[]): { x: number; y: number } | null {
   const n = pts.length;
@@ -108,18 +81,29 @@ export interface AxesCreatePreviewSpec {
   yPointerWidth: number;
   axisLabelFontSize: number;
   axisLabelColor: string;
+  /** Axis lines as drawn so far (tip excluded). */
   xAxisPoints: number[];
   yAxisPoints: number[];
+  /** Arrow tip as a short end segment for Konva `Arrow`, once it has started. */
+  xTip: { points: number[]; opacity: number } | null;
+  yTip: { points: number[]; opacity: number } | null;
+  /** Ticks drawn so far, each partially drawn from its Manim start point. */
   xTickSegments: number[][];
   yTickSegments: number[][];
-  xNumberLabels: { key: string; text: string; x: number; y: number }[];
-  yNumberLabels: { key: string; text: string; x: number; y: number }[];
-  tickOpacity: number;
-  xLabelOpacity: number;
-  yLabelOpacity: number;
-  xAxisLabel: { text: string; x: number; y: number } | null;
-  yAxisLabel: { text: string; x: number; y: number } | null;
-  revealHead: { x: number; y: number } | null;
+  /** Text boxes: x numbers and the x label are centered in `width`, y ones right-aligned. */
+  xNumberLabels: AxesPreviewText[];
+  yNumberLabels: AxesPreviewText[];
+  xAxisLabel: AxesPreviewText | null;
+  yAxisLabel: AxesPreviewText | null;
+}
+
+export interface AxesPreviewText {
+  key: string;
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  opacity: number;
 }
 
 function resolveAxesTipSizeScene(axes: AxesItem): {
@@ -196,22 +180,26 @@ export function axesArrowPointerMetrics(args: {
   };
 }
 
-/** Integer ticks from range triple (min,max,step) clamped inside [vmin,vmax]. */
-function graphTicksInRange(range: readonly [number, number, number]): number[] {
-  const [vmin, vmax, rawStep] = range;
-  if (!(vmax > vmin) || !(rawStep > 0)) return [];
-  const step = rawStep;
-  const out: number[] = [];
-  const start = Math.ceil(vmin / step - 1e-9) * step;
-  for (let v = start; v <= vmax + step * 1e-9; v += step) {
-    if (v < vmin - 1e-9 || v > vmax + 1e-9) continue;
-    const rounded = Number.isFinite(v) ? Number(v.toFixed(10)) : v;
-    out.push(rounded);
-    if (out.length > 200) break;
-  }
-  return out;
+/** Manim tick half-length in local px. */
+function tickHalfPx(axes: AxesItem, scenePxPerUnit: number): number {
+  const size =
+    typeof axes.tickLength === 'number' && Number.isFinite(axes.tickLength)
+      ? axes.tickLength
+      : DEFAULT_TICK_SIZE_SCENE;
+  return Math.max(0.5, size * scenePxPerUnit);
 }
 
+/** Manim `stroke_width` as canvas px. */
+function manimStrokePx(width: number | undefined, scenePxPerUnit: number): number {
+  const w = typeof width === 'number' && Number.isFinite(width) ? width : DEFAULT_AXIS_STROKE_WIDTH;
+  return Math.max(0.5, w * MANIM_STROKE_UNITS_PER_WIDTH * scenePxPerUnit);
+}
+
+/**
+ * Full tick segments in local px, ordered and oriented like Manim's: x ticks left to right,
+ * each drawn bottom to top; y ticks bottom to top, each drawn right to left. Tick values follow
+ * Manim (`manimAxisTickValues`): no origin tick, no tick under a tip.
+ */
 export function buildAxesTickSegments(params: {
   axes: AxesItem;
   axW: number;
@@ -225,43 +213,40 @@ export function buildAxesTickSegments(params: {
   scenePxPerUnit: number;
 }): { xTicks: number[][]; yTicks: number[][]; xTickValues: number[]; yTickValues: number[] } {
   const { axes, axW, axH, ox, oy, xMin, xMax, yMin, yMax, scenePxPerUnit } = params;
-  const yAxis = -axH / 2 + oy;
-  const xAxisLine = -axW / 2 + ox;
-  const tickLen =
-    typeof axes.tickLength === 'number' && Number.isFinite(axes.tickLength)
-      ? Math.max(1, axes.tickLength * scenePxPerUnit)
-      : Math.max(DEFAULT_TICK_HALF_PX, scenePxPerUnit * 0.085);
+  const yLine = -axH / 2 + oy;
+  const xLine = -axW / 2 + ox;
+  const half = tickHalfPx(axes, scenePxPerUnit);
+  const plan = axesCreatePlan(axes);
 
-  const xTicksVals = graphTicksInRange(axes.xRange);
-  const yTicksVals = graphTicksInRange(axes.yRange);
-
-  const xTicks: number[][] = [];
-  const xTickValues: number[] = [];
-  for (const gx of xTicksVals) {
-    if (gx < xMin - 1e-9 || gx > xMax + 1e-9) continue;
-    const t = (gx - xMin) / (xMax - xMin);
-    const lx = -axW / 2 + t * axW;
-    xTicks.push([lx, yAxis - tickLen / 2, lx, yAxis + tickLen / 2]);
-    xTickValues.push(gx);
-  }
-
-  const yTicks: number[][] = [];
-  const yTickValues: number[] = [];
-  for (const gy of yTicksVals) {
-    if (gy < yMin - 1e-9 || gy > yMax + 1e-9) continue;
-    const t = (gy - yMin) / (yMax - yMin);
-    const ly = -axH / 2 + (1 - t) * axH;
-    yTicks.push([xAxisLine - tickLen / 2, ly, xAxisLine + tickLen / 2, ly]);
-    yTickValues.push(gy);
-  }
-
+  const xTickValues = plan.xTicks;
+  const xTicks = xTickValues.map((gx) => {
+    const lx = -axW / 2 + ((gx - xMin) / (xMax - xMin)) * axW;
+    return [lx, yLine + half, lx, yLine - half];
+  });
+  const yTickValues = plan.yTicks;
+  const yTicks = yTickValues.map((gy) => {
+    const ly = -axH / 2 + (1 - (gy - yMin) / (yMax - yMin)) * axH;
+    return [xLine + half, ly, xLine - half, ly];
+  });
   return { xTicks, yTicks, xTickValues, yTickValues };
 }
 
+/** First `fraction` of a straight segment [x0, y0, x1, y1]. */
+function partialSegment(seg: readonly number[], fraction: number): number[] {
+  const [x0, y0, x1, y1] = seg as [number, number, number, number];
+  return [x0, y0, x0 + (x1 - x0) * fraction, y0 + (y1 - y0) * fraction];
+}
+
+/**
+ * Canvas state of an axes at `time`, drawn the way the exported `Create(axes)` draws it
+ * (`axesCreatePlan`): pieces appear one after another, each with Manim `smooth` easing,
+ * over the axes' animation window (`clipAnimationWindow`, audio-aware).
+ */
 export function buildAxesCreatePreviewSpec(args: {
   axes: AxesItem;
   time: number;
   itemsMap: Map<ItemId, SceneItem>;
+  audioItems?: AudioTrackItem[];
   axW: number;
   axH: number;
   ox: number;
@@ -279,6 +264,7 @@ export function buildAxesCreatePreviewSpec(args: {
     axes,
     time,
     itemsMap,
+    audioItems,
     axW,
     axH,
     ox,
@@ -294,37 +280,35 @@ export function buildAxesCreatePreviewSpec(args: {
   const pxPerUnitX = pxUxIn ?? scenePxPerUnit;
   const pxPerUnitY = pxUyIn ?? scenePxPerUnit;
 
-  const progress = createProgress(axes, time, itemsMap);
-  const t0 = effectiveStart(axes, itemsMap);
+  const progress = axesCreateAlpha(axes, time, itemsMap, audioItems);
+  const plan = axesCreatePlan(axes);
+  const partProgress = (role: AxesCreatePartRole, index = 0): number => {
+    const part = plan.parts.find((p) => p.role === role && p.index === index);
+    return part ? axesCreatePartProgress(part, plan.members, progress) : 0;
+  };
 
+  // Manim defaults: white axes, ticks matching the axis style (`match_style`), white text.
   const axisStrokeColor =
     typeof axes.axisColor === 'string' && axes.axisColor.trim()
       ? axes.axisColor.trim()
-      : '#94a3b8';
-  const axisStrokeWidth =
-    typeof axes.axisStrokeWidth === 'number' &&
-    Number.isFinite(axes.axisStrokeWidth)
-      ? Math.max(0.5, axes.axisStrokeWidth)
-      : 1;
+      : '#FFFFFF';
+  const axisStrokeWidth = manimStrokePx(axes.axisStrokeWidth, scenePxPerUnit);
   const tickStrokeColor =
     typeof axes.tickColor === 'string' && axes.tickColor.trim()
       ? axes.tickColor.trim()
       : axisStrokeColor;
-  const tickStrokeWidth =
-    typeof axes.tickStrokeWidth === 'number' &&
-    Number.isFinite(axes.tickStrokeWidth)
-      ? Math.max(0.5, axes.tickStrokeWidth)
-      : Math.max(0.5, axisStrokeWidth * 0.85);
+  const tickStrokeWidth = manimStrokePx(axes.tickStrokeWidth ?? axes.axisStrokeWidth, scenePxPerUnit);
   const numberColor =
     typeof axes.numberColor === 'string' && axes.numberColor.trim()
       ? axes.numberColor.trim()
-      : '#cbd5e1';
-  const numberFontSize =
+      : '#FFFFFF';
+  const numberManimSize =
     typeof axes.numberFontSize === 'number' && Number.isFinite(axes.numberFontSize)
-      ? Math.max(6, axes.numberFontSize * 0.45)
-      : 10;
-  const axisLabelFontSize = Math.max(8, numberFontSize * 1.12);
-  const axisLabelColor = axisStrokeColor;
+      ? axes.numberFontSize
+      : 36;
+  const numberFontSize = Math.max(4, (numberManimSize / 36) * NUMBER_EM_SCENE_AT_36 * scenePxPerUnit);
+  const axisLabelFontSize = Math.max(4, LABEL_EM_SCENE * scenePxPerUnit);
+  const axisLabelColor = '#FFFFFF';
 
   const pointers = axesArrowPointerMetrics({
     axes,
@@ -333,24 +317,25 @@ export function buildAxesCreatePreviewSpec(args: {
     pxPerUnitY,
   });
 
-  const tickLenPx =
-    typeof axes.tickLength === 'number' && Number.isFinite(axes.tickLength)
-      ? Math.max(1, axes.tickLength * scenePxPerUnit)
-      : Math.max(DEFAULT_TICK_HALF_PX, scenePxPerUnit * 0.085);
+  const yLine = -axH / 2 + oy;
+  const xLine = -axW / 2 + ox;
+  const xEnd = axW / 2;
+  const yEnd = -axH / 2;
+  const tip = !!axes.includeTip;
 
-  const fullX = densifiedHorizontalAxisPoints(axW, axH, oy);
-  const fullY = densifiedVerticalAxisPoints(axW, axH, ox);
+  // Axis lines stop at the tip base; the tip is its own piece.
+  const xLineSeg = [-axW / 2, yLine, xEnd - (tip ? pointers.xPointerLength : 0), yLine];
+  const yLineSeg = [xLine, axH / 2, xLine, yEnd + (tip ? pointers.yPointerLength : 0)];
+  const xLineP = partProgress('xLine');
+  const yLineP = partProgress('yLine');
+  const xAxisPoints = xLineP > 0 ? partialSegment(xLineSeg, xLineP) : [];
+  const yAxisPoints = yLineP > 0 ? partialSegment(yLineSeg, yLineP) : [];
+  const xTipP = tip ? partProgress('xTip') : 0;
+  const yTipP = tip ? partProgress('yTip') : 0;
+  const xTip = xTipP > 0 ? { points: [xEnd - 1, yLine, xEnd, yLine], opacity: xTipP } : null;
+  const yTip = yTipP > 0 ? { points: [xLine, yEnd + 1, xLine, yEnd], opacity: yTipP } : null;
 
-  const xPhase = phase01(progress, 0, AXES_PREVIEW_PHASE_X_END);
-  const yPhase = phase01(progress, AXES_PREVIEW_PHASE_X_END, AXES_PREVIEW_PHASE_Y_END);
-  const tickPhase = phase01(progress, AXES_PREVIEW_TICK_PHASE_START, 1);
-
-  const xAxisPoints =
-    time < t0 ? [] : clipPolylineByProgress(fullX, xPhase);
-  const yAxisPoints =
-    time < t0 ? [] : clipPolylineByProgress(fullY, yPhase);
-
-  const { xTicks, yTicks, xTickValues, yTickValues } = buildAxesTickSegments({
+  const { xTicks, yTicks } = buildAxesTickSegments({
     axes,
     axW,
     axH,
@@ -362,65 +347,58 @@ export function buildAxesCreatePreviewSpec(args: {
     yMax,
     scenePxPerUnit,
   });
+  const drawnTicks = (ticks: number[][], role: 'xTick' | 'yTick') =>
+    ticks.flatMap((seg, i) => {
+      const p = partProgress(role, i);
+      return p > 0 ? [partialSegment(seg, p)] : [];
+    });
+  const xTickSegments = drawnTicks(xTicks, 'xTick');
+  const yTickSegments = drawnTicks(yTicks, 'yTick');
 
-  /** Stronger ticks when Numbers is on — still show faint ticks otherwise for motion */
-  const tickBaseOpacity = axes.includeNumbers ? 0.95 : 0.42;
-  const tickOpacity =
-    time < t0 ? 0 : Math.max(0, Math.min(1, tickPhase * tickBaseOpacity));
+  // Numbers: Manim puts them 0.25 below / left of the axis (`line_to_number_buff`).
+  const boxW = numberFontSize * 6;
+  const digitHalf = (numberFontSize * 0.257) / NUMBER_EM_SCENE_AT_36 / 2;
+  const xNumberLabels = plan.xNumbers.flatMap((text, i) => {
+    const opacity = partProgress('xNumber', i);
+    const seg = xTicks[i];
+    if (!(opacity > 0) || !seg) return [];
+    const cy = yLine + NUMBER_BUFF_SCENE * pxPerUnitY + digitHalf;
+    return [{ key: `xn-${i}`, text, x: seg[0]! - boxW / 2, y: cy - numberFontSize / 2, width: boxW, opacity }];
+  });
+  const yNumberLabels = plan.yNumbers.flatMap((text, i) => {
+    const opacity = partProgress('yNumber', i);
+    const seg = yTicks[i];
+    if (!(opacity > 0) || !seg) return [];
+    const right = xLine - NUMBER_BUFF_SCENE * pxPerUnitX;
+    return [{ key: `yn-${i}`, text, x: right - boxW, y: seg[1]! - numberFontSize / 2, width: boxW, opacity }];
+  });
 
-  const labOpacity =
-    time < t0 ? 0 : Math.max(0, Math.min(1, tickPhase));
-  const numBelowAxis = tickLenPx * 0.55 + numberFontSize * 0.62;
-  const numLeftPad = tickLenPx * 0.55 + numberFontSize * 1.05;
-
-  const xNumberLabels =
-    axes.includeNumbers && tickOpacity > 0
-      ? xTicks.map((seg, i) => ({
-          key: `xn-${i}`,
-          text: String(xTickValues[i] ?? ''),
-          x: seg[0]!,
-          y: Math.max(seg[1]!, seg[3]!) + numBelowAxis,
-        }))
-      : [];
-  const yNumberLabels =
-    axes.includeNumbers && tickOpacity > 0
-      ? yTicks.map((seg, i) => ({
-          key: `yn-${i}`,
-          text: String(yTickValues[i] ?? ''),
-          x: Math.min(seg[0]!, seg[2]!) - numLeftPad,
-          y: seg[1]! - numberFontSize * 0.5,
-        }))
-      : [];
-
-  const yLine = -axH / 2 + oy;
-  const xAxisLine = -axW / 2 + ox;
-  const xLabRaw = typeof axes.xLabel === 'string' ? axes.xLabel.trim() : '';
-  const yLabRaw = typeof axes.yLabel === 'string' ? axes.yLabel.trim() : '';
+  // Labels as export places them: x below the x-axis end, y left of the y-axis end.
+  const labelBoxW = axisLabelFontSize * 12;
+  const xLabelP = partProgress('xLabel');
+  const yLabelP = partProgress('yLabel');
   const xAxisLabel =
-    xLabRaw && labOpacity > 0
+    plan.xLabel && xLabelP > 0
       ? {
-          text: xLabRaw,
-          x: axW / 2 - axisLabelFontSize * 0.35,
-          y: yLine + tickLenPx * 0.5 + axisLabelFontSize * 0.95,
+          key: 'xl',
+          text: plan.xLabel,
+          x: xEnd - labelBoxW / 2,
+          y: yLine + LABEL_BUFF_SCENE * pxPerUnitY - axisLabelFontSize * 0.33,
+          width: labelBoxW,
+          opacity: xLabelP,
         }
       : null;
   const yAxisLabel =
-    yLabRaw && labOpacity > 0
+    plan.yLabel && yLabelP > 0
       ? {
-          text: yLabRaw,
-          x: xAxisLine - tickLenPx * 0.5 - axisLabelFontSize * 0.6 - yLabRaw.length * axisLabelFontSize * 0.32,
-          y: -axH / 2 + axisLabelFontSize * 0.35,
+          key: 'yl',
+          text: plan.yLabel,
+          x: xLine - LABEL_BUFF_SCENE * pxPerUnitX - labelBoxW,
+          y: yEnd - axisLabelFontSize / 2,
+          width: labelBoxW,
+          opacity: yLabelP,
         }
       : null;
-
-  let revealHead: { x: number; y: number } | null = null;
-  if (time >= t0 && progress > 0 && progress < 1) {
-    if (xPhase > 0 && xPhase < 1) {
-      revealHead = polyEndpoint(xAxisPoints);
-    } else if (yPhase > 0 && yPhase < 1) {
-      revealHead = polyEndpoint(yAxisPoints);
-    }
-  }
 
   return {
     progress,
@@ -438,16 +416,14 @@ export function buildAxesCreatePreviewSpec(args: {
     axisLabelColor,
     xAxisPoints,
     yAxisPoints,
-    xTickSegments: xTicks,
-    yTickSegments: yTicks,
+    xTip,
+    yTip,
+    xTickSegments,
+    yTickSegments,
     xNumberLabels,
     yNumberLabels,
-    tickOpacity,
-    xLabelOpacity: labOpacity,
-    yLabelOpacity: labOpacity,
     xAxisLabel,
     yAxisLabel,
-    revealHead,
   };
 }
 

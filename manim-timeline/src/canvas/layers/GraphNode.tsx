@@ -232,6 +232,7 @@ export default function GraphNode({
         axes,
         time: currentTime,
         itemsMap,
+        audioItems,
         axW,
         axH,
         ox,
@@ -248,6 +249,7 @@ export default function GraphNode({
       axes,
       currentTime,
       itemsMap,
+      audioItems,
       axW,
       axH,
       ox,
@@ -305,10 +307,11 @@ export default function GraphNode({
         axes,
         time: currentTime,
         itemsMap,
+        audioItems,
         pxPerUnitX,
         pxPerUnitY,
       }),
-    [axes, currentTime, itemsMap, pxPerUnitX, pxPerUnitY],
+    [axes, currentTime, itemsMap, audioItems, pxPerUnitX, pxPerUnitY],
   );
   const axesCoordinateGeom = useMemo(
     () => axesRasterCoordinateGeometry({ axes, pxPerUnitX, pxPerUnitY }),
@@ -587,142 +590,91 @@ export default function GraphNode({
       ) : (
         <>
       {axesPreviewSpec.xAxisPoints.length >= 4 ? (
-        axes.includeTip ? (
-          <Arrow
-            points={axesPreviewSpec.xAxisPoints}
-            stroke={axesPreviewSpec.axisStrokeColor}
-            fill={axesPreviewSpec.axisStrokeColor}
-            strokeWidth={axesPreviewSpec.axisStrokeWidth}
-            pointerLength={axesPreviewSpec.xPointerLength}
-            pointerWidth={axesPreviewSpec.xPointerWidth}
-            lineCap="round"
-            lineJoin="round"
-            listening={false}
-          />
-        ) : (
         <Line
           points={axesPreviewSpec.xAxisPoints}
           stroke={axesPreviewSpec.axisStrokeColor}
           strokeWidth={axesPreviewSpec.axisStrokeWidth}
-          lineCap="round"
           listening={false}
         />
-        )
+      ) : null}
+      {axesPreviewSpec.xTip ? (
+        <Arrow
+          points={axesPreviewSpec.xTip.points}
+          stroke={axesPreviewSpec.axisStrokeColor}
+          fill={axesPreviewSpec.axisStrokeColor}
+          strokeWidth={axesPreviewSpec.axisStrokeWidth}
+          pointerLength={axesPreviewSpec.xPointerLength}
+          pointerWidth={axesPreviewSpec.xPointerWidth}
+          opacity={axesPreviewSpec.xTip.opacity}
+          lineJoin="round"
+          listening={false}
+        />
       ) : null}
       {axesPreviewSpec.yAxisPoints.length >= 4 ? (
-        axes.includeTip ? (
-          <Arrow
-            points={axesPreviewSpec.yAxisPoints}
-            stroke={axesPreviewSpec.axisStrokeColor}
-            fill={axesPreviewSpec.axisStrokeColor}
-            strokeWidth={axesPreviewSpec.axisStrokeWidth}
-            pointerLength={axesPreviewSpec.yPointerLength}
-            pointerWidth={axesPreviewSpec.yPointerWidth}
-            lineCap="round"
-            lineJoin="round"
-            listening={false}
-          />
-        ) : (
         <Line
           points={axesPreviewSpec.yAxisPoints}
           stroke={axesPreviewSpec.axisStrokeColor}
           strokeWidth={axesPreviewSpec.axisStrokeWidth}
-          lineCap="round"
           listening={false}
         />
-        )
+      ) : null}
+      {axesPreviewSpec.yTip ? (
+        <Arrow
+          points={axesPreviewSpec.yTip.points}
+          stroke={axesPreviewSpec.axisStrokeColor}
+          fill={axesPreviewSpec.axisStrokeColor}
+          strokeWidth={axesPreviewSpec.axisStrokeWidth}
+          pointerLength={axesPreviewSpec.yPointerLength}
+          pointerWidth={axesPreviewSpec.yPointerWidth}
+          opacity={axesPreviewSpec.yTip.opacity}
+          lineJoin="round"
+          listening={false}
+        />
       ) : null}
 
       <Group listening={false}>
-        {axesPreviewSpec.tickOpacity > 0
-          ? axesPreviewSpec.xTickSegments.map((seg, i) => (
-              <Line
-                key={`xt-${i}`}
-                points={seg}
-                stroke={axesPreviewSpec.tickStrokeColor}
-                strokeWidth={axesPreviewSpec.tickStrokeWidth}
-                opacity={axesPreviewSpec.tickOpacity}
-                lineCap="round"
-                listening={false}
-              />
-            ))
-          : null}
-        {axesPreviewSpec.tickOpacity > 0
-          ? axesPreviewSpec.yTickSegments.map((seg, i) => (
-              <Line
-                key={`yt-${i}`}
-                points={seg}
-                stroke={axesPreviewSpec.tickStrokeColor}
-                strokeWidth={axesPreviewSpec.tickStrokeWidth}
-                opacity={axesPreviewSpec.tickOpacity}
-                lineCap="round"
-                listening={false}
-              />
-            ))
-          : null}
-        {axesPreviewSpec.xNumberLabels.map((lbl) => (
-          <Text
-            key={lbl.key}
-            x={lbl.x - lbl.text.length * axesPreviewSpec.numberFontSize * 0.25}
-            y={lbl.y}
-            text={lbl.text}
-            fontSize={axesPreviewSpec.numberFontSize}
-            fill={axesPreviewSpec.numberColor}
-            opacity={axesPreviewSpec.tickOpacity}
+        {[...axesPreviewSpec.xTickSegments, ...axesPreviewSpec.yTickSegments].map((seg, i) => (
+          <Line
+            key={`tick-${i}`}
+            points={seg}
+            stroke={axesPreviewSpec.tickStrokeColor}
+            strokeWidth={axesPreviewSpec.tickStrokeWidth}
             listening={false}
           />
         ))}
-        {axesPreviewSpec.yNumberLabels.map((lbl) => (
+        {[...axesPreviewSpec.xNumberLabels, ...axesPreviewSpec.yNumberLabels].map((lbl) => (
           <Text
             key={lbl.key}
-            x={lbl.x - lbl.text.length * axesPreviewSpec.numberFontSize * 0.25}
+            x={lbl.x}
             y={lbl.y}
+            width={lbl.width}
+            align={lbl.key.startsWith('x') ? 'center' : 'right'}
             text={lbl.text}
             fontSize={axesPreviewSpec.numberFontSize}
             fill={axesPreviewSpec.numberColor}
-            opacity={axesPreviewSpec.tickOpacity}
+            opacity={lbl.opacity}
             listening={false}
           />
         ))}
-        {axesPreviewSpec.xAxisLabel && axesPreviewSpec.xLabelOpacity > 0 ? (
-          <Text
-            x={axesPreviewSpec.xAxisLabel.x}
-            y={axesPreviewSpec.xAxisLabel.y}
-            text={axesPreviewSpec.xAxisLabel.text}
-            fontSize={axesPreviewSpec.axisLabelFontSize}
-            fill={axesPreviewSpec.axisLabelColor}
-            opacity={axesPreviewSpec.xLabelOpacity}
-            align="right"
-            listening={false}
-          />
-        ) : null}
-        {axesPreviewSpec.yAxisLabel && axesPreviewSpec.yLabelOpacity > 0 ? (
-          <Text
-            x={axesPreviewSpec.yAxisLabel.x}
-            y={axesPreviewSpec.yAxisLabel.y}
-            text={axesPreviewSpec.yAxisLabel.text}
-            fontSize={axesPreviewSpec.axisLabelFontSize}
-            fill={axesPreviewSpec.axisLabelColor}
-            opacity={axesPreviewSpec.yLabelOpacity}
-            align="left"
-            listening={false}
-          />
-        ) : null}
+        {[axesPreviewSpec.xAxisLabel, axesPreviewSpec.yAxisLabel].map((lbl) =>
+          lbl ? (
+            <Text
+              key={lbl.key}
+              x={lbl.x}
+              y={lbl.y}
+              width={lbl.width}
+              align={lbl.key === 'xl' ? 'center' : 'right'}
+              text={lbl.text}
+              fontSize={axesPreviewSpec.axisLabelFontSize}
+              fill={axesPreviewSpec.axisLabelColor}
+              opacity={lbl.opacity}
+              listening={false}
+            />
+          ) : null,
+        )}
       </Group>
         </>
       )}
-
-      {axesPreviewSpec.revealHead ? (
-        <Circle
-          x={axesPreviewSpec.revealHead.x}
-          y={axesPreviewSpec.revealHead.y}
-          radius={4}
-          stroke="#ffffff"
-          strokeWidth={1.5}
-          fill={CANVAS_CHROME.selection}
-          listening={false}
-        />
-      ) : null}
 
       {drawOrder.map((slot) => {
         const key = `${slot.kind}-${slot.id}`;
