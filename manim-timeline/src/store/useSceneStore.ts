@@ -765,6 +765,35 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
   setWordAnchor: (itemId: ItemId, anchor: { trackId: string; wordIndex: number } | null) => void;
 }
 
+/**
+ * What undo / redo records: the scene's content only. Playhead, playback, selection, panels, capture
+ * modes, server settings and audio batch progress are left out, so Undo after playing or scrubbing
+ * undoes the last edit instead of the playback.
+ */
+export function historySnapshot(s: SceneStore) {
+  return {
+    items: s.items,
+    frames: s.frames,
+    startFrameId: s.startFrameId,
+    defaults: s.defaults,
+    audioItems: s.audioItems,
+    audioBed: s.audioBed,
+  };
+}
+export type HistorySnapshot = ReturnType<typeof historySnapshot>;
+
+/** A change is recorded only when a recorded field changed (immer gives changed fields new references). */
+function sameHistorySnapshot(a: HistorySnapshot, b: HistorySnapshot): boolean {
+  return (
+    a.items === b.items &&
+    a.frames === b.frames &&
+    a.startFrameId === b.startFrameId &&
+    a.defaults === b.defaults &&
+    a.audioItems === b.audioItems &&
+    a.audioBed === b.audioBed
+  );
+}
+
 export const useSceneStore = create<SceneStore>()(
   temporal(
     immer<SceneStore>((set, get) => ({
@@ -2469,9 +2498,29 @@ export const useSceneStore = create<SceneStore>()(
           followWordAnchorsInDraft(s, audioBefore);
         }),
     })),
-    { limit: 50 },
+    { limit: 50, partialize: historySnapshot, equality: sameHistorySnapshot },
   ),
 );
+
+// Undo no longer restores the selection or the active frame with the content, so drop what an undo
+// (or any content change) left pointing at items or frames that are gone. Not recorded: the
+// recorded fields do not change.
+// Selections hold scene items and narration clips, so only ids that existed and were removed go.
+useSceneStore.subscribe((s, prev) => {
+  if (s.items === prev.items && s.frames === prev.frames && s.audioItems === prev.audioItems) return;
+  const removed = (id: string) =>
+    (prev.items.has(id) && !s.items.has(id)) ||
+    (prev.audioItems.some((a) => a.id === id) && !s.audioItems.some((a) => a.id === id));
+  const goneSelected = [...s.selectedIds].some(removed);
+  const goneInspected = s.inspectedId != null && removed(s.inspectedId);
+  const goneFrame = s.activeFrameId != null && !s.frames.some((f) => f.id === s.activeFrameId);
+  if (!goneSelected && !goneInspected && !goneFrame) return;
+  useSceneStore.setState((d) => {
+    if (goneSelected) d.selectedIds = new Set([...d.selectedIds].filter((id) => !removed(id)));
+    if (goneInspected) d.inspectedId = null;
+    if (goneFrame) d.activeFrameId = d.startFrameId;
+  });
+});
 if (typeof window !== 'undefined') {
   (window as unknown as Window & { useSceneStore: typeof useSceneStore }).useSceneStore = useSceneStore;
 }

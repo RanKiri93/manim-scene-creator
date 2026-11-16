@@ -6,7 +6,7 @@ or a small PR-sized task.
 
 ## Priority Shortlist
 
-1. **Undo history should ignore playback / transient UI state.**
+1. ~~**Undo history should ignore playback / transient UI state.**~~ Done 2026-11-17 (see §5).
 2. **Social-media export presets should become scene/project settings, not only export options.**
 3. **Guided transcription should align recorded audio with the intended script.**
 4. ~~**Audio editing should grow from the current normalize / clean / match-EQ pipeline.**~~ Mostly done 2026-10-17 (see §3; handoff `docs/handoffs/2026-10-17-audio-editing.md`).
@@ -198,6 +198,13 @@ Make undo / redo feel like a standard desktop editor.
 keyboard handlers.
 
 ## 5. Undo Should Ignore Playback And Transient State
+
+**Status (2026-11-17): implemented.** `temporal` uses `partialize: historySnapshot` (items, frames,
+startFrameId, defaults, audioItems, audioBed) and an `equality` on those references, so playhead,
+playback, selection, panels, capture modes, `measureConfig` and audio batch progress are not
+recorded. Undo keeps the playhead where it is; a store subscription drops a selection, inspected
+item or active frame that an undo removed. The Copilot commit pushes `historySnapshot(before)`.
+Tests: `store/useSceneStore.history.test.ts`.
 
 ### Goal
 

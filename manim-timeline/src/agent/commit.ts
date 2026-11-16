@@ -1,4 +1,4 @@
-import { useSceneStore } from '@/store/useSceneStore';
+import { historySnapshot, useSceneStore } from '@/store/useSceneStore';
 import { locateCut, locateWord, type AgentAudioEdit } from './audioEdits';
 import type {
   FunctionSeriesDefaults,
@@ -41,7 +41,7 @@ export function commitActions(actions: AgentAction[]): void {
   }
   if (useSceneStore.getState() !== before) {
     useSceneStore.temporal.setState((t) => ({
-      pastStates: [...t.pastStates, before].slice(-UNDO_LIMIT),
+      pastStates: [...t.pastStates, historySnapshot(before)].slice(-UNDO_LIMIT),
       futureStates: [],
     }));
   }
