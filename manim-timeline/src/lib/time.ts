@@ -275,6 +275,8 @@ export function isTransformSourceHiddenInPreview(
   sourceLine: TextLineItem,
   time: number,
   items: Map<ItemId, SceneItem>,
+  /** The transform's play() length; narration-aware callers use `isTransformSourceHiddenAt`. */
+  animSeconds: (target: TextLineItem) => number = (target) => textLineAnimOnlyDuration(target, items),
 ): boolean {
   let hideAt = Number.POSITIVE_INFINITY;
   for (const it of items.values()) {
@@ -283,8 +285,7 @@ export function isTransformSourceHiddenInPreview(
     const tc = it.transformConfig;
     const ids = tc ? transformSourceIds(tc) : [];
     if (!ids.includes(sourceLine.id)) continue;
-    const end =
-      effectiveStart(it, items) + textLineAnimOnlyDuration(it, items);
+    const end = effectiveStart(it, items) + animSeconds(it);
     hideAt = Math.min(hideAt, end);
   }
   if (hideAt === Number.POSITIVE_INFINITY) return false;

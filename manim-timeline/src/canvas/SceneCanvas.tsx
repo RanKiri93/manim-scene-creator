@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { isTransformSourceHiddenAt } from '@/lib/clipWindows';
 import type Konva from 'konva';
 import { Stage, Layer, Group, Rect, Text, Line as KonvaLine } from 'react-konva';
 import { useSceneStore } from '@/store/useSceneStore';
@@ -35,7 +36,6 @@ import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
   isActiveAtTime,
-  isTransformSourceHiddenInPreview,
 } from '@/lib/time';
 import {
   activeTextTransformForLine,
@@ -494,11 +494,11 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
           (it): it is TextLineItem =>
             it.kind === 'textLine' &&
             isActiveAtTime(it, currentTime, itemsMap) &&
-            (!isTransformSourceHiddenInPreview(it, currentTime, itemsMap) ||
+            (!isTransformSourceHiddenAt(it, currentTime, itemsMap, audioItems) ||
               selectedIds.has(it.id)),
         )
         .sort((a, b) => a.layer - b.layer),
-    [itemsMap, currentTime, selectedIds],
+    [itemsMap, currentTime, selectedIds, audioItems],
   );
 
   const visibleShapes = useMemo(

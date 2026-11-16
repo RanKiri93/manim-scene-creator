@@ -1,10 +1,10 @@
-import type { AudioTrackItem, ItemId, SceneItem } from '@/types/scene';
+import type { AudioTrackItem, ItemId, SceneItem, TextLineItem } from '@/types/scene';
 import {
   functionSeriesTotalDuration,
   isVisibleAtSceneStartItem,
   pointSequenceTotalDuration,
 } from '@/types/scene';
-import { effectiveStart, segmentWaitTotal, textLineAnimOnlyDuration } from '@/lib/time';
+import { effectiveStart, isTransformSourceHiddenInPreview, segmentWaitTotal, textLineAnimOnlyDuration } from '@/lib/time';
 import { resolveRecordedPlayback } from '@/codegen/lineCodegen';
 
 /** Scene-clock seconds during which a clip's own animation runs. */
@@ -65,4 +65,39 @@ export function clipAnimationWindow(
     default:
       return null;
   }
+}
+
+/**
+ * Linear progress `[0, 1]` through the clip's animation window as export plays it (bound
+ * narration run time when one resolves, otherwise the clip duration). Items on screen from the
+ * scene start have no window and are complete (1).
+ */
+export function clipWindowAlpha(
+  item: SceneItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): number {
+  const win = clipAnimationWindow(item, items, audioItems);
+  if (!win) return 1;
+  if (time < win.start) return 0;
+  const dur = win.end - win.start;
+  if (!(dur > 0)) return 1;
+  return Math.max(0, Math.min(1, (time - win.start) / dur));
+}
+
+/**
+ * Like `isTransformSourceHiddenInPreview`, with the transform's play() as long as export plays it:
+ * a target line bound to narration morphs over the narration's run time, so its source stays
+ * until then.
+ */
+export function isTransformSourceHiddenAt(
+  sourceLine: TextLineItem,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+  audioItems?: AudioTrackItem[],
+): boolean {
+  return isTransformSourceHiddenInPreview(sourceLine, time, items, (target) =>
+    resolveRecordedPlayback(target, items, audioItems)?.runTime ?? textLineAnimOnlyDuration(target, items),
+  );
 }

@@ -10,7 +10,8 @@ import { buildGraphAnnotationLayout } from '@/lib/graphAnnotationLayout';
 import { liveValueSlope } from '@/lib/graphLiveValue';
 import { graphDotTrail } from '@/lib/graphDotTrail';
 import { riemannPhase } from '@/lib/riemann';
-import { effectiveEnd, effectiveStart, isTransformSourceHiddenInPreview } from '@/lib/time';
+import { effectiveEnd, effectiveStart } from '@/lib/time';
+import { isTransformSourceHiddenAt } from '@/lib/clipWindows';
 import { transformSourceIds } from '@/lib/transformMapping';
 import { targetAnimPreviewAccum } from '@/lib/visualPlaybackPreview';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
@@ -192,7 +193,7 @@ function itemFacts(
       const phase = riemannPhase({ ...item, mode: item.mode }, time, scene, session.base.audioItems);
       if (phase) row.riemannN = item.mode.counts[phase.progress >= 0.5 || phase.from == null ? phase.to : phase.from];
     }
-    if (item.kind === 'textLine' && row.onScreen && isTransformSourceHiddenInPreview(item, time, scene)) {
+    if (item.kind === 'textLine' && row.onScreen && isTransformSourceHiddenAt(item, time, scene, session.audio())) {
       row.onScreen = false;
       row.note = 'morphed into the next line';
     }
@@ -286,7 +287,7 @@ function textOverlaps(scene: Map<ItemId, SceneItem>, session: DraftSession, time
   for (const time of times) {
     const boxes = lines
       .filter((line) => time >= effectiveStart(line, scene) && time < effectiveEnd(line, scene))
-      .filter((line) => !isTransformSourceHiddenInPreview(line, time, scene))
+      .filter((line) => !isTransformSourceHiddenAt(line, time, scene, session.audio()))
       .map((line) => {
         const center = resolvePosition(line, scene);
         const fc = frameCenterById(frames, line.frameId ?? startFrameId);

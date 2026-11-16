@@ -782,6 +782,7 @@ export default function GraphNode({
             time: currentTime,
             itemsMap,
             fullPoints: pts,
+            audioItems,
           });
           if (plotPreview.points.length < 4) return null;
           return (
@@ -833,6 +834,7 @@ export default function GraphNode({
             time: currentTime,
             itemsMap,
             fullPoints: pts,
+            audioItems,
           });
           if (curvePreview.points.length < 4) return null;
           const strokeCol =

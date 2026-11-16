@@ -1,5 +1,5 @@
 import type { AudioTrackItem, AxesItem, ItemId, SceneItem } from '@/types/scene';
-import { clipAnimationWindow } from '@/lib/clipWindows';
+import { clipAnimationWindow, clipWindowAlpha } from '@/lib/clipWindows';
 import { createProgress } from '@/lib/createPlaybackPreview';
 
 /**
@@ -150,10 +150,6 @@ export function axesCreateAlpha(
   items: Map<ItemId, SceneItem>,
   audioItems?: AudioTrackItem[],
 ): number {
-  const win = clipAnimationWindow(axes, items, audioItems);
-  if (!win) return createProgress(axes, time, items);
-  if (time < win.start) return 0;
-  const dur = win.end - win.start;
-  if (!(dur > 0)) return 1;
-  return Math.max(0, Math.min(1, (time - win.start) / dur));
+  if (!clipAnimationWindow(axes, items, audioItems)) return createProgress(axes, time, items);
+  return clipWindowAlpha(axes, time, items, audioItems);
 }

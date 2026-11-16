@@ -1,4 +1,5 @@
 import { angleMarkStaticGeometry, boundShapeReferencedIds, connectorReferencedIds, connectorStaticGeometry } from '@/lib/shapeAnchors';
+import { isTransformSourceHiddenAt } from '@/lib/clipWindows';
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { enableMapSet } from 'immer';
@@ -48,7 +49,6 @@ import {
 import {
   isTopLevelItem,
   isActiveAtTime,
-  isTransformSourceHiddenInPreview,
   segmentWaitTotal,
   timelineSpanEnd,
   minExitStartTimeForClip,
@@ -1680,7 +1680,7 @@ export const useSceneStore = create<SceneStore>()(
             if (!isActiveAtTime(it, time, items)) return false;
             if (
               it.kind === 'textLine' &&
-              isTransformSourceHiddenInPreview(it, time, items)
+              isTransformSourceHiddenAt(it, time, items, get().audioItems)
             ) {
               return false;
             }

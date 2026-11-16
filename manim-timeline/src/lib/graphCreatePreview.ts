@@ -7,13 +7,15 @@ import type {
   ItemId,
   SceneItem,
 } from '@/types/scene';
-import { clipPolylineByProgress, createProgress } from '@/lib/createPlaybackPreview';
+import { clipPolylineByProgress } from '@/lib/createPlaybackPreview';
+import { clipWindowAlpha } from '@/lib/clipWindows';
 import { effectiveStart } from '@/lib/time';
 import { graphProjectionGuides } from '@/lib/graphMotion';
 import {
   axesCreateAlpha,
   axesCreatePartProgress,
   axesCreatePlan,
+  manimSmooth,
   type AxesCreatePartRole,
 } from '@/lib/axesCreatePlan';
 import { buildGraphAnnotationLayout, type GraphTextAnnotationSpec } from '@/lib/graphAnnotationLayout';
@@ -497,9 +499,12 @@ export function buildPlotCreatePreviewSpec(args: {
   time: number;
   itemsMap: Map<ItemId, SceneItem>;
   fullPoints: number[];
+  /** Narration: a plot bound to it is created over the narration's run time, as in export. */
+  audioItems?: AudioTrackItem[];
 }): PlotCreatePreviewSpec {
-  const { plot, time, itemsMap, fullPoints } = args;
-  const progress = createProgress(plot, time, itemsMap);
+  const { plot, time, itemsMap, fullPoints, audioItems } = args;
+  // Manim's Create over the export run time, eased with Manim `smooth`.
+  const progress = manimSmooth(clipWindowAlpha(plot, time, itemsMap, audioItems));
   const t0 = effectiveStart(plot, itemsMap);
 
   if (time < t0 || fullPoints.length < 4) {
@@ -520,9 +525,12 @@ export function buildCurveCreatePreviewSpec(args: {
   time: number;
   itemsMap: Map<ItemId, SceneItem>;
   fullPoints: number[];
+  /** Narration: a plot bound to it is created over the narration's run time, as in export. */
+  audioItems?: AudioTrackItem[];
 }): PlotCreatePreviewSpec {
-  const { curveItem, time, itemsMap, fullPoints } = args;
-  const progress = createProgress(curveItem, time, itemsMap);
+  const { curveItem, time, itemsMap, fullPoints, audioItems } = args;
+  // Manim's Create over the export run time, eased with Manim `smooth`.
+  const progress = manimSmooth(clipWindowAlpha(curveItem, time, itemsMap, audioItems));
   const t0 = effectiveStart(curveItem, itemsMap);
 
   if (time < t0 || fullPoints.length < 4) {
