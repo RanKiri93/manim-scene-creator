@@ -1,7 +1,7 @@
 ---
 slug: text-object-snapping
 created: 2026-09-23
-status: implementing
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -214,3 +214,7 @@ Findings in severity order, each with file:line and a concrete fix suggestion.
 - README sections touched, `*Last updated:*` trailer extended: yes/no
 - ARCHITECTURE.md touched: yes/no
 - idea.md item closed or updated: which
+
+## Follow-up (2026-11-17)
+
+The verifier's remaining finding is fixed: a drag paused undo history unconditionally and resumed it at the end and on unmount, so a drag that started while history was already paused turned it back on. `pauseHistoryForDrag()` (`store/positionDrag.ts`) now pauses only when history is recording and reports whether it did; the hook resumes, and `finishPositionDrag(..., pausedByDrag)` records one step, only in that case. Tests: `store/positionDrag.test.ts` (both cases). The frame-offset fix was already in. Hook-level drag-event tests still need a DOM test setup (none in this repo); browser acceptance is part of the user's manual checks.

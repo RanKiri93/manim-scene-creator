@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTextLine, defaultSceneDefaults } from '@/store/factories';
 import { useSceneStore } from '@/store/useSceneStore';
-import { finishPositionDrag } from '@/store/positionDrag';
+import { finishPositionDrag, pauseHistoryForDrag } from '@/store/positionDrag';
 
 function reset() {
   useSceneStore.temporal.getState().clear();
@@ -48,5 +48,30 @@ describe('position drag transaction', () => {
     useSceneStore.temporal.getState().pause();
     finishPositionDrag('drag-line', { x: 0, y: 0 }, { x: 0, y: 0 });
     expect(useSceneStore.temporal.getState().pastStates.length).toBe(0);
+  });
+});
+
+describe('a drag while undo history is already paused', () => {
+  beforeEach(reset);
+
+  it('pauses and later resumes history only when it was recording', () => {
+    expect(pauseHistoryForDrag()).toBe(true);
+    expect(useSceneStore.temporal.getState().isTracking).toBe(false);
+    finishPositionDrag('drag-line', { x: 0, y: 0 }, { x: 1, y: 1 }, true);
+    expect(useSceneStore.temporal.getState().isTracking).toBe(true);
+    expect(useSceneStore.temporal.getState().pastStates.length).toBe(1);
+  });
+
+  it('leaves history paused by someone else paused, and records nothing', () => {
+    useSceneStore.temporal.getState().pause(); // e.g. another gesture or a batch in progress
+    const pausedByDrag = pauseHistoryForDrag();
+    expect(pausedByDrag).toBe(false);
+    useSceneStore.getState().setItemPosition('drag-line', 2, 2);
+    finishPositionDrag('drag-line', { x: 0, y: 0 }, { x: 3, y: 4 }, pausedByDrag);
+    expect(useSceneStore.getState().items.get('drag-line')).toMatchObject({ x: 3, y: 4 });
+    // Before the fix the drag resumed history here and the owner's later changes leaked into undo.
+    expect(useSceneStore.temporal.getState().isTracking).toBe(false);
+    expect(useSceneStore.temporal.getState().pastStates.length).toBe(0);
+    useSceneStore.temporal.getState().resume();
   });
 });

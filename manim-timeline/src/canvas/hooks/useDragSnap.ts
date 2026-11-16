@@ -5,7 +5,7 @@ import type { ItemId, PosStep } from '@/types/scene';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { snapTextPosition, type SnapBox, type TextSnapGuide } from '@/lib/textSnap';
 import { FRAME_H, FRAME_W } from '@/lib/constants';
-import { cancelPositionDrag, finishPositionDrag } from '@/store/positionDrag';
+import { cancelPositionDrag, finishPositionDrag, pauseHistoryForDrag } from '@/store/positionDrag';
 
 export interface TextSnapContext {
   enabled: boolean;
@@ -67,6 +67,8 @@ export function useDragSnap({ itemId, posSteps, canvasToManim, gridSnap = null, 
   const startPosition = useRef<{ x: number; y: number } | null>(null);
   const latch = useRef<{ x: string | null; y: string | null }>({ x: null, y: null });
   const targetsAtStart = useRef<SnapBox[] | null>(null);
+  /** This drag paused undo history (it was recording at pointer-down) and must resume it. */
+  const pausedHistory = useRef(false);
 
   const draggable = isFreelyDraggable(posSteps);
 
@@ -76,12 +78,14 @@ export function useDragSnap({ itemId, posSteps, canvasToManim, gridSnap = null, 
     startPosition.current = null;
     targetsAtStart.current = null;
     isDragging.current = false;
-    useSceneStore.temporal.getState().resume();
+    if (pausedHistory.current) useSceneStore.temporal.getState().resume();
+    pausedHistory.current = false;
   }, [itemId]);
 
   const onDragStart = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
-      useSceneStore.temporal.getState().pause();
+      // Pause only if history is recording: if something else paused it, leave it to them.
+      pausedHistory.current = pauseHistoryForDrag();
       isDragging.current = true;
       const item = useSceneStore.getState().items.get(itemId);
       startPosition.current = item && 'x' in item ? { x: item.x, y: item.y } : null;
@@ -136,7 +140,9 @@ export function useDragSnap({ itemId, posSteps, canvasToManim, gridSnap = null, 
   const onDragEnd = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
       isDragging.current = false;
-      let temporalResumed = false;
+      const pausedByDrag = pausedHistory.current;
+      pausedHistory.current = false;
+      let temporalResumed = !pausedByDrag;
       try {
         // Record the live gesture as one undoable spatial transaction: restore the
         // starting coordinates while history is paused, resume, then commit final.
@@ -162,7 +168,7 @@ export function useDragSnap({ itemId, posSteps, canvasToManim, gridSnap = null, 
             y: (0.5 - (world.y - textSnap.frameOffset.y) / FRAME_H) * textSnap.canvasHeight,
           });
         }
-        finishPositionDrag(itemId, startPosition.current, final);
+        finishPositionDrag(itemId, startPosition.current, final, pausedByDrag);
         temporalResumed = true;
       } finally {
         startPosition.current = null;
