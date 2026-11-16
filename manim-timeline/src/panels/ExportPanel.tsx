@@ -220,6 +220,12 @@ export default function ExportPanel() {
     return exportManimCode(preparedExports?.single ?? items, { fullFile: true, defaults, frames, startFrameId, audioItems });
   }, [preparedExports, imagePrepError, needsImagePrep, items, defaults, frames, startFrameId, audioItems, graphFollowBlock]);
 
+  /** Clips the export leaves out of the render (blinks it cannot build), from its EXPORT ERROR lines. */
+  const leftOut = useMemo(
+    () => [...codeFullFile.matchAll(/# EXPORT ERROR: (.* is left out of the render: .*)/g)].map((m) => m[1]!),
+    [codeFullFile],
+  );
+
   const combinedPython = useMemo(() => {
     // Read via `void` so scene-tab add/remove/rename recomputes this memo even
     // though the multi-scene file itself is read from the store below.
@@ -610,6 +616,14 @@ export default function ExportPanel() {
         </button>
       </div>
       {graphFollowBlock && <p className="text-meta text-warn" role="alert">{graphFollowBlock}</p>}
+      {leftOut.length > 0 && (
+        <div className="text-meta text-warn" role="alert">
+          <p className="font-semibold">Not in the render (the preview still shows {leftOut.length === 1 ? 'it' : 'them'}):</p>
+          <ul className="list-disc ps-4">
+            {leftOut.map((msg) => <li key={msg}>{msg}</li>)}
+          </ul>
+        </div>
+      )}
       {preparingImages && (
         <p className="text-meta text-chalk-faint" role="status">
           Preparing image assets for export…

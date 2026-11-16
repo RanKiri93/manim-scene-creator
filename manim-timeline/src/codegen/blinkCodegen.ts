@@ -383,6 +383,31 @@ function blinkRestoreColorExpr(target: SceneItem): string {
   }
 }
 
+/**
+ * Blink rows the export cannot build, as messages for `# EXPORT ERROR` lines. Such a row is left
+ * out of the render (the rest of the clip still plays), while the preview still shows it, so the
+ * export says so instead of dropping it silently.
+ */
+export function blinkExportProblems(
+  clip: BlinkAnimationItem,
+  idToVarName: Map<ItemId, string>,
+  itemsMap: Map<ItemId, SceneItem>,
+): string[] {
+  const name = clip.label?.trim() ? `"${clip.label.trim()}"` : clip.id;
+  const out: string[] = [];
+  for (const row of clip.targets) {
+    const target = itemsMap.get(row.targetId);
+    let reason: string | null = null;
+    if (!target) reason = `its target ${row.targetId} no longer exists`;
+    else if (target.kind === 'image' && row.mode === 'color') reason = `images cannot blink in colour (use scale)`;
+    else if (!blinkRowAnimParts(target, row, idToVarName, itemsMap, true, clip.startTime)) {
+      reason = `its target ${target.label?.trim() ? `"${target.label.trim()}"` : target.id} (${target.kind}) is not in the exported scene or cannot blink`;
+    }
+    if (reason) out.push(`blink ${name} at ${clip.startTime.toFixed(2)}s is left out of the render: ${reason}.`);
+  }
+  return out;
+}
+
 export function blinkClipHasActiveTargets(clip: BlinkAnimationItem): boolean {
   return clip.targets.length > 0;
 }

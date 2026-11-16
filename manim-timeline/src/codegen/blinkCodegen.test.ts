@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BlinkAnimationItem, SceneItem } from '@/types/scene';
 import { createImageItem, createTextLine, defaultSceneDefaults } from '@/store/factories';
-import { buildBlinkConcurrentSuccessionInner, formatBlinkClipPlay } from './blinkCodegen';
+import { blinkExportProblems, buildBlinkConcurrentSuccessionInner, formatBlinkClipPlay } from './blinkCodegen';
 import { exportManimCode } from './manimExporter';
 
 function mapOf(...items: SceneItem[]): Map<string, SceneItem> {
@@ -248,5 +248,36 @@ describe('blink in a concurrent cluster', () => {
     const code = formatBlinkClipPlay(blink, '', new Map([['ln1', 'line_a']]), mapOf(line, blink));
     expect(code).toContain('line_a[1].animate.set_color(ManimColor("#FFFF00"))');
     expect(code).not.toContain('ApplyFunction');
+  });
+});
+
+describe('blinks the export cannot build', () => {
+  const img = () => {
+    const it = createImageItem({ srcUrl: 'data:image/png;base64,iVBORw0KGgo=', fileName: 'img.png', mimeType: 'image/png', width: 2, height: 1 });
+    it.id = 'img1';
+    return it;
+  };
+  const blink = (targetId: string, mode: 'color' | 'scale', label = 'Highlight'): BlinkAnimationItem => ({
+    kind: 'blink_animation', id: 'bk1', label, layer: 0, startTime: 1.5, duration: 0.6, repetitions: 1,
+    targets: [{ targetId, mode, blinkColor: '#ff0000' }],
+  });
+
+  it('names a colour blink on an image and a blink whose target is gone', () => {
+    const vars = new Map([['img1', 'image_a']]);
+    expect(blinkExportProblems(blink('img1', 'color'), vars, mapOf(img()))).toEqual([
+      'blink "Highlight" at 1.50s is left out of the render: images cannot blink in colour (use scale).',
+    ]);
+    expect(blinkExportProblems(blink('gone', 'scale', ''), vars, mapOf(img()))[0]).toMatch(/^blink bk1 at 1\.50s .*target gone no longer exists/);
+    expect(blinkExportProblems(blink('img1', 'scale'), vars, mapOf(img()))).toEqual([]);
+  });
+
+  it('writes an EXPORT ERROR line at the top of construct and still renders the rest', () => {
+    const defaults = defaultSceneDefaults();
+    const line = createTextLine(defaults, 0);
+    Object.assign(line, { id: 'ln1', raw: 'hi', startTime: 0, duration: 1 });
+    const code = exportManimCode([line, img(), blink('img1', 'color')], { fullFile: true, defaults });
+    expect(code).toMatch(/def construct\(self\):\n {8}# EXPORT ERROR: blink "Highlight" at 1\.50s is left out of the render/);
+    expect(code).not.toContain('class ExportErrorScene');
+    expect(code).toContain('Write(line_1');
   });
 });

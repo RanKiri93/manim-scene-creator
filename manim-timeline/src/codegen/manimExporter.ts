@@ -117,7 +117,7 @@ import {
   generateGraphPointSequenceDef,
   generateGraphPointSequencePlay,
 } from './pointSequenceCodegen';
-import { formatBlinkClipPlay } from './blinkCodegen';
+import { blinkExportProblems, formatBlinkClipPlay } from './blinkCodegen';
 import {
   delayedTargetPathHelperSource,
   formatTargetAnimationClipPlay,
@@ -1486,6 +1486,13 @@ function exportManimCodeInner(
     timelineCursor = fullSceneEnd;
   }
 
+  // Clips the render leaves out although the preview shows them: say so instead of dropping them.
+  const problemPad = ' '.repeat(base);
+  const problemLines = items
+    .flatMap((it) => (it.kind === 'blink_animation' ? blinkExportProblems(it, idToVarName, itemsMap) : []))
+    .map((msg) => `${problemPad}# EXPORT ERROR: ${msg}\n`)
+    .join('');
+
   if (!options.fullFile) {
     const waitHelper = usesTimelineWait ? `${timelineWaitHelperSource()}\n` : '';
     const cameraSnippet = movingCameraRequired ? `${cameraExportPreconditionNote()}\n` : '';
@@ -1502,7 +1509,7 @@ function exportManimCodeInner(
     const clipHelper = anyEditedAudio(options.audioItems)
       ? `${audioClipHelperSource(options.defaults.audioCutFadeMs ?? 0)}\n`
       : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${clipHelper}${waitHelper}${defStr}\n${posStr}\n${playStr}`;
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${clipHelper}${waitHelper}${problemLines}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1553,6 +1560,7 @@ function exportManimCodeInner(
   const needsMovingCamera = movingCameraRequired;
   let body = `\nclass ${className}(${needsMovingCamera ? 'MovingCameraScene' : 'Scene'}):\n`;
   body += '    def construct(self):\n';
+  body += problemLines;
 
   body += `        # ========== 1. Definitions ==========\n`;
   body += defStr;
