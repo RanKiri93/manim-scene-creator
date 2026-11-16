@@ -2880,6 +2880,7 @@ try:
         try:
             mp4_path = _run_manim_render(req.python_code, scene, "l", work_dir, timeout=900)
             duration: float | None = None
+            fps = 15.0  # -ql
             ffprobe = _which_ffprobe()
             if ffprobe:
                 probe = subprocess.run(
@@ -2892,18 +2893,45 @@ try:
                     duration = float((probe.stdout or "").strip())
                 except ValueError:
                     duration = None
+                rate = subprocess.run(
+                    [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", mp4_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                try:
+                    num, _, den = (rate.stdout or "").strip().partition("/")
+                    fps = float(num) / float(den or 1) or fps
+                except ValueError:
+                    pass
             t = float(req.time)
             if duration is not None:
-                t = max(0.0, min(t, duration - 0.05))
+                # The last frame starts one frame before the end: seeking past it yields no frame
+                # (exit code 0, no file), so stay a frame and a half before the end.
+                t = max(0.0, min(t, duration - 1.5 / fps))
             png_path = os.path.join(work_dir, "frame.png")
-            proc = subprocess.run(
-                [ffmpeg, "-v", "error", "-y", "-ss", f"{t:.3f}", "-i", mp4_path, "-frames:v", "1", png_path],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=120,
-            )
+
+            def grab(seek: list[str]) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [ffmpeg, "-v", "error", "-y", *seek, "-i", mp4_path, "-frames:v", "1", "-update", "1", png_path],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                )
+
+            proc = grab(["-ss", f"{t:.3f}"])
+            if proc.returncode == 0 and not os.path.isfile(png_path):
+                # Still past the last decodable frame: take the last frame of the video.
+                proc = subprocess.run(
+                    [ffmpeg, "-v", "error", "-y", "-sseof", "-1", "-i", mp4_path, "-update", "1", png_path],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                )
             if proc.returncode != 0 or not os.path.isfile(png_path):
                 raise HTTPException(status_code=500, detail=(proc.stderr or "ffmpeg could not extract the frame")[-2000:])
             with open(png_path, "rb") as f:
