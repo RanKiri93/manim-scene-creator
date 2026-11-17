@@ -3,6 +3,8 @@ import { useSceneStore } from '@/store/useSceneStore';
 import type { AudioPanelMode } from '@/store/useSceneStore';
 import {
   listMicrophones,
+  rememberedMicId,
+  rememberMicId,
   startMicRecording,
   type MicRecording,
 } from '@/services/micRecorder';
@@ -73,7 +75,11 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [browserProcessingEnabled, setBrowserProcessingEnabled] = useState(false);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
-  const [micId, setMicId] = useState('');
+  const [micId, setMicIdState] = useState(rememberedMicId);
+  const setMicId = (id: string) => {
+    setMicIdState(id);
+    rememberMicId(id);
+  };
   const [countIn, setCountIn] = useState(true);
   const [overTimeline, setOverTimeline] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);

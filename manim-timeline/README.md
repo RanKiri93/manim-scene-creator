@@ -495,6 +495,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 
 ---
 
+*Last updated: **Room tone in WAV** — the background bed's room-tone recorder now records uncompressed WAV with the narration recorder (raw capture) and uses the microphone last chosen in the narration panel (remembered across sessions).*
+
 *Last updated: **Copilot streams and condenses** — with "Check its own work" on Anthropic or OpenAI, the reply appears as it is written (Settings: "Show the reply as it is written"). Long chats are condensed: type `/compact` to turn everything so far into a short summary for the Copilot (a divider marks the point), and history over about 24k characters is condensed automatically except the last 6 messages.*
 
 *Last updated: **Copilot pictures** — clicking a picture in the Copilot's Steps list opens it large (full size until the page reloads) with a button to go to its time, and the Copilot's preview snapshots no longer move your playhead or flash the canvas.*

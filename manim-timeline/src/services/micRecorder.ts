@@ -24,6 +24,26 @@ export interface MicRecording {
   cancel: () => void;
 }
 
+const MIC_KEY = 'manim-timeline.micId';
+
+/** The microphone chosen last (narration panel), shared by every recorder; '' = system default. */
+export function rememberedMicId(): string {
+  try {
+    return localStorage.getItem(MIC_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function rememberMicId(deviceId: string): void {
+  try {
+    if (deviceId) localStorage.setItem(MIC_KEY, deviceId);
+    else localStorage.removeItem(MIC_KEY);
+  } catch {
+    // Storage blocked: the choice lasts for this panel only.
+  }
+}
+
 export function micConstraints(deviceId: string | undefined, browserProcessing: boolean): MediaStreamConstraints {
   // Raw capture by default: browsers otherwise ride the level and smear the noise floor
   // differently on every take (see AudioPanel).

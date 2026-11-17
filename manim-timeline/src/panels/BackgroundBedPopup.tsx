@@ -3,13 +3,7 @@ import FloatingPanel from '@/components/FloatingPanel';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { AudioBedKind } from '@/types/scene';
 import type { BedNoiseColor } from '@/services/measureClient';
-
-function recordingFilenameFromMime(mime: string): string {
-  const m = mime.toLowerCase();
-  if (m.includes('ogg')) return 'roomtone.ogg';
-  if (m.includes('wav')) return 'roomtone.wav';
-  return 'roomtone.webm';
-}
+import { rememberedMicId, startMicRecording, type MicRecording } from '@/services/micRecorder';
 
 function bedKindLabel(kind: AudioBedKind): string {
   if (kind === 'music') return 'Music';
@@ -36,9 +30,7 @@ export function BackgroundBedEditor() {
   const [noiseColor, setNoiseColor] = useState<BedNoiseColor>('pink');
   const [noiseDuration, setNoiseDuration] = useState(8);
   const [noiseLevelDb, setNoiseLevelDb] = useState(-40);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
+  const recorderRef = useRef<MicRecording | null>(null);
 
   const cutFadeMs = defaults.audioCutFadeMs ?? 40;
 
@@ -65,39 +57,20 @@ export function BackgroundBedEditor() {
     await uploadBed(file, 'music', file.name);
   };
 
-  const stopRoomToneRecording = () => {
+  const stopRoomToneRecording = async () => {
     const rec = recorderRef.current;
-    if (rec && rec.state !== 'inactive') rec.stop();
+    if (!rec) return;
+    recorderRef.current = null;
+    setRecording(false);
+    // Same WAV recorder as narration (raw capture, the narration panel's microphone).
+    const take = await rec.stop();
+    await uploadBed(take.blob, 'roomtone', take.filename.replace(/^recording/, 'roomtone'));
   };
 
   const startRoomToneRecording = async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: false,
-          noiseSuppression: false,
-          echoCancellation: false,
-        },
-      });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const rec = new MediaRecorder(stream);
-      recorderRef.current = rec;
-      rec.ondataavailable = (ev) => {
-        if (ev.data.size > 0) chunksRef.current.push(ev.data);
-      };
-      rec.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        recorderRef.current = null;
-        setRecording(false);
-        const mime = rec.mimeType || 'audio/webm';
-        const blob = new Blob(chunksRef.current, { type: mime });
-        chunksRef.current = [];
-        await uploadBed(blob, 'roomtone', recordingFilenameFromMime(mime));
-      };
-      rec.start();
+      recorderRef.current = await startMicRecording({ deviceId: rememberedMicId() || undefined, browserProcessing: false });
       setRecording(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -225,7 +198,7 @@ export function BackgroundBedEditor() {
           <button
             type="button"
             disabled={busy}
-            onClick={() => (recording ? stopRoomToneRecording() : void startRoomToneRecording())}
+            onClick={() => void (recording ? stopRoomToneRecording() : startRoomToneRecording())}
             className={`rounded-ctl px-3 py-1.5 text-ctl font-medium disabled:opacity-50 w-fit ${
               recording
                 ? 'bg-danger/10 text-chalk hover:bg-danger/10'
