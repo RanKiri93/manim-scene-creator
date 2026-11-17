@@ -30,8 +30,12 @@ import AudioClipEditPopup from './AudioClipEditPopup';
 import BackgroundBedPopup from '@/panels/BackgroundBedPopup';
 import PlaybackControls from './PlaybackControls';
 import Playhead from './Playhead';
+import { markerName } from '@/lib/timelineMarkers';
+import type { TimelineMarker } from '@/types/scene';
 import { usePlaybackEngine } from './hooks/usePlaybackEngine';
 import { useTimelineAudioSync } from './hooks/useTimelineAudioSync';
+
+const NO_MARKERS: TimelineMarker[] = [];
 
 export default function Timeline() {
   const itemsMap = usePreviewMergedItems();
@@ -45,6 +49,8 @@ export default function Timeline() {
   );
   const viewRange = useSceneStore((s) => s.viewRange);
   const setCurrentTime = useSceneStore((s) => s.setCurrentTime);
+  const timelineMarkers = useSceneStore((s) => s.defaults.timelineMarkers ?? NO_MARKERS);
+  const removeTimelineMarker = useSceneStore((s) => s.removeTimelineMarker);
   const setViewRange = useSceneStore((s) => s.setViewRange);
   const togglePlayback = useSceneStore((s) => s.togglePlayback);
   const audioItems = useSceneStore((s) => s.audioItems);
@@ -338,6 +344,12 @@ export default function Timeline() {
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
+      // M: free marker at the playhead (works while playing or recording, anywhere but text fields).
+      if (e.code === 'KeyM' && !mod && !e.altKey && !e.shiftKey) {
+        const st = useSceneStore.getState();
+        if (st.addTimelineMarker(st.currentTime)) e.preventDefault();
+        return;
+      }
       if (isHovered.current && !e.altKey) {
         // Narration edits (see AudioClip tooltip).
         if (e.code === 'KeyS' && !mod && !e.shiftKey) {
@@ -416,7 +428,7 @@ export default function Timeline() {
           <div className="relative z-20 isolate">
             <div
               className="relative h-6 bg-panel border-b border-rule cursor-pointer"
-              title="Click to move the playhead. Drag to pick a time range to remove or insert time."
+              title="Click to move the playhead. Drag to pick a time range to remove or insert time. M adds a marker at the playhead."
               onPointerDown={onRulerPointerDown}
               onPointerMove={onRulerPointerMove}
               onPointerUp={onRulerPointerUp}
@@ -432,6 +444,29 @@ export default function Timeline() {
                   style={{ left: `${rulerRange.fromX}px`, width: `${rulerRange.toX - rulerRange.fromX}px` }}
                 />
               )}
+              {timelineMarkers.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="absolute top-0 bottom-0 z-10 -translate-x-1/2 px-0.5 flex flex-col items-center text-[10px] leading-none text-warn hover:text-chalk"
+                  style={{ left: `${m.time * pxPerSecond}px` }}
+                  title={`${markerName(timelineMarkers, m)} at ${m.time.toFixed(2)}s. Click: go here. Shift+click or right-click: remove. Clips snap to it.`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey) removeTimelineMarker(m.id);
+                    else setCurrentTime(m.time);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeTimelineMarker(m.id);
+                  }}
+                >
+                  <span aria-hidden>▼</span>
+                  <span className="mt-px">{markerName(timelineMarkers, m)}</span>
+                </button>
+              ))}
               {ticks.map((t) => {
                 const x = t * pxPerSecond;
                 return (

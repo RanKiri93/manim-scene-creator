@@ -328,6 +328,7 @@ A **`graphFunctionSeries`** item renders a family of curves parameterized by an 
 - **Version 10** — Removes per-item `waitAfter`, `exitAnimStyle`, and `exitRunTime`. Legacy projects with `version` below 10 are migrated on load: non-`none` exits become **`exit_animation`** items (start time = old hold + wait + exit offset as before), then legacy fields are stripped (`migrateProjectToV10.ts`). Very old monolithic **`graph`** items are still split in **`migrateSceneItems.ts`** before that step.
 - **Version 41** — Adds the **`image`** scene item kind (still pictures: `srcUrl`, `assetRelPath?`, `fileName`, `mimeType`, `width`, `height`, `opacity`, `rotationDeg`); `PosStepNextTo.refKind` gains **`image`**. Migration is a pass-through (`migrateProjectToV41.ts`); older files load unchanged.
 - **Version 44** — Graph dots may persist `attachment: {kind:'free'}` (legacy `dx/dy`), `{kind:'function', graphPlotId, x}`, or `{kind:'parametric', graphCurveId, t}`. V44 also adds optional independent label/coordinate presentation fields (`labelFontSize`, `labelColor`, `labelSpacing`, `coordinateFontSize`, `coordinateColor`, `coordinateDir`, `coordinateSpacing`, `coordinatePrecision`) and annotation toggles (`showCoordinates`, `showProjectionGuides`). Migration preserves V43 graph-follow rows and backfills free attachments/style defaults. Graph-follow targets use `targetX` for function/free-function motion or `targetT` for parametric-attached motion, with optional `graphPlotId`/legacy `graphCurveId` references and `easing` (`linear` or `smooth`; missing legacy easing defaults to smooth).
+- **Version 45** — `defaults.timelineMarkers?: { id, time, label? }[]` (free timeline markers, seconds, sorted). Migration (`migrateSceneDefaultsToV45`, at scene load) backfills `[]` and drops invalid entries.
 - Import / export helpers live in **`src/lib/projectIO.ts`**.
 
 ### Portable bundle (`.mtproj`)
@@ -494,6 +495,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 | **Tauri build errors** | Rust on PATH, MSVC on Windows; see **`TAURI.md`**. |
 
 ---
+
+*Last updated: **Timeline markers** — press M (while playing, recording, or stopped; not in a text field) to drop a marker at the playhead. Markers show on the ruler (click: go there; Shift+click or right-click: remove), clips snap to them like words, and inserting or removing time moves them. Project v45.*
 
 *Last updated: **Room tone in WAV** — the background bed's room-tone recorder now records uncompressed WAV with the narration recorder (raw capture) and uses the microphone last chosen in the narration panel (remembered across sessions).*
 

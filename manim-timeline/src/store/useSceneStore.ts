@@ -158,6 +158,9 @@ import {
 } from '@/lib/frameGrid';
 import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
 import { migrateSceneDefaultsToV39 } from '@/lib/migrateProjectToV39';
+import { nanoid } from 'nanoid';
+import { migrateSceneDefaultsToV45 } from '@/lib/migrateProjectToV45';
+import { remapMarkers, withMarkerAt } from '@/lib/timelineMarkers';
 import { validateCameraMove } from '@/lib/camera';
 import { normalizeTransformMapping } from '@/lib/transformMapping';
 import {
@@ -373,10 +376,10 @@ function runLoadSceneDraft(
       syncPointSequenceDerived(it as GraphPointSequenceItem, s.items);
     }
   }
-  s.defaults = migrateSceneDefaultsToV39({
+  s.defaults = migrateSceneDefaultsToV45(migrateSceneDefaultsToV39({
     ...s.defaults,
     ...payload.defaults,
-  });
+  }));
   if (!s.defaults.sceneName?.trim()) {
     s.defaults.sceneName = 'Scene1';
   }
@@ -510,6 +513,9 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
    * change) when the range is invalid or any clip overlaps it.
    */
   closeTimelineRange: (rangeStart: number, rangeEnd: number) => boolean;
+  /** Add a free marker at `time` (none within 0.05 s already). False when not added. */
+  addTimelineMarker: (time: number) => boolean;
+  removeTimelineMarker: (id: string) => void;
   /**
    * Insert `durationSec` empty seconds at `at`: shift every top-level clip and unlinked
    * audio track with startTime >= `at` right by `durationSec`. Returns false (no state
@@ -1359,10 +1365,28 @@ export const useSceneStore = create<SceneStore>()(
             if (track) track.startTime = Math.max(0, t);
           }
           s.currentTime = nextTime;
+          if (s.defaults.timelineMarkers?.length) {
+            s.defaults.timelineMarkers = remapMarkers(s.defaults.timelineMarkers, (t) => mapCloseRangePlayhead(t, rangeStart, rangeEnd));
+          }
           clampEffectClipStarts(s.items);
           syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
         });
         return true;
+      },
+
+      addTimelineMarker: (time) => {
+        const next = withMarkerAt(get().defaults.timelineMarkers ?? [], time, nanoid(8));
+        if (!next) return false;
+        set((s) => {
+          s.defaults.timelineMarkers = next;
+        });
+        return true;
+      },
+
+      removeTimelineMarker: (id) => {
+        set((s) => {
+          s.defaults.timelineMarkers = (s.defaults.timelineMarkers ?? []).filter((m) => m.id !== id);
+        });
       },
 
       insertEmptyTimelineTime: (at, durationSec) => {
@@ -1389,6 +1413,9 @@ export const useSceneStore = create<SceneStore>()(
             if (track) track.startTime = Math.max(0, t);
           }
           s.currentTime = nextTime;
+          if (s.defaults.timelineMarkers?.length) {
+            s.defaults.timelineMarkers = remapMarkers(s.defaults.timelineMarkers, (t) => mapInsertPlayhead(t, at, durationSec));
+          }
           clampEffectClipStarts(s.items);
           syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
         });

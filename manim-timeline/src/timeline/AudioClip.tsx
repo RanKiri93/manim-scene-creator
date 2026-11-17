@@ -125,6 +125,7 @@ export default function AudioClip({
         items: state.items.values(),
         itemsMap,
         playhead: state.currentTime,
+        markers: state.defaults.timelineMarkers,
         excludeAudioIds: new Set([item.id]),
       });
       useSceneStore.temporal.getState().pause();
@@ -176,6 +177,7 @@ export default function AudioClip({
         items: state.items.values(),
         itemsMap,
         playhead: state.currentTime,
+        markers: state.defaults.timelineMarkers,
         excludeAudioIds: new Set(Object.keys(baselines)),
       });
 

@@ -1458,6 +1458,15 @@ export interface SceneDefaults {
   sceneName: string;
   /** Default fade-in/out (ms) applied at narration cut boundaries when exporting with mixdown. */
   audioCutFadeMs?: number;
+  /** Free timeline markers (M), sorted by time; snap targets. v45 backfills `[]`. */
+  timelineMarkers?: TimelineMarker[];
+}
+
+/** A point on the timeline the user marked (M during playback or recording). Seconds. */
+export interface TimelineMarker {
+  id: string;
+  time: number;
+  label?: string;
 }
 
 export interface MeasureConfig {

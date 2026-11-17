@@ -67,3 +67,27 @@ describe('undo history records content only', () => {
     expect(history().pastStates.length).toBe(0);
   });
 });
+
+describe('timeline markers', () => {
+  beforeEach(reset);
+
+  it('adds a marker at a time once, as an undo step, and moves it with inserted time', () => {
+    const st = () => useSceneStore.getState();
+    expect(st().addTimelineMarker(2)).toBe(true);
+    expect(st().addTimelineMarker(2.01)).toBe(false);
+    expect(st().defaults.timelineMarkers?.map((m) => m.time)).toEqual([2]);
+    expect(history().pastStates.length).toBe(1);
+    expect(st().insertEmptyTimelineTime(1, 3)).toBe(true);
+    expect(st().defaults.timelineMarkers?.map((m) => m.time)).toEqual([5]);
+    history().undo();
+    history().undo();
+    expect(st().defaults.timelineMarkers ?? []).toEqual([]);
+  });
+
+  it('removes a marker', () => {
+    useSceneStore.getState().addTimelineMarker(1);
+    const id = useSceneStore.getState().defaults.timelineMarkers![0]!.id;
+    useSceneStore.getState().removeTimelineMarker(id);
+    expect(useSceneStore.getState().defaults.timelineMarkers).toEqual([]);
+  });
+});

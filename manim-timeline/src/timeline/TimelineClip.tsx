@@ -223,6 +223,7 @@ export default function TimelineClip({
         items: state.items.values(),
         itemsMap,
         playhead: state.currentTime,
+        markers: state.defaults.timelineMarkers,
         excludeItemIds: new Set(Object.keys(baselines)),
       });
       const clipDur = runDuration(item, itemsMap);
@@ -314,6 +315,7 @@ export default function TimelineClip({
         items: st.items.values(),
         itemsMap,
         playhead: st.currentTime,
+        markers: st.defaults.timelineMarkers,
         excludeItemIds: new Set([item.id]),
       });
       const onMove = (ev: MouseEvent) => {

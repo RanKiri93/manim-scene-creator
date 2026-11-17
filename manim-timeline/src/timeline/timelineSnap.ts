@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import { getAudioBoundaries, type AudioTrackItem, type ItemId, type SceneItem } from '@/types/scene';
+import { getAudioBoundaries, type AudioTrackItem, type ItemId, type SceneItem, type TimelineMarker } from '@/types/scene';
 import { isTopLevelItem, runDuration } from '@/lib/time';
 
 /*
  * Timeline drag snapping. A dragged clip's edges snap to spoken words (start and end), the
- * playhead, and other clips' edges when within `SNAP_PX` on screen; Alt turns snapping off.
+ * playhead, free markers, and other clips' edges when within `SNAP_PX` on screen; Alt turns snapping off.
  * While a snap is active `useSnapGuide` holds the target so the timeline can draw a guide line.
  */
 
@@ -31,10 +31,13 @@ export function collectSnapTargets(opts: {
   items: Iterable<SceneItem>;
   itemsMap: Map<ItemId, SceneItem>;
   playhead: number;
+  /** Free timeline markers (M). */
+  markers?: readonly TimelineMarker[];
   excludeAudioIds?: ReadonlySet<string>;
   excludeItemIds?: ReadonlySet<string>;
 }): SnapTarget[] {
   const out: SnapTarget[] = [{ t: opts.playhead, label: 'playhead' }];
+  for (const m of opts.markers ?? []) out.push({ t: m.time, label: m.label ? `marker ${m.label}` : 'marker' });
   for (const a of opts.audioItems) {
     if (opts.excludeAudioIds?.has(a.id)) continue;
     getAudioBoundaries(a).forEach((b, i) => {
