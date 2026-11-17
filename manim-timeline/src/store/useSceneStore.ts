@@ -61,8 +61,10 @@ import { anchoredStartShifts, withWordIds } from '@/lib/wordAnchors';
 import { getAudioBoundaries } from '@/types/scene';
 import {
   MIN_CLIP_SEC,
+  clipLanguage,
   deleteClipRange,
   pasteClips,
+  punchInClip,
   splitClip,
   trimClipEnd,
   trimClipStart,
@@ -635,6 +637,19 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
       startTime?: number;
     },
   ) => Promise<void>;
+
+  /** Upload and process a recording like `addRecordedAudioTrack`, but return the clip without adding it. */
+  prepareRecordedTrack: (
+    blob: Blob,
+    options?: Parameters<SceneStore['addRecordedAudioTrack']>[1],
+  ) => Promise<AudioTrackItem>;
+
+  /**
+   * Punch-in: replace clip-local `[from, to)` of clip `clipId` with a new recording (uploaded,
+   * cleaned and transcribed like a mic take). Later unlinked narration and anchored clips move by
+   * the length difference. One undo step. False when the range or clip is invalid.
+   */
+  punchInAudio: (clipId: string, from: number, to: number, blob: Blob, filename: string) => Promise<boolean>;
 
   /**
    * Loudness-normalize an existing timeline audio clip (server ffmpeg loudnorm).
@@ -1906,6 +1921,42 @@ export const useSceneStore = create<SceneStore>()(
       },
 
       addRecordedAudioTrack: async (blob, options) => {
+        const track = await get().prepareRecordedTrack(blob, options);
+        set((s) => {
+          s.audioItems.push(track);
+        });
+      },
+
+      punchInAudio: async (clipId, from, to, blob, filename) => {
+        const original = get().audioItems.find((a) => a.id === clipId);
+        if (!original) return false;
+        const take = await get().prepareRecordedTrack(blob, {
+          filename,
+          emptyLabel: 'Re-recorded part',
+          transcriptionLang: clipLanguage(original),
+          autoClean: true,
+          startTime: 0,
+        });
+        const st = get();
+        const res = punchInClip(
+          st.audioItems,
+          clipId,
+          from,
+          to,
+          take,
+          crypto.randomUUID().slice(0, 12),
+          (aid) => explicitVisualOwnerForAudioTrack(st.items, aid) != null,
+        );
+        if (!res) return false;
+        set((s) => {
+          s.audioItems = res.audioItems;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          followWordAnchorsInDraft(s, st.audioItems);
+        });
+        return true;
+      },
+
+      prepareRecordedTrack: async (blob, options) => {
         const baseUrl = get().measureConfig.url;
         const useScript = options?.useScriptForTranscription === true;
         const trimmed = useScript ? options?.displayText?.trim() : undefined;
@@ -1992,9 +2043,7 @@ export const useSceneStore = create<SceneStore>()(
           duration,
           audioProcessing: cleaned ? { cleaned } : undefined,
         };
-        set((s) => {
-          s.audioItems.push(track);
-        });
+        return track;
       },
 
       normalizeAudioTrack: async (id, options) => {

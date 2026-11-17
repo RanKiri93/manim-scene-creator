@@ -262,3 +262,54 @@ export function wordRangeCut(a: AudioTrackItem, first: number, last: number): { 
   const to = next ? (words[j]!.end + next.start) / 2 : a.duration;
   return to - from > 0 ? { from: Math.max(0, from), to: Math.min(a.duration, to) } : null;
 }
+
+/**
+ * Punch-in: replace clip-local `[from, to)` of clip `id` with a new recording `take`. What came
+ * before keeps the clip's id; the take follows (`take.id`); what came after continues right after
+ * it (`rightId`). Unlinked audio after the replaced part moves by the length difference.
+ */
+export function punchInClip(
+  audioItems: readonly AudioTrackItem[],
+  id: string,
+  from: number,
+  to: number,
+  take: AudioTrackItem,
+  rightId: string,
+  isLinked: (id: string) => boolean,
+): AudioEditResult | null {
+  const a = audioItems.find((x) => x.id === id);
+  if (!a || !(take.duration > 0)) return null;
+  const f = Math.max(0, Math.min(from, to));
+  const t = Math.min(a.duration, Math.max(from, to));
+  if (t - f < MIN_CLIP_SEC - EPS) return null;
+  const at = a.startTime + f;
+  const shift = take.duration - (t - f);
+  const left = f >= MIN_CLIP_SEC ? sliceClip(a, 0, f, a.id) : null;
+  const rightRaw = a.duration - t >= MIN_CLIP_SEC ? sliceClip(a, t, a.duration, left ? rightId : a.id) : null;
+  const right = rightRaw ? { ...rightRaw, startTime: at + take.duration } : null;
+  // The take continues the clip's sound: same gain and cut fades.
+  const placed: AudioTrackItem = {
+    ...take,
+    startTime: at,
+    ...(a.gainDb != null ? { gainDb: a.gainDb } : {}),
+    ...(a.fadeInMs != null ? { fadeInMs: a.fadeInMs } : {}),
+    ...(a.fadeOutMs != null ? { fadeOutMs: a.fadeOutMs } : {}),
+  };
+  const cutEnd = a.startTime + t;
+  const out: AudioTrackItem[] = [];
+  for (const x of audioItems) {
+    if (x.id === id) {
+      if (left) out.push(left);
+      out.push(placed);
+      if (right) out.push(right);
+      continue;
+    }
+    out.push(x.startTime >= cutEnd - EPS && !isLinked(x.id) ? { ...x, startTime: Math.max(0, x.startTime + shift) } : x);
+  }
+  return { audioItems: out, ripple: Math.abs(shift) > EPS ? { at: cutEnd, shift } : null };
+}
+
+/** Transcription language for a re-recorded part: Hebrew when the clip's text has Hebrew letters. */
+export function clipLanguage(a: AudioTrackItem): 'iw' | 'en' {
+  return /[\u0590-\u05FF]/.test(a.text) ? 'iw' : 'en';
+}

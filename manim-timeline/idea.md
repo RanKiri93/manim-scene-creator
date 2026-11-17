@@ -143,9 +143,8 @@ support basic destructive or asset-generating edits from the timeline.
 
 ### Still open
 
-(Done 2026-11-17: the bed room-tone recorder uses the WAV recorder and the narration panel's microphone; free timeline markers (M) as snap targets, project v45; edit lists, so deleting words inside a clip keeps one clip.)
+(Done 2026-11-17: the bed room-tone recorder uses the WAV recorder and the narration panel's microphone; free timeline markers (M) as snap targets, project v45; edit lists, so deleting words inside a clip keeps one clip; punch-in (Re-record this part).)
 
-- Punch-in: re-record a few words inside an existing clip.
 - Takes: several recordings per sentence with a take picker; script prompter.
 
 ### Later

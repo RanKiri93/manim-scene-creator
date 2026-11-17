@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { AudioTrackItem } from '@/types/scene';
 import {
+  clipLanguage,
   clipPieces,
   copyRange,
   deleteClipRange,
   isEditedClip,
   pasteClips,
+  punchInClip,
   sliceClip,
   splitClip,
   trimClipEnd,
@@ -168,5 +170,33 @@ describe('edit lists (words deleted inside one clip)', () => {
     const twice = deleteClipRange([cut()], 'a', 1.0, 1.5, 'b', never)!.audioItems[0]!;
     expect(twice.pieces?.map((p) => [p.sourceIn, p.duration].map((v) => Math.round(v * 100) / 100))).toEqual([[0, 0.6], [1.4, 0.4], [2.3, 0.7]]);
     expect(clipPieces(twice).reduce((n, p) => n + p.duration, 0)).toBeCloseTo(twice.duration);
+  });
+});
+
+describe('punch-in', () => {
+  const later = (over: Partial<AudioTrackItem> = {}): AudioTrackItem => ({ ...clip(), id: 'later', startTime: 15, boundaries: [], ...over });
+  const take: AudioTrackItem = { id: 'take', text: 'TWO', audioUrl: 't', startTime: 0, duration: 1.2, boundaries: [{ word: 'TWO', start: 0.1, end: 1.0 }] };
+
+  it('replaces only the marked part and moves later unlinked audio by the length difference', () => {
+    const res = punchInClip([clip(), later(), later({ id: 'linked', startTime: 16 })], 'a', 0.6, 1.4, take, 'r', (id) => id === 'linked')!;
+    const [left, placed, right, lat, linked] = res.audioItems;
+    expect(left).toMatchObject({ id: 'a', startTime: 10, duration: expect.closeTo(0.6) });
+    expect(placed).toMatchObject({ id: 'take', startTime: 10.6, duration: 1.2, fadeInMs: 20 });
+    expect(right).toMatchObject({ id: 'r', startTime: expect.closeTo(11.8), sourceIn: 1.4, duration: expect.closeTo(1.6) });
+    expect(right!.boundaries!.map((w) => w.word)).toEqual(['three']);
+    expect(lat!.startTime).toBeCloseTo(15.4);
+    expect(linked!.startTime).toBe(16);
+    expect(res.ripple).toEqual({ at: 11.4, shift: expect.closeTo(0.4) });
+  });
+
+  it('replacing the head keeps the id on the rest; an empty range does nothing', () => {
+    const res = punchInClip([clip()], 'a', 0, 1, take, 'r', never)!;
+    expect(res.audioItems.map((x) => x.id)).toEqual(['take', 'a']);
+    expect(punchInClip([clip()], 'a', 1, 1, take, 'r', never)).toBeNull();
+  });
+
+  it('transcribes Hebrew clips in Hebrew', () => {
+    expect(clipLanguage(clip({ text: 'שלום עולם' }))).toBe('iw');
+    expect(clipLanguage(clip())).toBe('en');
   });
 });

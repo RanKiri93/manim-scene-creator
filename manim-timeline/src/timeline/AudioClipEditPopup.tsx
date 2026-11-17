@@ -8,6 +8,7 @@ import { getAudioBoundaries } from '@/types/scene';
 import { MIN_CLIP_SEC, clipFileLength, clipPieces, clipSourceIn, isEditedClip, sliceClip, wordRangeCut } from '@/lib/audioEdit';
 import { dbToGain } from '@/lib/audioSchedule';
 import { playAudioPiecesPreview, stopAudioPreview } from './audioBuffers';
+import PunchInControl from './PunchInControl';
 import {
   copyAudioSelection,
   cutAudioSelection,
@@ -437,12 +438,14 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
                 >
                   Copy
                 </button>
+                {owner ? null : <PunchInControl item={item} range={range} />}
               </div>
             ) : null}
             <p className="text-meta text-chalk-faint">
               Click a word, Shift+click to extend. Cuts fall in the middle of the pauses around the
-              words. Deleting closes the gap (the rest becomes a second clip); later narration and
-              clips anchored to later words move up. Paste with Ctrl+V on the timeline.
+              words. Deleting closes the gap (the clip stays one clip); later narration and clips
+              anchored to later words move up. Re-record this part replaces only the marked words
+              with a new take. Paste with Ctrl+V on the timeline.
             </p>
           </section>
         ) : null}

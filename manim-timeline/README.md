@@ -496,6 +496,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 
 ---
 
+*Last updated: **Punch-in** — in the clip editor, mark words (Transcript) or a range and press **Re-record this part**: after a 3-second count-in it records with the narration microphone (the words to say are shown), and on Stop the take is uploaded, cleaned and transcribed (Hebrew if the clip's text is Hebrew) and replaces only that part: the clip before it keeps its id, the take follows with the clip's gain and fades, and the rest continues right after; later unlinked narration and anchored clips move by the length difference. One undo step (`punchInClip`, `punchInAudio`).*
+
 *Last updated: **Deleting words keeps one clip** — deleting words or a range in the middle of a narration clip no longer leaves two clips: the clip keeps its id, link and words and plays an edit list of file pieces (`pieces`, `clipPieces` in `lib/audioEdit.ts`). The waveform shows each piece with a dashed join; preview, mixdown (one mixdown clip per piece) and the `.py` (`_mt_clip` per piece with `time_offset`) play the pieces back to back with the clip's cut fades. Split, trim, copy and further deletes work on edited clips.*
 
 *Last updated: **Timeline markers** — press M (while playing, recording, or stopped; not in a text field) to drop a marker at the playhead. Markers show on the ruler (click: go there; Shift+click or right-click: remove), clips snap to them like words, and inserting or removing time moves them. Project v45.*

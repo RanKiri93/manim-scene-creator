@@ -132,3 +132,24 @@ describe('mixdown spec for edited clips', () => {
     expect(spec.clips.map((c) => [c.start_sec, c.source_in_sec, c.duration_sec])).toEqual([[5, 0, 1], [6, 2, 2]]);
   });
 });
+
+describe('punch-in through the store', () => {
+  it('uploads the take, replaces the part in one undo step, and undo restores the clip', async () => {
+    const before = useSceneStore.getState().audioItems.map((a) => a.id);
+    const realPrepare = useSceneStore.getState().prepareRecordedTrack;
+    useSceneStore.setState({
+      prepareRecordedTrack: async () => ({ id: 'take', text: 'new', audioUrl: 'blob:t', startTime: 0, duration: 0.5 }),
+    });
+    const past = useSceneStore.temporal.getState().pastStates.length;
+    try {
+      expect(await useSceneStore.getState().punchInAudio(before[0]!, 1, 2, new Blob(), 'r.wav')).toBe(true);
+    } finally {
+      useSceneStore.setState({ prepareRecordedTrack: realPrepare });
+    }
+    const ids = useSceneStore.getState().audioItems.map((a) => a.id);
+    expect(ids).toContain('take');
+    expect(useSceneStore.temporal.getState().pastStates.length).toBe(past + 1);
+    useSceneStore.temporal.getState().undo();
+    expect(useSceneStore.getState().audioItems.map((a) => a.id)).not.toContain('take');
+  });
+});
