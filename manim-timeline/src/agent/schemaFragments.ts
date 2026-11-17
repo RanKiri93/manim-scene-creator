@@ -76,6 +76,7 @@ export const GRAPH_FOLLOW_ROW_PROPERTIES = {
   },
   graphCurveId: { type: 'string', description: 'target_animation mode "graphFollow": legacy parametric source id.' },
   easing: { type: 'string', enum: ['smooth', 'linear'], description: 'Graph-follow easing; default smooth.' },
+  speed: { type: 'string', enum: ['parameter', 'constant'], description: 'Graph-follow pacing: "parameter" (default) steps evenly in x (or t), so steep parts run fast; "constant" keeps a steady on-screen speed along the curve.' },
 } as const;
 
 export const TARGET_ANIMATION_MODES = ['scale', 'color', 'move', 'path', 'rotate', 'graphFollow', 'matrix_step'] as const;

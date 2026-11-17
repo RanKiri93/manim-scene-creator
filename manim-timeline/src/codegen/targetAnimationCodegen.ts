@@ -1,4 +1,5 @@
 import type {
+  GraphCurveItem,
   BlinkTargetSpec,
   GraphDotItem,
   ItemId,
@@ -10,7 +11,7 @@ import type {
 } from '@/types/scene';
 import { animateExpr, permanentBlinkStyleParts } from './blinkCodegen';
 import { canBeTargetAnimationTarget } from '@/lib/time';
-import { graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
+import { evaluateCurvePoint, evaluateGraphY, graphFollowArcTable, graphMotionConflicts, resolveGraphDotPosition } from '@/lib/graphMotion';
 import {
   overlayDotVar,
   pythonOverlaySuffix,
@@ -407,6 +408,16 @@ function allocPathVar(clipId: ItemId): string {
 }
 
 /**
+ * Python expression for the parameter at arc-length fraction `alpha` (piecewise linear over the
+ * table from `graphFollowArcTable`), so a constant-speed graph-follow matches the preview exactly.
+ */
+function arcLengthParameterExpr(s: number[], p: number[]): string {
+  const S = s.map((v) => Number(v.toFixed(6))).join(', ');
+  const P = p.map((v) => Number(v.toFixed(6))).join(', ');
+  return `(lambda a, S=(${S}), P=(${P}): (lambda i: P[i] + (P[i + 1] - P[i]) * ((a - S[i]) / (S[i + 1] - S[i]) if S[i + 1] > S[i] else 0))(min(len(S) - 2, sum(1 for v in S[1:-1] if v <= a))))(alpha)`;
+}
+
+/**
  * Setup lines + one `self.play(...)` line.
  */
 export function buildTargetAnimationPlayBlock(
@@ -439,7 +450,13 @@ export function buildTargetAnimationPlayBlock(
       if (!Number.isFinite(parameter1)) throw new Error(`Graph-follow clip "${clip.label || clip.id}" has an invalid destination parameter.`);
       const dVar = overlayDotVar(idToVarName.get(dot.axesId) ?? '', dot.id);
       const updateVar = `${dVar}_update`;
-      const pExpr = `((${parameter0}) + (((${parameter1}) - (${parameter0})) * alpha))`;
+      const axesItem = itemsMap.get(dot.axesId);
+      const arcTable = row.speed === 'constant' && axesItem?.kind === 'axes'
+        ? graphFollowArcTable(
+          (p) => source?.kind === 'graphPlot' ? { x: p, y: evaluateGraphY(source, p) } : evaluateCurvePoint(source as GraphCurveItem, p),
+          parameter0, parameter1!, axesItem)
+        : null;
+      const pExpr = arcTable ? arcLengthParameterExpr(arcTable.s, arcTable.p) : `((${parameter0}) + (((${parameter1}) - (${parameter0})) * alpha))`;
       const xExpr = functionMode ? pExpr : `(lambda t: ${oneLinePyExpr(source?.kind === 'graphCurve' ? source.curve.pyXExpr : undefined, 't')})(${pExpr})`;
       const yExpr = functionMode
         ? `(lambda x: ${oneLinePyExpr(source?.kind === 'graphPlot' ? source.fn.pyExpr : undefined, 'x')})(${pExpr})`

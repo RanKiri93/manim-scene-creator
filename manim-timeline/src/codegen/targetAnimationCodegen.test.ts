@@ -23,6 +23,19 @@ function mapOf(...items: SceneItem[]): Map<string, SceneItem> {
 }
 
 describe('formatTargetAnimationClipPlay', () => {
+  it('emits a constant-speed graph-follow as an arc-length table matching the preview', () => {
+    const axes = createAxes(defaultSceneDefaults(), 0); axes.id = 'ga';
+    const plot = createGraphPlot(axes.id, 0); plot.id = 'gp'; plot.fn = { ...plot.fn, jsExpr: 'x*x', pyExpr: 'x**2' };
+    const dot = createGraphDotItem(axes.id); dot.id = 'gd'; dot.dot.attachment = { kind: 'function', graphPlotId: plot.id, x: 0 };
+    const clip = createTargetAnimation('graphFollow', [dot.id], 1, 2); clip.id = 'follow-c'; clip.targets[0]!.targetX = 2;
+    const steady = formatTargetAnimationClipPlay(clip, '', new Map([['ga', 'axes_ga']]), mapOf(axes, plot, dot, clip));
+    expect(steady).not.toContain('S=(');
+    clip.targets[0]!.speed = 'constant';
+    const code = formatTargetAnimationClipPlay(clip, '', new Map([['ga', 'axes_ga']]), mapOf(axes, plot, dot, clip));
+    expect(code).toMatch(/lambda a, S=\(0, [^)]*, 1\), P=\(0, [^)]*, 2\)/);
+    expect(code).toContain('rate_func=smooth, run_time=2.000000');
+  });
+
   it('emits validated graph-space function-x and attached-curve parameter animations at exact clip runtime', () => {
     const axes = createAxes(defaultSceneDefaults(), 0); axes.id = 'ga';
     const plot = createGraphPlot(axes.id, 0); plot.id = 'gp'; plot.fn = { ...plot.fn, jsExpr: 'x*x', pyExpr: 'x**2' };

@@ -70,7 +70,7 @@ export function evaluateGraphY(plot: GraphPlotItem, x: number): number {
   return fn(x);
 }
 
-function evaluateCurvePoint(curve: GraphCurveItem, t: number): { x: number; y: number } {
+export function evaluateCurvePoint(curve: GraphCurveItem, t: number): { x: number; y: number } {
   const xFn = new Function('t', `"use strict"; return (${curve.curve.jsXExpr});`) as (t: number) => number;
   const yFn = new Function('t', `"use strict"; return (${curve.curve.jsYExpr});`) as (t: number) => number;
   return { x: xFn(t), y: yFn(t) };
@@ -159,12 +159,59 @@ export function resolveGraphDotPosition(args: { dot: GraphDotItem; items: readon
     }
     const progress = clip.duration <= 0 ? 1 : Math.max(0, Math.min(1, (time - clip.startTime) / clip.duration));
     const eased = row.easing === 'linear' ? progress : progress * progress * (3 - 2 * progress);
-    parameter += (target! - parameter) * eased;
+    const table = row.speed === 'constant'
+      ? graphFollowArcTable((p) => functionMode ? { x: p, y: evaluateGraphY(plot!, p) } : evaluateCurvePoint(curve!, p), parameter, target!, axes)
+      : null;
+    parameter = table ? parameterAtArcFraction(table, eased) : parameter + (target! - parameter) * eased;
     try { point = functionMode ? { x: parameter, y: evaluateGraphY(plot!, parameter) } : evaluateCurvePoint(curve!, parameter); }
     catch { return { point, error: `Source is undefined during graph-follow clip ${clip.id}.`, warnings }; }
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return { point, error: `Source is undefined during graph-follow clip ${clip.id}.`, warnings };
   }
   return { point, error: null, warnings, parameter, parameterKind };
+}
+
+export const GRAPH_FOLLOW_ARC_SAMPLES = 64;
+/** Cumulative arc-length fraction `s` (0..1) at each sampled parameter `p`, both increasing along the motion. */
+export interface GraphFollowArcTable { s: number[]; p: number[] }
+
+/**
+ * Arc-length table for constant-speed graph-follow, measured in scene units (axes scaleX/scaleY),
+ * so the dot covers equal on-screen distance per unit of eased time. Shared by the preview and
+ * the export (which emits the table). Null when the path has no length or cannot be evaluated.
+ */
+export function graphFollowArcTable(
+  point: (parameter: number) => { x: number; y: number },
+  from: number,
+  to: number,
+  axes: Pick<AxesItem, 'scaleX' | 'scaleY'>,
+  samples = GRAPH_FOLLOW_ARC_SAMPLES,
+): GraphFollowArcTable | null {
+  if (from === to) return null;
+  const p: number[] = [];
+  const s: number[] = [0];
+  let previous: { x: number; y: number } | null = null;
+  for (let i = 0; i <= samples; i++) {
+    const parameter = from + ((to - from) * i) / samples;
+    let next: { x: number; y: number };
+    try { next = point(parameter); } catch { return null; }
+    if (!Number.isFinite(next.x) || !Number.isFinite(next.y)) return null;
+    p.push(parameter);
+    if (previous) s.push(s[s.length - 1]! + Math.hypot((next.x - previous.x) * axes.scaleX, (next.y - previous.y) * axes.scaleY));
+    previous = next;
+  }
+  const total = s[s.length - 1]!;
+  if (!(total > 1e-9)) return null;
+  return { s: s.map((v) => v / total), p };
+}
+
+/** Parameter at an arc-length fraction (linear between samples). */
+export function parameterAtArcFraction(table: GraphFollowArcTable, fraction: number): number {
+  const { s, p } = table;
+  const f = Math.max(0, Math.min(1, fraction));
+  let i = 0;
+  while (i < s.length - 2 && s[i + 1]! <= f) i++;
+  const span = s[i + 1]! - s[i]!;
+  return span > 0 ? p[i]! + (p[i + 1]! - p[i]!) * ((f - s[i]!) / span) : p[i]!;
 }
 
 /** Deterministically report overlapping positional writers for this point. */

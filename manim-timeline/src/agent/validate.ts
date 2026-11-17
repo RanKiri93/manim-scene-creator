@@ -3279,6 +3279,7 @@ function applyGraphFollowRowFields(row: TargetAnimationTargetSpec, t: Record<str
   const targetT = typeof t.targetT === 'number' ? t.targetT : t.toT;
   if (typeof targetT === 'number' && Number.isFinite(targetT)) row.targetT = targetT;
   if (t.easing === 'linear' || t.easing === 'smooth') row.easing = t.easing;
+  if (t.speed === 'constant' || t.speed === 'parameter') row.speed = t.speed;
 }
 
 /** Missing mode keeps the historical `scale` default; an unknown mode is an error, never a silent scale. */

@@ -371,7 +371,7 @@ Real LLM responses are noisy. The validator has two responsibilities:
   proposal) resolves to a persisted `follow: { targetId }`, frame = the target's frame, width default 7.1;
   `validateCameraMove` refuses a follow that starts before its target appears.
 - `target_animation` accepts `mode: "graphFollow"` with rows `{ targetId, targetX | targetT, graphPlotId?,
-  easing? }`; targets must be graph dots.
+  easing?, speed? }` (`speed: "constant"` = steady on-screen speed along the curve); targets must be graph dots.
 - `checkGraphMotion` runs `lib/graphMotion.ts` (the resolver the canvas and exporter use) on the scene the
   actions would produce: attached dots must resolve (their fallback `dx/dy` is synced to the resolved
   point), a clip must not start before its dot, and the end position must resolve (domain, continuity,

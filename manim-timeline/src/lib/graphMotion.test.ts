@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveGraphDotPosition, graphMotionConflicts, graphProjectionGuides, resolveGraphFollowSelection, graphFollowMinimumStartTime, graphFollowStartTimeError, isGraphFollowTarget } from '@/lib/graphMotion';
+import { graphFollowArcTable, parameterAtArcFraction, resolveGraphDotPosition, graphMotionConflicts, graphProjectionGuides, resolveGraphFollowSelection, graphFollowMinimumStartTime, graphFollowStartTimeError, isGraphFollowTarget } from '@/lib/graphMotion';
 import type { AxesItem, GraphCurveItem, GraphDotItem, GraphPlotItem, SceneItem, TargetAnimationItem } from '@/types/scene';
 
 const dot: GraphDotItem = { kind: 'graphDot', id: 'd', axesId: 'a', dot: { id: 'd', dx: 0, dy: 0, color: '#fff', radius: .1, label: '', labelDir: 'UP' }, label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [] };
@@ -7,6 +7,19 @@ const plot: GraphPlotItem = { kind: 'graphPlot', id: 'p', axesId: 'a', fn: { id:
 const axes: AxesItem = { kind: 'axes', id: 'a', xRange: [-2, 2, 1], yRange: [-2, 4, 1], xLabel: '', yLabel: '', includeNumbers: false, includeTip: false, scaleX: 1, scaleY: 1, label: '', layer: 0, startTime: 0, duration: 1, x: 0, y: 0, scale: 1, posSteps: [] };
 const clip: TargetAnimationItem = { kind: 'target_animation', id: 'c', label: '', layer: 0, mode: 'graphFollow', startTime: 1, duration: 2, targets: [{ targetId: 'd', graphPlotId: 'p', targetX: 2, easing: 'linear' }] };
 describe('graphFollow resolver', () => {
+  it('moves at a constant on-screen speed when the row asks for it', () => {
+    const steady = { ...clip, targets: [{ ...clip.targets[0]!, targetX: 2, speed: 'constant' as const }] };
+    const at = (t: number) => resolveGraphDotPosition({ dot, items: [dot, axes, plot, steady], time: t }).point;
+    const arc = (x: number) => { let s = 0; for (let i = 0; i < 2000; i++) { const a = (x * i) / 2000, b = (x * (i + 1)) / 2000; s += Math.hypot(b - a, b * b - a * a); } return s; };
+    expect(at(1).x).toBeCloseTo(0);
+    expect(at(3)).toEqual({ x: 2, y: 4 });
+    const half = at(2);
+    expect(half.x).toBeGreaterThan(1.2); // the parameter pace would be at x = 1
+    expect(arc(half.x) / arc(2)).toBeCloseTo(0.5, 2);
+    const scaled = graphFollowArcTable((x) => ({ x, y: x * x }), 0, 2, { scaleX: 1, scaleY: 0.1 })!;
+    expect(parameterAtArcFraction(scaled, 0.5)).toBeLessThan(half.x); // squashed y: closer to the x pace
+    expect(graphFollowArcTable((x) => ({ x, y: 0 }), 1, 1, axes)).toBeNull();
+  });
   it('rejects an explicitly selected plot on different axes and allows the compatible pair', () => {
     const wrongAxes = { ...plot, id: 'other-plot', axesId: 'other-axes' };
     const items = new Map<string, SceneItem>([[dot.id, dot], [plot.id, plot], [wrongAxes.id, wrongAxes]]);

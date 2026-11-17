@@ -425,6 +425,11 @@ export interface TargetAnimationTargetSpec {
   targetT?: number;
   /** Graph-x interpolation easing; omitted legacy value defaults to smooth. */
   easing?: 'linear' | 'smooth';
+  /**
+   * Graph-follow pacing: omitted / `'parameter'` moves at a steady rate in x (or t), so steep parts
+   * run fast; `'constant'` moves at a steady speed along the drawn curve (arc length in scene units).
+   */
+  speed?: 'parameter' | 'constant';
   segmentIndices?: number[] | null;
   mathSubtargets?: { segmentIndex: number; childIndices: number[] }[] | null;
   /** For `matrix` targets (`mode === 'color'`): recolour only these entries. Omit or empty = all. */
