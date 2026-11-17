@@ -88,3 +88,11 @@ describe('fade envelope', () => {
     ]);
   });
 });
+
+describe('edit lists', () => {
+  it('plays each piece at its place with the clip fades and gain', () => {
+    const segs = audioPlaySegments([mk('a', 10, 3, { gainDb: -6, pieces: [{ sourceIn: 0, duration: 1 }, { sourceIn: 2, duration: 2 }] })], defaults);
+    expect(segs.map((s) => [s.timelineStart, s.sourceIn, s.duration])).toEqual([[10, 0, 1], [11, 2, 2]]);
+    expect(segs.every((s) => s.fadeIn === 0.04 && s.fadeOut === 0.04 && Math.abs(s.gain - 0.501) < 1e-3)).toBe(true);
+  });
+});

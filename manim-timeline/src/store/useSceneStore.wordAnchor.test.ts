@@ -48,8 +48,10 @@ describe('word anchors', () => {
   it('follows when audio before the word is cut out', () => {
     useSceneStore.getState().deleteAudioRange('v', 0.8, 1.8); // removes "two"
     expect(lineStart()).toBeCloseTo(3.2);
-    const right = useSceneStore.getState().audioItems[1]!;
-    expect(right.boundaries!.map((w) => w.word)).toEqual(['three']);
+    // One clip with two pieces; the anchored word keeps its id and moves with the join.
+    const [kept] = useSceneStore.getState().audioItems;
+    expect(useSceneStore.getState().audioItems).toHaveLength(1);
+    expect(kept!.boundaries!.map((w) => w.word)).toEqual(['one', 'three']);
   });
 
   it('follows when a word start is nudged and when audio is inserted before it', () => {

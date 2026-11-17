@@ -66,14 +66,14 @@ describe('narration edits in the store', () => {
     expect(useSceneStore.getState().audioItems[0]).toEqual(base);
   });
 
-  it('deleting a range closes the clip and pulls later audio left', () => {
+  it('deleting a range closes the clip (one clip, two pieces) and pulls later audio left', () => {
     expect(useSceneStore.getState().deleteAudioRange('a', 1, 2)).toBe(true);
     const items = useSceneStore.getState().audioItems;
-    expect(items.map((a) => [a.startTime, a.duration, a.sourceIn ?? 0])).toEqual([
-      [0, 1, 0],
-      [1, 2, 2],
-      [4, 2, 0],
+    expect(items.map((a) => [a.id, a.startTime, a.duration, a.sourceIn ?? 0])).toEqual([
+      ['a', 0, 3, 0],
+      ['b', 4, 2, 0],
     ]);
+    expect(items[0]!.pieces).toEqual([{ sourceIn: 0, duration: 1 }, { sourceIn: 2, duration: 2 }]);
   });
 
   it('cut a range, paste on top keeps the rest in place; insert pushes', () => {
@@ -123,5 +123,12 @@ describe('mixdown spec for edited clips', () => {
     const spec = buildAudioMixdownSpec([], [plain, piece], defaults, {});
     expect(spec.clips[0]).not.toHaveProperty('source_in_sec');
     expect(spec.clips[1]).toMatchObject({ source_in_sec: 0.5, duration_sec: 1, gain_db: -3, start_sec: 3 });
+  });
+
+
+  it('sends one clip per piece of an edit list, at its place in the clip', () => {
+    const cut = track('c', 5, 3, { sourceIn: 0, sourceDuration: 4, pieces: [{ sourceIn: 0, duration: 1 }, { sourceIn: 2, duration: 2 }] });
+    const spec = buildAudioMixdownSpec([], [cut], useSceneStore.getState().defaults, {});
+    expect(spec.clips.map((c) => [c.start_sec, c.source_in_sec, c.duration_sec])).toEqual([[5, 0, 1], [6, 2, 2]]);
   });
 });

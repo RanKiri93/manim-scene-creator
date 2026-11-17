@@ -13,6 +13,8 @@ interface WaveformProps {
   widthPx: number;
   heightPx: number;
   className?: string;
+  /** Extra inline style (e.g. `left` when several pieces sit side by side). */
+  style?: React.CSSProperties;
 }
 
 /** Quiet raw takes are scaled up to fill the lane, at most this much. */
@@ -22,7 +24,7 @@ const MAX_BOOST = 4;
  * Mirrored peak waveform of a slice of an audio file, drawn in the element's text colour and
  * scaled to the file's loudest peak (so a quiet raw take is still readable).
  */
-export default function Waveform({ url, fromSec, toSec, widthPx, heightPx, className }: WaveformProps) {
+export default function Waveform({ url, fromSec, toSec, widthPx, heightPx, className, style }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const peaks = useSyncExternalStore(subscribeWaveformPeaks, () => getWaveformPeaks(url));
 
@@ -61,7 +63,7 @@ export default function Waveform({ url, fromSec, toSec, widthPx, heightPx, class
       ref={canvasRef}
       aria-hidden
       className={className}
-      style={{ width: `${widthPx}px`, height: `${heightPx}px` }}
+      style={{ ...style, width: `${widthPx}px`, height: `${heightPx}px` }}
     />
   );
 }

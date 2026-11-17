@@ -1,4 +1,4 @@
-import { getAudioBoundaries, type AudioTrackItem, type WordBoundary } from '@/types/scene';
+import { getAudioBoundaries, type AudioClipPiece, type AudioTrackItem, type WordBoundary } from '@/types/scene';
 
 /*
  * Non-destructive narration edits. A clip plays `[sourceIn, sourceIn + duration)` of its file;
@@ -16,14 +16,54 @@ export function clipSourceIn(a: AudioTrackItem): number {
   return Math.max(0, a.sourceIn ?? 0);
 }
 
+/** One played piece of a clip: clip-local start `at`, and `duration` seconds of the file from `sourceIn`. */
+export interface PlayedPiece extends AudioClipPiece {
+  at: number;
+}
+
+/** The pieces a clip plays back to back (one for an ordinary clip; several after deleting words inside it). */
+export function clipPieces(a: AudioTrackItem): PlayedPiece[] {
+  if (!a.pieces || a.pieces.length < 2) return [{ at: 0, sourceIn: clipSourceIn(a), duration: a.duration }];
+  let at = 0;
+  return a.pieces.map((p) => {
+    const piece = { at, sourceIn: Math.max(0, p.sourceIn), duration: p.duration };
+    at += p.duration;
+    return piece;
+  });
+}
+
 /** Full file length when known, else what the clip already reaches. */
 export function clipFileLength(a: AudioTrackItem): number {
-  return Math.max(a.sourceDuration ?? 0, clipSourceIn(a) + a.duration);
+  return Math.max(a.sourceDuration ?? 0, ...clipPieces(a).map((p) => p.sourceIn + p.duration));
 }
 
 /** True when the clip plays only part of its file or has gain: export must slice it. */
 export function isEditedClip(a: AudioTrackItem): boolean {
-  return a.sourceIn != null || a.sourceDuration != null || (a.gainDb ?? 0) !== 0;
+  return a.sourceIn != null || a.sourceDuration != null || (a.gainDb ?? 0) !== 0 || (a.pieces?.length ?? 0) > 1;
+}
+
+/** Pieces covering clip-local `[from, to)`; the ends may reach past the first/last piece into the file. */
+function slicePieces(pieces: readonly PlayedPiece[], from: number, to: number): AudioClipPiece[] {
+  const out: AudioClipPiece[] = [];
+  pieces.forEach((p, i) => {
+    const s = i === 0 ? from : Math.max(from, p.at);
+    const e = i === pieces.length - 1 ? to : Math.min(to, p.at + p.duration);
+    if (e - s <= EPS) return;
+    const piece = { sourceIn: p.sourceIn + (s - p.at), duration: e - s };
+    const prev = out[out.length - 1];
+    // Neighbouring pieces that continue in the file are one piece.
+    if (prev && Math.abs(prev.sourceIn + prev.duration - piece.sourceIn) < EPS) prev.duration += piece.duration;
+    else out.push(piece);
+  });
+  return out;
+}
+
+/** The clip with these pieces: one piece is stored as plain `sourceIn`, several as `pieces`. */
+function withPieces(a: AudioTrackItem, pieces: AudioClipPiece[]): AudioTrackItem {
+  const out: AudioTrackItem = { ...a, sourceIn: pieces[0]!.sourceIn, duration: pieces.reduce((n, p) => n + p.duration, 0) };
+  if (pieces.length > 1) out.pieces = pieces.map((p) => ({ sourceIn: p.sourceIn, duration: p.duration }));
+  else delete out.pieces;
+  return out;
 }
 
 /**
@@ -37,10 +77,12 @@ export function sliceClip(
   to: number,
   id: string = a.id,
 ): AudioTrackItem | null {
-  const srcIn = clipSourceIn(a);
+  const played = clipPieces(a);
+  const first = played[0]!;
+  const last = played[played.length - 1]!;
   const fileLen = clipFileLength(a);
-  const f = Math.max(-srcIn, from);
-  const t = Math.min(fileLen - srcIn, to);
+  const f = Math.max(-first.sourceIn, from);
+  const t = Math.min(a.duration + fileLen - (last.sourceIn + last.duration), to);
   if (t - f < MIN_CLIP_SEC - EPS) return null;
   const dur = t - f;
   const words: WordBoundary[] = [];
@@ -55,17 +97,33 @@ export function sliceClip(
   }
   const hadWords = getAudioBoundaries(a).length > 0;
   const piece: AudioTrackItem = {
-    ...a,
+    ...withPieces(a, slicePieces(played, f, t)),
     id,
     startTime: Math.max(0, a.startTime + f),
     duration: dur,
-    sourceIn: srcIn + f,
     sourceDuration: fileLen,
     boundaries: words,
     text: hadWords ? words.map((w) => w.word).join(' ') : a.text,
   };
   delete piece.word_boundaries;
   return piece;
+}
+
+/** `right` played straight after `left` as one clip (left's id, start and settings). */
+function joinClips(left: AudioTrackItem, right: AudioTrackItem): AudioTrackItem {
+  const pieces = [...clipPieces(left), ...clipPieces(right)].map(({ sourceIn, duration }) => ({ sourceIn, duration }));
+  const words = [
+    ...getAudioBoundaries(left),
+    ...getAudioBoundaries(right).map((w) => ({ ...w, start: w.start + left.duration, end: w.end + left.duration })),
+  ];
+  const hadWords = words.length > 0;
+  const out: AudioTrackItem = {
+    ...withPieces(left, slicePieces(pieces.map((p, i) => ({ ...p, at: pieces.slice(0, i).reduce((n, q) => n + q.duration, 0) })), 0, left.duration + right.duration)),
+    boundaries: words,
+    text: hadWords ? words.map((w) => w.word).join(' ') : left.text,
+  };
+  delete out.word_boundaries;
+  return out;
 }
 
 /** Split at clip-local `at`: left keeps the id (and any binding), right gets `newId`. */
@@ -105,8 +163,9 @@ export interface AudioEditResult {
 }
 
 /**
- * Delete clip-local `[from, to)` from clip `id`: the clip is cut in two and the right part closes
- * the gap. Unlinked clips that start at or after the cut's end move left by the same amount.
+ * Delete clip-local `[from, to)` from clip `id`: the rest closes the gap and stays one clip (an
+ * edit list of pieces), keeping its id, binding and word ids. Unlinked clips that start at or
+ * after the cut's end move left by the same amount.
  */
 export function deleteClipRange(
   audioItems: readonly AudioTrackItem[],
@@ -128,12 +187,12 @@ export function deleteClipRange(
   const left = f >= MIN_CLIP_SEC ? sliceClip(a, 0, f, a.id) : null;
   const rightRaw = a.duration - t >= MIN_CLIP_SEC ? sliceClip(a, t, a.duration, left ? newId : a.id) : null;
   const right = rightRaw ? { ...rightRaw, startTime: cutAt } : null;
+  const kept = left && right ? joinClips(left, right) : left ?? right;
 
   const out: AudioTrackItem[] = [];
   for (const x of audioItems) {
     if (x.id === id) {
-      if (left) out.push(left);
-      if (right) out.push(right);
+      if (kept) out.push(kept);
       continue;
     }
     if (x.startTime >= cutEnd - EPS && !isLinked(x.id)) {

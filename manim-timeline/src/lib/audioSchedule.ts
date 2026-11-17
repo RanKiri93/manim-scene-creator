@@ -1,5 +1,6 @@
 import type { AudioBed, AudioTrackItem, SceneDefaults } from '@/types/scene';
 import { effectiveClipFadeMs } from '@/lib/audioMixdown';
+import { clipPieces } from '@/lib/audioEdit';
 
 /*
  * What the timeline preview plays, mirroring the export mixdown (`audio_mixdown.py`): every
@@ -45,17 +46,20 @@ export function audioPlaySegments(
   for (const a of audioItems) {
     if (!a.audioUrl || !(a.duration > 0)) continue;
     const fades = effectiveClipFadeMs(a, defaults);
-    const [fadeIn, fadeOut] = fitFades(fades.fadeInMs / 1000, fades.fadeOutMs / 1000, a.duration);
-    out.push({
-      id: a.id,
-      url: a.audioUrl,
-      timelineStart: a.startTime,
-      sourceIn: Math.max(0, a.sourceIn ?? 0),
-      duration: a.duration,
-      fadeIn,
-      fadeOut,
-      gain: dbToGain(a.gainDb ?? 0),
-    });
+    // An edited clip plays its pieces back to back; every join is a cut with the clip's fades.
+    for (const piece of clipPieces(a)) {
+      const [fadeIn, fadeOut] = fitFades(fades.fadeInMs / 1000, fades.fadeOutMs / 1000, piece.duration);
+      out.push({
+        id: a.id,
+        url: a.audioUrl,
+        timelineStart: a.startTime + piece.at,
+        sourceIn: piece.sourceIn,
+        duration: piece.duration,
+        fadeIn,
+        fadeOut,
+        gain: dbToGain(a.gainDb ?? 0),
+      });
+    }
   }
   return out;
 }

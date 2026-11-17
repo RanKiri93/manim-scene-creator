@@ -1,6 +1,6 @@
 import type { AudioTrackItem } from '@/types/scene';
 import { deriveAudioAssetRelPath } from '@/lib/audioAssetPath';
-import { clipSourceIn, isEditedClip } from '@/lib/audioEdit';
+import { clipPieces, isEditedClip } from '@/lib/audioEdit';
 
 /*
  * Sound calls for timeline narration. A whole-file clip stays `self.add_sound(path)`. An edited
@@ -47,14 +47,24 @@ export function audioClipHelperSource(defaultFadeMs: number): string {
   );
 }
 
-/** `self.add_sound(...)` or `_mt_clip(self, ...)` (no indent, no newline). */
+/**
+ * `self.add_sound(...)` or `_mt_clip(self, ...)` (no indent, no newline). An edited clip with
+ * several pieces (words deleted inside it) is one `_mt_clip` call per piece on the same line,
+ * each offset by where the piece starts in the clip.
+ */
 export function pySoundCall(track: AudioTrackItem, timeOffset?: number): string {
   const path = deriveAudioAssetRelPath(track);
   const off = timeOffset != null ? `, time_offset=${timeOffset.toFixed(4)}` : '';
   if (!isEditedClip(track)) return `self.add_sound("${path}"${off})`;
-  let args = `self, "${path}", ${clipSourceIn(track).toFixed(4)}, ${track.duration.toFixed(4)}`;
-  if ((track.gainDb ?? 0) !== 0) args += `, gain_db=${track.gainDb!.toFixed(2)}`;
-  if (track.fadeInMs != null) args += `, fade_in_ms=${Math.round(track.fadeInMs)}`;
-  if (track.fadeOutMs != null) args += `, fade_out_ms=${Math.round(track.fadeOutMs)}`;
-  return `${AUDIO_CLIP_HELPER_NAME}(${args}${off})`;
+  return clipPieces(track)
+    .map((piece) => {
+      let args = `self, "${path}", ${piece.sourceIn.toFixed(4)}, ${piece.duration.toFixed(4)}`;
+      if ((track.gainDb ?? 0) !== 0) args += `, gain_db=${track.gainDb!.toFixed(2)}`;
+      if (track.fadeInMs != null) args += `, fade_in_ms=${Math.round(track.fadeInMs)}`;
+      if (track.fadeOutMs != null) args += `, fade_out_ms=${Math.round(track.fadeOutMs)}`;
+      const at = (timeOffset ?? 0) + piece.at;
+      const pieceOff = timeOffset != null || piece.at > 0 ? `, time_offset=${at.toFixed(4)}` : '';
+      return `${AUDIO_CLIP_HELPER_NAME}(${args}${pieceOff})`;
+    })
+    .join('; ');
 }

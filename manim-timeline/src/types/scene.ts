@@ -212,12 +212,24 @@ export interface AudioTrackItem {
   sourceIn?: number;
   /** Full length of the audio file in seconds, when known (limits how far a trim can be undone). */
   sourceDuration?: number;
+  /**
+   * Edit list: pieces of the file played back to back (words deleted from the middle of a clip).
+   * When set (2+ pieces) it defines the clip: `sourceIn` = first piece, `duration` = their sum.
+   * Missing = one piece, `[sourceIn, sourceIn + duration)`.
+   */
+  pieces?: AudioClipPiece[];
   /** Clip gain in dB (preview and export). Missing = 0. */
   gainDb?: number;
   /** Per-clip fade-in at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
   fadeInMs?: number;
   /** Per-clip fade-out at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
   fadeOutMs?: number;
+}
+
+/** One piece of a narration clip's edit list: `duration` seconds of the file from `sourceIn`. */
+export interface AudioClipPiece {
+  sourceIn: number;
+  duration: number;
 }
 
 export type AudioBedKind = 'music' | 'roomtone' | 'noise';

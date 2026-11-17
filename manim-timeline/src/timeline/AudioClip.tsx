@@ -8,6 +8,7 @@ import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import BoundaryLabel, { isMathBoundaryWord } from './BoundaryLabel';
 import Waveform from './Waveform';
+import { clipPieces } from '@/lib/audioEdit';
 import { useAudioEditSession } from './audioEditSession';
 
 /** Height of the narration lane (px); the waveform fills it. */
@@ -271,14 +272,18 @@ export default function AudioClip({
         onEditRequest(item.id);
       }}
     >
-      <Waveform
-        url={item.audioUrl}
-        fromSec={item.sourceIn ?? 0}
-        toSec={(item.sourceIn ?? 0) + item.duration}
-        widthPx={width}
-        heightPx={AUDIO_LANE_PX - 2}
-        className="pointer-events-none absolute left-0 top-0 z-0 text-ink/35"
-      />
+      {clipPieces(item).map((piece, i) => (
+        <Waveform
+          key={i}
+          url={item.audioUrl}
+          fromSec={piece.sourceIn}
+          toSec={piece.sourceIn + piece.duration}
+          widthPx={piece.duration * pxPerSecond}
+          heightPx={AUDIO_LANE_PX - 2}
+          className={`pointer-events-none absolute top-0 z-0 text-ink/35 ${i > 0 ? 'border-l border-dashed border-ink/50' : ''}`}
+          style={{ left: `${piece.at * pxPerSecond}px` }}
+        />
+      ))}
       {range ? (
         <div
           aria-hidden

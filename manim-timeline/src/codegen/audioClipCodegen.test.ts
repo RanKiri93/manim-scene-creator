@@ -71,3 +71,13 @@ describe('export with edited narration', () => {
     expect(code).toContain('self.add_sound("assets/audio/voice.wav")');
   });
 });
+
+describe('edited clip with deleted words inside', () => {
+  it('plays each piece at its place in the clip, on one line', () => {
+    const cut = voice({ sourceIn: 0, duration: 3, sourceDuration: 4, pieces: [{ sourceIn: 0, duration: 1 }, { sourceIn: 2, duration: 2 }] });
+    expect(pySoundCall(cut)).toBe(
+      '_mt_clip(self, "assets/audio/voice.wav", 0.0000, 1.0000); _mt_clip(self, "assets/audio/voice.wav", 2.0000, 2.0000, time_offset=1.0000)',
+    );
+    expect(pySoundCall(cut, 0.5)).toContain('2.0000, 2.0000, time_offset=1.5000)');
+  });
+});

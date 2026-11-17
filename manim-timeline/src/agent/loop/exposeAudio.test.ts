@@ -101,7 +101,9 @@ describe('Approve applies AUDIO actions through the store', () => {
     const st = useSceneStore.getState();
     expect(st.items.get('box')!.startTime).toBeCloseTo(4.2);
     expect(st.items.get('box')!.wordAnchor).toBeDefined();
-    expect(st.audioItems).toHaveLength(2);
+    // The cut keeps one clip with two pieces (an edit list), so the gain covers all of it.
+    expect(st.audioItems).toHaveLength(1);
+    expect(st.audioItems[0]!.pieces).toHaveLength(2);
     expect(st.audioItems[0]!.gainDb).toBe(-2);
     expect(useSceneStore.temporal.getState().pastStates.length).toBe(pastBefore + 1);
     useSceneStore.temporal.getState().undo();

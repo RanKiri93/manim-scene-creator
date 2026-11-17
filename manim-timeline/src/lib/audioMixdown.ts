@@ -10,7 +10,7 @@ import {
   measureServerRelativeAudioBedPath,
 } from '@/lib/audioAssetPath';
 import { computeSceneDurationSec } from '@/codegen/manimExporter';
-import { clipSourceIn, isEditedClip } from '@/lib/audioEdit';
+import { clipPieces, isEditedClip } from '@/lib/audioEdit';
 import type { FrameDef, ItemId } from '@/types/scene';
 
 export interface EffectiveClipFades {
@@ -91,19 +91,22 @@ export function buildAudioMixdownSpec(
       );
     }
     const fades = effectiveClipFadeMs(track, defaults);
-    clips.push({
-      rel_path: rel,
-      start_sec: track.startTime,
-      fade_in_ms: fades.fadeInMs,
-      fade_out_ms: fades.fadeOutMs,
-      ...(isEditedClip(track)
-        ? {
-            gain_db: track.gainDb ?? 0,
-            source_in_sec: clipSourceIn(track),
-            duration_sec: track.duration,
-          }
-        : {}),
-    });
+    // One mixdown clip per piece of an edited clip (words deleted inside it).
+    for (const piece of clipPieces(track)) {
+      clips.push({
+        rel_path: rel,
+        start_sec: track.startTime + piece.at,
+        fade_in_ms: fades.fadeInMs,
+        fade_out_ms: fades.fadeOutMs,
+        ...(isEditedClip(track)
+          ? {
+              gain_db: track.gainDb ?? 0,
+              source_in_sec: piece.sourceIn,
+              duration_sec: piece.duration,
+            }
+          : {}),
+      });
+    }
   }
 
   let bed: AudioMixdownBedSpec | undefined;

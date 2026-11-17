@@ -5,9 +5,9 @@ import { usePreviewMergedItems } from '@/agent/previewSelectors';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { getAudioBoundaries } from '@/types/scene';
-import { MIN_CLIP_SEC, clipFileLength, clipSourceIn, isEditedClip, wordRangeCut } from '@/lib/audioEdit';
+import { MIN_CLIP_SEC, clipFileLength, clipPieces, clipSourceIn, isEditedClip, sliceClip, wordRangeCut } from '@/lib/audioEdit';
 import { dbToGain } from '@/lib/audioSchedule';
-import { playAudioPreview, stopAudioPreview } from './audioBuffers';
+import { playAudioPiecesPreview, stopAudioPreview } from './audioBuffers';
 import {
   copyAudioSelection,
   cutAudioSelection,
@@ -252,10 +252,11 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
         return;
       }
       setPreviewing(tag);
-      void playAudioPreview(
+      // The range may span the joins of an edited clip: play its file pieces back to back.
+      const part = sliceClip(item, Math.max(0, start), Math.max(start + 0.01, end));
+      void playAudioPiecesPreview(
         item.audioUrl,
-        clipSourceIn(item) + Math.max(0, start),
-        Math.max(0.01, end - start),
+        part ? clipPieces(part) : [{ sourceIn: clipSourceIn(item) + Math.max(0, start), duration: Math.max(0.01, end - start) }],
         dbToGain(item.gainDb ?? 0),
         () => setPreviewing((p) => (p === tag ? null : p)),
       );
@@ -289,7 +290,7 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
           <span className="text-meta text-chalk-faint tabular-nums">
             {item.duration.toFixed(2)} s
             {isEditedClip(item)
-              ? ` · plays ${clipSourceIn(item).toFixed(2)}–${(clipSourceIn(item) + item.duration).toFixed(2)} s of ${clipFileLength(item).toFixed(2)} s file`
+              ? ` · plays ${clipPieces(item).map((p) => `${p.sourceIn.toFixed(2)}–${(p.sourceIn + p.duration).toFixed(2)}`).join(' + ')} s of ${clipFileLength(item).toFixed(2)} s file`
               : ''}
           </span>
         </div>

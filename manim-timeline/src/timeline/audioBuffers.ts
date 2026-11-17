@@ -128,3 +128,63 @@ export async function playAudioPreview(
   preview = { src, done };
   src.start(0, Math.max(0, offset), Math.max(0.01, duration));
 }
+
+/**
+ * Play file pieces back to back (an edited clip whose middle words were deleted), as one preview:
+ * the pieces are copied into a single buffer so the joins are sample-exact.
+ */
+export async function playAudioPiecesPreview(
+  url: string,
+  pieces: readonly { sourceIn: number; duration: number }[],
+  gain = 1,
+  onEnd: () => void = () => {},
+): Promise<void> {
+  if (pieces.length <= 1) {
+    const p = pieces[0];
+    return playAudioPreview(url, p?.sourceIn ?? 0, p?.duration ?? 0.01, gain, onEnd);
+  }
+  stopAudioPreview();
+  const c = getAudioContext();
+  const buf = await loadAudioBuffer(url);
+  if (!c || !buf) {
+    onEnd();
+    return;
+  }
+  const rate = buf.sampleRate;
+  const spans = pieces.map((p) => {
+    const from = Math.max(0, Math.round(p.sourceIn * rate));
+    return [from, Math.min(buf.length, from + Math.round(p.duration * rate))] as const;
+  });
+  const total = spans.reduce((n, [a, b]) => n + Math.max(0, b - a), 0);
+  const joined = c.createBuffer(buf.numberOfChannels, Math.max(1, total), rate);
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const src = buf.getChannelData(ch);
+    const dst = joined.getChannelData(ch);
+    let at = 0;
+    for (const [a, b] of spans) {
+      if (b <= a) continue;
+      dst.set(src.subarray(a, b), at);
+      at += b - a;
+    }
+  }
+  const srcNode = c.createBufferSource();
+  srcNode.buffer = joined;
+  const g = c.createGain();
+  g.gain.value = gain;
+  srcNode.connect(g).connect(c.destination);
+  let ended = false;
+  const done = () => {
+    if (ended) return;
+    ended = true;
+    srcNode.disconnect();
+    g.disconnect();
+    onEnd();
+  };
+  srcNode.onended = () => {
+    if (preview?.src === srcNode) preview = null;
+    done();
+  };
+  preview = { src: srcNode, done };
+  void c.resume().catch(() => undefined);
+  srcNode.start(0);
+}
