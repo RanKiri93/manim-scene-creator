@@ -156,6 +156,8 @@ export default function App() {
     ? COLLAPSED_INSERT_WIDTH
     : Math.max(toolbarWidth, MIN_EXPANDED_INSERT_WIDTH);
   useAxesPreviewSync();
+  // The canvas is rebuilt when the video format changes (its frame width is read everywhere).
+  const videoFormat = useSceneStore((s) => s.defaults.videoFormat ?? '16:9');
   const exportOpen = useSceneStore((s) => s.exportOpen);
   const setExportOpen = useSceneStore((s) => s.setExportOpen);
   const audioMode = useSceneStore((s) => s.audioMode);
@@ -571,7 +573,7 @@ export default function App() {
 
         {/* Center: Canvas */}
         <main className="flex-1 min-h-0 relative overflow-hidden flex flex-col min-w-0 p-3">
-          <SceneCanvas />
+          <SceneCanvas key={videoFormat} />
         </main>
 
         <PropertyPanel />

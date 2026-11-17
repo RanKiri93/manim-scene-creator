@@ -22,7 +22,7 @@ import {
 import { prepareSceneMasterAudio } from '@/lib/audioRenderHelpers';
 import { safeSceneClassName } from '@/lib/pythonIdent';
 import { Field, TextInput } from '@/components/ui';
-import type { SceneItem } from '@/types/scene';
+import type { SceneItem, VideoFormat } from '@/types/scene';
 import { fingerprintSceneDiskPayload } from '@/lib/sceneFingerprint';
 import { graphFollowExportBlock } from '@/lib/exportReadiness';
 
@@ -570,6 +570,22 @@ export default function ExportPanel() {
           onChange={(e) => setDefaults({ sceneName: e.target.value })}
           placeholder="Scene1"
         />
+      </Field>
+      <Field
+        label="Video format"
+        hint="The same for every scene. The canvas, camera frames, export and MP4 follow it; objects keep their positions, so check that they fit."
+        className="mb-2"
+      >
+        <select
+          value={defaults.videoFormat ?? '16:9'}
+          onChange={(e) => useProjectScenesStore.getState().setProjectVideoFormat(e.target.value as VideoFormat)}
+          className="rounded-ctl border border-rule bg-raised px-2 py-1 text-ctl text-chalk"
+        >
+          <option value="16:9">16:9 landscape (YouTube)</option>
+          <option value="9:16">9:16 vertical (Reels, TikTok, Shorts)</option>
+          <option value="1:1">1:1 square</option>
+          <option value="4:5">4:5 portrait (feed posts)</option>
+        </select>
       </Field>
       <div className="flex flex-wrap items-center gap-2 [&>button]:whitespace-nowrap">
         <h3 className="m-0 w-full font-display text-title font-medium text-chalk">Manim code</h3>

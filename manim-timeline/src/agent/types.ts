@@ -3,6 +3,7 @@ import type {
   ItemId,
   SceneDefaults,
   SceneItem,
+  VideoFormat,
 } from '@/types/scene';
 import type { TimelineEdit } from '@/lib/timelineSurgery';
 import type { AgentAudioEdit } from './audioEdits';
@@ -90,6 +91,8 @@ export interface AgentContextPayload {
   narration?: AgentNarrationTrack[];
   /** The project's style notes (omitted when there are none); follow them for new items. */
   projectNotes?: string[];
+  /** Camera frame size in scene units for the project's video format (14.22 × 8 for 16:9). */
+  cameraFrame: { width: number; height: number; format: VideoFormat };
 }
 
 /** One audio track as the Copilot sees it: its text, window and words as [word, scene start]. */

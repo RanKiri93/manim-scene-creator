@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { newId } from '@/lib/ids';
-import { PROJECT_VERSION } from '@/lib/constants';
+import { PROJECT_VERSION, activeVideoFormat, frameWidthFor } from '@/lib/constants';
 import { normalizeCopilotNotes } from '@/lib/copilotNotes';
 import type {
   MultiSceneProjectFile,
@@ -9,6 +9,7 @@ import type {
   AudioTrackItem,
   AudioBed,
   ProjectFile,
+  VideoFormat,
 } from '@/types/scene';
 import { MULTISCENE_PROJECT_KIND } from '@/types/scene';
 import {
@@ -76,6 +77,8 @@ interface ProjectScenesStore {
   loadFromAnyDiskProject: (file: ProjectFile | MultiSceneProjectFile) => void;
 
   persistActiveIntoIdle: () => void;
+  /** One video format for the whole project: the open scene (undoable) and every other scene. */
+  setProjectVideoFormat: (format: VideoFormat) => void;
   switchToScene: (id: string) => void;
   addScene: () => void;
   duplicateScene: (sourceId: string) => void;
@@ -249,6 +252,22 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     });
   },
 
+  setProjectVideoFormat: (format) => {
+    useSceneStore.getState().setVideoFormat(format);
+    const idle: Record<string, SceneDiskPayload> = {};
+    for (const [id, payload] of Object.entries(get().idleScenes)) {
+      const ratio = frameWidthFor(format) / frameWidthFor(payload.defaults.videoFormat);
+      idle[id] = {
+        ...payload,
+        defaults: { ...payload.defaults, videoFormat: format },
+        items: payload.items.map((it) =>
+          it.kind === 'camera_move' && Number.isFinite(it.targetWidth) ? { ...it, targetWidth: it.targetWidth * ratio } : it,
+        ),
+      };
+    }
+    set({ idleScenes: idle });
+  },
+
   addScene: () => {
     get().bootstrapIfNeeded();
     get().persistActiveIntoIdle();
@@ -257,6 +276,7 @@ export const useProjectScenesStore = create<ProjectScenesStore>((set, get) => ({
     const newSceneId = newId();
     const def = defaultSceneDefaults();
     def.sceneName = `Scene${st.sceneIds.length + 1}`;
+    def.videoFormat = activeVideoFormat(); // one format per project
     const line = createTextLine(def, 0);
     const frameConfig = defaultFrames();
     line.frameId = frameConfig.startFrameId;

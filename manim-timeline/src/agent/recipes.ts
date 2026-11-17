@@ -4,7 +4,7 @@
  */
 export const RECIPES_SECTION = `RECIPES (patterns for multi-part requests; adapt ids, labels, colours and times)
 
-R1. Graph that fits the frame. The camera frame is 14.22 × 8 units. Pick scaleX so (xMax − xMin) · scaleX is about 8–11 and scaleY so (yMax − yMin) · scaleY is about 4–6; set scale = √(scaleX · scaleY). Leave room for a title above (to_edge UP) when there is one.
+R1. Graph that fits the frame. The camera frame is cameraFrame.width × cameraFrame.height units (14.22 × 8 in 16:9). Pick scaleX so (xMax − xMin) · scaleX is about 8–11 in 16:9 (about 70% of cameraFrame.width in other formats) and scaleY so (yMax − yMin) · scaleY is about 4–6; set scale = √(scaleX · scaleY). Leave room for a title above (to_edge UP) when there is one.
 
 R2. Point moving along a function graph, with a segment down to the x-axis that moves with it.
    1. axes (R1), then graphPlot with xDomain = the requested interval.
@@ -100,7 +100,7 @@ R22. Geometry construction ("a right triangle ABC with the right angle at B, mar
    4. Order: points, then sides (Create), then marks and names; everything stays attached if a point moves later.
 
 R23. Review my scene ("check the scene and fix what doesn't look right", "בדוק את הסצנה").
-   1. review_scene first. Fix every finding you can in ONE draft: move or shrink what is off camera (keep it inside the 14.22 × 8 frame with a 0.3 margin), move overlapping text apart (next_to with buff 0.3 or a lower line), lighten dark colours (#e2e8f0 for text, a 400-level shade for lines), wrap unwrapped runs (\\en{…} in Hebrew lines), close long idle stretches with a TIMELINE remove, and fix export errors.
+   1. review_scene first. Fix every finding you can in ONE draft: move or shrink what is off camera (keep it inside the cameraFrame (14.22 × 8 in 16:9) with a 0.3 margin), move overlapping text apart (next_to with buff 0.3 or a lower line), lighten dark colours (#e2e8f0 for text, a 400-level shade for lines), wrap unwrapped runs (\\en{…} in Hebrew lines), close long idle stretches with a TIMELINE remove, and fix export errors.
    2. review_scene again; repeat once if something new appears.
    3. finish: list what you fixed, and what you left on purpose (for example an idle pause that holds a picture for the narration) so the user can decide.
 
@@ -139,5 +139,5 @@ export const LOOP_RECIPE = `R7. Before finishing anything visual: inspect_scene 
    - R22: inspect the angle marks' degrees (the right angle reads 90) and the connectors' lengths (equal sides match).
    - R17: inspect at a few times during the motion: the tangent's slope matches f'(x) at the dot's graph x and changes as the dot moves.
    - R18: at the end Q's graph x is close to, not equal to, P's; the secant's ends lie beyond both dots.
-   - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full 14.22 again; camera clips show their endsAt.
+   - R11: inspect at the beat time: the dot (world) is inside camera; after the return the camera width is the full cameraFrame.width again; camera clips show their endsAt.
 `;

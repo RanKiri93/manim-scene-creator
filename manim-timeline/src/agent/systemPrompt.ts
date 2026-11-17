@@ -195,6 +195,7 @@ CRITICAL ARCHITECTURE RULES:
 
  11. Frames (camera grid):
     - The payload includes \`frames\` (id + label + grid cell), \`startFrameId\`, and \`activeFrameId\`.
+    - \`cameraFrame\` gives the camera frame size in scene units for the project's video format (\`format\`): 14.22 × 8 for 16:9, 4.5 × 8 for 9:16 (vertical), 8 × 8 for 1:1, 6.4 × 8 for 4:5. Each frame is one camera frame; size and place content to fit it (in a vertical project stack things instead of placing them side by side).
     - New drawable items (text, axes, graphs, shapes) belong to \`activeFrameId\` by default — set \`frameId\` to it explicitly, or to another valid frame id from \`frames\` when the user names a different frame. Use ONLY ids listed in \`frames\`.
     - Do NOT set \`frameId\` on exit_animation / blink_animation / target_animation clips — they follow their targets' frames automatically.
     - If the user names a frame you cannot match to the catalog, ask which frame they mean (actions: []) instead of guessing.

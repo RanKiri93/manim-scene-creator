@@ -11,6 +11,7 @@ import type {
   TextLineItem,
   AxesItem,
   SceneDefaults,
+  VideoFormat,
   FrameDef,
   MeasureConfig,
   MeasureResult,
@@ -163,6 +164,8 @@ import { migrateSceneDefaultsToV39 } from '@/lib/migrateProjectToV39';
 import { nanoid } from 'nanoid';
 import { addTake, removeTake, takeFromTrack, swapToTake } from '@/lib/audioTakes';
 import { migrateSceneDefaultsToV45 } from '@/lib/migrateProjectToV45';
+import { migrateSceneDefaultsToV46 } from '@/lib/migrateProjectToV46';
+import { frameWidthFor, setActiveVideoFormat } from '@/lib/constants';
 import { remapMarkers, withMarkerAt } from '@/lib/timelineMarkers';
 import { validateCameraMove } from '@/lib/camera';
 import { normalizeTransformMapping } from '@/lib/transformMapping';
@@ -379,10 +382,11 @@ function runLoadSceneDraft(
       syncPointSequenceDerived(it as GraphPointSequenceItem, s.items);
     }
   }
-  s.defaults = migrateSceneDefaultsToV45(migrateSceneDefaultsToV39({
+  s.defaults = migrateSceneDefaultsToV46(migrateSceneDefaultsToV45(migrateSceneDefaultsToV39({
     ...s.defaults,
     ...payload.defaults,
-  }));
+  })));
+  setActiveVideoFormat(s.defaults.videoFormat);
   if (!s.defaults.sceneName?.trim()) {
     s.defaults.sceneName = 'Scene1';
   }
@@ -595,6 +599,11 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
 
   // Defaults
   setDefaults: (patch: Partial<SceneDefaults>) => void;
+  /**
+   * Change this scene's video format. Camera moves keep their framing (their widths scale with the
+   * frame); object positions stay. One undo step. Use `setProjectVideoFormat` for every scene.
+   */
+  setVideoFormat: (format: VideoFormat) => void;
   setMeasureConfig: (patch: Partial<MeasureConfig>) => void;
 
   // Queries
@@ -1732,6 +1741,14 @@ export const useSceneStore = create<SceneStore>()(
 
       // ── Defaults ──
       setDefaults: (patch) => set((s) => { Object.assign(s.defaults, patch); }),
+      setVideoFormat: (format) => set((s) => {
+        const ratio = frameWidthFor(format) / frameWidthFor(s.defaults.videoFormat);
+        if (s.defaults.videoFormat === format) return;
+        for (const it of s.items.values()) {
+          if (it.kind === 'camera_move' && Number.isFinite(it.targetWidth)) it.targetWidth *= ratio;
+        }
+        s.defaults.videoFormat = format;
+      }),
       setMeasureConfig: (patch) => set((s) => { Object.assign(s.measureConfig, patch); }),
 
       // ── Queries ──
@@ -2662,6 +2679,12 @@ export const useSceneStore = create<SceneStore>()(
 // (or any content change) left pointing at items or frames that are gone. Not recorded: the
 // recorded fields do not change.
 // Selections hold scene items and narration clips, so only ids that existed and were removed go.
+// The frame width every reader uses (FRAME_W) follows the scene's format, including after undo.
+// Registered before any component subscribes, so components render with the new width.
+useSceneStore.subscribe((s, prev) => {
+  if (s.defaults.videoFormat !== prev.defaults.videoFormat) setActiveVideoFormat(s.defaults.videoFormat);
+});
+
 useSceneStore.subscribe((s, prev) => {
   if (s.items === prev.items && s.frames === prev.frames && s.audioItems === prev.audioItems) return;
   const removed = (id: string) =>

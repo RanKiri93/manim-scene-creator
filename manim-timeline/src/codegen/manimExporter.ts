@@ -1,9 +1,11 @@
 import { isAngleMark, isBoundShape, isConnectorShape } from '@/lib/shapeAnchors';
 import { anyEditedAudio, audioClipHelperSource, pySoundCall } from './audioClipCodegen';
 import { RIEMANN_MAX_COUNT } from '@/lib/riemann';
+import { FRAME_H, VIDEO_FORMAT_RATIOS, frameWidthFor } from '@/lib/constants';
 import type {
   SceneItem,
   SceneDefaults,
+  VideoFormat,
   ItemId,
   AudioTrackItem,
   AxesItem,
@@ -1530,6 +1532,7 @@ function exportManimCodeInner(
     header += 'import base64\nimport os\nimport tempfile\n';
   }
   header += 'from hebrew_math_line import HebrewMathLine\n';
+  header += videoFormatConfigSource(options.defaults.videoFormat);
   if (anyMatrix(flat)) header += `from hebrew_matrix import HebrewMatrix${anyMatrixStep(items) ? ', MatrixStep' : ''}\n`;
   // Before any helper `class`: multi-scene export splits each file at its first `class`.
   if (usesTimelineWait) header += '\n\n' + timelineWaitHelperSource();
@@ -1575,6 +1578,25 @@ function exportManimCodeInner(
   body += playStr;
 
   return header + body;
+}
+
+/**
+ * Module-level Manim config for a non-16:9 video format: the render quality's short side
+ * (1080 for -qh, 480 for -ql) becomes the video's short side, the long side follows the ratio,
+ * and the camera frame is 8 units tall with the matching width. Empty for 16:9 (Manim's default).
+ */
+export function videoFormatConfigSource(format: VideoFormat | undefined): string {
+  if (!format || format === '16:9') return '';
+  const [w, h] = VIDEO_FORMAT_RATIOS[format];
+  const short = Math.min(w, h);
+  return (
+    `# Video format ${format}: frame ${frameWidthFor(format).toFixed(4)} x ${FRAME_H} units\n` +
+    `_mt_short = min(config.pixel_width, config.pixel_height)\n` +
+    `config.pixel_width = int(round(_mt_short * ${w} / ${short} / 2)) * 2\n` +
+    `config.pixel_height = int(round(_mt_short * ${h} / ${short} / 2)) * 2\n` +
+    `config.frame_height = ${FRAME_H.toFixed(1)}\n` +
+    `config.frame_width = ${frameWidthFor(format).toFixed(6)}\n`
+  );
 }
 
 /** Total scene timeline length in seconds (matches export tail `wait` padding). */

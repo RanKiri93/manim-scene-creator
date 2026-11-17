@@ -343,7 +343,7 @@ export function inspectDraft(session: DraftSession, input: { times?: unknown; it
     : [];
   return {
     sceneDurationSec,
-    units: 'Manim scene units; the default camera frame is 14.22 × 8 centred on (0, 0) of the home frame',
+    units: `Manim scene units; the camera frame is ${r3(FRAME_W)} × ${FRAME_H} centred on (0, 0) of the home frame`,
     camera,
     items,
     textOverlaps: textOverlaps(scene, session, times),

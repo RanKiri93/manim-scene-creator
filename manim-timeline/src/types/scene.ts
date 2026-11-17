@@ -1487,7 +1487,12 @@ export interface SceneDefaults {
   audioCutFadeMs?: number;
   /** Free timeline markers (M), sorted by time; snap targets. v45 backfills `[]`. */
   timelineMarkers?: TimelineMarker[];
+  /** Video format of the project (same in every scene). v46 backfills `'16:9'`. */
+  videoFormat?: VideoFormat;
 }
+
+/** Output aspect ratio. The camera frame is 8 units tall; its width follows the ratio. */
+export type VideoFormat = '16:9' | '9:16' | '1:1' | '4:5';
 
 /** A point on the timeline the user marked (M during playback or recording). Seconds. */
 export interface TimelineMarker {

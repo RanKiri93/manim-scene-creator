@@ -329,6 +329,7 @@ A **`graphFunctionSeries`** item renders a family of curves parameterized by an 
 - **Version 41** — Adds the **`image`** scene item kind (still pictures: `srcUrl`, `assetRelPath?`, `fileName`, `mimeType`, `width`, `height`, `opacity`, `rotationDeg`); `PosStepNextTo.refKind` gains **`image`**. Migration is a pass-through (`migrateProjectToV41.ts`); older files load unchanged.
 - **Version 44** — Graph dots may persist `attachment: {kind:'free'}` (legacy `dx/dy`), `{kind:'function', graphPlotId, x}`, or `{kind:'parametric', graphCurveId, t}`. V44 also adds optional independent label/coordinate presentation fields (`labelFontSize`, `labelColor`, `labelSpacing`, `coordinateFontSize`, `coordinateColor`, `coordinateDir`, `coordinateSpacing`, `coordinatePrecision`) and annotation toggles (`showCoordinates`, `showProjectionGuides`). Migration preserves V43 graph-follow rows and backfills free attachments/style defaults. Graph-follow targets use `targetX` for function/free-function motion or `targetT` for parametric-attached motion, with optional `graphPlotId`/legacy `graphCurveId` references and `easing` (`linear` or `smooth`; missing legacy easing defaults to smooth).
 - **Version 45** — `defaults.timelineMarkers?: { id, time, label? }[]` (free timeline markers, seconds, sorted). Migration (`migrateSceneDefaultsToV45`, at scene load) backfills `[]` and drops invalid entries.
+- **Version 46** — `defaults.videoFormat: '16:9' | '9:16' | '1:1' | '4:5'` (one format per project, the same in every scene). Migration (`migrateSceneDefaultsToV46`, at scene load) backfills `'16:9'`. The camera frame is 8 units tall and `8 × ratio` wide.
 - Import / export helpers live in **`src/lib/projectIO.ts`**.
 
 ### Portable bundle (`.mtproj`)
@@ -495,6 +496,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 | **Tauri build errors** | Rust on PATH, MSVC on Windows; see **`TAURI.md`**. |
 
 ---
+
+*Last updated: **Video formats** — Export panel → **Video format**: 16:9, 9:16 (Reels / TikTok / Shorts), 1:1 or 4:5, for the whole project. The camera frame stays 8 units tall and its width follows the ratio (`frameWidthFor`; `FRAME_W` in `lib/constants.ts` is a live binding the scene store keeps in step with `defaults.videoFormat`, including after undo), so the canvas, frame grid, camera moves, snapshots, export and MP4 all match. Changing the format scales camera-move widths so they keep their framing; objects keep their positions. The export sets `config.pixel_width/height` from the render quality's short side (480 for -ql, 1080 for -qh) and `config.frame_width/height`. The Copilot gets `cameraFrame` in its context. Project v46.*
 
 *Last updated: **Script-guided transcription checks** — with a script, `/api/upload_audio` also returns `script_match` (share of the script's words Whisper heard, `_script_match_ratio`) and Whisper's own words; the clip keeps them (`scriptMatch`, `whisperBoundaries`). Below 70% the clip editor warns that the script's words may sit in the wrong places and offers **Use Whisper's words**. Any word bookmark can be dragged on the timeline (the lower half of its mark) to fix its start by hand, as one undo step.*
 

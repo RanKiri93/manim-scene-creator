@@ -1,4 +1,4 @@
-import { FRAME_W } from '@/lib/constants';
+import { DEFAULT_FRAME_W } from '@/lib/constants';
 import type { CameraMoveItem, SceneItem } from '@/types/scene';
 
 export function migrateItemsToV42(items: readonly SceneItem[]): SceneItem[] {
@@ -6,6 +6,6 @@ export function migrateItemsToV42(items: readonly SceneItem[]): SceneItem[] {
     if (item.kind !== 'camera_move') return { ...item };
     const camera = item as CameraMoveItem & { targetWidth?: unknown };
     if (camera.targetWidth != null) return { ...camera };
-    return { ...camera, targetWidth: FRAME_W };
+    return { ...camera, targetWidth: DEFAULT_FRAME_W };
   });
 }

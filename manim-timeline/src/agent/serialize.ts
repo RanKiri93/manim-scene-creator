@@ -12,6 +12,7 @@ import {
   type MinimalSceneItem,
 } from './types';
 import { narrationPayload } from './narration';
+import { FRAME_H, frameWidthFor } from '@/lib/constants';
 
 /** Drop UI-only transient fields so the LLM doesn't see (or learn to emit) them. */
 export function stripUiFields(item: SceneItem): MinimalSceneItem {
@@ -60,5 +61,10 @@ export function buildContextPayload(input: BuildPayloadInput): AgentContextPaylo
     activeFrameId: input.activeFrameId ?? null,
     ...(input.audioItems?.length ? { narration: narrationPayload(input.audioItems) } : {}),
     ...(input.projectNotes?.length ? { projectNotes: [...input.projectNotes] } : {}),
+    cameraFrame: {
+      width: Math.round(frameWidthFor(input.defaults.videoFormat) * 1000) / 1000,
+      height: FRAME_H,
+      format: input.defaults.videoFormat ?? '16:9',
+    },
   };
 }

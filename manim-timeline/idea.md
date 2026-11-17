@@ -14,6 +14,8 @@ or a small PR-sized task.
 
 ## 1. Social-Media Video Presets
 
+**Status (2026-11-17): built** as one format per project (16:9, 9:16, 1:1, 4:5; no custom size yet), project v46.
+
 ### Goal
 
 Allow the user to choose a target video format before authoring / rendering, so
