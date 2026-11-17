@@ -6,6 +6,7 @@ import {
 } from '@/types/scene';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
 import { effectiveStart } from '@/lib/time';
+import { manimSmooth } from '@/lib/axesCreatePlan';
 import { pointSequenceHasErrors } from '@/types/scene';
 
 export interface PointSequenceDotSpec {
@@ -94,7 +95,7 @@ export function buildPointSequenceDrawSpec(
       const anim = Math.max(0.01, r.animDuration);
       let op = 0;
       if (localT >= start + anim) op = 1;
-      else if (localT > start) op = (localT - start) / anim;
+      else if (localT > start) op = manimSmooth((localT - start) / anim); // FadeIn: `smooth`
       if (op <= 0) continue;
       dots.push({
         key: `${item.id}-${n}`,
@@ -153,7 +154,7 @@ export function buildPointSequenceDrawSpec(
     }
 
     if (localT < end) {
-      const u = (localT - start) / anim;
+      const u = manimSmooth((localT - start) / anim); // FadeIn / FadeOut: `smooth`
       if (i === 0) {
         const p = evalPoint(fx, fy, n, toLocal);
         if (!p) return { dots: [] };

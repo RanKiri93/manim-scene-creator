@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clipWindowAlpha } from '@/lib/clipWindows';
-import { laggedMemberProgress } from '@/lib/axesCreatePlan';
+import { laggedMemberProgress, manimSmooth } from '@/lib/axesCreatePlan';
 import { clipPolylineByProgress } from '@/lib/createPlaybackPreview';
+import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { Group, Rect, Line, Circle, Text, Ellipse, Arrow, Image as KonvaImage } from 'react-konva';
 import type {
@@ -43,6 +44,10 @@ import {
   clampedAxesZeroOffsets,
 } from '@/lib/graphCreatePreview';
 import {
+  effectColor,
+  effectColorOverride,
+  effectScale,
+  uncreateAsUndraw,
   exitPreviewForTarget,
   graphAreaIntroProgress,
   graphDotIntroOpacity,
@@ -231,7 +236,7 @@ export default function GraphNode({
     axH,
   });
 
-  const axesPreviewSpec = useMemo(
+  const axesPreviewSpecBase = useMemo(
     () =>
       buildAxesCreatePreviewSpec({
         axes,
@@ -267,6 +272,17 @@ export default function GraphNode({
       pxPerUnitY,
     ],
   );
+  // Colour blinks / colour target clips on the axes: export `.set_color` recolours every part.
+  const axesTinted = effectColorOverride(axes.id, '#ffffff', currentTime, itemsMap) != null;
+  const axesPreviewSpec = axesTinted
+    ? {
+        ...axesPreviewSpecBase,
+        axisStrokeColor: effectColor(axes.id, axesPreviewSpecBase.axisStrokeColor, currentTime, itemsMap),
+        tickStrokeColor: effectColor(axes.id, axesPreviewSpecBase.tickStrokeColor, currentTime, itemsMap),
+        numberColor: effectColor(axes.id, axesPreviewSpecBase.numberColor, currentTime, itemsMap),
+        axisLabelColor: effectColor(axes.id, axesPreviewSpecBase.axisLabelColor, currentTime, itemsMap),
+      }
+    : axesPreviewSpecBase;
 
   // Manim-rasterized axes image: only used once the axes Create has completed
   // and the cached raster matches the current visual settings.
@@ -322,7 +338,7 @@ export default function GraphNode({
     () => axesRasterCoordinateGeometry({ axes, pxPerUnitX, pxPerUnitY }),
     [axes, pxPerUnitX, pxPerUnitY],
   );
-  const useAxesRaster = axesRasterGeom != null && axesRasterImg != null;
+  const useAxesRaster = axesRasterGeom != null && axesRasterImg != null && !axesTinted;
   const vectorAxesOffset = useMemo(
     () => !useAxesRaster && axesCoordinateGeom
       ? axesVectorOverlayOffset({ geometry: axesCoordinateGeom, xMin, xMax, yMin, yMax, axW, axH })
@@ -682,7 +698,7 @@ export default function GraphNode({
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphArea') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
-          const fill = it.fillColor;
+          const fill = effectColor(slot.id, it.fillColor, currentTime, itemsMap);
           // Entrance: a fade scales the opacity; a sweep / rise draws part of the area.
           const introP = graphAreaIntroProgress(it, currentTime, itemsMap, audioItems);
           const introStyle = effectiveAreaIntroStyle(it);
@@ -693,7 +709,7 @@ export default function GraphNode({
           if (introP <= 0) return null;
           const fo = Math.max(0, Math.min(1, it.fillOpacity)) * (introStyle === 'fade_in' ? introP : 1);
           const sw = Math.max(0, it.strokeWidth);
-          const sc = it.strokeColor;
+          const sc = effectColor(slot.id, it.strokeColor, currentTime, itemsMap);
           const m = it.mode;
           if (m.areaKind === 'riemann') {
             // One count at a time; while a count replaces the previous one they cross-fade.
@@ -705,7 +721,7 @@ export default function GraphNode({
             if (phase.from != null) layers.push({ count: m.counts[phase.from]!, alpha: 1 - phase.progress });
             layers.push({ count: m.counts[phase.to]!, alpha: phase.progress });
             return (
-              <GraphPlaybackWrap key={key} exit={exit}>
+              <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
                 {layers.map((layer, li) =>
                   riemannRects(f, m.xMin, m.xMax, layer.count, m.rule).map((r, ri) => {
                     const a = toLocal(r.x0, 0);
@@ -737,7 +753,7 @@ export default function GraphNode({
             const ry = Math.hypot(pu.lx - c.lx, pu.ly - c.ly);
             if (!(rx > 0.5 && ry > 0.5)) return null;
             return (
-              <GraphPlaybackWrap key={key} exit={exit}>
+              <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
               <Ellipse
                 x={c.lx}
                 y={c.ly}
@@ -755,7 +771,7 @@ export default function GraphNode({
           const poly = graphAreaPreviewPoints(it, itemsMap, xMin, xMax, yMin, yMax, toLocal, reveal);
           if (!poly || poly.length < 6) return null;
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             <Line
               points={poly}
               closed
@@ -772,6 +788,8 @@ export default function GraphNode({
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphPlot') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          // Uncreate un-draws the line (Create backwards, `smooth`) instead of fading it.
+          const out = uncreateAsUndraw(exit);
           const xd = it.xDomain;
           const xLo = xd == null ? xMin : Math.min(xd[0], xd[1]);
           const xHi = xd == null ? xMax : Math.max(xd[0], xd[1]);
@@ -786,11 +804,11 @@ export default function GraphNode({
           });
           if (plotPreview.points.length < 4) return null;
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={out.exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             <Group listening={false}>
               <Line
-                points={plotPreview.points}
-                stroke={it.fn.color}
+                points={out.drawn != null ? clipPolylineByProgress(plotPreview.points, manimSmooth(out.drawn)) : plotPreview.points}
+                stroke={effectColor(slot.id, it.fn.color, currentTime, itemsMap)}
                 strokeWidth={Math.max(0, it.strokeWidth)}
                 lineCap="round"
                 lineJoin="round"
@@ -807,7 +825,7 @@ export default function GraphNode({
                   radius={4}
                   stroke="#ffffff"
                   strokeWidth={1.5}
-                  fill={it.fn.color}
+                  fill={effectColor(slot.id, it.fn.color, currentTime, itemsMap)}
                   listening={false}
                 />
               ) : null}
@@ -819,6 +837,8 @@ export default function GraphNode({
           const it = itemsMap.get(slot.id);
           if (!it || it.kind !== 'graphCurve') return null;
           const exit = exitPreviewForTarget(it.id, currentTime, itemsMap);
+          // Uncreate un-draws the line (Create backwards, `smooth`) instead of fading it.
+          const out = uncreateAsUndraw(exit);
           const td = it.tDomain;
           const tLo = Math.min(td[0], td[1]);
           const tHi = Math.max(td[0], td[1]);
@@ -837,15 +857,17 @@ export default function GraphNode({
             audioItems,
           });
           if (curvePreview.points.length < 4) return null;
-          const strokeCol =
-            typeof it.curve.color === 'string' && it.curve.color.trim()
-              ? it.curve.color.trim()
-              : '#3b82f6';
+          const strokeCol = effectColor(
+            slot.id,
+            typeof it.curve.color === 'string' && it.curve.color.trim() ? it.curve.color.trim() : '#3b82f6',
+            currentTime,
+            itemsMap,
+          );
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={out.exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
               <Group listening={false}>
                 <Line
-                  points={curvePreview.points}
+                  points={out.drawn != null ? clipPolylineByProgress(curvePreview.points, manimSmooth(out.drawn)) : curvePreview.points}
                   stroke={strokeCol}
                   strokeWidth={Math.max(0, it.strokeWidth)}
                   lineCap="round"
@@ -873,9 +895,13 @@ export default function GraphNode({
         }
         if (slot.kind === 'field' && field && field.id === slot.id) {
           const exit = exitPreviewForTarget(field.id, currentTime, itemsMap);
-          const streamStroke =
-            FIELD_COLORMAP_HEX[field.fieldColormap ?? 'viridis']?.[2] ??
-            '#22a884';
+          const streamStroke = effectColor(
+            field.id,
+            FIELD_COLORMAP_HEX[field.fieldColormap ?? 'viridis']?.[2] ?? '#22a884',
+            currentTime,
+            itemsMap,
+          );
+          const arrowColor = (c: string) => effectColor(field.id, c, currentTime, itemsMap);
           const arrowSw = Math.max(
             0,
             field.arrowStrokeWidth ?? DEFAULT_FIELD_ARROW_STROKE_WIDTH,
@@ -888,7 +914,7 @@ export default function GraphNode({
           // a lagged Create: arrows one after another, stream lines one after another.
           const fieldAlpha = clipWindowAlpha(field, currentTime, itemsMap, audioItems);
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             <Group listening={false}>
               {fieldArrows.map((a, ai) => {
                 const grow = laggedMemberProgress(ai, fieldArrows.length, fieldAlpha);
@@ -904,7 +930,7 @@ export default function GraphNode({
                     <Line
                       key={a.key}
                       points={[sx, sy, ex, ey]}
-                      stroke={a.color}
+                      stroke={arrowColor(a.color)}
                       strokeWidth={arrowSw}
                       lineCap="round"
                       listening={false}
@@ -916,8 +942,8 @@ export default function GraphNode({
                   <Arrow
                     key={a.key}
                     points={a.points}
-                    fill={a.color}
-                    stroke={a.color}
+                    fill={arrowColor(a.color)}
+                    stroke={arrowColor(a.color)}
                     strokeWidth={arrowSw}
                     pointerLength={pointerLen}
                     pointerWidth={pointerLen}
@@ -951,7 +977,7 @@ export default function GraphNode({
             // Origin marker so disabled series is visible but playback-blocked.
             const o = toLocal(0, 0);
             return (
-              <GraphPlaybackWrap key={key} exit={exit}>
+              <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
               <Group listening={false}>
                 <Text
                   x={o.lx - 8}
@@ -979,14 +1005,14 @@ export default function GraphNode({
           // future exit-animation fade that multiplies opacity on a parent Group
           // can never resurrect a curve that this spec considers hidden.
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             <Group listening={false}>
               {spec.layers.map((layer) =>
                 layer.points.length >= 4 ? (
                   <Line
                     key={layer.key}
                     points={layer.points}
-                    stroke={layer.color}
+                    stroke={effectColor(slot.id, layer.color, currentTime, itemsMap)}
                     strokeWidth={layer.strokeWidth}
                     lineCap="round"
                     lineJoin="round"
@@ -1011,7 +1037,7 @@ export default function GraphNode({
           if (pointSequenceIsDisabled(it)) {
             const o = toLocal(0, 0);
             return (
-              <GraphPlaybackWrap key={key} exit={exit}>
+              <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
               <Group listening={false}>
                 <Text
                   x={o.lx - 8}
@@ -1035,7 +1061,7 @@ export default function GraphNode({
           );
           if (!spec || spec.dots.length === 0) return null;
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             <Group listening={false}>
               {spec.dots.map((d) => (
                 <Circle
@@ -1043,7 +1069,7 @@ export default function GraphNode({
                   x={d.lx}
                   y={d.ly}
                   radius={d.radiusPx}
-                  fill={d.color}
+                  fill={effectColor(slot.id, d.color, currentTime, itemsMap)}
                   opacity={d.opacity}
                   listening={false}
                 />
@@ -1098,7 +1124,7 @@ export default function GraphNode({
             slope: liveValueSlope(it, motion.point.x, itemsMap),
           });
           return (
-            <GraphPlaybackWrap key={key} exit={exit}>
+            <GraphPlaybackWrap key={key} exit={exit} scale={effectScale(slot.id, currentTime, itemsMap)}>
             {trailSegments(it)}
             {/* A selected dot keeps a faint ring while paused, so it can be found at opacity 0 (its clip start). */}
             {!isPlaying && !hideEditorChrome && selectedIds.has(it.id) && (
@@ -1122,7 +1148,7 @@ export default function GraphNode({
                 x={dotPreview.x}
                 y={dotPreview.y}
                 radius={dotPreview.radius}
-                fill={it.dot.color}
+                fill={effectColor(slot.id, it.dot.color, currentTime, itemsMap)}
                 listening={false}
               />
               {dotPreview.label && (
@@ -1208,15 +1234,36 @@ export default function GraphNode({
 
 function GraphPlaybackWrap({
   exit,
+  scale = 1,
   children,
 }: {
   exit: ExitPreviewState | null;
+  /** Scale blinks and scale target clips: about the object's own centre, like Manim's `.scale`. */
+  scale?: number;
   children: React.ReactNode;
 }) {
-  if (!exit) return <>{children}</>;
+  const scaled = Math.abs(scale - 1) > 1e-6 ? <ScaleAboutOwnCenter scale={scale}>{children}</ScaleAboutOwnCenter> : children;
+  if (!exit) return <>{scaled}</>;
   return (
     <Group opacity={exit.opacity} scaleX={exit.scale} scaleY={exit.scale}>
-      {children}
+      {scaled}
     </Group>
   );
+}
+
+/** Scales its children about the centre of their own drawn bounds (measured after each render). */
+function ScaleAboutOwnCenter({ scale, children }: { scale: number; children: React.ReactNode }) {
+  const ref = useRef<Konva.Group>(null);
+  useLayoutEffect(() => {
+    const g = ref.current;
+    const parent = g?.getParent();
+    if (!g || !parent) return;
+    g.setAttrs({ x: 0, y: 0, offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 });
+    const r = g.getClientRect({ relativeTo: parent, skipShadow: true });
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    g.setAttrs({ x: cx, y: cy, offsetX: cx, offsetY: cy, scaleX: scale, scaleY: scale });
+    g.getLayer()?.batchDraw();
+  });
+  return <Group ref={ref} listening={false}>{children}</Group>;
 }

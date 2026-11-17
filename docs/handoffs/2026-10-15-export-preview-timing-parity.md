@@ -1,7 +1,7 @@
 ---
 slug: export-preview-timing-parity
 created: 2026-10-15
-status: implementing
+status: done
 owner_role: codegen-dev
 next_tool: any
 source: user request; step 2 of docs/handoffs/2026-10-15-preview-export-fidelity.md
@@ -251,3 +251,23 @@ User: "the ticks are animated differently in the exported video than in the prev
 ## Review notes (manim-reviewer / ui-reviewer — optional)
 
 ## Docs delta (docs-keeper)
+
+## 2c part 2: remaining preview gaps (2026-11-17)
+
+Committed in order; each with tests, full suite, tsc, eslint on touched files.
+
+- **c99f6aa** narration-aware timing: plot / curve Create runs over `clipAnimationWindow` with Manim
+  `smooth` (`clipWindowAlpha`); image added to the preview's `isExportLeafWithAudio` (P2); a
+  text-transform source hides when the narrated morph ends (`isTransformSourceHiddenAt`) (P7).
+- **7ea2c5d** missing in preview: surrounding-rect label (`surroundLabelLayout`, white, written
+  with the Create) (P6); vector field + stream lines drawn like lagged `Create`
+  (`laggedMemberProgress`) (P5); a selected graph dot keeps a dashed ring while paused.
+- **next commit** smaller approximations (P8): blink colour / scale and target colour / scale on
+  axes and every graph child (`effectColor`, `effectScale`, `ScaleAboutOwnCenter`; axes drop the
+  raster while tinted); function-series Create and point-sequence fades use `smooth`; Uncreate on
+  shapes, plots and curves un-draws (`uncreateAsUndraw`) instead of fade + shrink.
+
+Earlier: P3 shape intro (89297e4), P6 surround entrance (92818a5), P4 area intro
+(`graphAreaIntroProgress`). Still approximate, by design: blink colour on images (export leaves it
+out and says so, c1cca3e); Uncreate on text, axes and other kinds keeps fade + shrink; target
+colour on text, images and matrices; glyph-stroke Write tracing.

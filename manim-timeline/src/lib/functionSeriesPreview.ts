@@ -14,6 +14,7 @@ import {
 } from '@/types/scene';
 import { isVisibleAtSceneStartItem } from '@/types/scene';
 import { clipPolylineByProgress } from '@/lib/createPlaybackPreview';
+import { manimSmooth } from '@/lib/axesCreatePlan';
 import { effectiveStart } from '@/lib/time';
 
 const SAMPLE_COUNT = 200;
@@ -205,7 +206,8 @@ export function buildFunctionSeriesDrawSpec(
     } else if (localT < start + anim) {
       phases.set(n, {
         kind: 'drawing',
-        progress: Math.max(0, Math.min(1, (localT - start) / anim)),
+        // Export: Create / the reveal transform with Manim's default `smooth`.
+        progress: manimSmooth(Math.max(0, Math.min(1, (localT - start) / anim))),
       });
     } else {
       phases.set(n, { kind: 'drawn' });

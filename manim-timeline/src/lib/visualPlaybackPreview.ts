@@ -409,6 +409,20 @@ export function exitPreviewForTarget(
   return best;
 }
 
+/**
+ * Uncreate on an object the canvas can draw partially (shapes, plots, curves): export plays
+ * `Uncreate` = `Create` backwards, so instead of the generic fade + shrink the object is un-drawn.
+ * Returns the exit for the wrapper without fade/shrink, and the linear drawn fraction to use as
+ * the object's create progress (`undefined` when this is not an Uncreate).
+ */
+export function uncreateAsUndraw(exit: ExitPreviewState | null): {
+  exit: ExitPreviewState | null;
+  drawn: number | undefined;
+} {
+  if (!exit || exit.style !== 'uncreate') return { exit, drawn: undefined };
+  return { exit: { ...exit, opacity: 1, scale: 1 }, drawn: 1 - exit.progress };
+}
+
 function blinkEnvelopeAtTime(clip: BlinkAnimationItem, time: number): number {
   const dur = positiveDuration(clip.duration);
   if (time < clip.startTime || time >= clip.startTime + dur) return 0;
@@ -727,4 +741,41 @@ export function lerpHexColor(from: string, to: string, t: number): string {
   const bl = Math.round(a.b + (b.b - a.b) * x);
   const h = (n: number) => n.toString(16).padStart(2, '0');
   return `#${h(r)}${h(gch)}${h(bl)}`;
+}
+
+/**
+ * A stroke or fill colour after colour blinks, then finished and running colour target clips, at
+ * `time` (export: `.set_color` on the object). `undefined` when nothing changes it.
+ */
+export function effectColorOverride(
+  id: ItemId,
+  base: string,
+  time: number,
+  items: Map<ItemId, SceneItem>,
+): string | undefined {
+  const blink = blinkPreviewForTarget(id, time, items);
+  const ta = targetAnimPreviewAccum(id, time, items);
+  const byBlink = blink != null && blink.row.mode === 'color' && blink.colorMix > 0;
+  const byTa = Boolean(ta.strokeReplaceHex) || Boolean(ta.colorLerpTo && (ta.colorLerpT ?? 0) > 1e-6);
+  if (!byBlink && !byTa) return undefined;
+  let c = base;
+  if (byBlink) c = lerpHexColor(c, blink!.blinkColor, blink!.colorMix);
+  if (ta.strokeReplaceHex) c = ta.strokeReplaceHex;
+  if (ta.colorLerpTo != null && (ta.colorLerpT ?? 0) > 1e-6) c = lerpHexColor(c, ta.colorLerpTo, ta.colorLerpT!);
+  return c;
+}
+
+/** `base` after colour blinks and colour target clips at `time`. */
+export function effectColor(id: ItemId, base: string, time: number, items: Map<ItemId, SceneItem>): string {
+  return effectColorOverride(id, base, time, items) ?? base;
+}
+
+/**
+ * Scale about the object's own centre at `time` from scale target clips and a scale blink
+ * (export: `.scale(...)` on the object, which scales about its centre).
+ */
+export function effectScale(id: ItemId, time: number, items: Map<ItemId, SceneItem>): number {
+  const blink = blinkPreviewForTarget(id, time, items);
+  const blinkScale = blink && blink.row.mode === 'scale' ? blink.scaleMultiplier : 1;
+  return targetAnimPreviewAccum(id, time, items).scaleMul * blinkScale;
 }

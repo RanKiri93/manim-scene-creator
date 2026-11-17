@@ -41,6 +41,7 @@ import {
   activeTextTransformForLine,
   exitPreviewForTarget,
   blinkPreviewForTarget,
+  uncreateAsUndraw,
   cameraPosePreviewAtTime,
   imageIntroOpacity,
   shapeIntroPreview,
@@ -194,24 +195,14 @@ function strokeAfterBlinkThenTa(
   blink: BlinkPreviewState | null,
   ta: ReturnType<typeof targetAnimPreviewAccum>,
 ): string | undefined {
+  // Same order as effectColorOverride (lib), from states the caller already has.
   let s = baseStroke;
-  if (
-    blink != null &&
-    blink.row.mode === 'color' &&
-    blink.colorMix > 0
-  ) {
-    s = lerpHexColor(s, blink.blinkColor, blink.colorMix);
-  }
+  const byBlink = blink != null && blink.row.mode === 'color' && blink.colorMix > 0;
+  const byTa = Boolean(ta.strokeReplaceHex) || Boolean(ta.colorLerpTo && (ta.colorLerpT ?? 0) > 1e-6);
+  if (byBlink) s = lerpHexColor(s, blink!.blinkColor, blink!.colorMix);
   if (ta.strokeReplaceHex) s = ta.strokeReplaceHex;
-  if (ta.colorLerpTo != null && (ta.colorLerpT ?? 0) > 1e-6) {
-    s = lerpHexColor(s, ta.colorLerpTo, ta.colorLerpT!);
-  }
-  const changedByBlink =
-    blink != null && blink.row.mode === 'color' && blink.colorMix > 0;
-  const changedByTa =
-    Boolean(ta.strokeReplaceHex) ||
-    Boolean(ta.colorLerpTo && (ta.colorLerpT ?? 0) > 1e-6);
-  return changedByBlink || changedByTa ? s : undefined;
+  if (ta.colorLerpTo != null && (ta.colorLerpT ?? 0) > 1e-6) s = lerpHexColor(s, ta.colorLerpTo, ta.colorLerpT!);
+  return byBlink || byTa ? s : undefined;
 }
 
 export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
@@ -1410,10 +1401,12 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                 // Export plays FadeIn / Create over the clip's run time. A selected shape stays whole
                 // while paused, so a shape just drawn at the playhead can still be seen and edited.
                 const introShape = selected && !isPlaying ? null : shapeIntroPreview(item, currentTime, itemsMap, audioItems);
+                // Uncreate un-draws the shape (Create backwards) instead of fading it.
+                const outShape = uncreateAsUndraw(exitPreviewForTarget(item.id, currentTime, itemsMap));
                 return (
                   <PreviewWrap key={item.id} itemId={item.id} op={previewOps.get(item.id)}>
                     <PlaybackWrap
-                      exit={exitPreviewForTarget(item.id, currentTime, itemsMap)}
+                      exit={outShape.exit}
                       blink={bShape}
                       extraTaScale={taShape.scaleMul}
                       scaleAnchor={manimToCanvas(mx, my, size.width, size.height)}
@@ -1431,7 +1424,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         previewStrokeColor={previewStroke}
                         previewFillColor={previewFill}
                         previewRotationDeltaDeg={-taShape.rotDeg}
-                        createProgress={introShape?.createProgress}
+                        createProgress={outShape.drawn ?? introShape?.createProgress}
                       />
                     </PlaybackWrap>
                   </PreviewWrap>
