@@ -35,7 +35,7 @@ import {
   effectiveStart,
   canBeTargetAnimationTarget,
 } from '@/lib/time';
-import { sameFrameTargets, targetCandidateFrameId } from '@/lib/targetScope';
+import { resolveAnimationTargets, sameFrameTargets } from '@/lib/targetScope';
 import { logicalCameraFrameAtTime, resolveCameraSchedule } from '@/lib/camera';
 import { FRAME_W } from '@/lib/constants';
 import { useCameraRegionSelection } from '@/canvas/hooks/useCameraRegionSelection';
@@ -76,19 +76,6 @@ function loadImagePixelDimensions(url: string): Promise<{ w: number; h: number }
     img.onerror = () => reject(new Error('Could not read image file'));
     img.src = url;
   });
-}
-
-function firstFrameTargetIds(
-  targets: readonly SceneItem[],
-  itemsMap: Map<ItemId, SceneItem>,
-  fallbackFrameId: ItemId,
-): ItemId[] {
-  const first = targets[0];
-  if (!first) return [];
-  const frameId = targetCandidateFrameId(first, itemsMap, fallbackFrameId);
-  return targets
-    .filter((target) => targetCandidateFrameId(target, itemsMap, fallbackFrameId) === frameId)
-    .map((target) => target.id);
 }
 
 export function useAddSceneItems() {
@@ -247,28 +234,8 @@ export function useAddSceneItems() {
 
   const addExitAnimationClip = useCallback(() => {
     const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeExitTarget(it));
-    const seen = new Set<ItemId>();
-    const targetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      targetIds.push(it.id);
-    }
-    if (targetIds.length === 0) {
-      const allCandidates = [...map.values()].filter(canBeExitTarget);
-      const candidates = sameFrameTargets(
-        allCandidates,
-        map,
-        startFrameId,
-        activeFrameId ?? startFrameId,
-      );
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      targetIds.push(candidates[0]!.id);
-    }
+    const { ids: targetIds } = resolveAnimationTargets(selectedIds, map, canBeExitTarget, startFrameId, activeFrameId);
+    if (targetIds.length === 0) return;
     const holdEnds = targetIds.map((id) => {
       const t = map.get(id);
       return t && canBeExitTarget(t) ? holdEnd(t, map) : 0;
@@ -291,28 +258,8 @@ export function useAddSceneItems() {
 
   const addBlinkAnimationClip = useCallback(() => {
     const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeBlinkTarget(it));
-    const seen = new Set<ItemId>();
-    const targetIds: ItemId[] = [];
-    for (const it of selectedTargets) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      targetIds.push(it.id);
-    }
-    if (targetIds.length === 0) {
-      const allCandidates = [...map.values()].filter(canBeBlinkTarget);
-      const candidates = sameFrameTargets(
-        allCandidates,
-        map,
-        startFrameId,
-        activeFrameId ?? startFrameId,
-      );
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      targetIds.push(candidates[0]!.id);
-    }
+    const { ids: targetIds } = resolveAnimationTargets(selectedIds, map, canBeBlinkTarget, startFrameId, activeFrameId);
+    if (targetIds.length === 0) return;
     const starts = targetIds.map((id) => {
       const t = map.get(id);
       return t && canBeBlinkTarget(t) ? effectiveStart(t, map) : 0;
@@ -342,33 +289,14 @@ export function useAddSceneItems() {
             : { targetId: dot.id, graphPlotId: plot!.id, targetX: resolved.point.x, easing: 'smooth' }];
         addItem(clip); select(clip.id); return;
       }
-      const selectedTargets = [...selectedIds]
-        .map((id) => map.get(id))
-        .filter(
-          (it): it is SceneItem =>
-            !!it && canBeTargetAnimationTarget(it, mode),
-        );
-      const seen = new Set<ItemId>();
-      const targetIds: ItemId[] = [];
-      for (const it of selectedTargets) {
-        if (seen.has(it.id)) continue;
-        seen.add(it.id);
-        targetIds.push(it.id);
-      }
-      if (targetIds.length === 0) {
-        const allCandidates = [...map.values()].filter((it) =>
-          canBeTargetAnimationTarget(it, mode),
-        );
-        const candidates = sameFrameTargets(
-          allCandidates,
-          map,
-          startFrameId,
-          activeFrameId ?? startFrameId,
-        );
-        if (candidates.length === 0) return;
-        candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-        targetIds.push(candidates[0]!.id);
-      }
+      const { ids: targetIds } = resolveAnimationTargets(
+        selectedIds,
+        map,
+        (it) => canBeTargetAnimationTarget(it, mode),
+        startFrameId,
+        activeFrameId,
+      );
+      if (targetIds.length === 0) return;
       const starts = targetIds.map((id) => {
         const t = map.get(id);
         return t && canBeTargetAnimationTarget(t, mode)
@@ -408,32 +336,15 @@ export function useAddSceneItems() {
 
   const addSurroundingRectClip = useCallback(() => {
     const map = useSceneStore.getState().items;
-    const selectedTargets = [...selectedIds]
-      .map((id) => map.get(id))
-      .filter((it): it is SceneItem => !!it && canBeSurroundTarget(it));
-    const seen = new Set<ItemId>();
-    const surroundTargetIds: ItemId[] = [];
-    for (const id of firstFrameTargetIds(
-      selectedTargets,
+    const { ids: surroundTargetIds } = resolveAnimationTargets(
+      selectedIds,
       map,
-      activeFrameId ?? startFrameId,
-    )) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      surroundTargetIds.push(id);
-    }
-    if (surroundTargetIds.length === 0) {
-      const allCandidates = [...map.values()].filter(canBeSurroundTarget);
-      const candidates = sameFrameTargets(
-        allCandidates,
-        map,
-        startFrameId,
-        activeFrameId ?? startFrameId,
-      );
-      if (candidates.length === 0) return;
-      candidates.sort((a, b) => a.startTime - b.startTime || a.id.localeCompare(b.id));
-      surroundTargetIds.push(candidates[0]!.id);
-    }
+      canBeSurroundTarget,
+      startFrameId,
+      activeFrameId,
+      { sameFrameAsFirst: true },
+    );
+    if (surroundTargetIds.length === 0) return;
     const starts = surroundTargetIds.map((id) => {
       const t = map.get(id);
       return t && canBeSurroundTarget(t) ? effectiveStart(t, map) : 0;

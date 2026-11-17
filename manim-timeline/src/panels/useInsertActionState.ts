@@ -8,6 +8,7 @@ import {
 } from '@/lib/time';
 import { itemClipDisplayName } from '@/lib/itemDisplayName';
 import { resolveGraphFollowSelection } from '@/lib/graphMotion';
+import { describeAnimationTargets, resolveAnimationTargets } from '@/lib/targetScope';
 import type { SceneItem, TargetAnimationMode } from '@/types/scene';
 import type { InsertActionDef, InsertActionId, InsertGroupId } from './insertActions';
 
@@ -42,6 +43,8 @@ export function useInsertActionState() {
   const actions = useAddSceneItems();
   const itemsMap = useSceneStore((s) => s.items);
   const selectedIds = useSceneStore((s) => s.selectedIds);
+  const startFrameId = useSceneStore((s) => s.startFrameId);
+  const activeFrameId = useSceneStore((s) => s.activeFrameId);
 
   const selectedItems: SceneItem[] = [];
   for (const id of selectedIds) {
@@ -62,12 +65,12 @@ export function useInsertActionState() {
   const hasAnyAnimationTarget =
     hasExitTarget || hasBlinkTarget || hasSurroundTarget || compatibleModes.size > 0;
   const animationHint = !hasSelection
-    ? 'Nothing selected: the first eligible object is used.'
+    ? 'Nothing selected: each animation uses the earliest object in this frame that can take it (hover a button to see which).'
     : !hasAnyAnimationTarget
-      ? 'The selection cannot take these; the first eligible object is used.'
+      ? 'The selection cannot take these; each uses the earliest object in this frame that can (hover to see which).'
       : selectedItems.length === 1
-        ? `Uses ${truncLabel(itemClipDisplayName(selectedItems[0]!), 24)}.`
-        : 'Uses your selection.';
+        ? `Will target “${truncLabel(itemClipDisplayName(selectedItems[0]!), 24)}”. Dimmed buttons cannot use it.`
+        : `Will target your ${selectedItems.length} selected objects (those that can take each animation).`;
   const graphFollowSelection = resolveGraphFollowSelection(itemsMap, selectedIds);
   const canFollowGraph = graphFollowSelection.error == null;
 
@@ -122,6 +125,13 @@ export function useInsertActionState() {
 
   const fitsSelection = (can: boolean) => ({ active: can, dimmed: hasSelection && !can });
 
+  /** Which objects the clip will act on (same rule as the add actions), said on the button. */
+  const targeted = (def: InsertActionDef, canTake: (it: SceneItem) => boolean, can: boolean, sameFrameAsFirst = false): InsertActionState => {
+    const result = resolveAnimationTargets(selectedIds, itemsMap, canTake, startFrameId, activeFrameId, { sameFrameAsFirst });
+    const { text, none } = describeAnimationTargets(result, itemsMap, hasSelection);
+    return { title: `${def.title}. ${text}`, ...fitsSelection(can), ...(none ? { disabled: true, dimmed: true } : {}) };
+  };
+
   const stateFor = (def: InsertActionDef): InsertActionState => {
     switch (def.id) {
       case 'graphPlot':
@@ -144,7 +154,7 @@ export function useInsertActionState() {
       case 'scale':
       case 'rotate':
       case 'color':
-        return { title: def.title, ...fitsSelection(compatibleModes.has(def.id)) };
+        return targeted(def, (it) => canBeTargetAnimationTarget(it, def.id as TargetAnimationMode), compatibleModes.has(def.id as TargetAnimationMode));
       case 'matrixStep': {
         const hasMatrix = [...itemsMap.values()].some((it) => it.kind === 'matrix');
         return {
@@ -154,11 +164,11 @@ export function useInsertActionState() {
         };
       }
       case 'blink':
-        return { title: def.title, ...fitsSelection(hasBlinkTarget) };
+        return targeted(def, canBeBlinkTarget, hasBlinkTarget);
       case 'surroundingRect':
-        return { title: def.title, ...fitsSelection(hasSurroundTarget) };
+        return targeted(def, canBeSurroundTarget, hasSurroundTarget, true);
       case 'exit':
-        return { title: def.title, ...fitsSelection(hasExitTarget) };
+        return targeted(def, canBeExitTarget, hasExitTarget);
       case 'fitObject':
         return { title: def.title, ...fitsSelection(hasCameraFitTarget) };
       default:

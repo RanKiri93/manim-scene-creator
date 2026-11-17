@@ -1,7 +1,7 @@
 ---
 slug: animation-target-assignment-affordance
 created: 2026-09-11
-status: blocked
+status: done
 owner_role: editor-dev
 next_tool: any
 source: user request
@@ -60,3 +60,12 @@ Order **3 of 3**, after the user chooses the desired UX. Explore a graph-axes-st
   3. **Choose-on-click**: animation button opens a small target picker before creating the clip.
 - Should the affordance apply to **Exit + Blink + all Target Animation modes + Surrounding Rect**, or only `target_animation` modes?
 - Should multi-target creation remain automatic from multi-select, or should v1 force a single primary target unless the user explicitly opts into multiple targets?
+
+## Decision and implementation (2026-11-17)
+
+The user chose option 1, selection-driven clarity (open-items review). Built on the redesigned insert rail (dd1e999):
+
+- `resolveAnimationTargets` (`lib/targetScope.ts`) is the one rule for which objects a new blink / exit / surround / move / path / scale / rotate / colour clip acts on: the selected objects that can take it (surround: those in the first one's frame), else the earliest object in the active frame. `useAddSceneItems` uses it instead of four copies.
+- `describeAnimationTargets` words it; every animation button's tooltip (rail, canvas animate bar, insert search) says "Will target “…”", "Will target N selected: …", or that the selection cannot take it and which object is used instead. A button whose clip has no possible target is disabled with "Nothing in this frame can take it." (it used to do nothing silently).
+- The Animate group's helper line names the selected object, or says each button names its fallback.
+- Tests: `lib/targetScope.test.ts`. A target lock or a picker (options 2, 3) was not built.
