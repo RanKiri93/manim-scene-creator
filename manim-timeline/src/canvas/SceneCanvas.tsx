@@ -31,7 +31,7 @@ import { registerLoopToolEnv } from '@/agent/loop/env';
 import { renderDraftFrame } from '@/agent/loop/manimFrame';
 import { measureLine } from '@/services/measureClient';
 import { cameraPoseAtTime } from '@/lib/camera';
-import { cameraCropRect, captureStageRect, nextPaint, withProposalsAsFinal } from './agentSnapshot';
+import { cameraCropRect, captureStageRect, withProposalsAsFinal } from './agentSnapshot';
 import { useResolvedPositions } from './hooks/useResolvedPosition';
 import { FRAME_W, FRAME_H } from '@/lib/constants';
 import {
@@ -101,6 +101,9 @@ import {
 import { createCameraMove } from '@/store/factories';
 import { useProjectScenesStore } from '@/store/useProjectScenesStore';
 import { CANVAS_CHROME } from '@/lib/theme';
+
+/** A Copilot preview snapshot waiting for the canvas to draw `time` once. */
+type SnapshotRequest = { time: number; resolve: (base64: string) => void; reject: (error: Error) => void };
 
 type CameraAuthoringContext = {
   time: number;
@@ -234,7 +237,11 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   } | null>(null);
   const didPanRef = useRef(false);
 
-  const currentTime = useSceneStore((s) => s.currentTime);
+  const liveTime = useSceneStore((s) => s.currentTime);
+  // Copilot snapshot: draw one other time for a single render, captured before the browser
+  // paints, so the playhead and the visible canvas never move.
+  const [snapshotRequest, setSnapshotRequest] = useState<SnapshotRequest | null>(null);
+  const currentTime = snapshotRequest?.time ?? liveTime;
   const isPlaying = useSceneStore((s) => s.isPlaying);
   const activeSceneId = useProjectScenesStore((s) => s.activeSceneId);
   const audioItems = useSceneStore((s) => s.audioItems);
@@ -721,27 +728,9 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
   });
   useEffect(() => {
     registerLoopToolEnv(() => ({
-      snapshot: async (time) => {
-        const scene = useSceneStore.getState();
-        const previousTime = scene.currentTime;
-        if (scene.isPlaying) scene.pause();
-        const history = useSceneStore.temporal.getState();
-        history.pause();
-        try {
-          scene.setCurrentTime(time);
-          await nextPaint();
-          const stage = stageRef.current;
-          if (!stage) throw new Error('The canvas is not visible.');
-          const latest = snapshotStateRef.current;
-          if (!latest.startFrameId) throw new Error('The scene has no start frame.');
-          const pose = cameraPoseAtTime(time, latest.itemsMap, latest.frames, latest.startFrameId);
-          const rect = cameraCropRect(pose, latest.size.width, latest.size.height, latest.contentTransform);
-          return { mediaType: 'image/png' as const, base64: withProposalsAsFinal(stage, () => captureStageRect(stage, rect)) };
-        } finally {
-          useSceneStore.getState().setCurrentTime(previousTime);
-          history.resume();
-        }
-      },
+      snapshot: (time) =>
+        new Promise<string>((resolve, reject) => setSnapshotRequest({ time, resolve, reject }))
+          .then((base64) => ({ mediaType: 'image/png' as const, base64 })),
       ...(useSceneStore.getState().measureConfig.enabled
         ? {
             renderFrame: (time: number, session: Parameters<typeof renderDraftFrame>[0]) =>
@@ -753,6 +742,23 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
     }));
     return () => registerLoopToolEnv(null);
   }, []);
+  useLayoutEffect(() => {
+    if (!snapshotRequest) return;
+    const { time, resolve, reject } = snapshotRequest;
+    try {
+      const stage = stageRef.current;
+      if (!stage) throw new Error('The canvas is not visible.');
+      const latest = snapshotStateRef.current;
+      if (!latest.startFrameId) throw new Error('The scene has no start frame.');
+      const pose = cameraPoseAtTime(time, latest.itemsMap, latest.frames, latest.startFrameId);
+      const rect = cameraCropRect(pose, latest.size.width, latest.size.height, latest.contentTransform);
+      resolve(withProposalsAsFinal(stage, () => captureStageRect(stage, rect)));
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      setSnapshotRequest(null);
+    }
+  }, [snapshotRequest]);
   const [stageGesture, setStageGesture] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<
     { rect: AnchorRect; containerWidth: number; containerHeight: number } | null
