@@ -33,6 +33,10 @@ export default function PlaybackControls() {
   );
 
   const [surgeryDialogOpen, setSurgeryDialogOpen] = useState(false);
+  // A range dragged on the timeline ruler opens the dialog with it.
+  const timelineRangeRequest = useSceneStore((s) => s.timelineRangeRequest);
+  const requestTimelineRange = useSceneStore((s) => s.requestTimelineRange);
+  const showSurgeryDialog = surgeryDialogOpen || timelineRangeRequest != null;
 
   const duration = useMemo(() => getSceneDuration(), [getSceneDuration]);
 
@@ -116,9 +120,14 @@ export default function PlaybackControls() {
 
       <Button
         size="sm"
-        onClick={() => setSurgeryDialogOpen((v) => !v)}
+        onClick={() => {
+          if (showSurgeryDialog) {
+            setSurgeryDialogOpen(false);
+            requestTimelineRange(null);
+          } else setSurgeryDialogOpen(true);
+        }}
         title="Close an empty time range or insert empty time (shifts later clips and audio)"
-        aria-expanded={surgeryDialogOpen}
+        aria-expanded={showSurgeryDialog}
       >
         Insert or remove time…
       </Button>
@@ -191,8 +200,15 @@ export default function PlaybackControls() {
         }
       />
 
-      {surgeryDialogOpen ? (
-        <TimelineSurgeryDialog onClose={() => setSurgeryDialogOpen(false)} />
+      {showSurgeryDialog ? (
+        <TimelineSurgeryDialog
+          key={timelineRangeRequest ? `${timelineRangeRequest.from}-${timelineRangeRequest.to}` : 'manual'}
+          initialRange={timelineRangeRequest}
+          onClose={() => {
+            setSurgeryDialogOpen(false);
+            requestTimelineRange(null);
+          }}
+        />
       ) : null}
     </div>
   );

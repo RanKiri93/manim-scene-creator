@@ -59,4 +59,11 @@ describe('undo history records content only', () => {
     expect(s.inspectedId).toBeNull();
     expect(history().pastStates.length).toBe(0);
   });
+
+  it('does not record a ruler range request for the time-edit dialog', () => {
+    useSceneStore.getState().requestTimelineRange({ from: 1, to: 2 });
+    expect(useSceneStore.getState().timelineRangeRequest).toEqual({ from: 1, to: 2 });
+    useSceneStore.getState().requestTimelineRange(null);
+    expect(history().pastStates.length).toBe(0);
+  });
 });

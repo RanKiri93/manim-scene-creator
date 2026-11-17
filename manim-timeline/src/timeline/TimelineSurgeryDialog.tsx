@@ -19,7 +19,14 @@ function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
-export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void }) {
+export default function TimelineSurgeryDialog({
+  onClose,
+  initialRange,
+}: {
+  onClose: () => void;
+  /** A range dragged on the ruler: prefilled as the range to close and as the insert point / length. */
+  initialRange?: { from: number; to: number } | null;
+}) {
   const items = useSceneStore((s) => s.items);
   const audioItems = useSceneStore((s) => s.audioItems);
   const currentTime = useSceneStore((s) => s.currentTime);
@@ -27,8 +34,9 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
   const insertEmptyTimelineTime = useSceneStore((s) => s.insertEmptyTimelineTime);
 
   const [mode, setMode] = useState<SurgeryMode>('close');
-  const [closeStart, setCloseStart] = useState(currentTime);
+  const [closeStart, setCloseStart] = useState(initialRange?.from ?? currentTime);
   const [closeEnd, setCloseEnd] = useState(() => {
+    if (initialRange) return initialRange.to;
     const st = useSceneStore.getState();
     const spans = collectSurgerySpans(st.items, st.audioItems);
     return (
@@ -36,8 +44,10 @@ export default function TimelineSurgeryDialog({ onClose }: { onClose: () => void
       st.currentTime + 5
     );
   });
-  const [insertAt, setInsertAt] = useState(currentTime);
-  const [insertDuration, setInsertDuration] = useState(2);
+  const [insertAt, setInsertAt] = useState(initialRange?.from ?? currentTime);
+  const [insertDuration, setInsertDuration] = useState(
+    initialRange ? Math.round((initialRange.to - initialRange.from) * 100) / 100 : 2,
+  );
   const [applyError, setApplyError] = useState<string | null>(null);
 
   const { itemSpans, audioSpans } = useMemo(

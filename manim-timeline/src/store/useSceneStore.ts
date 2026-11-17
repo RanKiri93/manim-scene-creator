@@ -439,6 +439,9 @@ interface UiSlice {
   /** When set, plain-canvas clicks append relative offsets to a target_animation path row. */
   targetAnimationPathCapture: TargetAnimationPathCapture | null;
   cameraObjectFitPadding: number;
+  /** A time range picked by dragging on the timeline ruler, for the time-edit dialog to open with. */
+  timelineRangeRequest: { from: number; to: number } | null;
+  requestTimelineRange: (range: { from: number; to: number } | null) => void;
   setExportOpen: (open: boolean) => void;
   setAudioMode: (mode: AudioPanelMode | null) => void;
   setAgentOpen: (open: boolean) => void;
@@ -823,6 +826,7 @@ export const useSceneStore = create<SceneStore>()(
       polylinePointCaptureId: null,
       targetAnimationPathCapture: null,
       cameraObjectFitPadding: 0.3,
+      timelineRangeRequest: null,
       setExportOpen: (open) => set((s) => { s.exportOpen = open; }),
       setAudioMode: (mode) => set((s) => { s.audioMode = mode; }),
       setAgentOpen: (open) => set((s) => { s.agentOpen = open; }),
@@ -839,6 +843,10 @@ export const useSceneStore = create<SceneStore>()(
         set((s) => {
           s.targetAnimationPathCapture = capture;
           if (capture != null) s.polylinePointCaptureId = null;
+        }),
+      requestTimelineRange: (range) =>
+        set((s) => {
+          s.timelineRangeRequest = range;
         }),
       setCameraObjectFitPadding: (padding) =>
         set((s) => {

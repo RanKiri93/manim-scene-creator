@@ -235,16 +235,50 @@ export default function Timeline() {
   // Ensure at least one empty track
   if (layers.length === 0) layers.push(0);
 
-  // Click on ruler to seek
-  const onRulerClick = useCallback(
-    (e: React.MouseEvent) => {
-      const tl = timelineRef.current;
-      if (!tl) return;
-      const rect = tl.getBoundingClientRect();
-      const xInContent = e.clientX - rect.left + tl.scrollLeft;
-      setCurrentTime(Math.max(0, xInContent / pxPerSecond));
+  // Ruler: a click seeks; a drag picks a time range and opens the time-edit dialog with it.
+  const requestTimelineRange = useSceneStore((s) => s.requestTimelineRange);
+  const rulerDrag = useRef<{ startX: number; dragging: boolean } | null>(null);
+  const [rulerRange, setRulerRange] = useState<{ fromX: number; toX: number } | null>(null);
+  const contentX = useCallback((clientX: number) => {
+    const tl = timelineRef.current;
+    if (!tl) return 0;
+    return Math.max(0, clientX - tl.getBoundingClientRect().left + tl.scrollLeft);
+  }, []);
+  const onRulerPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      rulerDrag.current = { startX: contentX(e.clientX), dragging: false };
     },
-    [pxPerSecond, setCurrentTime],
+    [contentX],
+  );
+  const onRulerPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = rulerDrag.current;
+      if (!drag) return;
+      const x = contentX(e.clientX);
+      if (!drag.dragging && Math.abs(x - drag.startX) < 4) return;
+      drag.dragging = true;
+      setRulerRange({ fromX: Math.min(drag.startX, x), toX: Math.max(drag.startX, x) });
+    },
+    [contentX],
+  );
+  const onRulerPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = rulerDrag.current;
+      rulerDrag.current = null;
+      setRulerRange(null);
+      if (!drag) return;
+      const x = contentX(e.clientX);
+      if (!drag.dragging) {
+        setCurrentTime(x / pxPerSecond);
+        return;
+      }
+      const from = Math.min(drag.startX, x) / pxPerSecond;
+      const to = Math.max(drag.startX, x) / pxPerSecond;
+      if (to - from > 0.01) requestTimelineRange({ from, to });
+    },
+    [contentX, pxPerSecond, setCurrentTime, requestTimelineRange],
   );
 
   // Scroll to zoom (deltaY > 0: zoom out / wider window; deltaY < 0: zoom in / narrower)
@@ -382,9 +416,22 @@ export default function Timeline() {
           <div className="relative z-20 isolate">
             <div
               className="relative h-6 bg-panel border-b border-rule cursor-pointer"
-              onClick={onRulerClick}
+              title="Click to move the playhead. Drag to pick a time range to remove or insert time."
+              onPointerDown={onRulerPointerDown}
+              onPointerMove={onRulerPointerMove}
+              onPointerUp={onRulerPointerUp}
+              onPointerCancel={() => {
+                rulerDrag.current = null;
+                setRulerRange(null);
+              }}
               onWheel={onWheel}
             >
+              {rulerRange && (
+                <div
+                  className="pointer-events-none absolute top-0 bottom-0 bg-highlight/25 border-x border-highlight"
+                  style={{ left: `${rulerRange.fromX}px`, width: `${rulerRange.toX - rulerRange.fromX}px` }}
+                />
+              )}
               {ticks.map((t) => {
                 const x = t * pxPerSecond;
                 return (
