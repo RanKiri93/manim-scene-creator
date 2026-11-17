@@ -2,6 +2,7 @@ import type { AgentAction } from '../types';
 import type { DraftSession } from './draft';
 import { runLoopTool, type LoopToolEnv } from './tools';
 import type { LoopConversation, LoopLogEntry } from './types';
+import { rememberFullImage } from './thumbnail';
 
 /** Model calls per user turn. Each call may run several tools. */
 export const MAX_LOOP_STEPS = 10;
@@ -55,6 +56,7 @@ export async function runAgentLoop(args: {
       const outcome = await runLoopTool(call, session, env);
       const picture = outcome.seen && outcome.result.images?.[0];
       const src = picture && env.thumbnail ? await env.thumbnail(picture).catch(() => null) : null;
+      if (src && picture) rememberFullImage(src, picture);
       log.push({
         tool: call.name,
         summary: outcome.summary,

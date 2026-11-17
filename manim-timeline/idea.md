@@ -54,8 +54,7 @@ canvas sizing / coordinate helpers, frame grid helpers, and Manim exporters.
 a bounded loop (10 model calls) on a draft with validation errors returned to the model,
 `inspect_scene` for exact positions and timings, `check_export`, `snapshot_preview` (canvas camera
 view) and `render_manim_frame` (new `POST /api/render_frame`). Results apply as one undo step, or wait
-for Approve. Open follow-ups: store the snapshots with the chat message; review rubric prompts;
-seek-free offscreen snapshots.
+for Approve. Follow-ups done 2026-11-17: snapshots open large from the Steps list, and preview snapshots no longer move the playhead. Open: review rubric prompts.
 
 ### Goal
 

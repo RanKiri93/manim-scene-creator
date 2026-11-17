@@ -25,3 +25,19 @@ export async function makeLoopThumbnail(image: LoopImage, width = THUMBNAIL_WIDT
     return null;
   }
 }
+
+/** Full-size pictures for the newest thumbnails, this session only (too big for localStorage). */
+const MAX_FULL_IMAGES = 40;
+const fullImages = new Map<string, string>();
+
+/** Keep the full picture behind a thumbnail so the Steps list can open it large. */
+export function rememberFullImage(thumbnailSrc: string, image: LoopImage): void {
+  fullImages.delete(thumbnailSrc);
+  fullImages.set(thumbnailSrc, `data:${image.mediaType};base64,${image.base64}`);
+  while (fullImages.size > MAX_FULL_IMAGES) fullImages.delete(fullImages.keys().next().value!);
+}
+
+/** The full picture behind a thumbnail, or null after a reload (the thumbnail is all that is kept). */
+export function fullImageFor(thumbnailSrc: string): string | null {
+  return fullImages.get(thumbnailSrc) ?? null;
+}

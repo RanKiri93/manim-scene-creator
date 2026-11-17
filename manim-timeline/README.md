@@ -495,6 +495,8 @@ Vite excludes `src-tauri/` from its frontend watcher to avoid Windows `EBUSY` er
 
 ---
 
+*Last updated: **Copilot pictures** — clicking a picture in the Copilot's Steps list opens it large (full size until the page reloads) with a button to go to its time, and the Copilot's preview snapshots no longer move your playhead or flash the canvas.*
+
 *Last updated: **Animated GIFs loop** — a GIF image now plays in a loop while it is on screen, in the preview and in the render, on the same frame timing (`lib/gifTiming.ts`; export helper `_ManimUIGif`). Its updater is time-based, so waits while a GIF is visible render every frame instead of a frozen one.*
 
 *Last updated: **Constant speed along a graph** — Move-along-graph rows have a pace option: steady in x / t (unchanged default) or constant on-screen speed along the curve (`speed: "constant"`, editor field "קצב", Copilot row field). The export emits the same arc-length table the preview uses; run time unchanged.*

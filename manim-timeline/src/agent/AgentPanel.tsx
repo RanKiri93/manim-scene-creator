@@ -12,6 +12,7 @@ import { summarizeCameraProposal } from './cameraProposalSummary';
 import { describeTimelineEdit } from './timelineEdits';
 import { listChatgptModels, signInWithChatgpt, type ChatgptModel } from './providers/chatgptLoop';
 import { isTauriRuntime } from '@/lib/projectIO';
+import { fullImageFor } from './loop/thumbnail';
 
 const PROVIDER_OPTIONS: { id: ProviderId; label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
@@ -920,25 +921,76 @@ function ChatgptAccount() {
   );
 }
 
-/** A picture the Copilot looked at; click to move the playhead to its time (not an undo step). */
+/** Move the playhead to a time the Copilot looked at (not an undo step). */
+function goToSeenTime(time: number) {
+  const scene = useSceneStore.getState();
+  if (scene.isPlaying) scene.pause();
+  const history = useSceneStore.temporal.getState();
+  history.pause();
+  scene.setCurrentTime(time);
+  history.resume();
+}
+
+/** A picture the Copilot looked at; click to see it large, with a button to go to its time. */
 function SeenThumbnail({ image }: { image: { src: string; time: number; source: 'preview' | 'manim' } }) {
+  const [open, setOpen] = useState(false);
   const what = image.source === 'manim' ? 'Manim frame' : 'Preview';
+  const caption = `${what} at ${image.time.toFixed(2)}s`;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+  const full = open ? fullImageFor(image.src) : null;
   return (
-    <button
-      type="button"
-      className="mt-1 block rounded-ctl border border-rule overflow-hidden hover:border-chalk-dim"
-      title={`${what} at ${image.time.toFixed(2)}s — click to go there`}
-      onClick={() => {
-        const scene = useSceneStore.getState();
-        if (scene.isPlaying) scene.pause();
-        const history = useSceneStore.temporal.getState();
-        history.pause();
-        scene.setCurrentTime(image.time);
-        history.resume();
-      }}
-    >
-      <img src={image.src} alt={`${what} at ${image.time.toFixed(2)}s`} className="block w-40 h-auto" />
-    </button>
+    <>
+      <button
+        type="button"
+        className="mt-1 block rounded-ctl border border-rule overflow-hidden hover:border-chalk-dim"
+        title={`${caption}: click to see it large`}
+        onClick={() => setOpen(true)}
+      >
+        <img src={image.src} alt={caption} className="block w-40 h-auto" />
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
+          role="presentation"
+          onClick={() => setOpen(false)}
+        >
+          <figure
+            role="dialog"
+            aria-label={caption}
+            className="bg-ink border border-rule rounded-pop p-3 shadow-xl flex flex-col gap-2 max-w-[min(1000px,95vw)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img src={full ?? image.src} alt={caption} className="block w-full h-auto max-h-[75vh] object-contain bg-black" />
+            <figcaption className="flex items-center gap-2 text-ctl text-chalk-dim">
+              <span className="flex-1">
+                {caption}
+                {full ? '' : ' (small copy: the full picture is kept only until the page reloads)'}
+              </span>
+              <button
+                type="button"
+                className="px-2 py-1 bg-raised hover:bg-rule text-chalk rounded-ctl"
+                onClick={() => {
+                  goToSeenTime(image.time);
+                  setOpen(false);
+                }}
+              >
+                Go to {image.time.toFixed(2)}s
+              </button>
+              <button type="button" className="px-2 py-1 hover:bg-rule text-chalk-dim rounded-ctl" onClick={() => setOpen(false)}>
+                Close
+              </button>
+            </figcaption>
+          </figure>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -361,6 +361,8 @@ Real LLM responses are noisy. The validator has two responsibilities:
 - Steps thumbnails: `snapshot_preview` / `render_manim_frame` outcomes carry `seen { time, source }`;
   `runAgentLoop` shrinks the picture with `env.thumbnail` (`loop/thumbnail.ts`, ~160 px JPEG) into the log
   entry's `image`. Only the last 10 saved messages keep them in localStorage (`withoutOldThumbnails`).
+  The full picture stays in memory for the newest 40 (`rememberFullImage` / `fullImageFor`); clicking a
+  thumbnail opens it large with a "Go to <time>" button (after a reload it shows the thumbnail).
 - Geometry: `endpoints.ticks` (0–3) on connectors; `shape.angle: { vertex, from, to, radius?, mark? }` (shapeType
   `polyline` or omitted) is an angle mark resolved by `resolveAngleMark`; `checkConnectors` also resolves angle
   marks and syncs their static points; inspect reports `angleDegrees`, `rightAngle` and `labelAtWorld`.
@@ -632,10 +634,11 @@ runTurn ─► runLoopTurn ─► DraftSession (request-time snapshot)
   in one user message. History is sent as plain alternating turns (`loop/history.ts`): applied
   proposals as a short action list, others marked NOT applied.
 - **Seeing.** `SceneCanvas` registers `LoopToolEnv` (`registerLoopToolEnv`) while mounted.
-  `snapshot_preview(time)`: pause playback and undo history, seek the playhead, wait two paints, crop
-  the camera's view at that time from the Konva stage (`canvas/agentSnapshot.ts`: proposals at full
-  opacity, deletions hidden, grid layer hidden, black background, ~960 px wide), restore the
-  playhead. `render_manim_frame(time)` (only when the measure server is enabled): export the draft
+  `snapshot_preview(time)`: seek-free. The canvas draws `time` for one render (a local
+  `snapshotRequest` overrides the store time), a layout effect crops the camera's view at that time
+  from the Konva stage before the browser paints (`canvas/agentSnapshot.ts`: proposals at full
+  opacity, deletions hidden, grid layer hidden, black background, ~960 px wide) and clears the
+  override, so the playhead, playback and the visible canvas never move. `render_manim_frame(time)` (only when the measure server is enabled): export the draft
   (`loop/manimFrame.ts`) and call `POST /api/render_frame` (low-quality render + ffmpeg frame grab).
   Anthropic gets the PNG as an image block inside the tool result; OpenAI as a user message after the
   tool messages.
