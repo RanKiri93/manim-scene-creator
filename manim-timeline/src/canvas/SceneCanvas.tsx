@@ -1461,6 +1461,7 @@ export default function SceneCanvas({ onFrameRectChange }: SceneCanvasProps) {
                         resolvedX={mx}
                         resolvedY={my}
                         frameOffset={fcImg}
+                        currentTime={currentTime}
                       />
                     </PlaybackWrap>
                   </PreviewWrap>

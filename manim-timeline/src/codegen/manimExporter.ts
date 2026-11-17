@@ -90,8 +90,10 @@ import {
   generateImageDef,
   generateImagePos,
   generateImagePlay,
+  gifImageHelperSource,
   imageNeedsEmbeddedDataHelper,
 } from './imageCodegen';
+import { isGifImage } from '@/lib/gifTiming';
 import { anyMatrix, anyMatrixStep, generateMatrixDef, generateMatrixPlay, generateMatrixPos } from './matrixCodegen';
 import { flattenExportLeaves, type ExportLeaf } from './flattenExport';
 import {
@@ -592,7 +594,8 @@ function exportManimCodeInner(
     }
   }
 
-  let defStr = '';
+  const anyGif = flat.some((it) => it.kind === 'image' && isGifImage(it));
+  let defStr = anyGif ? `${' '.repeat(base)}_ManimUIGif.use_scene(self)\n` : '';
   let posStr = '';
   let playStr = '';
   /** Monotonic z_index for graph overlays so curves/dots stack predictably in Manim. */
@@ -646,7 +649,7 @@ function exportManimCodeInner(
       defStr += generateShapeDef(it, varName, base);
     } else if (it.kind === 'image') {
       const varName = idToVarName.get(it.id)!;
-      defStr += generateImageDef(it, varName, base);
+      defStr += generateImageDef(it, varName, base, isGifImage(it) ? effectiveStart(it, itemsMap) : undefined);
     } else if (it.kind === 'matrix') {
       defStr += generateMatrixDef(it, idToVarName.get(it.id)!, base);
     }
@@ -1506,10 +1509,11 @@ function exportManimCodeInner(
     const riemannHelper = anyRiemannArea(items) ? `${riemannRectsSource(0)}\n` : '';
     const marksHelper = anyGeometryMarks(items) ? `${geometryMarksSource(0)}\n` : '';
     const dashHelper = anyDashedShape(items) ? `${shapeDashSource(0)}\n` : '';
+    const gifHelper = anyGif ? `${gifImageHelperSource()}\n` : '';
     const clipHelper = anyEditedAudio(options.audioItems)
       ? `${audioClipHelperSource(options.defaults.audioCutFadeMs ?? 0)}\n`
       : '';
-    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${clipHelper}${waitHelper}${problemLines}${defStr}\n${posStr}\n${playStr}`;
+    return `${cameraSnippet}${cameraHelper}${pathSnippet}${dotHelper}${areaHelper}${trailHelper}${riemannHelper}${marksHelper}${dashHelper}${gifHelper}${clipHelper}${waitHelper}${problemLines}${defStr}\n${posStr}\n${playStr}`;
   }
 
   let header = 'from manim import *\n';
@@ -1539,6 +1543,7 @@ function exportManimCodeInner(
   if (anyRiemannArea(items)) header += '\n\n' + riemannRectsSource(0);
   if (anyGeometryMarks(items)) header += '\n\n' + geometryMarksSource(0);
   if (anyDashedShape(items)) header += '\n\n' + shapeDashSource(0);
+  if (anyGif) header += '\n\n' + gifImageHelperSource();
 
   // Emit the `_FSRevealTransform` helper (used only by replacement-mode
   // graphFunctionSeries) at module scope so both concurrent-cluster

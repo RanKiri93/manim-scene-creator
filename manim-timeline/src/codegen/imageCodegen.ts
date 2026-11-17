@@ -64,17 +64,90 @@ export function imageNeedsEmbeddedDataHelper(item: ImageItem): boolean {
   return !item.assetRelPath?.trim() && dataUrlParts(item.srcUrl.trim()) != null;
 }
 
+/** Module-level helper for animated GIFs: loops on the scene clock (see `lib/gifTiming.ts`). */
+export function gifImageHelperSource(): string {
+  return [
+    'class _ManimUIGif(ImageMobject):',
+    '    """Animated GIF looping from `start` (scene seconds); frame delays as browsers play them."""',
+    '    scene = None',
+    '    _cache = {}',
+    '',
+    '    @staticmethod',
+    '    def use_scene(scene):',
+    '        _ManimUIGif.scene = scene',
+    '',
+    '    def __init__(self, path, start, **kwargs):',
+    '        super().__init__(path, **kwargs)',
+    '        if path not in _ManimUIGif._cache:',
+    '            import numpy as _np',
+    '            from PIL import Image as _PILImage, ImageSequence as _PILSequence',
+    '            frames, delays = [], []',
+    '            with _PILImage.open(path) as im:',
+    '                for fr in _PILSequence.Iterator(im):',
+    '                    frames.append(_np.array(fr.convert("RGBA")))',
+    '                    raw = fr.info.get("duration", 0) or 0',
+    '                    delays.append(raw if raw > 10 else 100)',
+    '            _ManimUIGif._cache[path] = (frames, delays)',
+    '        self.gif_path = path',
+    '        self.gif_start = start',
+    '        self.gif_opacity = 1.0',
+    '        # Time-based, so waits keep updating (not frozen) while a GIF is on screen.',
+    '        self.add_updater(lambda m, dt: m.gif_refresh())',
+    '        self.gif_refresh()',
+    '',
+    '    def gif_index(self):',
+    '        delays = _ManimUIGif._cache[self.gif_path][1]',
+    '        scene = _ManimUIGif.scene',
+    '        elapsed = (scene.time if scene is not None else 0.0) - self.gif_start',
+    '        if len(delays) <= 1 or not elapsed > 0:',
+    '            return 0',
+    '        t = (elapsed * 1000) % sum(delays)',
+    '        for i, d in enumerate(delays):',
+    '            t -= d',
+    '            if t < 0:',
+    '                return i',
+    '        return len(delays) - 1',
+    '',
+    '    def gif_refresh(self):',
+    '        if not hasattr(self, "gif_path"):',
+    '            return self',
+    '        frame = _ManimUIGif._cache[self.gif_path][0][self.gif_index()]',
+    '        if frame.shape != self.pixel_array.shape:',
+    '            return self',
+    '        arr = frame.copy()',
+    '        arr[:, :, 3] = (frame[:, :, 3].astype(float) * self.gif_opacity).astype(arr.dtype)',
+    '        self.pixel_array = arr',
+    '        return self',
+    '',
+    '    def set_opacity(self, alpha):',
+    '        if not hasattr(self, "gif_path"):',
+    '            return super().set_opacity(alpha)',
+    '        self.gif_opacity = alpha',
+    '        self.stroke_opacity = alpha',
+    '        return self.gif_refresh()',
+    '',
+    '    def interpolate_color(self, mobject1, mobject2, alpha):',
+    '        self.gif_opacity = interpolate(getattr(mobject1, "gif_opacity", 1.0), getattr(mobject2, "gif_opacity", 1.0), alpha)',
+    '        self.gif_refresh()',
+    '',
+  ].join('\n');
+}
+
 export function generateImageDef(
   item: ImageItem,
   varName: string,
   indent: number,
+  /** Animated GIF: scene second it appears (loop origin); omit for a still picture. */
+  gifStart?: number,
 ): string {
   const pad = ' '.repeat(indent);
   const width = finitePositive(item.width, 3);
   const height = finitePositive(item.height, 2);
   const { setup, expr } = imagePathExpr(item, varName, pad);
   let s = setup;
-  s += `${pad}${varName} = ImageMobject(${expr})\n`;
+  s += gifStart != null
+    ? `${pad}${varName} = _ManimUIGif(${expr}, ${Math.max(0, gifStart).toFixed(6)})\n`
+    : `${pad}${varName} = ImageMobject(${expr})\n`;
   s += `${pad}${varName}.stretch_to_fit_width(${width.toFixed(6)})\n`;
   s += `${pad}${varName}.stretch_to_fit_height(${height.toFixed(6)})\n`;
   s += `${pad}${varName}.set_opacity(${clampImageOpacity(item.opacity).toFixed(4)})\n`;

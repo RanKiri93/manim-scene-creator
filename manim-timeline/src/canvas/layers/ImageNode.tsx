@@ -8,6 +8,8 @@ import { useSceneStore } from '@/store/useSceneStore';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { clampImageOpacity } from '@/lib/imageAssetPath';
 import { CANVAS_CHROME } from '@/lib/theme';
+import { gifFrameIndexAt, isGifImage } from '@/lib/gifTiming';
+import { useGifFrames } from '@/canvas/hooks/useGifFrames';
 
 const TRANSFORMER_ANCHORS = [
   'top-left',
@@ -30,6 +32,8 @@ interface ImageNodeProps {
   frameOffset: { x: number; y: number };
   /** Playback preview: added to Konva CW rotation (`item.rotationDeg`). */
   previewRotationDeltaDeg?: number;
+  /** Time the canvas draws (an animated GIF shows its frame for it). */
+  currentTime: number;
 }
 
 export default function ImageNode({
@@ -41,6 +45,7 @@ export default function ImageNode({
   resolvedY,
   frameOffset,
   previewRotationDeltaDeg = 0,
+  currentTime,
 }: ImageNodeProps) {
   const pxPerUnitX = canvasWidth / FRAME_W;
   const pxPerUnitY = canvasHeight / FRAME_H;
@@ -75,6 +80,10 @@ export default function ImageNode({
       cancelled = true;
     };
   }, [item.srcUrl]);
+
+  // Animated GIF: show the frame the export shows (loops from the image's start).
+  const gif = useGifFrames(item.srcUrl, isGifImage(item));
+  const gifFrame = gif ? gifFrameIndexAt(currentTime - item.startTime, gif.delaysMs) : 0;
 
   const groupRef = useRef<Konva.Group>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -182,7 +191,7 @@ export default function ImageNode({
     if (img && !loadError) {
       return (
         <KonvaImage
-          image={img}
+          image={gif?.frames[gifFrame] ?? img}
           x={-w / 2}
           y={-h / 2}
           width={w}

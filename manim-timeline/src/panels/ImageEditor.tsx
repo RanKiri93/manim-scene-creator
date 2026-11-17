@@ -92,8 +92,8 @@ export default function ImageEditor({ item }: ImageEditorProps) {
     <div className="flex flex-col gap-3">
       <h3 className="text-body font-semibold text-chalk">Image</h3>
       <p className="text-meta text-chalk-faint leading-snug">
-        Still picture from disk (PNG, JPG, or GIF — GIF shows its first
-        frame). Drag on the canvas to move with absolute positioning.
+        Picture from disk (PNG, JPG, or GIF). An animated GIF loops for
+        as long as it is on screen, in the preview and the render. Drag on the canvas to move with absolute positioning.
       </p>
 
       <label className="text-ctl text-chalk-dim block">

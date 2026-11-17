@@ -1,4 +1,4 @@
-/** Still-picture extensions accepted by the editor (GIF imports as a still). */
+/** Picture extensions accepted by the editor (an animated GIF loops; see lib/gifTiming.ts). */
 export const SUPPORTED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif'] as const;
 
 export type SupportedImageExtension =

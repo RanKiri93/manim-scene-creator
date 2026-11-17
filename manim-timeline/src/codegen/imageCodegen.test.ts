@@ -101,3 +101,17 @@ describe('imageCodegen', () => {
     expect(code).toContain('image_1 = ImageMobject(_image_1_path)');
   });
 });
+
+describe('animated GIF export', () => {
+  it('loops a GIF from its start on the scene clock', async () => {
+    const { exportManimCode } = await import('./manimExporter');
+    const { defaultSceneDefaults } = await import('@/store/factories');
+    const gif = baseImage({ id: 'g', fileName: 'spin.gif', mimeType: 'image/gif', assetRelPath: 'assets/textures/spin.gif', startTime: 1.5 });
+    const code = exportManimCode([gif], { fullFile: true, defaults: defaultSceneDefaults() });
+    expect(code).toContain('class _ManimUIGif(ImageMobject):');
+    expect(code).toContain('_ManimUIGif.use_scene(self)');
+    expect(code).toMatch(/= _ManimUIGif\("assets\/textures\/spin\.gif", 1\.500000\)/);
+    const still = exportManimCode([baseImage()], { fullFile: true, defaults: defaultSceneDefaults() });
+    expect(still).not.toContain('_ManimUIGif');
+  });
+});
