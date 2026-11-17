@@ -1033,6 +1033,25 @@ def _align_script_to_word_timings(
     return aligned
 
 
+def _script_match_ratio(
+    script: str | None,
+    word_boundaries: list[dict[str, float | str]],
+) -> float | None:
+    """Share of the script's text words that Whisper heard (fuzzy anchors), or None without a script.
+
+    A low value means the speaker strayed from the script, so script-aligned bookmarks may be off;
+    the editor then offers Whisper's own words instead.
+    """
+    tokens = _tokenize_script(script)
+    text_norms = [str(t["norm"]) for t in tokens if t["kind"] == "text"]
+    if not text_norms:
+        return None
+    if not word_boundaries:
+        return 0.0
+    whisper_norms = [_normalize_hebrew(str(wb["word"])) for wb in word_boundaries]
+    return round(len(_fuzzy_anchor_pairs(text_norms, whisper_norms)) / len(text_norms), 3)
+
+
 def _dump_transcribe_debug(payload: dict) -> None:
     """Write the latest transcription/alignment details to a JSON file for diagnosis."""
     try:
@@ -1401,12 +1420,19 @@ try:
                     "aligned": word_boundaries,
                 }
             )
-            return {
+            response: dict[str, object] = {
                 "file_path": rel_path,
                 "duration": duration,
                 "word_boundaries": word_boundaries,
                 "transcription_source": "script" if _script_words(script) else "whisper",
             }
+            match = _script_match_ratio(script, snapped_boundaries)
+            if match is not None:
+                # Guided transcription: how well the recording followed the script, and Whisper's own
+                # words so the editor can fall back to them.
+                response["script_match"] = match
+                response["whisper_word_boundaries"] = snapped_boundaries
+            return response
         except HTTPException:
             raise
         except Exception as e:

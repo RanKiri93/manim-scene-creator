@@ -161,6 +161,7 @@ import {
 import { migrateItemsToCurrentVersion } from '@/lib/migrateLoadedItems';
 import { migrateSceneDefaultsToV39 } from '@/lib/migrateProjectToV39';
 import { nanoid } from 'nanoid';
+import { addTake, removeTake, takeFromTrack, swapToTake } from '@/lib/audioTakes';
 import { migrateSceneDefaultsToV45 } from '@/lib/migrateProjectToV45';
 import { remapMarkers, withMarkerAt } from '@/lib/timelineMarkers';
 import { validateCameraMove } from '@/lib/camera';
@@ -650,6 +651,17 @@ export interface SceneStore extends SceneDataSlice, PlaybackSlice, SelectionSlic
    * the length difference. One undo step. False when the range or clip is invalid.
    */
   punchInAudio: (clipId: string, from: number, to: number, blob: Blob, filename: string) => Promise<boolean>;
+
+  /**
+   * Takes: record another take of a clip (uploaded, cleaned, transcribed against the clip's text)
+   * and use it; the current sound is kept as a take. One undo step.
+   */
+  recordAudioTake: (clipId: string, blob: Blob, filename: string) => Promise<boolean>;
+  /** Use a kept take of a clip (the current sound is kept). Later unlinked narration moves by the length difference. */
+  switchAudioTake: (clipId: string, takeId: string) => boolean;
+  removeAudioTake: (clipId: string, takeId: string) => void;
+  /** Guided transcription that missed the script: replace the clip's words with Whisper's own. */
+  revertToWhisperWords: (clipId: string) => void;
 
   /**
    * Loudness-normalize an existing timeline audio clip (server ffmpeg loudnorm).
@@ -1956,6 +1968,62 @@ export const useSceneStore = create<SceneStore>()(
         return true;
       },
 
+      recordAudioTake: async (clipId, blob, filename) => {
+        const original = get().audioItems.find((a) => a.id === clipId);
+        if (!original) return false;
+        const script = original.text.trim();
+        const track = await get().prepareRecordedTrack(blob, {
+          filename,
+          displayText: script,
+          useScriptForTranscription: script.length > 0,
+          emptyLabel: original.text,
+          transcriptionLang: clipLanguage(original),
+          autoClean: true,
+          startTime: 0,
+        });
+        const st = get();
+        const res = addTake(st.audioItems, clipId, takeFromTrack(track), (aid) => explicitVisualOwnerForAudioTrack(st.items, aid) != null);
+        if (!res) return false;
+        set((s) => {
+          s.audioItems = res.audioItems;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          followWordAnchorsInDraft(s, st.audioItems);
+        });
+        return true;
+      },
+
+      switchAudioTake: (clipId, takeId) => {
+        const st = get();
+        const res = swapToTake(st.audioItems, clipId, takeId, (aid) => explicitVisualOwnerForAudioTrack(st.items, aid) != null);
+        if (!res) return false;
+        set((s) => {
+          s.audioItems = res.audioItems;
+          syncAllExplicitAudioBindingsInDraft(s.items, s.audioItems);
+          followWordAnchorsInDraft(s, st.audioItems);
+        });
+        return true;
+      },
+
+      revertToWhisperWords: (clipId) => {
+        set((s) => {
+          const track = s.audioItems.find((a) => a.id === clipId);
+          if (!track?.whisperBoundaries) return;
+          track.boundaries = track.whisperBoundaries.map((w) => ({ word: w.word, start: w.start, end: w.end }));
+          delete track.word_boundaries;
+          track.text = track.boundaries.map((w) => w.word).join(' ') || track.text;
+          delete track.whisperBoundaries;
+          delete track.scriptMatch;
+        });
+      },
+
+      removeAudioTake: (clipId, takeId) => {
+        const next = removeTake(get().audioItems, clipId, takeId);
+        if (!next) return;
+        set((s) => {
+          s.audioItems = next;
+        });
+      },
+
       prepareRecordedTrack: async (blob, options) => {
         const baseUrl = get().measureConfig.url;
         const useScript = options?.useScriptForTranscription === true;
@@ -1967,6 +2035,8 @@ export const useSceneStore = create<SceneStore>()(
           file_path,
           duration: apiDuration,
           word_boundaries,
+          script_match,
+          whisper_word_boundaries,
         } = await uploadRecordedAudio(baseUrl, blob, uploadName, {
           lang: options?.transcriptionLang,
           script: trimmed,
@@ -2042,6 +2112,8 @@ export const useSceneStore = create<SceneStore>()(
           startTime,
           duration,
           audioProcessing: cleaned ? { cleaned } : undefined,
+          ...(script_match != null ? { scriptMatch: script_match } : {}),
+          ...(whisper_word_boundaries ? { whisperBoundaries: whisper_word_boundaries } : {}),
         };
         return track;
       },

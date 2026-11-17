@@ -5,6 +5,7 @@ import numpy as np
 import measure_server
 from measure_server import (
     _align_script_to_word_timings,
+    _script_match_ratio,
     _script_words,
     _snap_boundaries_to_onsets,
     _tokenize_script,
@@ -206,3 +207,14 @@ def test_snap_returns_input_when_decode_fails(monkeypatch):
     monkeypatch.setattr(measure_server, "_decode_audio_mono", lambda *_: (None, 16000))
     boundaries = [{"word": "a", "start": 0.0, "end": 1.0}]
     assert _snap_boundaries_to_onsets(boundaries, "ignored.wav") == boundaries
+
+
+
+def test_script_match_ratio_measures_how_much_of_the_script_was_heard():
+    heard = [_wb("hello", 0.0, 0.4), _wb("big", 0.4, 0.8), _wb("world", 0.8, 1.2)]
+    assert _script_match_ratio("hello big world", heard) == 1.0
+    assert _script_match_ratio("hello small planet earth", heard) == 0.25
+    assert _script_match_ratio("hello world", []) == 0.0
+    assert _script_match_ratio("", heard) is None
+    assert _script_match_ratio("$x^2$", heard) is None
+

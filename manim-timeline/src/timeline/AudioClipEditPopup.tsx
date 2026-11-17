@@ -9,6 +9,7 @@ import { MIN_CLIP_SEC, clipFileLength, clipPieces, clipSourceIn, isEditedClip, s
 import { dbToGain } from '@/lib/audioSchedule';
 import { playAudioPiecesPreview, stopAudioPreview } from './audioBuffers';
 import PunchInControl from './PunchInControl';
+import TakesSection from './TakesSection';
 import {
   copyAudioSelection,
   cutAudioSelection,
@@ -19,6 +20,9 @@ import {
   AUDIO_GAP_PRESETS,
   findPreviousAudioEndingBefore,
 } from '@/lib/audioGapPresets';
+
+/** Below this share of the script heard, the clip editor warns that the bookmarks may be off. */
+const SCRIPT_MATCH_WARN = 0.7;
 
 type AudioClipEditPopupProps = {
   clipId: string;
@@ -91,6 +95,7 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
   const setAudioReferenceId = useSceneStore((s) => s.setAudioReferenceId);
   const setAudioClipFades = useSceneStore((s) => s.setAudioClipFades);
   const updateAudioBoundary = useSceneStore((s) => s.updateAudioBoundary);
+  const revertToWhisperWords = useSceneStore((s) => s.revertToWhisperWords);
   const audioReferenceId = useSceneStore((s) => s.audioReferenceId);
   const placeAudioAfterPrevious = useSceneStore((s) => s.placeAudioAfterPrevious);
   const spaceSelectedAudioItems = useSceneStore((s) => s.spaceSelectedAudioItems);
@@ -279,6 +284,22 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
             Linked to: {itemClipDisplayName(owner)}. Timing follows the visual clip.
           </p>
         ) : null}
+        {item.scriptMatch != null && item.scriptMatch < SCRIPT_MATCH_WARN && item.whisperBoundaries ? (
+          <div className="flex flex-col gap-1 rounded-ctl border border-warn/45 bg-warn/10 px-2 py-1.5 text-meta text-warn">
+            <span>
+              Only {Math.round(item.scriptMatch * 100)}% of the script was heard in this recording, so the
+              script's words may sit in the wrong places. Fix single words by dragging their marks on the
+              timeline, or use what Whisper heard instead.
+            </span>
+            <button
+              type="button"
+              className="self-start rounded-ctl border border-warn/60 px-2 py-0.5 text-chalk hover:bg-rule"
+              onClick={() => revertToWhisperWords(item.id)}
+            >
+              Use Whisper's words
+            </button>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -385,6 +406,8 @@ export default function AudioClipEditPopup({ clipId, onClose }: AudioClipEditPop
             T/N/I/R gap presets. With multiple unlinked clips selected, spaces all selected clips.
           </p>
         </section>
+
+        <TakesSection item={item} linked={owner != null} />
 
         {boundaries.length > 0 ? (
           <section className="flex flex-col gap-2">

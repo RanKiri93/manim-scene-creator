@@ -200,3 +200,13 @@ describe('punch-in', () => {
     expect(clipLanguage(clip())).toBe('en');
   });
 });
+
+describe('guided-transcription fallback words', () => {
+  it('stay with the whole recording and are dropped from a piece of it', () => {
+    const guided = clip({ scriptMatch: 0.4, whisperBoundaries: [{ word: 'won', start: 0.1, end: 0.5 }] });
+    expect(sliceClip(guided, 0, 3)!.whisperBoundaries).toHaveLength(1);
+    const piece = sliceClip(guided, 0, 1)!;
+    expect(piece.whisperBoundaries).toBeUndefined();
+    expect(piece.scriptMatch).toBeUndefined();
+  });
+});

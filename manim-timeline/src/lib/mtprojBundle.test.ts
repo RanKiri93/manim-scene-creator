@@ -170,6 +170,36 @@ describe('packMtprojToBlob + parseMtprojFromUint8Array', () => {
     }
   });
 
+  it('bundles every take of a clip and rehydrates them', async () => {
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = () => 'blob:roundtrip';
+    URL.revokeObjectURL = () => {};
+    try {
+      const project = minimalProject({
+        audioItems: [
+          {
+            id: 'trk',
+            text: 'narration',
+            audioUrl: 'https://example.com/assets/narration.webm',
+            startTime: 0,
+            duration: 3,
+            takes: [{ id: 'take2', text: 'narration', audioUrl: 'https://example.com/assets/take2.wav', duration: 2.5 }],
+          },
+        ],
+      });
+      const blob = await packMtprojToBlob(project);
+      const out = parseMtprojFromUint8Array(new Uint8Array(await blob.arrayBuffer()));
+      const take = audioFromParsedProject(out)[0]!.takes![0]!;
+      expect(take.assetRelPath).toBe('assets/audio/take2.wav');
+      expect(take.audioUrl).toBe('blob:roundtrip');
+      expect(take.duration).toBe(2.5);
+    } finally {
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+  });
+
   it('round-trips optional audioProcessing metadata on tracks', async () => {
     const origCreate = URL.createObjectURL.bind(URL);
     const origRevoke = URL.revokeObjectURL.bind(URL);

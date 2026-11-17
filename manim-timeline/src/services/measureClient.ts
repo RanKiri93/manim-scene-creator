@@ -470,12 +470,18 @@ export interface UploadRecordedAudioResult {
   file_path: string;
   duration?: number;
   word_boundaries: { word: string; start: number; end: number }[];
+  /** Guided transcription: share of the script's words Whisper heard (0..1). */
+  script_match?: number;
+  /** Guided transcription: Whisper's own words, to fall back to when the script was not followed. */
+  whisper_word_boundaries?: { word: string; start: number; end: number }[];
 }
 
 interface UploadRecordedAudioResponseBody {
   file_path?: string;
   duration?: number;
   word_boundaries?: { word: string; start: number; end: number }[];
+  script_match?: number;
+  whisper_word_boundaries?: { word: string; start: number; end: number }[];
   detail?: string | { msg?: string }[];
 }
 
@@ -517,7 +523,15 @@ export async function uploadRecordedAudio(
     start: w.start,
     end: w.end,
   }));
-  return { file_path: j.file_path, duration: j.duration, word_boundaries };
+  return {
+    file_path: j.file_path,
+    duration: j.duration,
+    word_boundaries,
+    ...(typeof j.script_match === 'number' ? { script_match: j.script_match } : {}),
+    ...(Array.isArray(j.whisper_word_boundaries)
+      ? { whisper_word_boundaries: j.whisper_word_boundaries.map((w) => ({ word: w.word, start: w.start, end: w.end })) }
+      : {}),
+  };
 }
 
 interface SyncAudioAssetResponseBody {

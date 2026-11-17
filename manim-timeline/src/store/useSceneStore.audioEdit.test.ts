@@ -153,3 +153,44 @@ describe('punch-in through the store', () => {
     expect(useSceneStore.getState().audioItems.map((a) => a.id)).not.toContain('take');
   });
 });
+
+describe('takes through the store', () => {
+  it('records a take in one undo step and switches back without losing either', async () => {
+    const id = useSceneStore.getState().audioItems[0]!.id;
+    const firstUrl = useSceneStore.getState().audioItems[0]!.audioUrl;
+    const realPrepare = useSceneStore.getState().prepareRecordedTrack;
+    useSceneStore.setState({
+      prepareRecordedTrack: async () => ({ id: 'new', text: 'again', audioUrl: 'blob:take2', startTime: 0, duration: 1.5 }),
+    });
+    const past = useSceneStore.temporal.getState().pastStates.length;
+    try {
+      expect(await useSceneStore.getState().recordAudioTake(id, new Blob(), 't.wav')).toBe(true);
+    } finally {
+      useSceneStore.setState({ prepareRecordedTrack: realPrepare });
+    }
+    expect(useSceneStore.temporal.getState().pastStates.length).toBe(past + 1);
+    let clip = useSceneStore.getState().audioItems.find((a) => a.id === id)!;
+    expect(clip.audioUrl).toBe('blob:take2');
+    expect(useSceneStore.getState().switchAudioTake(id, clip.takes![0]!.id)).toBe(true);
+    clip = useSceneStore.getState().audioItems.find((a) => a.id === id)!;
+    expect(clip.audioUrl).toBe(firstUrl);
+    expect(clip.takes!.map((t) => t.audioUrl)).toEqual(['blob:take2']);
+  });
+});
+
+describe('guided transcription fallback', () => {
+  it("replaces the words with Whisper's and clears the warning", () => {
+    const id = useSceneStore.getState().audioItems[0]!.id;
+    useSceneStore.setState((s) => {
+      const t = s.audioItems.find((a) => a.id === id)!;
+      t.scriptMatch = 0.3;
+      t.whisperBoundaries = [{ word: 'heard', start: 0, end: 0.4 }, { word: 'this', start: 0.5, end: 0.9 }];
+    });
+    useSceneStore.getState().revertToWhisperWords(id);
+    const t = useSceneStore.getState().audioItems.find((a) => a.id === id)!;
+    expect(t.boundaries!.map((w) => w.word)).toEqual(['heard', 'this']);
+    expect(t.text).toBe('heard this');
+    expect(t.scriptMatch).toBeUndefined();
+    expect(t.whisperBoundaries).toBeUndefined();
+  });
+});

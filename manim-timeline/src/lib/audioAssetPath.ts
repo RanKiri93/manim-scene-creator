@@ -15,7 +15,7 @@ const KNOWN_AUDIO_EXTENSIONS = new Set([
  * Stable `assets/audio/...` path for .mtproj and Manim `add_sound`.
  * When `assetRelPath` is set (e.g. after loading a bundle), it wins.
  */
-export function deriveAudioAssetRelPath(track: AudioTrackItem): string {
+export function deriveAudioAssetRelPath(track: Pick<AudioTrackItem, 'id' | 'audioUrl' | 'assetRelPath'>): string {
   const pinned = track.assetRelPath?.trim();
   if (pinned) {
     return pinned.replace(/^\/+/, '');

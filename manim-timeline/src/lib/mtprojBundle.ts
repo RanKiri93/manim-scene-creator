@@ -5,6 +5,7 @@ import {
   isProjectFragmentFile,
   type AnyDiskProjectFile,
   type AudioBed,
+  type AudioTake,
   type AudioTrackItem,
   type MultiSceneProjectFile,
   type ProjectFile,
@@ -62,7 +63,7 @@ function guessAudioMime(path: string): string {
   return 'application/octet-stream';
 }
 
-function allocateBundleAudioPath(track: AudioTrackItem, used: Set<string>): string {
+function allocateBundleAudioPath(track: Pick<AudioTrackItem, 'id' | 'audioUrl' | 'assetRelPath'>, used: Set<string>): string {
   let rel = deriveAudioAssetRelPath(track);
   if (!used.has(rel)) {
     used.add(rel);
@@ -209,7 +210,7 @@ function deepCloneDiskProject(project: AnyDiskProjectFile): AnyDiskProjectFile {
  */
 export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blob> {
   const state = deepCloneDiskProject(project);
-  const tracks: AudioTrackItem[] = [];
+  const tracks: (AudioTrackItem | AudioTake)[] = [];
   const beds: { bed: AudioBed; sceneLabel: string }[] = [];
   const images: { srcUrl: string; assetRelPath?: string; fileName: string; id: string }[] = [];
   const imageOwners: { srcUrl: string; assetRelPath?: string }[] = [];
@@ -225,7 +226,7 @@ export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blo
   if (isMultiSceneProjectFile(state)) {
     for (const sc of state.scenes) {
       for (const t of sc.audioItems ?? []) {
-        tracks.push(t);
+        tracks.push(t, ...(t.takes ?? []));
       }
       if (sc.audioBed) {
         beds.push({ bed: sc.audioBed, sceneLabel: sc.name });
@@ -236,7 +237,7 @@ export async function packMtprojToBlob(project: AnyDiskProjectFile): Promise<Blo
     collectImages(state.items);
   } else {
     for (const t of state.audioItems ?? []) {
-      tracks.push(t);
+      tracks.push(t, ...(t.takes ?? []));
     }
     if (state.audioBed) {
       beds.push({ bed: state.audioBed, sceneLabel: state.defaults.sceneName ?? 'Scene' });
@@ -376,7 +377,8 @@ function rehydrateAudioFromZip(
   files: Record<string, Uint8Array>,
   manifest: MtprojManifest,
 ): void {
-  const items = state.audioItems ?? [];
+  // Every take of a clip is bundled like the clip's own sound.
+  const items = (state.audioItems ?? []).flatMap((t) => [t, ...(t.takes ?? [])]);
   for (const track of items) {
     const url = track.audioUrl.split('?')[0];
     if (!isBundledVirtualAudioUrl(url)) continue;

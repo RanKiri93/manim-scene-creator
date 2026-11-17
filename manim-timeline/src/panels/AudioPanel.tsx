@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import type { AudioPanelMode } from '@/store/useSceneStore';
+import Prompter from './Prompter';
 import {
   listMicrophones,
   rememberedMicId,
@@ -69,6 +70,7 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
 
   const [script, setScript] = useState('');
   const [useScript, setUseScript] = useState(false);
+  const [showPrompter, setShowPrompter] = useState(false);
   const [lang, setLang] = useState<'iw' | 'en'>('iw');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -429,6 +431,9 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
 
   return (
     <div className="flex flex-col gap-3 text-ctl text-chalk-dim">
+      {showPrompter && script.trim() && (isRecording || countdown != null) ? (
+        <Prompter script={script} onClose={() => setShowPrompter(false)} />
+      ) : null}
       <label className="flex items-start gap-2 rounded-ctl border border-rule bg-ink/60 px-2 py-2">
         <input
           type="checkbox"
@@ -445,7 +450,21 @@ export default function AudioPanel({ mode }: AudioPanelProps) {
           </span>
         </span>
       </label>
-      {useScript && (
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={showPrompter}
+          onChange={(e) => setShowPrompter(e.target.checked)}
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-chalk-dim">Show the script as a prompter while recording</span>
+          <span className="text-meta leading-snug text-chalk-faint">
+            Large type, one line at a time (↓ / Enter for the next line).
+          </span>
+        </span>
+      </label>
+      {(useScript || showPrompter) && (
         <label className="flex flex-col gap-1">
           <span className="text-chalk-dim">Script to read while recording</span>
           <textarea

@@ -218,6 +218,12 @@ export interface AudioTrackItem {
    * Missing = one piece, `[sourceIn, sourceIn + duration)`.
    */
   pieces?: AudioClipPiece[];
+  /** Other recordings of this clip (take picker); the clip's own sound is the take in use. */
+  takes?: AudioTake[];
+  /** Guided transcription: share of the script's words Whisper heard (0..1); low = words may be off. */
+  scriptMatch?: number;
+  /** Guided transcription: Whisper's own words (clip-local seconds), to fall back to. */
+  whisperBoundaries?: WordBoundary[];
   /** Clip gain in dB (preview and export). Missing = 0. */
   gainDb?: number;
   /** Per-clip fade-in at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
@@ -225,6 +231,15 @@ export interface AudioTrackItem {
   /** Per-clip fade-out at cut boundaries (ms). Falls back to `SceneDefaults.audioCutFadeMs`. */
   fadeOutMs?: number;
 }
+
+/** Another recording of a narration clip, kept to swap in (its own file, words and length). */
+export type AudioTake = Pick<
+  AudioTrackItem,
+  'id' | 'text' | 'audioUrl' | 'assetRelPath' | 'audioProcessing' | 'boundaries' | 'duration' | 'sourceIn' | 'sourceDuration' | 'pieces'
+> & {
+  /** ISO time the take was recorded. */
+  recordedAt?: string;
+};
 
 /** One piece of a narration clip's edit list: `duration` seconds of the file from `sourceIn`. */
 export interface AudioClipPiece {

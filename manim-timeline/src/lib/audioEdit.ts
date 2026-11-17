@@ -106,6 +106,13 @@ export function sliceClip(
     text: hadWords ? words.map((w) => w.word).join(' ') : a.text,
   };
   delete piece.word_boundaries;
+  // Other takes belong to the clip that keeps the id, not to a new piece of it.
+  if (id !== a.id) delete piece.takes;
+  // Guided-transcription fallback words are for the whole recording only.
+  if (Math.abs(f) > EPS || Math.abs(t - a.duration) > EPS) {
+    delete piece.whisperBoundaries;
+    delete piece.scriptMatch;
+  }
   return piece;
 }
 
@@ -219,13 +226,18 @@ export function pasteClips(
   newId: () => string,
   isLinked: (id: string) => boolean,
 ): AudioEditResult {
-  // A pasted copy is new speech: its words must not share ids (anchors) with the original.
-  const placed = pieces.map((p) => ({
-    ...p,
-    id: newId(),
-    startTime: Math.max(0, at + p.startTime),
-    boundaries: p.boundaries?.map((w) => ({ word: w.word, start: w.start, end: w.end })),
-  }));
+  // A pasted copy is new speech: its words must not share ids (anchors) with the original,
+  // and it does not carry the original's other takes.
+  const placed = pieces.map((p) => {
+    const copy: AudioTrackItem = {
+      ...p,
+      id: newId(),
+      startTime: Math.max(0, at + p.startTime),
+      boundaries: p.boundaries?.map((w) => ({ word: w.word, start: w.start, end: w.end })),
+    };
+    delete copy.takes;
+    return copy;
+  });
   if (mode === 'over' || placed.length === 0) {
     return { audioItems: [...audioItems, ...placed], ripple: null };
   }

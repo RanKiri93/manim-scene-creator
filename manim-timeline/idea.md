@@ -143,9 +143,8 @@ support basic destructive or asset-generating edits from the timeline.
 
 ### Still open
 
-(Done 2026-11-17: the bed room-tone recorder uses the WAV recorder and the narration panel's microphone; free timeline markers (M) as snap targets, project v45; edit lists, so deleting words inside a clip keeps one clip; punch-in (Re-record this part).)
+(Done 2026-11-17: the bed room-tone recorder uses the WAV recorder and the narration panel's microphone; free timeline markers (M) as snap targets, project v45; edit lists, so deleting words inside a clip keeps one clip; punch-in (Re-record this part); takes with a picker, and a script prompter. Nothing left in this list.)
 
-- Takes: several recordings per sentence with a take picker; script prompter.
 
 ### Later
 
@@ -254,6 +253,8 @@ last object edit.
 store history.
 
 ## 6. Guided Transcription With Script Alignment
+
+**Status (2026-11-17):** MVP built (script field, alignment to Whisper timings). Also done: a match score with a warning and a fallback to Whisper's words, and dragging word bookmarks on the timeline. Not built (user chose alignment only): the LLM cleanup step.
 
 ### Goal
 

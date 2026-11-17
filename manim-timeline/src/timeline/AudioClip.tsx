@@ -1,7 +1,7 @@
 import { useRef, useCallback, useMemo } from 'react';
 import { useSceneStore } from '@/store/useSceneStore';
 import { usePreviewMergedItems } from '@/agent/previewSelectors';
-import { boundaryTimeToSeconds, type AudioTrackItem } from '@/types/scene';
+import { boundaryTimeToSeconds, getAudioBoundaries, type AudioTrackItem } from '@/types/scene';
 import { SNAP_PX, collectSnapTargets, showSnapGuide, snapEdges } from './timelineSnap';
 import { isMultiSelectModifier } from '@/lib/uiModifiers';
 import { explicitVisualOwnerForAudioTrack } from '@/lib/audioBinding';
@@ -146,6 +146,32 @@ export default function AudioClip({
       window.addEventListener('mouseup', onUp);
     },
     [item.id, itemsMap, pxPerSecond, select, setRange, trimAudioClip, commitAudioDrag],
+  );
+
+  /** Drag a word's start (its bookmark) to fix a small timing slip by hand; one undo step. */
+  const onMouseDownWord = useCallback(
+    (index: number) => (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const state = useSceneStore.getState();
+      const base = state.audioItems.find((a) => a.id === item.id);
+      const word = base ? getAudioBoundaries(base)[index] : undefined;
+      if (!base || !word) return;
+      const before = state.audioItems;
+      const startX = e.clientX;
+      useSceneStore.temporal.getState().pause();
+      const onMove = (ev: MouseEvent) => {
+        useSceneStore.getState().updateAudioBoundary(item.id, index, { start: word.start + (ev.clientX - startX) / pxPerSecond });
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        commitAudioDrag(before);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [item.id, pxPerSecond, commitAudioDrag],
   );
 
   const onMouseDownMove = useCallback(
@@ -390,6 +416,14 @@ export default function AudioClip({
                 style={{ left: 0, width: '2px', height: '100%', zIndex: 20 }}
                 aria-hidden
               />
+              {i > 0 ? (
+                <div
+                  className="pointer-events-auto absolute bottom-0 h-1/2 w-2 -translate-x-1/2 cursor-ew-resize hover:bg-ink/40"
+                  style={{ left: '1px', zIndex: 25 }}
+                  title={`Drag to move where “${boundary.word}” starts`}
+                  onMouseDown={onMouseDownWord(i)}
+                />
+              ) : null}
               <div
                 className="absolute top-0.5"
                 style={
