@@ -24,6 +24,7 @@ import { DEFAULT_ANTHROPIC_MODEL } from './providers/anthropic';
 import { DEFAULT_OPENAI_MODEL } from './providers/openai';
 import { planFrameEdits } from './frameEdits';
 import { resolveCameraRequests } from './cameraRequests';
+import { compactHistory } from './historyCompaction';
 
 export type AgentStatus = 'idle' | 'loading' | 'error';
 
@@ -39,6 +40,8 @@ export interface AgentSettings extends ProviderConfig {
   useToolLoop: boolean;
   /** Apply the loop's finished draft immediately as one undo step instead of waiting for Approve. */
   autoApply: boolean;
+  /** Show the Copilot's reply as it is written (Anthropic, OpenAI tool loop). */
+  streamReplies: boolean;
   /** ChatGPT-subscription sign-in (provider `chatgpt`); kept in localStorage like API keys. */
   chatgptAuth: ChatgptAuth | null;
 }
@@ -68,6 +71,8 @@ interface AgentSession {
   draftActions: AgentAction[] | null;
   /** Tool loop: what the Copilot has done so far this turn. Not persisted. */
   loopLog: LoopLogEntry[];
+  /** Tool loop: the reply (or text) streaming in from the current model call. Not persisted. */
+  liveReply: string;
 }
 
 interface AgentStoreShape extends AgentSettings, AgentSession {
@@ -94,6 +99,7 @@ const INITIAL_SESSION: AgentSession & { _abort: null } = {
   activePreviewMessageId: null,
   draftActions: null,
   loopLog: [],
+  liveReply: '',
   _abort: null,
 };
 
@@ -106,6 +112,7 @@ const INITIAL_SETTINGS: AgentSettings = {
   showThinking: true,
   useToolLoop: true,
   autoApply: true,
+  streamReplies: true,
   chatgptAuth: null,
 };
 
@@ -152,7 +159,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         },
       ): Promise<void> => {
         const state = get();
-        set((s) => ({ ...s, messages: supersedePending(s.messages), activePreviewMessageId: null, draftActions: [], loopLog: [] }));
+        set((s) => ({ ...s, messages: supersedePending(s.messages), activePreviewMessageId: null, draftActions: [], loopLog: [], liveReply: '' }));
         const session = new DraftSession(req.base);
         const env = loopToolEnv();
         try {
@@ -163,6 +170,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             userPrompt: req.userPrompt,
             tools: loopToolSpecs(env),
             includeThinking: state.showThinking,
+            stream: state.streamReplies,
           });
           const outcome = await runAgentLoop({
             conversation,
@@ -171,6 +179,9 @@ export const useAgentStore = create<AgentStoreShape>()(
             signal: req.controller.signal,
             onProgress: (p) => {
               if (get()._abort === req.controller) set({ draftActions: p.draft, loopLog: p.log });
+            },
+            onLiveText: (liveReply) => {
+              if (get()._abort === req.controller) set({ liveReply });
             },
           });
           if (get()._abort !== req.controller) return;
@@ -209,11 +220,12 @@ export const useAgentStore = create<AgentStoreShape>()(
             activePreviewMessageId: hasActions && !autoApply ? message.id : null,
             draftActions: null,
             loopLog: [],
+            liveReply: '',
             _abort: null,
           }));
         } catch (err) {
           if ((err as DOMException)?.name === 'AbortError') {
-            set({ status: 'idle', _abort: null, draftActions: null, loopLog: [] });
+            set({ status: 'idle', _abort: null, draftActions: null, loopLog: [], liveReply: '' });
             return;
           }
           const msg = err instanceof Error ? err.message : String(err);
@@ -234,6 +246,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             ],
             draftActions: null,
             loopLog: [],
+            liveReply: '',
             _abort: null,
           }));
         }
@@ -273,7 +286,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         const systemPrompt = buildSystemPrompt(state.customRules);
         // Everything preceding the most recent user turn is "history".
         const lastUserIdx = messages.lastIndexOf(lastUser);
-        const history = messages.slice(0, lastUserIdx);
+        const history = compactHistory(messages.slice(0, lastUserIdx));
 
         const loopProvider =
           state.provider === 'chatgpt'
@@ -440,6 +453,25 @@ export const useAgentStore = create<AgentStoreShape>()(
         sendMessage: async (prompt) => {
           const trimmed = prompt.trim();
           if (!trimmed) return;
+          if (/^\/compact$/i.test(trimmed)) {
+            // Divider: earlier messages reach the model only as a condensed summary from now on.
+            const count = get().messages.filter((m) => !m.compactMarker).length;
+            if (count === 0) return;
+            set((s) => ({
+              ...s,
+              messages: [
+                ...s.messages,
+                {
+                  id: nextId('compact'),
+                  createdAt: Date.now(),
+                  role: 'assistant',
+                  content: `Condensed the ${count} earlier messages: the Copilot now gets them as a short summary.`,
+                  compactMarker: true,
+                },
+              ],
+            }));
+            return;
+          }
           const userMsg: AgentChatMessage = {
             id: nextId('user'),
             createdAt: Date.now(),
@@ -456,7 +488,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         cancelRequest: () => {
           const ctrl = get()._abort;
           if (ctrl) ctrl.abort();
-          set({ status: 'idle', _abort: null, draftActions: null, loopLog: [] });
+          set({ status: 'idle', _abort: null, draftActions: null, loopLog: [], liveReply: '' });
         },
 
         approveMessage: (messageId) => {
@@ -548,6 +580,7 @@ export const useAgentStore = create<AgentStoreShape>()(
             activePreviewMessageId: null,
             draftActions: null,
             loopLog: [],
+            liveReply: '',
             _abort: null,
           });
         },
@@ -565,6 +598,7 @@ export const useAgentStore = create<AgentStoreShape>()(
         showThinking: s.showThinking,
         useToolLoop: s.useToolLoop,
         autoApply: s.autoApply,
+        streamReplies: s.streamReplies,
         chatgptAuth: s.chatgptAuth,
         messages: withoutOldThumbnails(s.messages.slice(-MAX_PERSISTED_MESSAGES)),
         activePreviewMessageId: s.activePreviewMessageId,

@@ -50,3 +50,28 @@ describe('camera request lifecycle', () => {
     if (action?.action === 'UPDATE') expect(action.updates).not.toHaveProperty('targetMode');
   });
 });
+
+describe('/compact', () => {
+  beforeEach(() => {
+    useAgentStore.getState().newChat();
+    useAgentStore.getState().updateSettings({ apiKey: 'test-only', useToolLoop: false });
+    mocks.generate.mockReset();
+  });
+
+  it('adds a divider without calling the model, and later turns get the summary instead', async () => {
+    mocks.generate.mockResolvedValue({ reply: 'hi', actions: [] });
+    await useAgentStore.getState().sendMessage('first request');
+    await useAgentStore.getState().sendMessage('/compact');
+    expect(mocks.generate).toHaveBeenCalledTimes(1);
+    expect(useAgentStore.getState().messages.at(-1)).toMatchObject({ compactMarker: true });
+    await useAgentStore.getState().sendMessage('next request');
+    const history = mocks.generate.mock.calls[1]![0].history as { content: string; compactMarker?: boolean }[];
+    expect(history[0]!.content).toContain('- User: first request');
+    expect(history.some((m) => m.compactMarker)).toBe(false);
+  });
+
+  it('does nothing on an empty chat', async () => {
+    await useAgentStore.getState().sendMessage('/compact');
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+  });
+});

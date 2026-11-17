@@ -36,15 +36,18 @@ export async function runAgentLoop(args: {
   maxSteps?: number;
   signal?: AbortSignal;
   onProgress?: (progress: LoopProgress) => void;
+  /** Streamed text of the current model call (its `finish` reply once it starts); '' at each new call. */
+  onLiveText?: (text: string) => void;
 }): Promise<LoopOutcome> {
-  const { conversation, session, env = {}, signal, onProgress } = args;
+  const { conversation, session, env = {}, signal, onProgress, onLiveText } = args;
   const maxSteps = args.maxSteps ?? MAX_LOOP_STEPS;
   const log: LoopLogEntry[] = [];
   const thinking: string[] = [];
   const report = (step: number) => onProgress?.({ step, log: [...log], draft: session.actions });
 
   for (let step = 1; step <= maxSteps; step++) {
-    const response = await conversation.next(signal);
+    onLiveText?.('');
+    const response = await conversation.next(signal, onLiveText ? (p) => onLiveText(p.reply ?? p.text) : undefined);
     if (response.thinking) thinking.push(response.thinking);
     if (response.toolCalls.length === 0) {
       // A plain answer ends the turn; keep whatever the draft holds.

@@ -168,6 +168,8 @@ export interface AgentChatMessage {
   /** Assistant only: a style note proposed for the project, and what the user did with it. */
   styleNote?: string;
   styleNoteStatus?: 'pending' | 'saved' | 'dismissed';
+  /** A `/compact` divider: messages before it reach the model only as a condensed summary. Not sent itself. */
+  compactMarker?: true;
 }
 
 /**

@@ -1,4 +1,5 @@
-import type { LoopConversation, LoopConversationInput, LoopProvider, LoopStep, LoopToolResult } from '../loop/types';
+import type { LoopConversation, LoopConversationInput, LoopPartial, LoopProvider, LoopStep, LoopToolResult } from '../loop/types';
+import { partialJsonStringField, readSse } from './sse';
 import { historyAsPlainTurns, loopUserMessage } from '../loop/history';
 import { AgentProviderError, type ProviderConfig } from './types';
 import { buildAnthropicBody, DEFAULT_ANTHROPIC_MODEL, thinkingModesFor, type AnthropicThinkingMode } from './anthropic';
@@ -54,8 +55,8 @@ export class AnthropicLoopConversation implements LoopConversation {
   }
 
   /** Request body for the current messages (exposed for tests). */
-  body(mode: AnthropicThinkingMode = this.modes[0]!): Record<string, unknown> {
-    return buildAnthropicBody({
+  body(mode: AnthropicThinkingMode = this.modes[0]!, stream = false): Record<string, unknown> {
+    const body = buildAnthropicBody({
       model: this.model,
       systemPrompt: this.input.systemPrompt,
       messages: this.messages,
@@ -63,9 +64,11 @@ export class AnthropicLoopConversation implements LoopConversation {
       tools: this.tools,
       toolChoice: { type: 'auto' },
     });
+    return stream ? { ...body, stream: true } : body;
   }
 
-  async next(signal?: AbortSignal): Promise<LoopStep> {
+  async next(signal?: AbortSignal, onPartial?: (partial: LoopPartial) => void): Promise<LoopStep> {
+    const stream = Boolean(onPartial && this.input.stream);
     let res: Response | null = null;
     while (this.modes.length) {
       res = await fetch(`${this.baseUrl}/messages`, {
@@ -77,7 +80,7 @@ export class AnthropicLoopConversation implements LoopConversation {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         signal,
-        body: JSON.stringify(this.body()),
+        body: JSON.stringify(this.body(this.modes[0], stream)),
       });
       if (res.ok) break;
       const text = await res.text().catch(() => '<no body>');
@@ -91,8 +94,7 @@ export class AnthropicLoopConversation implements LoopConversation {
       throw new AgentProviderError(`Anthropic request failed (${res.status}): ${text}`, res.status);
     }
     if (!res?.ok) throw new AgentProviderError('Anthropic request was not sent.');
-    const data = (await res.json()) as { content?: Block[] };
-    const content = data.content ?? [];
+    const content = stream ? await readAnthropicStream(res, onPartial!) : ((await res.json()) as { content?: Block[] }).content ?? [];
     this.answered = true;
     this.messages.push({ role: 'assistant', content });
     return {
@@ -121,4 +123,61 @@ export class AnthropicLoopConversation implements LoopConversation {
       })),
     });
   }
+}
+
+/**
+ * Rebuild the response content blocks from a streamed Messages response (text, thinking with its
+ * signature, redacted thinking, tool_use with its JSON input), reporting text and the `finish`
+ * reply as they arrive. The blocks equal the non-streamed `content`, so they can be replayed.
+ */
+export async function readAnthropicStream(res: Response, onPartial: (partial: LoopPartial) => void): Promise<Block[]> {
+  const blocks: Block[] = [];
+  const json: string[] = [];
+  const report = () => {
+    const text = blocks.filter((b) => b.type === 'text').map((b) => String(b.text ?? '')).join('\n');
+    const finishIndex = blocks.findIndex((b) => b.type === 'tool_use' && b.name === 'finish');
+    const reply = finishIndex >= 0 ? partialJsonStringField(json[finishIndex] ?? '', 'reply') : undefined;
+    onPartial({ text, ...(reply != null ? { reply } : {}) });
+  };
+  for await (const { event, data } of readSse(res)) {
+    if (!data) continue;
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(data) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const type = String(payload.type ?? event);
+    if (type === 'error') {
+      const err = payload.error as { message?: string } | undefined;
+      throw new AgentProviderError(`Anthropic stream failed: ${err?.message ?? data}`);
+    }
+    const index = Number(payload.index);
+    if (type === 'content_block_start') {
+      const block = { ...(payload.content_block as Block) };
+      if (block.type === 'tool_use') block.input = {};
+      blocks[index] = block;
+      json[index] = '';
+    } else if (type === 'content_block_delta') {
+      const block = blocks[index];
+      const delta = payload.delta as Record<string, unknown> & { type: string };
+      if (!block || !delta) continue;
+      if (delta.type === 'text_delta') block.text = String(block.text ?? '') + String(delta.text ?? '');
+      else if (delta.type === 'thinking_delta') block.thinking = String(block.thinking ?? '') + String(delta.thinking ?? '');
+      else if (delta.type === 'signature_delta') block.signature = String(block.signature ?? '') + String(delta.signature ?? '');
+      else if (delta.type === 'input_json_delta') json[index] = (json[index] ?? '') + String(delta.partial_json ?? '');
+      if (delta.type === 'text_delta' || delta.type === 'input_json_delta') report();
+    } else if (type === 'content_block_stop') {
+      const block = blocks[index];
+      if (block?.type === 'tool_use') {
+        const raw = json[index] ?? '';
+        try {
+          block.input = raw ? JSON.parse(raw) : {};
+        } catch {
+          block.input = { __invalidJson: raw };
+        }
+      }
+    }
+  }
+  return blocks.filter((b): b is Block => b != null);
 }

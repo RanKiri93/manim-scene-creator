@@ -38,6 +38,7 @@ export default function AgentPanel() {
   const customRules = useAgentStore((s) => s.customRules);
   const showThinking = useAgentStore((s) => s.showThinking);
   const loopLog = useAgentStore((s) => s.loopLog);
+  const liveReply = useAgentStore((s) => s.liveReply);
   const updateSettings = useAgentStore((s) => s.updateSettings);
   const setProvider = useAgentStore((s) => s.setProvider);
 
@@ -151,7 +152,13 @@ export default function AgentPanel() {
           </div>
         )}
         {messages.map((m, i) =>
-          m.role === 'user' ? (
+          m.compactMarker ? (
+            <div key={m.id} className="flex items-center gap-2 text-meta text-chalk-faint" title="Older messages reach the Copilot as a short summary (requests, replies, and what was applied).">
+              <span className="flex-1 border-t border-rule" />
+              {m.content}
+              <span className="flex-1 border-t border-rule" />
+            </div>
+          ) : m.role === 'user' ? (
             <UserBubble key={m.id} message={m} />
           ) : (
             <AssistantBubble
@@ -174,9 +181,14 @@ export default function AgentPanel() {
                 {entry.image && <SeenThumbnail image={entry.image} />}
               </div>
             ))}
+            {liveReply && (
+              <div className="whitespace-pre-wrap break-words text-chalk leading-relaxed px-2 py-1 rounded-pop border border-rule bg-raised">
+                {liveReply}
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <span className="inline-block w-2 h-2 rounded-full bg-raised animate-pulse" />
-              {loopLog.length ? 'Working…' : 'Thinking…'}
+              {liveReply ? 'Writing…' : loopLog.length ? 'Working…' : 'Thinking…'}
             </div>
           </div>
         )}
@@ -197,7 +209,7 @@ export default function AgentPanel() {
             e.preventDefault();
             onSubmit();
           }}
-          placeholder="Ask a question or describe a change…  (Enter to send, Shift+Enter for newline)"
+          placeholder="Ask a question or describe a change…  (Enter to send, Shift+Enter for newline, /compact to condense the chat)"
           rows={3}
           spellCheck={false}
           disabled={loading}
@@ -725,8 +737,10 @@ function SettingsBlock({
 function LoopSettings({ provider }: { provider: ProviderId }) {
   const useToolLoop = useAgentStore((s) => s.useToolLoop);
   const autoApply = useAgentStore((s) => s.autoApply);
+  const streamReplies = useAgentStore((s) => s.streamReplies);
   const updateSettings = useAgentStore((s) => s.updateSettings);
   const supported = provider !== 'gemini';
+  const streams = provider === 'anthropic' || provider === 'openai' || provider === 'customOpenAI';
   const loopOnly = provider === 'chatgpt';
   return (
     <>
@@ -756,6 +770,21 @@ function LoopSettings({ provider }: { provider: ProviderId }) {
         <span className="text-chalk-dim">
           Apply finished changes right away{' '}
           <span className="text-chalk-faint">(one undo step; off = Approve / Reject)</span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={streamReplies && streams}
+          disabled={!streams || !useToolLoop}
+          onChange={(e) => updateSettings({ streamReplies: e.target.checked })}
+          className="accent-highlight"
+        />
+        <span className="text-chalk-dim">
+          Show the reply as it is written{' '}
+          <span className="text-chalk-faint">
+            {streams ? '(turn off if a custom endpoint cannot stream)' : '(Anthropic and OpenAI only)'}
+          </span>
         </span>
       </label>
     </>

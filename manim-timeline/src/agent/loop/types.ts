@@ -34,9 +34,16 @@ export interface LoopStep {
   toolCalls: LoopToolCall[];
 }
 
+/** What a streamed model response has said so far (text, and the `finish` reply as it is written). */
+export interface LoopPartial {
+  text: string;
+  reply?: string;
+}
+
 /** A running multi-call conversation with one provider. Holds that provider's wire messages. */
 export interface LoopConversation {
-  next(signal?: AbortSignal): Promise<LoopStep>;
+  /** One model call. With `onPartial` (and a provider that streams) it reports text as it arrives. */
+  next(signal?: AbortSignal, onPartial?: (partial: LoopPartial) => void): Promise<LoopStep>;
   pushToolResults(results: LoopToolResult[]): void;
 }
 
@@ -47,6 +54,8 @@ export interface LoopConversationInput {
   userPrompt: string;
   tools: LoopToolSpec[];
   includeThinking: boolean;
+  /** Stream responses where the provider supports it (Anthropic, OpenAI). */
+  stream?: boolean;
 }
 
 /** Providers that can run the tool loop. */

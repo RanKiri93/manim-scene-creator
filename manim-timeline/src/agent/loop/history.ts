@@ -8,7 +8,8 @@ export interface PlainTurn {
   text: string;
 }
 
-function actionLine(a: AgentAction): string {
+/** One-line description of an action for history notes and summaries. */
+export function actionLine(a: AgentAction): string {
   if (a.action === 'CREATE') return `CREATE ${a.item.kind} "${a.item.id}"${a.item.label ? ` (${a.item.label})` : ''}`;
   if (a.action === 'UPDATE') return `UPDATE "${a.itemId}": ${Object.keys(a.updates).join(', ')}`;
   if (a.action === 'TIMELINE') return `TIMELINE ${describeTimelineEdit(a.edit)}`;

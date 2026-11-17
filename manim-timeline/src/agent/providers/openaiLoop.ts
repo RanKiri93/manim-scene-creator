@@ -1,11 +1,68 @@
-import type { LoopConversation, LoopConversationInput, LoopProvider, LoopStep, LoopToolResult } from '../loop/types';
+import type { LoopConversation, LoopConversationInput, LoopPartial, LoopProvider, LoopStep, LoopToolResult } from '../loop/types';
 import { historyAsPlainTurns, loopUserMessage } from '../loop/history';
 import { AgentProviderError, type ProviderConfig } from './types';
 import { DEFAULT_OPENAI_MODEL, supportsReasoning } from './openai';
+import { partialJsonStringField, readSse } from './sse';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
 type ChatMessage = Record<string, unknown> & { role: 'system' | 'user' | 'assistant' | 'tool' };
+
+interface OpenAIToolCall {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+}
+interface OpenAIMessage {
+  content?: string | null;
+  reasoning_content?: string;
+  tool_calls?: OpenAIToolCall[];
+}
+
+/**
+ * Rebuild the assistant message from a streamed Chat Completions response (content, reasoning,
+ * tool calls joined by index), reporting text and the `finish` reply as they arrive.
+ */
+export async function readOpenAIStream(res: Response, onPartial: (partial: LoopPartial) => void): Promise<OpenAIMessage> {
+  let content = '';
+  let reasoning = '';
+  const calls: OpenAIToolCall[] = [];
+  for await (const { data } of readSse(res)) {
+    if (!data || data === '[DONE]') continue;
+    let chunk: { choices?: { delta?: Record<string, unknown> }[]; error?: { message?: string } };
+    try {
+      chunk = JSON.parse(data) as typeof chunk;
+    } catch {
+      continue;
+    }
+    if (chunk.error) throw new AgentProviderError(`OpenAI stream failed: ${chunk.error.message ?? data}`);
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) continue;
+    if (typeof delta.content === 'string') content += delta.content;
+    if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
+    const toolDeltas = Array.isArray(delta.tool_calls) ? (delta.tool_calls as Record<string, unknown>[]) : [];
+    for (const d of toolDeltas) {
+      const index = typeof d.index === 'number' ? d.index : calls.length;
+      const call = (calls[index] ??= { id: '', type: 'function', function: { name: '', arguments: '' } });
+      if (typeof d.id === 'string') call.id = d.id;
+      if (typeof d.type === 'string') call.type = d.type;
+      const fn = d.function as { name?: string; arguments?: string } | undefined;
+      if (fn?.name) call.function.name += fn.name;
+      if (fn?.arguments) call.function.arguments += fn.arguments;
+    }
+    if (typeof delta.content === 'string' || toolDeltas.length) {
+      const finish = calls.find((c) => c?.function.name === 'finish');
+      const reply = finish ? partialJsonStringField(finish.function.arguments, 'reply') : undefined;
+      onPartial({ text: content, ...(reply != null ? { reply } : {}) });
+    }
+  }
+  const toolCalls = calls.filter((c): c is OpenAIToolCall => c != null);
+  return {
+    content: content || null,
+    ...(reasoning ? { reasoning_content: reasoning } : {}),
+    ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+  };
+}
 
 /**
  * OpenAI-compatible Chat Completions with function calling for the agent loop. Works for OpenAI
@@ -60,27 +117,21 @@ export class OpenAILoopConversation implements LoopConversation {
     return body;
   }
 
-  async next(signal?: AbortSignal): Promise<LoopStep> {
+  async next(signal?: AbortSignal, onPartial?: (partial: LoopPartial) => void): Promise<LoopStep> {
+    const stream = Boolean(onPartial && this.input.stream);
     const res = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
       signal,
-      body: JSON.stringify(this.body()),
+      body: JSON.stringify(stream ? { ...this.body(), stream: true } : this.body()),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '<no body>');
       throw new AgentProviderError(`OpenAI request failed (${res.status}): ${text}`, res.status);
     }
-    const data = (await res.json()) as {
-      choices?: {
-        message?: {
-          content?: string | null;
-          reasoning_content?: string;
-          tool_calls?: { id: string; type: string; function: { name: string; arguments: string } }[];
-        };
-      }[];
-    };
-    const message = data.choices?.[0]?.message;
+    const message = stream
+      ? await readOpenAIStream(res, onPartial!)
+      : ((await res.json()) as { choices?: { message?: OpenAIMessage }[] }).choices?.[0]?.message;
     if (!message) throw new AgentProviderError('OpenAI returned no message.');
     const toolCalls = message.tool_calls ?? [];
     this.messages.push({
